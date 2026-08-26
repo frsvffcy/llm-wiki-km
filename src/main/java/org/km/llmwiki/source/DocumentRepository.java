@@ -22,7 +22,7 @@ public class DocumentRepository {
 
     public long insert(long workspaceId, String fileName, String sourcePath, String sha256,
                        Long fileSize, String mimeType, String createdAt, String status,
-                       Long duplicateOfDocumentId) {
+                       Long duplicateOfDocumentId, Long parentVersionDocumentId) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("workspaceId", workspaceId)
@@ -33,12 +33,15 @@ public class DocumentRepository {
                 .addValue("mimeType", mimeType)
                 .addValue("createdAt", createdAt)
                 .addValue("status", status)
-                .addValue("duplicateOfDocumentId", duplicateOfDocumentId);
+                .addValue("duplicateOfDocumentId", duplicateOfDocumentId)
+                .addValue("parentVersionDocumentId", parentVersionDocumentId);
         jdbcClient.sql("""
                         INSERT INTO document (workspace_id, file_name, source_path, sha256,
-                            file_size, mime_type, status, duplicate_of_document_id, created_at, updated_at)
+                            file_size, mime_type, status, duplicate_of_document_id,
+                            parent_version_document_id, created_at, updated_at)
                         VALUES (:workspaceId, :fileName, :sourcePath, :sha256,
-                            :fileSize, :mimeType, :status, :duplicateOfDocumentId, :createdAt, :createdAt)
+                            :fileSize, :mimeType, :status, :duplicateOfDocumentId,
+                            :parentVersionDocumentId, :createdAt, :createdAt)
                         """)
                 .paramSource(params)
                 .update(keyHolder);
@@ -59,7 +62,9 @@ public class DocumentRepository {
         return jdbcClient.sql("""
                         SELECT id, source_path, sha256 FROM document
                         WHERE workspace_id = :workspaceId AND source_path = :sourcePath
-                          AND status <> 'DELETED'
+                          AND status <> 'DELETED' AND status <> 'SUPERSEDED'
+                        ORDER BY id DESC
+                        LIMIT 1
                         """)
                 .param("workspaceId", workspaceId)
                 .param("sourcePath", sourcePath)
@@ -72,7 +77,7 @@ public class DocumentRepository {
         return jdbcClient.sql("""
                         SELECT id, source_path, sha256 FROM document
                         WHERE workspace_id = :workspaceId AND sha256 = :sha256
-                          AND status <> 'DELETED'
+                          AND status <> 'DELETED' AND status <> 'SUPERSEDED'
                         ORDER BY id
                         LIMIT 1
                         """)
@@ -95,11 +100,11 @@ public class DocumentRepository {
         return count > 0;
     }
 
-    public List<DocumentSummary> findInboxPending(long workspaceId) {
+    public List<DocumentSummary> findInboxManaged(long workspaceId) {
         return jdbcClient.sql("""
                         SELECT id, source_path, sha256 FROM document
-                        WHERE workspace_id = :workspaceId AND status = 'PENDING'
-                          AND source_path LIKE 'inbox/%'
+                        WHERE workspace_id = :workspaceId AND source_path LIKE 'inbox/%'
+                          AND status NOT IN ('DELETED', 'SUPERSEDED', 'ARCHIVED')
                         """)
                 .param("workspaceId", workspaceId)
                 .query((rs, rowNum) -> new DocumentSummary(
@@ -110,6 +115,15 @@ public class DocumentRepository {
     public void markDeleted(long id) {
         jdbcClient.sql("""
                         UPDATE document SET status = 'DELETED', updated_at = :now WHERE id = :id
+                        """)
+                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
+                .param("id", id)
+                .update();
+    }
+
+    public void markSuperseded(long id) {
+        jdbcClient.sql("""
+                        UPDATE document SET status = 'SUPERSEDED', updated_at = :now WHERE id = :id
                         """)
                 .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
                 .param("id", id)

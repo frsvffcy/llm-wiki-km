@@ -46,16 +46,21 @@ public class InboxScanService {
             String relativePath = INBOX_PREFIX + inbox.relativize(file).normalize().toString().replace('\\', '/');
             String sha256 = sha256Of(file);
 
-            Optional<DocumentSummary> registered =
+            Optional<DocumentSummary> current =
                     documentRepository.findActiveByWorkspaceAndSourcePath(workspace.id(), relativePath);
-            if (registered.isPresent() && registered.get().sha256().equals(sha256)) {
-                existing++;
-                continue;
+            Long parentVersionId = null;
+            if (current.isPresent()) {
+                if (current.get().sha256().equals(sha256)) {
+                    existing++;
+                    continue;
+                }
+                documentRepository.markSuperseded(current.get().id());
+                parentVersionId = current.get().id();
             }
 
-            DocumentRegistrationService.RegistrationResult result =
-                    registerDocument(workspace.id(), file, relativePath, sha256);
-            if ("DUPLICATE".equals(result.status())) {
+            DocumentRegistrationService.RegistrationResult result = registerDocument(
+                    workspace.id(), file, relativePath, sha256, parentVersionId);
+            if (DocumentStatus.DUPLICATE.name().equals(result.status())) {
                 duplicates++;
             } else {
                 newDocuments++;
@@ -63,7 +68,7 @@ public class InboxScanService {
         }
 
         int removed = 0;
-        for (DocumentSummary summary : documentRepository.findInboxPending(workspace.id())) {
+        for (DocumentSummary summary : documentRepository.findInboxManaged(workspace.id())) {
             if (!Files.exists(root.resolve(summary.sourcePath()))) {
                 documentRepository.markDeleted(summary.id());
                 removed++;
@@ -74,10 +79,10 @@ public class InboxScanService {
     }
 
     private DocumentRegistrationService.RegistrationResult registerDocument(
-            long workspaceId, Path file, String sourcePath, String sha256) {
+            long workspaceId, Path file, String sourcePath, String sha256, Long parentVersionId) {
         try {
             return registrationService.register(workspaceId, file.getFileName().toString(), sourcePath,
-                    sha256, Files.size(file), probeMimeType(file));
+                    sha256, Files.size(file), probeMimeType(file), parentVersionId);
         } catch (IOException exception) {
             throw new IllegalStateException("Could not register scanned document: " + file, exception);
         }

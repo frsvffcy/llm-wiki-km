@@ -16,13 +16,17 @@ public class DocumentRegistrationService {
     }
 
     public RegistrationResult register(long workspaceId, String fileName, String sourcePath,
-                                       String sha256, Long fileSize, String mimeType) {
+                                       String sha256, Long fileSize, String mimeType,
+                                       Long parentVersionDocumentId) {
         Optional<DocumentSummary> original = documentRepository.findActiveByWorkspaceAndSha256(workspaceId, sha256);
-        String status = original.isPresent() ? "DUPLICATE" : "PENDING";
+        String status = original.isPresent()
+                ? DocumentStatus.DUPLICATE.name()
+                : DocumentStatus.PENDING.name();
         Long duplicateOf = original.map(DocumentSummary::id).orElse(null);
 
         long id = documentRepository.insert(workspaceId, fileName, sourcePath, sha256,
-                fileSize, mimeType, DateTimeFormatter.ISO_INSTANT.format(Instant.now()), status, duplicateOf);
+                fileSize, mimeType, DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
+                status, duplicateOf, parentVersionDocumentId);
         return new RegistrationResult(id, status, duplicateOf);
     }
 
