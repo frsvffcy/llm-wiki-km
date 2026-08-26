@@ -93,9 +93,24 @@ public class InboxScanService {
             return List.of();
         }
         try (Stream<Path> entries = Files.walk(inbox)) {
-            return entries.filter(Files::isRegularFile).toList();
+            Path inboxRealPath = inbox.toRealPath();
+            return entries
+                    .filter(Files::isRegularFile)
+                    .filter(path -> withinInboxBoundary(path, inboxRealPath))
+                    .toList();
         } catch (IOException exception) {
             throw new IllegalStateException("Could not scan inbox directory: " + inbox, exception);
+        }
+    }
+
+    private static boolean withinInboxBoundary(Path path, Path inboxRealPath) {
+        if (Files.isSymbolicLink(path)) {
+            return false;
+        }
+        try {
+            return path.toRealPath().startsWith(inboxRealPath);
+        } catch (IOException exception) {
+            return false;
         }
     }
 
