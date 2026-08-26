@@ -11,17 +11,17 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class WorkspaceService {
 
-    private static final List<String> DIRECTORY_NAMES = List.of(
-            "inbox", "archive", "vault", "data", "config", "logs", "temp");
-
     private final WorkspaceRepository repository;
+    private final WorkspaceLayoutValidator validator;
 
-    public WorkspaceService(WorkspaceRepository repository) {
+    public WorkspaceService(WorkspaceRepository repository, WorkspaceLayoutValidator validator) {
         this.repository = repository;
+        this.validator = validator;
     }
 
     public WorkspaceResponse create(CreateWorkspaceRequest request) {
@@ -49,7 +49,40 @@ public class WorkspaceService {
                 DateTimeFormatter.ISO_INSTANT.format(now));
 
         long id = repository.insert(record);
-        return toResponse(id, record);
+        return get(id);
+    }
+
+    public List<WorkspaceResponse> list() {
+        return repository.findAll().stream().map(WorkspaceRow::toResponse).toList();
+    }
+
+    public WorkspaceResponse get(long id) {
+        return requireRow(id).toResponse();
+    }
+
+    public WorkspaceStatusResponse current() {
+        WorkspaceRow row = repository.findActive().orElseThrow(NoActiveWorkspaceException::new);
+        return statusOf(row);
+    }
+
+    public WorkspaceStatusResponse open(long id) {
+        requireRow(id);
+        repository.activate(id);
+        return statusOf(requireRow(id));
+    }
+
+    public Optional<WorkspaceResponse> findActiveWithoutValidation() {
+        return repository.findActive().map(WorkspaceRow::toResponse);
+    }
+
+    private WorkspaceStatusResponse statusOf(WorkspaceRow row) {
+        WorkspaceLayoutValidator.LayoutReport report =
+                validator.validateAndRepair(Path.of(row.rootPath()));
+        return new WorkspaceStatusResponse(row.toResponse(), report);
+    }
+
+    private WorkspaceRow requireRow(long id) {
+        return repository.findById(id).orElseThrow(() -> new WorkspaceNotFoundException(id));
     }
 
     private static String requireNonBlank(String value, String message) {
@@ -78,7 +111,7 @@ public class WorkspaceService {
     }
 
     private static void createDirectoryLayout(Path root) {
-        for (String directoryName : DIRECTORY_NAMES) {
+        for (String directoryName : WorkspaceLayoutValidator.DIRECTORY_NAMES) {
             try {
                 Files.createDirectories(root.resolve(directoryName));
             } catch (IOException exception) {
@@ -97,20 +130,5 @@ public class WorkspaceService {
         } catch (SQLException exception) {
             throw new IllegalStateException("Could not initialize knowledge database: " + databasePath, exception);
         }
-    }
-
-    private static WorkspaceResponse toResponse(long id, WorkspaceRecord record) {
-        return new WorkspaceResponse(
-                id,
-                record.name(),
-                record.rootPath(),
-                record.inboxPath(),
-                record.archivePath(),
-                record.vaultPath(),
-                record.dataPath(),
-                record.configPath(),
-                record.status(),
-                record.createdAt(),
-                record.updatedAt());
     }
 }

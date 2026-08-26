@@ -1,6 +1,8 @@
 package org.km.llmwiki.web;
 
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
+import org.km.llmwiki.workspace.NoActiveWorkspaceException;
+import org.km.llmwiki.workspace.WorkspaceNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -25,6 +27,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DuplicateWorkspaceException.class)
     public ResponseEntity<ApiError> handleDuplicateWorkspace(DuplicateWorkspaceException exception) {
         return respond(HttpStatus.CONFLICT, "WORKSPACE_ALREADY_EXISTS", exception.getMessage());
+    }
+
+    @ExceptionHandler(WorkspaceNotFoundException.class)
+    public ResponseEntity<ApiError> handleWorkspaceNotFound(WorkspaceNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "WORKSPACE_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(NoActiveWorkspaceException.class)
+    public ResponseEntity<ApiError> handleNoActiveWorkspace(NoActiveWorkspaceException exception) {
+        return respond(HttpStatus.NOT_FOUND, "NO_ACTIVE_WORKSPACE", exception.getMessage());
     }
 
     @ExceptionHandler({NoResourceFoundException.class, MethodArgumentTypeMismatchException.class})

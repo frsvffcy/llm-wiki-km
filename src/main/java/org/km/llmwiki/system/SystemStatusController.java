@@ -9,9 +9,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/system")
 public class SystemStatusController {
 
+    private final SystemStatusService systemService;
+
+    public SystemStatusController(SystemStatusService systemService) {
+        this.systemService = systemService;
+    }
+
     @GetMapping("/status")
     public ApiResponse<SystemStatusResponse> status() {
-        return new ApiResponse<>(new SystemStatusResponse("READY", "0.1.0"));
+        return new ApiResponse<>(systemService.getStatus());
     }
 }
-
