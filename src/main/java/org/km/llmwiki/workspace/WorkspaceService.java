@@ -32,7 +32,6 @@ public class WorkspaceService {
         });
 
         createDirectoryLayout(root);
-        createDirectoryLayout(root);
 
         Instant now = Instant.now();
         WorkspaceRecord record = new WorkspaceRecord(
