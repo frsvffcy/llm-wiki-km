@@ -122,13 +122,27 @@ public class InboxFileService {
             throw new DocumentAlreadyProcessedException(documentId, document.status());
         }
 
-        Path root = Path.of(workspace.rootPath()).toAbsolutePath().normalize();
-        Path target = root.resolve(document.sourcePath()).normalize();
+        Path lexicalTarget = Path.of(workspace.rootPath()).toAbsolutePath().normalize()
+                .resolve(document.sourcePath()).normalize();
+        if (Files.isSymbolicLink(lexicalTarget)) {
+            throw new IllegalArgumentException(
+                    "document path is a symbolic link: " + document.sourcePath());
+        }
+
+        Path targetParentReal;
+        try {
+            targetParentReal = lexicalTarget.getParent().toRealPath();
+        } catch (IOException exception) {
+            throw new IllegalArgumentException(
+                    "document path parent does not resolve inside the workspace inbox: "
+                            + document.sourcePath(), exception);
+        }
         Path inboxRealPath = inboxRealPath(workspace);
-        if (!target.startsWith(inboxRealPath)) {
+        if (!targetParentReal.startsWith(inboxRealPath)) {
             throw new IllegalArgumentException(
                     "document path escapes the workspace inbox: " + document.sourcePath());
         }
+        Path target = targetParentReal.resolve(lexicalTarget.getFileName());
 
         boolean wasCanonical = DocumentStatus.PENDING.name().equals(document.status());
 
@@ -140,7 +154,8 @@ public class InboxFileService {
         documentRepository.markDeleted(documentId);
 
         if (wasCanonical) {
-            promoteSuccessorFor(workspace.id(), documentId, root);
+            promoteSuccessorFor(workspace.id(), documentId,
+                    Path.of(workspace.rootPath()).toAbsolutePath().normalize());
         }
     }
 
