@@ -18,9 +18,16 @@ import java.util.List;
 public class InboxController {
 
     private final InboxFileService inboxFileService;
+    private final InboxScanService inboxScanService;
 
-    public InboxController(InboxFileService inboxFileService) {
+    public InboxController(InboxFileService inboxFileService, InboxScanService inboxScanService) {
         this.inboxFileService = inboxFileService;
+        this.inboxScanService = inboxScanService;
+    }
+
+    @PostMapping("/rescan")
+    public ApiResponse<RescanResponse> rescan() {
+        return new ApiResponse<>(inboxScanService.rescan());
     }
 
     @PostMapping("/files")

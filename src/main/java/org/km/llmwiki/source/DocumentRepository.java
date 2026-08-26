@@ -6,6 +6,11 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Optional;
+
 @Repository
 public class DocumentRepository {
 
@@ -43,6 +48,52 @@ public class DocumentRepository {
 
     public void deleteById(long id) {
         jdbcClient.sql("DELETE FROM document WHERE id = :id")
+                .param("id", id)
+                .update();
+    }
+
+    public Optional<DocumentSummary> findActiveByWorkspaceAndSourcePath(long workspaceId, String sourcePath) {
+        return jdbcClient.sql("""
+                        SELECT id, source_path, sha256 FROM document
+                        WHERE workspace_id = :workspaceId AND source_path = :sourcePath
+                          AND status <> 'DELETED'
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("sourcePath", sourcePath)
+                .query((rs, rowNum) -> new DocumentSummary(
+                        rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
+                .optional();
+    }
+
+    public boolean existsByWorkspaceAndSha256(long workspaceId, String sha256) {
+        Integer count = jdbcClient.sql("""
+                        SELECT COUNT(*) FROM document
+                        WHERE workspace_id = :workspaceId AND sha256 = :sha256 AND status <> 'DELETED'
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("sha256", sha256)
+                .query(Integer.class)
+                .single();
+        return count > 0;
+    }
+
+    public List<DocumentSummary> findInboxPending(long workspaceId) {
+        return jdbcClient.sql("""
+                        SELECT id, source_path, sha256 FROM document
+                        WHERE workspace_id = :workspaceId AND status = 'PENDING'
+                          AND source_path LIKE 'inbox/%'
+                        """)
+                .param("workspaceId", workspaceId)
+                .query((rs, rowNum) -> new DocumentSummary(
+                        rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
+                .list();
+    }
+
+    public void markDeleted(long id) {
+        jdbcClient.sql("""
+                        UPDATE document SET status = 'DELETED', updated_at = :now WHERE id = :id
+                        """)
+                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
                 .param("id", id)
                 .update();
     }
