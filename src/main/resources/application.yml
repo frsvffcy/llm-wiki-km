@@ -2,7 +2,8 @@ spring:
   application:
     name: llm-wiki-km
   flyway:
-    enabled: false
+    enabled: true
+    locations: classpath:db/migration
 
 app:
   persistence:
