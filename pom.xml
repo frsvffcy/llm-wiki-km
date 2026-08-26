@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.frsvffcy</groupId>
+    <groupId>org.km</groupId>
     <artifactId>llm-wiki-km</artifactId>
     <version>0.1.0</version>
     <name>llm-wiki-km</name>
