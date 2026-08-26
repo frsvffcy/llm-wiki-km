@@ -57,6 +57,17 @@ curl -X PUT http://127.0.0.1:8765/api/v1/workspaces/current \
 
 `GET /api/v1/system/status` reports overall state: `READY` (workspace loaded and root valid), `DEGRADED` (workspace registered but root directory missing), `NOT_INITIALIZED` (no workspace registered), or `ERROR` (database unavailable).
 
+## Inbox upload
+
+Upload a single document into the active workspace's `inbox/`:
+
+```bash
+curl -X POST http://127.0.0.1:8765/api/v1/inbox/files \
+  -F "file=@/path/to/document.pdf"
+```
+
+Returns `201 Created` with `documentId`, `fileName`, `status: PENDING`, and `duplicate`. The file is stored under the workspace `inbox/`, its SHA-256 is computed while streaming, and the `document` record is only kept when the file lands successfully. Path-traversal filenames are stripped to their final component; name collisions get a `-1`, `-2`, … suffix instead of overwriting.
+
 ## System status
 
 ```bash

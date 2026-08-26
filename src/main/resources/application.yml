@@ -1,6 +1,10 @@
 spring:
   application:
     name: llm-wiki-km
+  servlet:
+    multipart:
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:100MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:200MB}
   flyway:
     enabled: true
     locations: classpath:db/migration
