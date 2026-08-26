@@ -48,22 +48,24 @@ public class InboxScanService {
 
             Optional<DocumentSummary> current =
                     documentRepository.findActiveByWorkspaceAndSourcePath(workspace.id(), relativePath);
-            Long parentVersionId = null;
-            if (current.isPresent()) {
-                if (current.get().sha256().equals(sha256)) {
-                    existing++;
-                    continue;
-                }
-                documentRepository.markSuperseded(current.get().id());
-                parentVersionId = current.get().id();
+            if (current.isPresent() && current.get().sha256().equals(sha256)) {
+                existing++;
+                continue;
             }
 
-            DocumentRegistrationService.RegistrationResult result = registerDocument(
-                    workspace.id(), file, relativePath, sha256, parentVersionId);
-            if (DocumentStatus.DUPLICATE.name().equals(result.status())) {
-                duplicates++;
-            } else {
-                newDocuments++;
+            try {
+                DocumentRegistrationService.RegistrationResult result = current.isPresent()
+                        ? registrationService.replaceVersion(workspace.id(), current.get(),
+                                file.getFileName().toString(), relativePath, sha256,
+                                Files.size(file), probeMimeType(file))
+                        : registerDocument(workspace.id(), file, relativePath, sha256, null);
+                if (DocumentStatus.DUPLICATE.name().equals(result.status())) {
+                    duplicates++;
+                } else {
+                    newDocuments++;
+                }
+            } catch (IOException exception) {
+                throw new IllegalStateException("Could not register scanned document: " + file, exception);
             }
         }
 
