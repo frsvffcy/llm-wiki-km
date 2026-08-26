@@ -1,11 +1,9 @@
 package org.km.llmwiki.source;
 
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
@@ -30,19 +28,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.persistence.sqlite.path=target/test-data/inbox-${random.uuid}/knowledge.db"
 })
 @AutoConfigureMockMvc
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class InboxUploadIntegrationTest {
+class InboxUploadIntegrationTest extends IsolatedIntegrationTest {
 
     private static final String CONTENT = "Spring Boot migration notes: javax to jakarta.";
 
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
-    private JdbcClient jdbcClient;
-
     @Test
-    @Order(1)
     void rejectsUploadWhenNoWorkspaceRegistered() throws Exception {
         mockMvc.perform(uploadFile("note.txt"))
                 .andExpect(status().isNotFound())
@@ -50,7 +43,6 @@ class InboxUploadIntegrationTest {
     }
 
     @Test
-    @Order(2)
     void uploadsFileStoresItAndCreatesPendingDocumentWithSha256() throws Exception {
         Path root = createWorkspace();
 
@@ -68,7 +60,7 @@ class InboxUploadIntegrationTest {
 
         String expectedSha256 = HexFormat.of().formatHex(
                 MessageDigest.getInstance("SHA-256").digest(CONTENT.getBytes(StandardCharsets.UTF_8)));
-        var row = jdbcClient.sql("""
+        var row = db().sql("""
                         SELECT status, sha256, source_path, file_size, workspace_id
                         FROM document WHERE id = :id
                         """)
@@ -90,9 +82,8 @@ class InboxUploadIntegrationTest {
     }
 
     @Test
-    @Order(3)
     void stripsPathTraversalSegmentsFromFilename() throws Exception {
-        Path root = activeRoot();
+        Path root = createWorkspace();
 
         mockMvc.perform(uploadFile("../../etc/passwd.txt"))
                 .andExpect(status().isCreated())
@@ -103,7 +94,6 @@ class InboxUploadIntegrationTest {
     }
 
     @Test
-    @Order(4)
     void rejectsInvalidFilenames() throws Exception {
         mockMvc.perform(multipart("/api/v1/inbox/files")
                         .file(new MockMultipartFile("file", "..", "text/plain",
@@ -118,9 +108,8 @@ class InboxUploadIntegrationTest {
     }
 
     @Test
-    @Order(5)
     void doesNotOverwriteExistingInboxFiles() throws Exception {
-        Path root = activeRoot();
+        Path root = createWorkspace();
 
         mockMvc.perform(uploadFile("dup.txt"))
                 .andExpect(status().isCreated())
@@ -136,7 +125,6 @@ class InboxUploadIntegrationTest {
     }
 
     @Test
-    @Order(6)
     void marksSameContentUnderDifferentFilenameAsDuplicate() throws Exception {
         createWorkspace();
 
@@ -153,7 +141,7 @@ class InboxUploadIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         long duplicateId = Long.parseLong(duplicateResponse.replaceAll(".*\"documentId\":(\\d+).*", "$1"));
 
-        var row = jdbcClient.sql("""
+        var row = db().sql("""
                         SELECT status, duplicate_of_document_id FROM document WHERE id = :id
                         """)
                 .param("id", duplicateId)
@@ -169,7 +157,6 @@ class InboxUploadIntegrationTest {
 
 
     @Test
-    @Order(7)
     void deletedDocumentContentCanBeRegisteredAsFreshDocument() throws Exception {
         createWorkspace();
 
@@ -178,7 +165,7 @@ class InboxUploadIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         long doomedId = Long.parseLong(first.replaceAll(".*\"documentId\":(\\d+).*", "$1"));
 
-        jdbcClient.sql("UPDATE document SET status = 'DELETED' WHERE id = :id")
+        db().sql("UPDATE document SET status = 'DELETED' WHERE id = :id")
                 .param("id", doomedId)
                 .update();
 
@@ -189,7 +176,6 @@ class InboxUploadIntegrationTest {
     }
 
     @Test
-    @Order(8)
     void supersededVersionContentIsNotTreatedAsDuplicate() throws Exception {
         createWorkspace();
         Path root = activeRoot();
@@ -202,7 +188,7 @@ class InboxUploadIntegrationTest {
         mockMvc.perform(post("/api/v1/inbox/rescan"))
                 .andExpect(status().isOk());
 
-        Integer supersededCount = jdbcClient.sql(
+        Integer supersededCount = db().sql(
                         "SELECT COUNT(*) FROM document WHERE file_name = 'ver.txt' AND status = 'SUPERSEDED'")
                 .query(Integer.class)
                 .single();
@@ -239,7 +225,7 @@ class InboxUploadIntegrationTest {
     }
 
     private Path activeRoot() {
-        return Path.of(jdbcClient.sql(
+        return Path.of(db().sql(
                         "SELECT root_path FROM workspace WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1")
                 .query(String.class)
                 .single());

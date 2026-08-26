@@ -1,11 +1,9 @@
 package org.km.llmwiki.workspace;
 
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
@@ -26,19 +24,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.persistence.sqlite.path=target/test-data/${random.uuid}/knowledge.db"
 })
 @AutoConfigureMockMvc
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class WorkspaceOpenIntegrationTest {
+class WorkspaceOpenIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
-    private JdbcClient jdbcClient;
-
-    @Autowired
     private WorkspaceStartupLoader startupLoader;
-
-    @Order(3)
     @Test
     void opensExistingWorkspaceAndReportsValidLayout() throws Exception {
         Path root = tempRoot();
@@ -54,15 +46,13 @@ class WorkspaceOpenIntegrationTest {
                 .andExpect(jsonPath("$.data.workspace.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.layout.valid").value(true));
 
-        String lastOpenedAt = jdbcClient.sql(
+        String lastOpenedAt = db().sql(
                         "SELECT last_opened_at FROM workspace WHERE id = :id")
                 .param("id", workspaceId)
                 .query(String.class)
                 .single();
         assertThat(lastOpenedAt).isNotBlank();
     }
-
-    @Order(4)
     @Test
     void repairsMissingRebuildableDirectoriesWithoutTouchingExistingData() throws Exception {
         Path root = tempRoot();
@@ -81,8 +71,6 @@ class WorkspaceOpenIntegrationTest {
         assertThat(root.resolve("vault").resolve("keep.md"))
                 .content().isEqualTo("# do not delete");
     }
-
-    @Order(2)
     @Test
     void returnsDegradedWhenRootDirectoryDisappears() throws Exception {
         Path root = tempRoot();
@@ -94,8 +82,6 @@ class WorkspaceOpenIntegrationTest {
                 .andExpect(jsonPath("$.data.status").value("DEGRADED"))
                 .andExpect(jsonPath("$.data.database").value("READY"));
     }
-
-    @Order(1)
     @Test
     void reportsNotInitializedWhenNoWorkspaceRegistered() throws Exception {
         mockMvc.perform(get("/api/v1/system/status"))
@@ -107,8 +93,6 @@ class WorkspaceOpenIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("NO_ACTIVE_WORKSPACE"));
     }
-
-    @Order(5)
     @Test
     void listsWorkspacesAndGetById() throws Exception {
         long id = createWorkspace(tempRoot());
@@ -122,8 +106,6 @@ class WorkspaceOpenIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.rootPath").isNotEmpty());
     }
-
-    @Order(6)
     @Test
     void rejectsOpeningUnknownWorkspace() throws Exception {
         mockMvc.perform(put("/api/v1/workspaces/current")
@@ -134,15 +116,13 @@ class WorkspaceOpenIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("WORKSPACE_NOT_FOUND"));
     }
-
-    @Order(7)
     @Test
     void startupLoaderLoadsExistingActiveWorkspaceWithoutError() throws Exception {
         Path root = tempRoot();
         long workspaceId = createWorkspace(root);
 
-        jdbcClient.sql("UPDATE workspace SET status = 'INACTIVE'").update();
-        jdbcClient.sql("""
+        db().sql("UPDATE workspace SET status = 'INACTIVE'").update();
+        db().sql("""
                         UPDATE workspace SET status = 'ACTIVE', last_opened_at = NULL WHERE id = :id
                         """)
                 .param("id", workspaceId)
@@ -150,7 +130,7 @@ class WorkspaceOpenIntegrationTest {
 
         startupLoader.run(null);
 
-        Integer activeRows = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
+        Integer activeRows = db().sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
                 .query(Integer.class)
                 .single();
         assertThat(activeRows).isEqualTo(1);
@@ -158,23 +138,22 @@ class WorkspaceOpenIntegrationTest {
 
 
     @Test
-    @Order(8)
     void startupRepairRestoresSingleActiveInvariantWhenCorrupted() throws Exception {
         Path firstRoot = tempRoot();
         createWorkspace(firstRoot);
         Path secondRoot = tempRoot();
         createWorkspace(secondRoot);
 
-        jdbcClient.sql("UPDATE workspace SET status = 'ACTIVE'").update();
+        db().sql("UPDATE workspace SET status = 'ACTIVE'").update();
 
         startupLoader.run(null);
 
-        Integer activeCount = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
+        Integer activeCount = db().sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
                 .query(Integer.class)
                 .single();
         assertThat(activeCount).isEqualTo(1);
 
-        String activeRootPath = jdbcClient.sql(
+        String activeRootPath = db().sql(
                         "SELECT root_path FROM workspace WHERE status = 'ACTIVE'")
                 .query(String.class)
                 .single();
