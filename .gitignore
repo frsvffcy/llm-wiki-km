@@ -29,3 +29,4 @@ data/
 *.db-shm
 *.db-wal
 
+.ignored-*.log
