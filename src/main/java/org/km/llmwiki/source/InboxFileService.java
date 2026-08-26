@@ -7,30 +7,31 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Instant;
-import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 
 @Service
 public class InboxFileService {
 
+    private static final int MAX_NAME_ALLOCATION_ATTEMPTS = 10_000;
+
     private final WorkspaceService workspaceService;
-    private final DocumentRepository documentRepository;
     private final DocumentRegistrationService registrationService;
 
-    public InboxFileService(WorkspaceService workspaceService, DocumentRepository documentRepository,
+    public InboxFileService(WorkspaceService workspaceService,
                             DocumentRegistrationService registrationService) {
         this.workspaceService = workspaceService;
-        this.documentRepository = documentRepository;
         this.registrationService = registrationService;
     }
 
@@ -69,42 +70,83 @@ public class InboxFileService {
 
     private UploadedFileResponse uploadIn(WorkspaceResponse workspace, String fileName, MultipartFile file) {
         Path inbox = Path.of(workspace.inboxPath());
-        Path tempDirectory = Path.of(workspace.rootPath()).resolve("temp");
-        Path target = uniqueTarget(inbox, fileName);
+        Path stored = null;
+        try (InputStream input = file.getInputStream()) {
+            WrittenFile written = writeToInbox(input, inbox, fileName);
+            stored = written.path();
 
-        Path tempFile = null;
-        Long documentId = null;
-        try {
-            tempFile = Files.createTempFile(tempDirectory, "upload-", ".tmp");
-            String sha256 = copyAndDigest(file, tempFile);
-
-            long fileSize = Files.size(tempFile);
-            DocumentRegistrationService.RegistrationResult registration = registrationService.register(
-                    workspace.id(), target.getFileName().toString(),
-                    "inbox/" + target.getFileName().toString(), sha256,
-                    fileSize, file.getContentType(), null);
-            documentId = registration.documentId();
-
-            Files.createDirectories(inbox);
-            Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING);
-            tempFile = null;
+            DocumentRegistrationService.RegistrationResult registration;
+            try {
+                registration = registrationService.register(
+                        workspace.id(), stored.getFileName().toString(),
+                        "inbox/" + stored.getFileName().toString(), written.sha256(),
+                        written.size(), file.getContentType(), null);
+            } catch (RuntimeException exception) {
+                Files.deleteIfExists(stored);
+                stored = null;
+                throw exception;
+            }
 
             boolean duplicate = "DUPLICATE".equals(registration.status());
-            return new UploadedFileResponse(documentId, target.getFileName().toString(),
+            return new UploadedFileResponse(registration.documentId(), stored.getFileName().toString(),
                     registration.status(), duplicate);
         } catch (IOException | NoSuchAlgorithmException exception) {
-            if (documentId != null) {
-                documentRepository.deleteById(documentId);
-            }
-            throw new IllegalStateException("Could not store uploaded file", exception);
-        } finally {
-            if (tempFile != null) {
+            if (stored != null) {
                 try {
-                    Files.deleteIfExists(tempFile);
+                    Files.deleteIfExists(stored);
                 } catch (IOException ignored) {
                 }
             }
+            throw new IllegalStateException("Could not store uploaded file", exception);
         }
+    }
+
+    private static WrittenFile writeToInbox(InputStream input, Path inbox, String fileName)
+            throws IOException, NoSuchAlgorithmException {
+        Files.createDirectories(inbox);
+        String base = fileName;
+        String extension = "";
+        int dot = fileName.lastIndexOf('.');
+        if (dot > 0) {
+            base = fileName.substring(0, dot);
+            extension = fileName.substring(dot);
+        }
+        for (int attempt = 0; attempt < MAX_NAME_ALLOCATION_ATTEMPTS; attempt++) {
+            String candidateName = attempt == 0 ? fileName : base + "-" + attempt + extension;
+            Path candidate = inbox.resolve(candidateName);
+            try (FileChannel channel = FileChannel.open(candidate,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                return transferWithDigest(input, channel, candidate);
+            } catch (FileAlreadyExistsException ignored) {
+            } catch (IOException exception) {
+                Files.deleteIfExists(candidate);
+                throw exception;
+            }
+        }
+        throw new IllegalStateException("Could not allocate a free inbox slot for: " + fileName);
+    }
+
+    private static WrittenFile transferWithDigest(InputStream input, FileChannel channel, Path target)
+            throws IOException, NoSuchAlgorithmException {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (DigestInputStream digesting = new DigestInputStream(input, digest)) {
+            byte[] buffer = new byte[8192];
+            long size = 0;
+            while (true) {
+                int read = digesting.read(buffer);
+                if (read < 0) {
+                    break;
+                }
+                ByteBuffer wrapped = ByteBuffer.wrap(buffer, 0, read);
+                while (wrapped.hasRemaining()) {
+                    size += channel.write(wrapped);
+                }
+            }
+            return new WrittenFile(target, HexFormat.of().formatHex(digest.digest()), size);
+        }
+    }
+
+    private record WrittenFile(Path path, String sha256, long size) {
     }
 
     private static String sanitizeFileName(String original) {
@@ -123,36 +165,5 @@ public class InboxFileService {
             throw new IllegalArgumentException("file name contains illegal characters");
         }
         return name;
-    }
-
-    private static Path uniqueTarget(Path inbox, String fileName) {
-        Path candidate = inbox.resolve(fileName);
-        if (!Files.exists(candidate)) {
-            return candidate;
-        }
-        String base = fileName;
-        String extension = "";
-        int dot = fileName.lastIndexOf('.');
-        if (dot > 0) {
-            base = fileName.substring(0, dot);
-            extension = fileName.substring(dot);
-        }
-        for (int sequence = 1; sequence < 10_000; sequence++) {
-            Path numbered = inbox.resolve(base + "-" + sequence + extension);
-            if (!Files.exists(numbered)) {
-                return numbered;
-            }
-        }
-        throw new IllegalStateException("Could not find a free file name in inbox for: " + fileName);
-    }
-
-    private static String copyAndDigest(MultipartFile file, Path destination)
-            throws IOException, NoSuchAlgorithmException {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        try (InputStream input = file.getInputStream();
-             DigestInputStream digesting = new DigestInputStream(input, digest)) {
-            Files.copy(digesting, destination, StandardCopyOption.REPLACE_EXISTING);
-        }
-        return HexFormat.of().formatHex(digest.digest());
     }
 }
