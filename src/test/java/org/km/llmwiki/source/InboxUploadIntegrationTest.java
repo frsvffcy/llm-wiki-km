@@ -167,6 +167,60 @@ class InboxUploadIntegrationTest {
         assertThat(duplicateId).isNotEqualTo(originalId);
     }
 
+
+    @Test
+    @Order(7)
+    void deletedDocumentContentCanBeRegisteredAsFreshDocument() throws Exception {
+        createWorkspace();
+
+        String first = mockMvc.perform(uploadFile("doomed.txt"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long doomedId = Long.parseLong(first.replaceAll(".*\"documentId\":(\\d+).*", "$1"));
+
+        jdbcClient.sql("UPDATE document SET status = 'DELETED' WHERE id = :id")
+                .param("id", doomedId)
+                .update();
+
+        mockMvc.perform(uploadFile("reborn.txt"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.duplicate").value(false))
+                .andExpect(jsonPath("$.data.status").value("PENDING"));
+    }
+
+    @Test
+    @Order(8)
+    void supersededVersionContentIsNotTreatedAsDuplicate() throws Exception {
+        createWorkspace();
+        Path root = activeRoot();
+
+        Files.writeString(root.resolve("inbox").resolve("ver.txt"), "old-version");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
+
+        Files.writeString(root.resolve("inbox").resolve("ver.txt"), "new-version");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
+
+        Integer supersededCount = jdbcClient.sql(
+                        "SELECT COUNT(*) FROM document WHERE file_name = 'ver.txt' AND status = 'SUPERSEDED'")
+                .query(Integer.class)
+                .single();
+        assertThat(supersededCount).isEqualTo(1);
+
+        String reuploadResponse = uploadViaService("legacy-restore.txt", "old-version");
+        assertThat(reuploadResponse).contains("\"status\":\"PENDING\"");
+        assertThat(reuploadResponse).contains("\"duplicate\":false");
+    }
+
+    private String uploadViaService(String fileName, String content) throws Exception {
+        return mockMvc.perform(multipart("/api/v1/inbox/files")
+                        .file(new MockMultipartFile("file", fileName, "text/plain",
+                                content.getBytes(StandardCharsets.UTF_8))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+    }
+
     private static MockHttpServletRequestBuilder uploadFile(String filename) {
         return multipart("/api/v1/inbox/files")
                 .file(new MockMultipartFile("file", filename, "text/plain",
