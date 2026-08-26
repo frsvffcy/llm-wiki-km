@@ -1,5 +1,7 @@
 package org.km.llmwiki.web;
 
+import org.km.llmwiki.source.DocumentAlreadyProcessedException;
+import org.km.llmwiki.source.DocumentNotFoundException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceNotFoundException;
@@ -27,6 +29,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DuplicateWorkspaceException.class)
     public ResponseEntity<ApiError> handleDuplicateWorkspace(DuplicateWorkspaceException exception) {
         return respond(HttpStatus.CONFLICT, "WORKSPACE_ALREADY_EXISTS", exception.getMessage());
+    }
+
+    @ExceptionHandler(DocumentNotFoundException.class)
+    public ResponseEntity<ApiError> handleDocumentNotFound(DocumentNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "DOCUMENT_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(DocumentAlreadyProcessedException.class)
+    public ResponseEntity<ApiError> handleDocumentAlreadyProcessed(DocumentAlreadyProcessedException exception) {
+        return respond(HttpStatus.CONFLICT, "DOCUMENT_ALREADY_PROCESSED", exception.getMessage());
     }
 
     @ExceptionHandler(WorkspaceNotFoundException.class)

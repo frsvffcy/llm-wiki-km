@@ -20,18 +20,27 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class InboxFileService {
 
     private static final int MAX_NAME_ALLOCATION_ATTEMPTS = 10_000;
+    private static final Set<String> DELETABLE_STATUSES = java.util.Set.of(
+            DocumentStatus.PENDING.name(),
+            DocumentStatus.FAILED.name(),
+            DocumentStatus.DUPLICATE.name(),
+            DocumentStatus.UNSUPPORTED.name(),
+            DocumentStatus.NEED_OCR.name());
 
     private final WorkspaceService workspaceService;
+    private final DocumentRepository documentRepository;
     private final DocumentRegistrationService registrationService;
 
-    public InboxFileService(WorkspaceService workspaceService,
+    public InboxFileService(WorkspaceService workspaceService, DocumentRepository documentRepository,
                             DocumentRegistrationService registrationService) {
         this.workspaceService = workspaceService;
+        this.documentRepository = documentRepository;
         this.registrationService = registrationService;
     }
 
@@ -98,6 +107,41 @@ public class InboxFileService {
                 }
             }
             throw new IllegalStateException("Could not store uploaded file", exception);
+        }
+    }
+
+
+    public void delete(long documentId) {
+        WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
+                .orElseThrow(NoActiveWorkspaceException::new);
+        DocumentDeletionView document = documentRepository.findDeletionView(workspace.id(), documentId)
+                .orElseThrow(() -> new DocumentNotFoundException(documentId));
+
+        if (!DELETABLE_STATUSES.contains(document.status())) {
+            throw new DocumentAlreadyProcessedException(documentId, document.status());
+        }
+
+        Path root = Path.of(workspace.rootPath()).toAbsolutePath().normalize();
+        Path target = root.resolve(document.sourcePath()).normalize();
+        Path inboxRealPath = inboxRealPath(workspace);
+        if (!target.startsWith(inboxRealPath)) {
+            throw new IllegalArgumentException(
+                    "document path escapes the workspace inbox: " + document.sourcePath());
+        }
+
+        try {
+            Files.deleteIfExists(target);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Could not delete inbox file for document " + documentId, exception);
+        }
+        documentRepository.markDeleted(documentId);
+    }
+
+    private static Path inboxRealPath(WorkspaceResponse workspace) {
+        try {
+            return Path.of(workspace.inboxPath()).toRealPath();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Could not resolve workspace inbox directory", exception);
         }
     }
 

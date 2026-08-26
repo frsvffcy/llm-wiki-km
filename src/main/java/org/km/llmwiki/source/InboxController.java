@@ -41,6 +41,13 @@ public class InboxController {
         return inboxListService.list(status, extension, sort, page, size);
     }
 
+    @org.springframework.web.bind.annotation.DeleteMapping("/files/{documentId}")
+    public org.springframework.http.ResponseEntity<Void> delete(
+            @org.springframework.web.bind.annotation.PathVariable long documentId) {
+        inboxFileService.delete(documentId);
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/rescan")
     public ApiResponse<RescanResponse> rescan() {
         return new ApiResponse<>(inboxScanService.rescan());
