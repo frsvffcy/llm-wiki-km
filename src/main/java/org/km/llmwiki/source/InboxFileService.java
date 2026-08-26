@@ -111,6 +111,7 @@ public class InboxFileService {
     }
 
 
+    @org.springframework.transaction.annotation.Transactional
     public void delete(long documentId) {
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
                 .orElseThrow(NoActiveWorkspaceException::new);
@@ -129,12 +130,32 @@ public class InboxFileService {
                     "document path escapes the workspace inbox: " + document.sourcePath());
         }
 
+        boolean wasCanonical = DocumentStatus.PENDING.name().equals(document.status());
+
         try {
             Files.deleteIfExists(target);
         } catch (IOException exception) {
             throw new IllegalStateException("Could not delete inbox file for document " + documentId, exception);
         }
         documentRepository.markDeleted(documentId);
+
+        if (wasCanonical) {
+            promoteSuccessorFor(workspace.id(), documentId, root);
+        }
+    }
+
+    private void promoteSuccessorFor(long workspaceId, long deletedCanonicalId, Path root) {
+        List<DocumentSummary> duplicates =
+                documentRepository.findCurrentDuplicatesOf(workspaceId, deletedCanonicalId);
+        if (duplicates.isEmpty()) {
+            return;
+        }
+        DocumentSummary successor = duplicates.stream()
+                .filter(candidate -> Files.exists(root.resolve(candidate.sourcePath())))
+                .findFirst()
+                .orElse(duplicates.get(0));
+        documentRepository.promoteDuplicateToCanonical(successor.id());
+        documentRepository.repointDuplicates(deletedCanonicalId, successor.id());
     }
 
     private static Path inboxRealPath(WorkspaceResponse workspace) {

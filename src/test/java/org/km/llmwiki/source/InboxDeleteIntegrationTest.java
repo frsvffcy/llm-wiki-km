@@ -12,6 +12,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,6 +51,95 @@ class InboxDeleteIntegrationTest extends IsolatedIntegrationTest {
         mockMvc.perform(get("/api/v1/inbox"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+
+    @Test
+    void deletingCanonicalPromotesDuplicateAndPreservesGroupInvariant() throws Exception {
+        Path root = createWorkspace();
+        Files.writeString(root.resolve("inbox").resolve("base.txt"), "shared");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
+        Files.writeString(root.resolve("inbox").resolve("copy1.txt"), "shared");
+        Files.writeString(root.resolve("inbox").resolve("copy2.txt"), "shared");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
+
+        Long baseId = db().sql("SELECT id FROM document WHERE file_name = 'base.txt'")
+                .query(Long.class)
+                .single();
+        Long copy1Id = db().sql("SELECT id FROM document WHERE file_name = 'copy1.txt'")
+                .query(Long.class)
+                .single();
+        Long copy2Id = db().sql("SELECT id FROM document WHERE file_name = 'copy2.txt'")
+                .query(Long.class)
+                .single();
+
+        mockMvc.perform(delete("/api/v1/inbox/files/{id}", baseId))
+                .andExpect(status().isNoContent());
+
+        assertThat(db().sql("SELECT status FROM document WHERE id = :id")
+                .param("id", baseId).query(String.class).single()).isEqualTo("DELETED");
+
+        Long successorId = db().sql("""
+                        SELECT id FROM document
+                        WHERE status = 'PENDING'
+                          AND duplicate_of_document_id IS NULL
+                          AND file_name IN ('copy1.txt', 'copy2.txt')
+                        """)
+                .query(Long.class)
+                .single();
+        assertThat(Set.of(copy1Id, copy2Id)).contains(successorId);
+
+        long followerId = successorId.equals(copy1Id) ? copy2Id : copy1Id;
+        assertThat(db().sql("SELECT status FROM document WHERE id = :id")
+                .param("id", followerId).query(String.class).single()).isEqualTo("DUPLICATE");
+        assertThat(db().sql("SELECT duplicate_of_document_id FROM document WHERE id = :id")
+                .param("id", followerId).query(Long.class).single()).isEqualTo(successorId);
+
+        Integer orphans = db().sql("""
+                        SELECT COUNT(*) FROM document
+                        WHERE duplicate_of_document_id = :deletedId AND status = 'DUPLICATE'
+                        """)
+                .param("deletedId", baseId)
+                .query(Integer.class)
+                .single();
+        assertThat(orphans).isZero();
+
+        String reupload = mockMvc.perform(multipart("/api/v1/inbox/files")
+                        .file(new MockMultipartFile("file", "reupload.txt", "text/plain",
+                                "shared".getBytes(StandardCharsets.UTF_8))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.duplicate").value(true))
+                .andReturn().getResponse().getContentAsString();
+        long reuploadId = Long.parseLong(reupload.replaceAll(".*\"documentId\":(\\d+).*", "$1"));
+
+        assertThat(db().sql("SELECT duplicate_of_document_id FROM document WHERE id = :id")
+                .param("id", reuploadId).query(Long.class).single()).isEqualTo(successorId);
+
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
+
+        Integer pendingCanonicals = db().sql("""
+                        SELECT COUNT(*) FROM document
+                        WHERE sha256 = (SELECT sha256 FROM document WHERE id = :anyId)
+                          AND status NOT IN ('DELETED', 'SUPERSEDED', 'ARCHIVED', 'DUPLICATE')
+                        """)
+                .param("anyId", copy1Id)
+                .query(Integer.class)
+                .single();
+        assertThat(pendingCanonicals).isEqualTo(1);
+    }
+
+    @Test
+    void deletingDuplicateKeepsCanonicalUntouched() throws Exception {
+        Path root = createWorkspace();
+        Files.writeString(root.resolve("inbox").resolve("base.txt"), "shared");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
+        Files.writeString(root.resolve("inbox").resolve("copy.txt"), "shared");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
     }
 
     @Test
