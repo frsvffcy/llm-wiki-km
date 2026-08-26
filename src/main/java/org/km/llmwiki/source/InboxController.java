@@ -1,6 +1,9 @@
 package org.km.llmwiki.source;
 
 import org.km.llmwiki.web.ApiResponse;
+import org.km.llmwiki.web.PageResponse;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,10 +22,23 @@ public class InboxController {
 
     private final InboxFileService inboxFileService;
     private final InboxScanService inboxScanService;
+    private final InboxListService inboxListService;
 
-    public InboxController(InboxFileService inboxFileService, InboxScanService inboxScanService) {
+    public InboxController(InboxFileService inboxFileService, InboxScanService inboxScanService,
+                           InboxListService inboxListService) {
         this.inboxFileService = inboxFileService;
         this.inboxScanService = inboxScanService;
+        this.inboxListService = inboxListService;
+    }
+
+    @GetMapping
+    public PageResponse<List<InboxDocumentRow>> list(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String extension,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return inboxListService.list(status, extension, sort, page, size);
     }
 
     @PostMapping("/rescan")

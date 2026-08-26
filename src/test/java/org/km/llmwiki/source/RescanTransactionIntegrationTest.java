@@ -60,7 +60,7 @@ class RescanTransactionIntegrationTest {
 
         doThrow(new IllegalStateException("simulated registration failure"))
                 .when(documentRepository)
-                .insert(anyLong(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+                .insert(anyLong(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
 
         assertThatThrownBy(inboxScanService::rescan)
                 .isInstanceOf(RuntimeException.class);
@@ -69,7 +69,7 @@ class RescanTransactionIntegrationTest {
 
         doCallRealMethod()
                 .when(documentRepository)
-                .insert(anyLong(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+                .insert(anyLong(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
 
         inboxScanService.rescan();
 

@@ -56,8 +56,8 @@ public class InboxScanService {
             try {
                 DocumentRegistrationService.RegistrationResult result = current.isPresent()
                         ? registrationService.replaceVersion(workspace.id(), current.get(),
-                                file.getFileName().toString(), relativePath, sha256,
-                                Files.size(file), probeMimeType(file))
+                                file.getFileName().toString(), file.getFileName().toString(),
+                                relativePath, sha256, Files.size(file), probeMimeType(file))
                         : registerDocument(workspace.id(), file, relativePath, sha256, null);
                 if (DocumentStatus.DUPLICATE.name().equals(result.status())) {
                     duplicates++;
@@ -83,7 +83,8 @@ public class InboxScanService {
     private DocumentRegistrationService.RegistrationResult registerDocument(
             long workspaceId, Path file, String sourcePath, String sha256, Long parentVersionId) {
         try {
-            return registrationService.register(workspaceId, file.getFileName().toString(), sourcePath,
+            return registrationService.register(workspaceId, file.getFileName().toString(),
+                    file.getFileName().toString(), sourcePath,
                     sha256, Files.size(file), probeMimeType(file), parentVersionId);
         } catch (IOException exception) {
             throw new IllegalStateException("Could not register scanned document: " + file, exception);
