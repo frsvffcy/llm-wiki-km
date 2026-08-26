@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,14 +31,39 @@ public class InboxFileService {
         this.documentRepository = documentRepository;
     }
 
+    public BatchUploadResponse uploadAll(List<MultipartFile> files) {
+        WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
+                .orElseThrow(NoActiveWorkspaceException::new);
+        List<UploadedFileResponse> documents = new ArrayList<>();
+        List<BatchUploadResponse.FailedFile> failures = new ArrayList<>();
+
+        for (MultipartFile file : files) {
+            String fileName = file == null ? "" : String.valueOf(file.getOriginalFilename());
+            try {
+                if (file == null || file.isEmpty()) {
+                    throw new IllegalArgumentException("uploaded file must not be empty");
+                }
+                documents.add(uploadIn(workspace, sanitizeFileName(fileName), file));
+            } catch (RuntimeException exception) {
+                failures.add(new BatchUploadResponse.FailedFile(fileName, exception.getMessage()));
+            }
+        }
+
+        return new BatchUploadResponse(files.size(), documents.size(), 0, failures.size(),
+                List.copyOf(documents), List.copyOf(failures));
+    }
+
     public UploadedFileResponse upload(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("uploaded file must not be empty");
         }
         String fileName = sanitizeFileName(file.getOriginalFilename());
-
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
                 .orElseThrow(NoActiveWorkspaceException::new);
+        return uploadIn(workspace, fileName, file);
+    }
+
+    private UploadedFileResponse uploadIn(WorkspaceResponse workspace, String fileName, MultipartFile file) {
         Path inbox = Path.of(workspace.inboxPath());
         Path tempDirectory = Path.of(workspace.rootPath()).resolve("temp");
         Path target = uniqueTarget(inbox, fileName);

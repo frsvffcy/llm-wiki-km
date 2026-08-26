@@ -1,0 +1,30 @@
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 9 source files with javac [debug parameters release 21] to target/test-classes
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /Users/toddyeh/workspace/owner/llm-wiki-km/src/test/java/org/km/llmwiki/source/InboxBatchUploadIntegrationTest.java:[118,20] cannot find symbol
+  symbol:   method file(org.springframework.mock.web.MockMultipartFile)
+  location: variable builder of type org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
+[ERROR] /Users/toddyeh/workspace/owner/llm-wiki-km/src/test/java/org/km/llmwiki/source/InboxBatchUploadIntegrationTest.java:[126,20] cannot find symbol
+  symbol:   method file(org.springframework.mock.web.MockMultipartFile)
+  location: variable builder of type org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
+[INFO] 2 errors 
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  1.346 s
+[INFO] Finished at: 2026-08-26T13:29:48+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.14.0:testCompile (default-testCompile) on project llm-wiki-km: Compilation failure: Compilation failure: 
+[ERROR] /Users/toddyeh/workspace/owner/llm-wiki-km/src/test/java/org/km/llmwiki/source/InboxBatchUploadIntegrationTest.java:[118,20] cannot find symbol
+[ERROR]   symbol:   method file(org.springframework.mock.web.MockMultipartFile)
+[ERROR]   location: variable builder of type org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
+[ERROR] /Users/toddyeh/workspace/owner/llm-wiki-km/src/test/java/org/km/llmwiki/source/InboxBatchUploadIntegrationTest.java:[126,20] cannot find symbol
+[ERROR]   symbol:   method file(org.springframework.mock.web.MockMultipartFile)
+[ERROR]   location: variable builder of type org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
