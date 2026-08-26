@@ -52,13 +52,18 @@ class WorkspaceApiIntegrationTest {
         assertThat(root.resolve("config")).isDirectory();
         assertThat(root.resolve("logs")).isDirectory();
         assertThat(root.resolve("temp")).isDirectory();
-        assertThat(root.resolve("data").resolve("knowledge.db")).isRegularFile();
+        assertThat(root.resolve("data").resolve("knowledge.db")).doesNotExist();
 
         Integer workspaceRows = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE root_path = :rootPath")
                 .param("rootPath", root.toString())
                 .query(Integer.class)
                 .single();
         assertThat(workspaceRows).isEqualTo(1);
+
+        Integer activeRows = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
+                .query(Integer.class)
+                .single();
+        assertThat(activeRows).isEqualTo(1);
     }
 
     @Test
@@ -107,6 +112,34 @@ class WorkspaceApiIntegrationTest {
                                 """.formatted(tempRoot())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void creatingSecondWorkspaceDeactivatesTheFirst() throws Exception {
+        long firstId = createWorkspaceReturningId();
+        createWorkspaceReturningId();
+
+        Integer activeCount = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
+                .query(Integer.class)
+                .single();
+        assertThat(activeCount).isEqualTo(1);
+
+        Integer firstActive = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE id = :id AND status = 'ACTIVE'")
+                .param("id", firstId)
+                .query(Integer.class)
+                .single();
+        assertThat(firstActive).isZero();
+    }
+
+    private long createWorkspaceReturningId() throws Exception {
+        String response = mockMvc.perform(post("/api/v1/workspaces")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"name": "Invariant Test", "rootPath": "%s"}
+                                """.formatted(tempRoot())))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return Long.parseLong(response.replaceAll(".*\"id\":(\\d+).*", "$1"));
     }
 
     @Test

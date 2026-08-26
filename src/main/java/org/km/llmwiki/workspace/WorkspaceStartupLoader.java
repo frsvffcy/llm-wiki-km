@@ -12,13 +12,21 @@ public class WorkspaceStartupLoader implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(WorkspaceStartupLoader.class);
 
     private final WorkspaceService workspaceService;
+    private final WorkspaceRepository workspaceRepository;
 
-    public WorkspaceStartupLoader(WorkspaceService workspaceService) {
+    public WorkspaceStartupLoader(WorkspaceService workspaceService, WorkspaceRepository workspaceRepository) {
         this.workspaceService = workspaceService;
+        this.workspaceRepository = workspaceRepository;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        try {
+            workspaceRepository.enforceSingleActive();
+        } catch (Exception exception) {
+            log.error("Could not enforce single active workspace invariant", exception);
+            return;
+        }
         try {
             WorkspaceStatusResponse current = workspaceService.current();
             log.info("Loaded existing workspace '{}' at root {} (layout valid: {}, repaired directories: {})",

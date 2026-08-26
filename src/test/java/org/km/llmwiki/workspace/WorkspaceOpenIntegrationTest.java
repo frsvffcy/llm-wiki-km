@@ -156,6 +156,31 @@ class WorkspaceOpenIntegrationTest {
         assertThat(activeRows).isEqualTo(1);
     }
 
+
+    @Test
+    @Order(8)
+    void startupRepairRestoresSingleActiveInvariantWhenCorrupted() throws Exception {
+        Path firstRoot = tempRoot();
+        createWorkspace(firstRoot);
+        Path secondRoot = tempRoot();
+        createWorkspace(secondRoot);
+
+        jdbcClient.sql("UPDATE workspace SET status = 'ACTIVE'").update();
+
+        startupLoader.run(null);
+
+        Integer activeCount = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
+                .query(Integer.class)
+                .single();
+        assertThat(activeCount).isEqualTo(1);
+
+        String activeRootPath = jdbcClient.sql(
+                        "SELECT root_path FROM workspace WHERE status = 'ACTIVE'")
+                .query(String.class)
+                .single();
+        assertThat(activeRootPath).isEqualTo(secondRoot.toString());
+    }
+
     private long createWorkspace(Path root) throws Exception {
         String response = mockMvc.perform(post("/api/v1/workspaces")
                         .contentType(APPLICATION_JSON)
