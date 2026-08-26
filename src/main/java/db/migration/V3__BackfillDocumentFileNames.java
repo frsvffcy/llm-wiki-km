@@ -2,7 +2,6 @@ package db.migration;
 
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
-import org.km.llmwiki.source.DocumentRegistrationService;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -46,10 +45,26 @@ public class V3__BackfillDocumentFileNames extends BaseJavaMigration {
                     continue;
                 }
                 update.setString(1, storedOriginal != null ? storedOriginal : fileName);
-                update.setString(2, DocumentRegistrationService.normalizeExtension(fileName));
+                update.setString(2, normalizeExtension(fileName));
                 update.setLong(3, id);
                 update.executeUpdate();
             }
         }
+    }
+
+    /**
+     * Migration-local, immutable copy of the extension normalization rules that were in effect
+     * when this migration was published (strip leading dot position rules; lowercase; null when
+     * the file name has no usable extension). Intentionally independent from domain utilities.
+     */
+    private static String normalizeExtension(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return null;
+        }
+        int dot = fileName.lastIndexOf('.');
+        if (dot <= 0 || dot == fileName.length() - 1) {
+            return null;
+        }
+        return fileName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
     }
 }
