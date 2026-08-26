@@ -24,7 +24,9 @@ The application listens only on `127.0.0.1:8765` by default.
 
 ## SQLite
 
-The application stores local data in `data/knowledge.db` by default. Override the location with `KNOWLEDGE_DB_PATH` and the lock timeout with `SQLITE_BUSY_TIMEOUT_MS` (default: `5000`). Every connection enables foreign keys, WAL journal mode, a busy timeout, and `synchronous=NORMAL`.
+The application uses a **single canonical metadata database** (Global DB model). It stores local data in `data/knowledge.db` by default. Override the location with `KNOWLEDGE_DB_PATH` and the lock timeout with `SQLITE_BUSY_TIMEOUT_MS` (default: `5000`). Every connection enables foreign keys, WAL journal mode, a busy timeout, and `synchronous=NORMAL`.
+
+Workspace roots are portable document/vault containers; the metadata DB is application-level and independent of any workspace root. To co-locate the DB with a knowledge root, start the app with e.g. `KNOWLEDGE_DB_PATH=/path/to/root/data/knowledge.db`.
 
 ## Database migrations
 
@@ -32,7 +34,7 @@ Schema is managed with Flyway. Migrations live in `src/main/resources/db/migrati
 
 ## Workspace API
 
-Register a Knowledge Root and create its local directory layout (`inbox/ archive/ vault/ data/ config/ logs/ temp/`) plus an initial `data/knowledge.db`:
+Register a Knowledge Root and create its local directory layout (`inbox/ archive/ vault/ data/ config/ logs/ temp/`):
 
 ```bash
 curl -X POST http://127.0.0.1:8765/api/v1/workspaces \
@@ -40,7 +42,7 @@ curl -X POST http://127.0.0.1:8765/api/v1/workspaces \
   -d '{"name": "Personal Knowledge", "rootPath": "/Users/me/personal-knowledge"}'
 ```
 
-Returns `201 Created`. The root path must be absolute and must not be the filesystem root or an existing file; existing directories are reused without touching their contents. Registering the same root twice returns `409 Conflict`.
+Returns `201 Created`. The root path must be absolute and must not be the filesystem root or an existing file; existing directories are reused without touching their contents. Registering the same root twice returns `409 Conflict`. The new workspace becomes the single `ACTIVE` workspace (any previous one is deactivated automatically); at most one workspace is ACTIVE at any time, and startup repairs the invariant if it was ever violated.
 
 ## Opening an existing workspace
 

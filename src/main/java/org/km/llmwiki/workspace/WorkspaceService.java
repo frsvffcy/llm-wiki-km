@@ -5,9 +5,6 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -33,7 +30,7 @@ public class WorkspaceService {
         });
 
         createDirectoryLayout(root);
-        initializeKnowledgeDatabase(root.resolve("data").resolve("knowledge.db"));
+        createDirectoryLayout(root);
 
         Instant now = Instant.now();
         WorkspaceRecord record = new WorkspaceRecord(
@@ -44,11 +41,12 @@ public class WorkspaceService {
                 root.resolve("vault").toString(),
                 root.resolve("data").toString(),
                 root.resolve("config").toString(),
-                "ACTIVE",
+                "INACTIVE",
                 DateTimeFormatter.ISO_INSTANT.format(now),
                 DateTimeFormatter.ISO_INSTANT.format(now));
 
         long id = repository.insert(record);
+        repository.activate(id);
         return get(id);
     }
 
@@ -118,17 +116,6 @@ public class WorkspaceService {
                 throw new IllegalStateException("Could not create workspace directory: "
                         + root.resolve(directoryName), exception);
             }
-        }
-    }
-
-    private static void initializeKnowledgeDatabase(Path databasePath) {
-        if (Files.exists(databasePath)) {
-            return;
-        }
-        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + databasePath)) {
-            connection.createStatement().execute("SELECT 1");
-        } catch (SQLException exception) {
-            throw new IllegalStateException("Could not initialize knowledge database: " + databasePath, exception);
         }
     }
 }

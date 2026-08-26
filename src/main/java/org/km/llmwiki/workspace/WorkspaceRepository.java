@@ -95,4 +95,25 @@ public class WorkspaceRepository {
                 .param("id", id)
                 .update();
     }
+
+    @Transactional
+    public void enforceSingleActive() {
+        Optional<Long> winnerId = jdbcClient.sql("""
+                        SELECT id FROM workspace WHERE status = 'ACTIVE'
+                        ORDER BY COALESCE(last_opened_at, created_at) DESC, id DESC
+                        LIMIT 1
+                        """)
+                .query(Long.class)
+                .optional();
+        if (winnerId.isEmpty()) {
+            return;
+        }
+        jdbcClient.sql("""
+                        UPDATE workspace SET status = 'INACTIVE', updated_at = :now
+                        WHERE status = 'ACTIVE' AND id <> :id
+                        """)
+                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
+                .param("id", winnerId.get())
+                .update();
+    }
 }
