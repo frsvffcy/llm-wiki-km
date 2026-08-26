@@ -3,6 +3,7 @@ package org.km.llmwiki.workspace;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,13 +22,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.persistence.sqlite.path=target/test-data/${random.uuid}/knowledge.db"
 })
 @AutoConfigureMockMvc
-class WorkspaceApiIntegrationTest {
+class WorkspaceApiIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @Autowired
-    private JdbcClient jdbcClient;
 
     @Test
     void createsWorkspaceAndDirectoryLayoutOnEmptyRoot() throws Exception {
@@ -54,13 +52,13 @@ class WorkspaceApiIntegrationTest {
         assertThat(root.resolve("temp")).isDirectory();
         assertThat(root.resolve("data").resolve("knowledge.db")).doesNotExist();
 
-        Integer workspaceRows = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE root_path = :rootPath")
+        Integer workspaceRows = db().sql("SELECT COUNT(*) FROM workspace WHERE root_path = :rootPath")
                 .param("rootPath", root.toString())
                 .query(Integer.class)
                 .single();
         assertThat(workspaceRows).isEqualTo(1);
 
-        Integer activeRows = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
+        Integer activeRows = db().sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
                 .query(Integer.class)
                 .single();
         assertThat(activeRows).isEqualTo(1);
@@ -119,12 +117,12 @@ class WorkspaceApiIntegrationTest {
         long firstId = createWorkspaceReturningId();
         createWorkspaceReturningId();
 
-        Integer activeCount = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
+        Integer activeCount = db().sql("SELECT COUNT(*) FROM workspace WHERE status = 'ACTIVE'")
                 .query(Integer.class)
                 .single();
         assertThat(activeCount).isEqualTo(1);
 
-        Integer firstActive = jdbcClient.sql("SELECT COUNT(*) FROM workspace WHERE id = :id AND status = 'ACTIVE'")
+        Integer firstActive = db().sql("SELECT COUNT(*) FROM workspace WHERE id = :id AND status = 'ACTIVE'")
                 .param("id", firstId)
                 .query(Integer.class)
                 .single();

@@ -4,6 +4,7 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -19,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest(properties = {
         "app.persistence.sqlite.path=target/test-data/setting-${random.uuid}/knowledge.db"
 })
-class SettingUniquenessIntegrationTest {
+class SettingUniquenessIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private DataSource dataSource;

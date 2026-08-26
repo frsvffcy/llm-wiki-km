@@ -1,11 +1,9 @@
 package org.km.llmwiki.source;
 
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
@@ -28,17 +26,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.persistence.sqlite.path=target/test-data/batch-${random.uuid}/knowledge.db"
 })
 @AutoConfigureMockMvc
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class InboxBatchUploadIntegrationTest {
+class InboxBatchUploadIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
-    private JdbcClient jdbcClient;
-
     @Test
-    @Order(1)
     void rejectsBatchUploadWhenNoWorkspaceRegistered() throws Exception {
         mockMvc.perform(batch("a.txt", "b.txt"))
                 .andExpect(status().isNotFound())
@@ -46,7 +39,6 @@ class InboxBatchUploadIntegrationTest {
     }
 
     @Test
-    @Order(2)
     void rejectsEmptyBatch() throws Exception {
         mockMvc.perform(multipart("/api/v1/inbox/files/batch"))
                 .andExpect(status().isBadRequest())
@@ -54,7 +46,6 @@ class InboxBatchUploadIntegrationTest {
     }
 
     @Test
-    @Order(3)
     void uploadsMultipleFilesAndCreatesDocumentForEach() throws Exception {
         Path root = createWorkspace();
 
@@ -73,13 +64,13 @@ class InboxBatchUploadIntegrationTest {
         assertThat(root.resolve("inbox").resolve("beta.md")).isRegularFile();
         assertThat(root.resolve("inbox").resolve("gamma.pdf")).isRegularFile();
 
-        Integer documentRows = jdbcClient.sql(
+        Integer documentRows = db().sql(
                         "SELECT COUNT(*) FROM document WHERE status = 'PENDING'")
                 .query(Integer.class)
                 .single();
         assertThat(documentRows).isEqualTo(3);
 
-        Integer documentsWithHash = jdbcClient.sql(
+        Integer documentsWithHash = db().sql(
                         "SELECT COUNT(*) FROM document WHERE LENGTH(sha256) = 64")
                 .query(Integer.class)
                 .single();
@@ -87,9 +78,8 @@ class InboxBatchUploadIntegrationTest {
     }
 
     @Test
-    @Order(4)
     void isolatesIndividualFailuresWithoutBlockingOthers() throws Exception {
-        Path root = activeRoot();
+        Path root = createWorkspace();
         long documentsBefore = documentCount();
 
         mockMvc.perform(batchWithFiles(
@@ -109,7 +99,7 @@ class InboxBatchUploadIntegrationTest {
     }
 
     private long documentCount() {
-        return jdbcClient.sql("SELECT COUNT(*) FROM document").query(Long.class).single();
+        return db().sql("SELECT COUNT(*) FROM document").query(Long.class).single();
     }
 
     private MockMultipartHttpServletRequestBuilder batch(String... filenames) {
@@ -145,7 +135,7 @@ class InboxBatchUploadIntegrationTest {
     }
 
     private Path activeRoot() {
-        return Path.of(jdbcClient.sql(
+        return Path.of(db().sql(
                         "SELECT root_path FROM workspace WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1")
                 .query(String.class)
                 .single());
