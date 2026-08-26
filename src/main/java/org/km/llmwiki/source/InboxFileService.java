@@ -82,7 +82,7 @@ public class InboxFileService {
             DocumentRegistrationService.RegistrationResult registration = registrationService.register(
                     workspace.id(), target.getFileName().toString(),
                     "inbox/" + target.getFileName().toString(), sha256,
-                    fileSize, file.getContentType());
+                    fileSize, file.getContentType(), null);
             documentId = registration.documentId();
 
             Files.createDirectories(inbox);

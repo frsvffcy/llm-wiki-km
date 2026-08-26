@@ -133,6 +133,100 @@ class InboxRescanIntegrationTest {
         assertThat(documentCount()).isEqualTo(before);
     }
 
+
+    @Test
+    @Order(6)
+    void modifiedFileCreatesVersionChainWithSingleActiveRow() throws Exception {
+        Path versioned = root.resolve("inbox").resolve("ver.txt");
+        Files.writeString(versioned, "v1");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(jsonPath("$.data.newDocuments").value(1));
+        long v1Id = latestDocumentId("inbox/ver.txt");
+
+        Files.writeString(versioned, "v2");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(jsonPath("$.data.newDocuments").value(1));
+
+        long v2Id = latestDocumentId("inbox/ver.txt");
+        assertSupersededWithParent(v1Id, v2Id);
+
+        Integer activeRowCount = jdbcClient.sql("""
+                        SELECT COUNT(*) FROM document
+                        WHERE source_path = 'inbox/ver.txt'
+                          AND status NOT IN ('DELETED', 'SUPERSEDED')
+                        """)
+                .query(Integer.class)
+                .single();
+        assertThat(activeRowCount).isEqualTo(1);
+
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.newDocuments").value(0))
+                .andExpect(jsonPath("$.data.existing").value(3));
+
+        Files.writeString(versioned, "v3");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(jsonPath("$.data.newDocuments").value(1));
+
+        long v3Id = latestDocumentId("inbox/ver.txt");
+        assertSupersededWithParent(v2Id, v3Id);
+    }
+
+    @Test
+    @Order(7)
+    void removedDetectionCoversDuplicateRecords() throws Exception {
+        Files.writeString(root.resolve("inbox").resolve("dup-copy.txt"), "content b");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(jsonPath("$.data.duplicates").value(1));
+
+        Long duplicateId = jdbcClient.sql(
+                        "SELECT id FROM document WHERE file_name = 'dup-copy.txt' AND status = 'DUPLICATE'")
+                .query(Long.class)
+                .single();
+
+        Files.delete(root.resolve("inbox").resolve("dup-copy.txt"));
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.removed").value(1));
+
+        String status = jdbcClient.sql("SELECT status FROM document WHERE id = :id")
+                .param("id", duplicateId)
+                .query(String.class)
+                .single();
+        assertThat(status).isEqualTo("DELETED");
+
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(jsonPath("$.data.removed").value(0));
+    }
+
+    private long latestDocumentId(String sourcePath) {
+        return jdbcClient.sql("""
+                        SELECT id FROM document WHERE source_path = :sourcePath ORDER BY id DESC LIMIT 1
+                        """)
+                .param("sourcePath", sourcePath)
+                .query(Long.class)
+                .single();
+    }
+
+    private void assertSupersededWithParent(long supersededId, long currentId) {
+        var row = jdbcClient.sql("""
+                        SELECT status, parent_version_document_id FROM document WHERE id = :id
+                        """)
+                .param("id", currentId)
+                .query((rs, rowNum) -> new Object[] {
+                        rs.getString("status"),
+                        rs.getLong("parent_version_document_id")
+                })
+                .single();
+        assertThat((Long) row[1]).isEqualTo(supersededId);
+
+        String oldStatus = jdbcClient.sql("SELECT status FROM document WHERE id = :id")
+                .param("id", supersededId)
+                .query(String.class)
+                .single();
+        assertThat(oldStatus).isEqualTo("SUPERSEDED");
+    }
+
     private long documentCount() {
         return jdbcClient.sql("SELECT COUNT(*) FROM document WHERE status <> 'DELETED'")
                 .query(Long.class)
