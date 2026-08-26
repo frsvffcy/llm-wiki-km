@@ -25,10 +25,13 @@ public class InboxFileService {
 
     private final WorkspaceService workspaceService;
     private final DocumentRepository documentRepository;
+    private final DocumentRegistrationService registrationService;
 
-    public InboxFileService(WorkspaceService workspaceService, DocumentRepository documentRepository) {
+    public InboxFileService(WorkspaceService workspaceService, DocumentRepository documentRepository,
+                            DocumentRegistrationService registrationService) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
+        this.registrationService = registrationService;
     }
 
     public BatchUploadResponse uploadAll(List<MultipartFile> files) {
@@ -49,7 +52,8 @@ public class InboxFileService {
             }
         }
 
-        return new BatchUploadResponse(files.size(), documents.size(), 0, failures.size(),
+        long duplicates = documents.stream().filter(UploadedFileResponse::duplicate).count();
+        return new BatchUploadResponse(files.size(), documents.size(), (int) duplicates, failures.size(),
                 List.copyOf(documents), List.copyOf(failures));
     }
 
@@ -75,17 +79,19 @@ public class InboxFileService {
             String sha256 = copyAndDigest(file, tempFile);
 
             long fileSize = Files.size(tempFile);
-            documentId = documentRepository.insert(
+            DocumentRegistrationService.RegistrationResult registration = registrationService.register(
                     workspace.id(), target.getFileName().toString(),
                     "inbox/" + target.getFileName().toString(), sha256,
-                    fileSize, file.getContentType(),
-                    DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
+                    fileSize, file.getContentType());
+            documentId = registration.documentId();
 
             Files.createDirectories(inbox);
             Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING);
             tempFile = null;
 
-            return new UploadedFileResponse(documentId, target.getFileName().toString(), "PENDING", false);
+            boolean duplicate = "DUPLICATE".equals(registration.status());
+            return new UploadedFileResponse(documentId, target.getFileName().toString(),
+                    registration.status(), duplicate);
         } catch (IOException | NoSuchAlgorithmException exception) {
             if (documentId != null) {
                 documentRepository.deleteById(documentId);

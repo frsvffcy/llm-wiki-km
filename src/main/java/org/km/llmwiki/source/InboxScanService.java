@@ -11,8 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -25,10 +23,13 @@ public class InboxScanService {
 
     private final WorkspaceService workspaceService;
     private final DocumentRepository documentRepository;
+    private final DocumentRegistrationService registrationService;
 
-    public InboxScanService(WorkspaceService workspaceService, DocumentRepository documentRepository) {
+    public InboxScanService(WorkspaceService workspaceService, DocumentRepository documentRepository,
+                            DocumentRegistrationService registrationService) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
+        this.registrationService = registrationService;
     }
 
     public RescanResponse rescan() {
@@ -47,20 +48,18 @@ public class InboxScanService {
 
             Optional<DocumentSummary> registered =
                     documentRepository.findActiveByWorkspaceAndSourcePath(workspace.id(), relativePath);
-            if (registered.isPresent()) {
-                if (registered.get().sha256().equals(sha256)) {
-                    existing++;
-                } else {
-                    newDocuments += registerDocument(workspace.id(), file, relativePath, sha256);
-                }
+            if (registered.isPresent() && registered.get().sha256().equals(sha256)) {
+                existing++;
                 continue;
             }
 
-            if (documentRepository.existsByWorkspaceAndSha256(workspace.id(), sha256)) {
+            DocumentRegistrationService.RegistrationResult result =
+                    registerDocument(workspace.id(), file, relativePath, sha256);
+            if ("DUPLICATE".equals(result.status())) {
                 duplicates++;
-                continue;
+            } else {
+                newDocuments++;
             }
-            newDocuments += registerDocument(workspace.id(), file, relativePath, sha256);
         }
 
         int removed = 0;
@@ -74,15 +73,14 @@ public class InboxScanService {
         return new RescanResponse(newDocuments, duplicates, existing, removed);
     }
 
-    private int registerDocument(long workspaceId, Path file, String sourcePath, String sha256) {
+    private DocumentRegistrationService.RegistrationResult registerDocument(
+            long workspaceId, Path file, String sourcePath, String sha256) {
         try {
-            documentRepository.insert(workspaceId, file.getFileName().toString(), sourcePath, sha256,
-                    Files.size(file), probeMimeType(file),
-                    DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
+            return registrationService.register(workspaceId, file.getFileName().toString(), sourcePath,
+                    sha256, Files.size(file), probeMimeType(file));
         } catch (IOException exception) {
             throw new IllegalStateException("Could not register scanned document: " + file, exception);
         }
-        return 1;
     }
 
     private static List<Path> listRegularFiles(Path inbox) {

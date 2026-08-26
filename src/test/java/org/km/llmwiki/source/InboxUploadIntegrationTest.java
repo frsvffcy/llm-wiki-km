@@ -135,6 +135,38 @@ class InboxUploadIntegrationTest {
         assertThat(root.resolve("inbox").resolve("dup-1.txt")).isRegularFile();
     }
 
+    @Test
+    @Order(6)
+    void marksSameContentUnderDifferentFilenameAsDuplicate() throws Exception {
+        createWorkspace();
+
+        String originalResponse = mockMvc.perform(uploadFile("original-name.txt"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("PENDING"))
+                .andReturn().getResponse().getContentAsString();
+        long originalId = Long.parseLong(originalResponse.replaceAll(".*\"documentId\":(\\d+).*", "$1"));
+
+        String duplicateResponse = mockMvc.perform(uploadFile("different-name.txt"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.duplicate").value(true))
+                .andExpect(jsonPath("$.data.status").value("DUPLICATE"))
+                .andReturn().getResponse().getContentAsString();
+        long duplicateId = Long.parseLong(duplicateResponse.replaceAll(".*\"documentId\":(\\d+).*", "$1"));
+
+        var row = jdbcClient.sql("""
+                        SELECT status, duplicate_of_document_id FROM document WHERE id = :id
+                        """)
+                .param("id", duplicateId)
+                .query((rs, rowNum) -> new Object[] {
+                        rs.getString("status"),
+                        rs.getLong("duplicate_of_document_id")
+                })
+                .single();
+        assertThat((String) row[0]).isEqualTo("DUPLICATE");
+        assertThat((Long) row[1]).isEqualTo(originalId);
+        assertThat(duplicateId).isNotEqualTo(originalId);
+    }
+
     private static MockHttpServletRequestBuilder uploadFile(String filename) {
         return multipart("/api/v1/inbox/files")
                 .file(new MockMultipartFile("file", filename, "text/plain",

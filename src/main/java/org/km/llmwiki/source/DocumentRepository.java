@@ -21,7 +21,8 @@ public class DocumentRepository {
     }
 
     public long insert(long workspaceId, String fileName, String sourcePath, String sha256,
-                       Long fileSize, String mimeType, String createdAt) {
+                       Long fileSize, String mimeType, String createdAt, String status,
+                       Long duplicateOfDocumentId) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("workspaceId", workspaceId)
@@ -30,12 +31,14 @@ public class DocumentRepository {
                 .addValue("sha256", sha256)
                 .addValue("fileSize", fileSize)
                 .addValue("mimeType", mimeType)
-                .addValue("createdAt", createdAt);
+                .addValue("createdAt", createdAt)
+                .addValue("status", status)
+                .addValue("duplicateOfDocumentId", duplicateOfDocumentId);
         jdbcClient.sql("""
                         INSERT INTO document (workspace_id, file_name, source_path, sha256,
-                            file_size, mime_type, status, created_at, updated_at)
+                            file_size, mime_type, status, duplicate_of_document_id, created_at, updated_at)
                         VALUES (:workspaceId, :fileName, :sourcePath, :sha256,
-                            :fileSize, :mimeType, 'PENDING', :createdAt, :createdAt)
+                            :fileSize, :mimeType, :status, :duplicateOfDocumentId, :createdAt, :createdAt)
                         """)
                 .paramSource(params)
                 .update(keyHolder);
@@ -60,6 +63,21 @@ public class DocumentRepository {
                         """)
                 .param("workspaceId", workspaceId)
                 .param("sourcePath", sourcePath)
+                .query((rs, rowNum) -> new DocumentSummary(
+                        rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
+                .optional();
+    }
+
+    public Optional<DocumentSummary> findActiveByWorkspaceAndSha256(long workspaceId, String sha256) {
+        return jdbcClient.sql("""
+                        SELECT id, source_path, sha256 FROM document
+                        WHERE workspace_id = :workspaceId AND sha256 = :sha256
+                          AND status <> 'DELETED'
+                        ORDER BY id
+                        LIMIT 1
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("sha256", sha256)
                 .query((rs, rowNum) -> new DocumentSummary(
                         rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
                 .optional();

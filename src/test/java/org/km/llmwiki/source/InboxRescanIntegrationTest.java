@@ -72,7 +72,7 @@ class InboxRescanIntegrationTest {
 
     @Test
     @Order(3)
-    void detectsContentDuplicatesWithoutCreatingRecords() throws Exception {
+    void detectsContentDuplicatesAndRegistersDuplicateRecord() throws Exception {
         long before = documentCount();
         Files.writeString(root.resolve("inbox").resolve("copy-of-b.txt"), "content b");
 
@@ -81,7 +81,22 @@ class InboxRescanIntegrationTest {
                 .andExpect(jsonPath("$.data.duplicates").value(1))
                 .andExpect(jsonPath("$.data.newDocuments").value(0));
 
-        assertThat(documentCount()).isEqualTo(before);
+        assertThat(documentCount()).isEqualTo(before + 1);
+
+        var duplicateRow = jdbcClient.sql("""
+                        SELECT d.status, d.duplicate_of_document_id, o.file_name
+                        FROM document d
+                        JOIN document o ON o.id = d.duplicate_of_document_id
+                        WHERE d.file_name = 'copy-of-b.txt'
+                        """)
+                .query((rs, rowNum) -> new Object[] {
+                        rs.getString("status"),
+                        rs.getLong("duplicate_of_document_id"),
+                        rs.getString("file_name")
+                })
+                .single();
+        assertThat((String) duplicateRow[0]).isEqualTo("DUPLICATE");
+        assertThat((String) duplicateRow[2]).isEqualTo("b.txt");
     }
 
     @Test
