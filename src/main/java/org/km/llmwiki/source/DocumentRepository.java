@@ -88,18 +88,6 @@ public class DocumentRepository {
                 .optional();
     }
 
-    public boolean existsByWorkspaceAndSha256(long workspaceId, String sha256) {
-        Integer count = jdbcClient.sql("""
-                        SELECT COUNT(*) FROM document
-                        WHERE workspace_id = :workspaceId AND sha256 = :sha256 AND status <> 'DELETED'
-                        """)
-                .param("workspaceId", workspaceId)
-                .param("sha256", sha256)
-                .query(Integer.class)
-                .single();
-        return count > 0;
-    }
-
     public List<DocumentSummary> findInboxManaged(long workspaceId) {
         return jdbcClient.sql("""
                         SELECT id, source_path, sha256 FROM document
