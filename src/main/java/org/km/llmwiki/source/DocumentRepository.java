@@ -203,4 +203,18 @@ public class DocumentRepository {
         }
         return sql.toString();
     }
+
+    public Optional<DocumentDeletionView> findDeletionView(long workspaceId, long documentId) {
+        return jdbcClient.sql("""
+                        SELECT id AS document_id, source_path, status FROM document
+                        WHERE workspace_id = :workspaceId AND id = :documentId
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("documentId", documentId)
+                .query((rs, rowNum) -> new DocumentDeletionView(
+                        rs.getLong("document_id"),
+                        rs.getString("source_path"),
+                        rs.getString("status")))
+                .optional();
+    }
 }
