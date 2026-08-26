@@ -22,6 +22,12 @@ java -jar target/llm-wiki-km-0.1.0.jar
 
 The application listens only on `127.0.0.1:8765` by default.
 
+## SQLite
+
+The application stores local data in `data/knowledge.db` by default. Override the location with `KNOWLEDGE_DB_PATH` and the lock timeout with `SQLITE_BUSY_TIMEOUT_MS` (default: `5000`). Every connection enables foreign keys, WAL journal mode, a busy timeout, and `synchronous=NORMAL`.
+
+Database migrations and the application schema remain disabled until the dedicated Flyway story.
+
 ## System status
 
 ```bash
@@ -36,6 +42,3 @@ curl http://127.0.0.1:8765/api/v1/system/status
   }
 }
 ```
-
-SQLite and Flyway dependencies are included in the application skeleton. Their runtime configuration and migrations are intentionally deferred to the dedicated persistence stories.
-
