@@ -18,6 +18,8 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -33,6 +35,9 @@ class InboxDeleteIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    private DocumentRepository documentRepository;
 
     @Test
     void deletesPendingDocumentAndKeepsFilesystemConsistent() throws Exception {
@@ -329,6 +334,43 @@ class InboxDeleteIntegrationTest extends IsolatedIntegrationTest {
         } finally {
             Files.deleteIfExists(outsideFile);
         }
+    }
+
+
+    @Test
+    void failedDatabaseUpdateRestoresStagedFileAndRetainsPendingStatus() throws Exception {
+        Path root = createWorkspace();
+        long documentId = upload(root, "consistent.txt");
+        Path storedFile = root.resolve("inbox").resolve("consistent.txt");
+
+        doThrow(new IllegalStateException("simulated database failure"))
+                .when(documentRepository).markDeleted(documentId);
+
+        mockMvc.perform(delete("/api/v1/inbox/files/{id}", documentId))
+                .andExpect(status().isInternalServerError());
+
+        assertThat(storedFile).content().isEqualTo("content of consistent.txt");
+
+        String status = db().sql("SELECT status FROM document WHERE id = :id")
+                .param("id", documentId)
+                .query(String.class)
+                .single();
+        assertThat(status).isEqualTo("PENDING");
+
+        long stagedLeftovers;
+        try (var files = Files.list(root.resolve("temp"))) {
+            stagedLeftovers = files.filter(p -> p.getFileName().toString().startsWith("delete-")).count();
+        }
+        assertThat(stagedLeftovers).isZero();
+
+        doCallRealMethod().when(documentRepository).markDeleted(documentId);
+
+        mockMvc.perform(delete("/api/v1/inbox/files/{id}", documentId))
+                .andExpect(status().isNoContent());
+
+        assertThat(storedFile).doesNotExist();
+        assertThat(db().sql("SELECT status FROM document WHERE id = :id")
+                .param("id", documentId).query(String.class).single()).isEqualTo("DELETED");
     }
 
     private void jdbcUpdate(String sql, long id) {
