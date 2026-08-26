@@ -42,6 +42,21 @@ curl -X POST http://127.0.0.1:8765/api/v1/workspaces \
 
 Returns `201 Created`. The root path must be absolute and must not be the filesystem root or an existing file; existing directories are reused without touching their contents. Registering the same root twice returns `409 Conflict`.
 
+## Opening an existing workspace
+
+On every startup the application automatically loads the active workspace, validates its directory layout, and safely re-creates missing rebuildable directories (existing data is never overwritten). Additional endpoints:
+
+```bash
+curl http://127.0.0.1:8765/api/v1/workspaces              # list all workspaces
+curl http://127.0.0.1:8765/api/v1/workspaces/current      # active workspace + layout validation report
+curl http://127.0.0.1:8765/api/v1/workspaces/1            # single workspace
+curl -X PUT http://127.0.0.1:8765/api/v1/workspaces/current \
+  -H "Content-Type: application/json" \
+  -d '{"workspaceId": 2}'                                 # switch the active workspace
+```
+
+`GET /api/v1/system/status` reports overall state: `READY` (workspace loaded and root valid), `DEGRADED` (workspace registered but root directory missing), `NOT_INITIALIZED` (no workspace registered), or `ERROR` (database unavailable).
+
 ## System status
 
 ```bash
