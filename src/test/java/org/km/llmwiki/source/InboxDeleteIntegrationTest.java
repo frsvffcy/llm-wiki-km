@@ -1,6 +1,8 @@
 package org.km.llmwiki.source;
 
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -247,6 +249,83 @@ class InboxDeleteIntegrationTest extends IsolatedIntegrationTest {
                     .query(String.class)
                     .single();
             assertThat(status).isEqualTo("PENDING");
+        } finally {
+            Files.deleteIfExists(outsideFile);
+        }
+    }
+
+
+    @Test
+    void rejectsDeletionWhenInboxSymlinkDirectoryPointsOutsideWorkspace() throws Exception {
+        Path root = createWorkspace();
+        long documentId = upload(root, "placeholder.txt");
+
+        Path outsideDir = Files.createTempDirectory(Path.of("target/test-data").toAbsolutePath(), "outside-dir-");
+        Path outsideFile = outsideDir.resolve("victim.txt");
+        Files.writeString(outsideFile, "must survive");
+
+        try {
+            Path linkDir = root.resolve("inbox").resolve("link-dir");
+            Files.createSymbolicLink(linkDir, outsideDir);
+            assumeTrue(Files.isSymbolicLink(linkDir));
+            Files.writeString(linkDir.resolve("file.txt"), "outside content");
+
+            db().sql("""
+                    UPDATE document SET source_path = 'inbox/link-dir/file.txt',
+                        file_name = 'file.txt', sha256 = 'outside-hash'
+                    WHERE id = :id
+                    """)
+                    .param("id", documentId)
+                    .update();
+
+            mockMvc.perform(delete("/api/v1/inbox/files/{id}", documentId))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+
+            assertThat(outsideFile).content().isEqualTo("must survive");
+            assertThat(outsideDir.resolve("file.txt")).isRegularFile();
+
+            String status = db().sql("SELECT status FROM document WHERE id = :id")
+                    .param("id", documentId)
+                    .query(String.class)
+                    .single();
+            assertThat(status).isEqualTo("PENDING");
+        } finally {
+            try (var walk = Files.walk(outsideDir)) {
+                walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                    try {
+                        if (!Files.isSymbolicLink(p)) {
+                            Files.deleteIfExists(p);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                });
+            }
+            Files.deleteIfExists(root.resolve("inbox").resolve("link-dir"));
+        }
+    }
+
+    @Test
+    void rejectsDeletionWhenTargetItselfIsASymlinkFile() throws Exception {
+        Path root = createWorkspace();
+        long documentId = upload(root, "placeholder2.txt");
+
+        Path outsideFile = Files.createTempFile(Path.of("target/test-data").toAbsolutePath(), "outside-file-", ".txt");
+        Files.writeString(outsideFile, "survive me");
+
+        try {
+            Path linkFile = root.resolve("inbox").resolve("alias.txt");
+            Files.createSymbolicLink(linkFile, outsideFile);
+            assumeTrue(Files.isSymbolicLink(linkFile));
+
+            db().sql("UPDATE document SET source_path = 'inbox/alias.txt', file_name = 'alias.txt' WHERE id = :id")
+                    .param("id", documentId)
+                    .update();
+
+            mockMvc.perform(delete("/api/v1/inbox/files/{id}", documentId))
+                    .andExpect(status().isBadRequest());
+
+            assertThat(outsideFile).content().isEqualTo("survive me");
         } finally {
             Files.deleteIfExists(outsideFile);
         }
