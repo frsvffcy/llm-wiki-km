@@ -1,6 +1,7 @@
 package org.km.llmwiki.source;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -15,9 +16,22 @@ public class DocumentRegistrationService {
         this.documentRepository = documentRepository;
     }
 
+    @Transactional
+    public RegistrationResult replaceVersion(long workspaceId, DocumentSummary superseded, String fileName,
+                                             String sourcePath, String sha256, Long fileSize, String mimeType) {
+        documentRepository.markSuperseded(superseded.id());
+        return doRegister(workspaceId, fileName, sourcePath, sha256, fileSize, mimeType, superseded.id());
+    }
+
     public RegistrationResult register(long workspaceId, String fileName, String sourcePath,
                                        String sha256, Long fileSize, String mimeType,
                                        Long parentVersionDocumentId) {
+        return doRegister(workspaceId, fileName, sourcePath, sha256, fileSize, mimeType, parentVersionDocumentId);
+    }
+
+    private RegistrationResult doRegister(long workspaceId, String fileName, String sourcePath,
+                                          String sha256, Long fileSize, String mimeType,
+                                          Long parentVersionDocumentId) {
         Optional<DocumentSummary> original = documentRepository.findActiveByWorkspaceAndSha256(workspaceId, sha256);
         String status = original.isPresent()
                 ? DocumentStatus.DUPLICATE.name()
