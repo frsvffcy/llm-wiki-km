@@ -217,4 +217,43 @@ public class DocumentRepository {
                         rs.getString("status")))
                 .optional();
     }
+
+    public List<DocumentSummary> findCurrentDuplicatesOf(long workspaceId, long canonicalDocumentId) {
+        return jdbcClient.sql("""
+                        SELECT id, source_path, sha256 FROM document
+                        WHERE workspace_id = :workspaceId
+                          AND duplicate_of_document_id = :canonicalId
+                          AND status = 'DUPLICATE'
+                        ORDER BY id
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("canonicalId", canonicalDocumentId)
+                .query((rs, rowNum) -> new DocumentSummary(
+                        rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
+                .list();
+    }
+
+    public void promoteDuplicateToCanonical(long duplicateDocumentId) {
+        jdbcClient.sql("""
+                        UPDATE document SET status = 'PENDING', duplicate_of_document_id = NULL,
+                            updated_at = :now
+                        WHERE id = :id
+                        """)
+                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
+                .param("id", duplicateDocumentId)
+                .update();
+    }
+
+    public void repointDuplicates(long previousCanonicalId, long newCanonicalId) {
+        jdbcClient.sql("""
+                        UPDATE document SET duplicate_of_document_id = :newCanonicalId,
+                            updated_at = :now
+                        WHERE duplicate_of_document_id = :previousCanonicalId
+                          AND status = 'DUPLICATE'
+                        """)
+                .param("newCanonicalId", newCanonicalId)
+                .param("previousCanonicalId", previousCanonicalId)
+                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
+                .update();
+    }
 }
