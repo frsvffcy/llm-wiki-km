@@ -10,9 +10,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
@@ -111,6 +113,14 @@ public class InboxFileService {
     }
 
 
+    /**
+     * Consistency model: the physical file is first moved (atomic rename) into the workspace
+     * {@code temp/} staging directory; only then is the database row soft-deleted. If the database
+     * update fails, the staged file is restored to its original inbox location so no state change
+     * survives. After a successful commit the staged copy is discarded. A crash between the move
+     * and the database update leaves at most an unreferenced file under {@code temp/}; a later
+     * rescan reconciles the missing-inbox state through its removed-document detection.
+     */
     @org.springframework.transaction.annotation.Transactional
     public void delete(long documentId) {
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
@@ -146,12 +156,28 @@ public class InboxFileService {
 
         boolean wasCanonical = DocumentStatus.PENDING.name().equals(document.status());
 
+        Path stagingDirectory = Path.of(workspace.rootPath()).resolve("temp");
+        Path staged;
         try {
-            Files.deleteIfExists(target);
+            Files.createDirectories(stagingDirectory);
+            Path stagingTarget = stagingDirectory.resolve(
+                    "delete-" + java.util.UUID.randomUUID() + "-" + target.getFileName());
+            staged = moveToStaging(target, stagingTarget);
         } catch (IOException exception) {
-            throw new IllegalStateException("Could not delete inbox file for document " + documentId, exception);
+            throw new IllegalStateException("Could not stage inbox file for deletion", exception);
         }
-        documentRepository.markDeleted(documentId);
+
+        try {
+            documentRepository.markDeleted(documentId);
+        } catch (RuntimeException databaseFailure) {
+            restoreFromStaging(staged, target, databaseFailure);
+            throw databaseFailure;
+        }
+
+        try {
+            Files.deleteIfExists(staged);
+        } catch (IOException ignored) {
+        }
 
         if (wasCanonical) {
             promoteSuccessorFor(workspace.id(), documentId,
@@ -171,6 +197,29 @@ public class InboxFileService {
                 .orElse(duplicates.get(0));
         documentRepository.promoteDuplicateToCanonical(successor.id());
         documentRepository.repointDuplicates(deletedCanonicalId, successor.id());
+    }
+
+    private static Path moveToStaging(Path target, Path stagingTarget) throws IOException {
+        try {
+            Files.move(target, stagingTarget, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException exception) {
+            Files.move(target, stagingTarget);
+        }
+        return stagingTarget;
+    }
+
+    private static void restoreFromStaging(Path staged, Path originalLocation, RuntimeException cause) {
+        try {
+            Files.createDirectories(originalLocation.getParent());
+            Files.move(staged, originalLocation, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException restoreFailure) {
+            IllegalStateException unrecoverable = new IllegalStateException(
+                    "Delete compensation failed: staged file could not be restored to "
+                            + originalLocation + "; staged copy remains at " + staged,
+                    restoreFailure);
+            unrecoverable.addSuppressed(cause);
+            throw unrecoverable;
+        }
     }
 
     private static Path inboxRealPath(WorkspaceResponse workspace) {
