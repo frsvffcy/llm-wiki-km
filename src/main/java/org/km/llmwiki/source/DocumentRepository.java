@@ -20,13 +20,15 @@ public class DocumentRepository {
         this.jdbcClient = jdbcClient;
     }
 
-    public long insert(long workspaceId, String fileName, String sourcePath, String sha256,
-                       Long fileSize, String mimeType, String createdAt, String status,
-                       Long duplicateOfDocumentId, Long parentVersionDocumentId) {
+    public long insert(long workspaceId, String fileName, String originalFileName, String extension,
+                       String sourcePath, String sha256, Long fileSize, String mimeType, String createdAt,
+                       String status, Long duplicateOfDocumentId, Long parentVersionDocumentId) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("workspaceId", workspaceId)
                 .addValue("fileName", fileName)
+                .addValue("originalFileName", originalFileName)
+                .addValue("extension", extension)
                 .addValue("sourcePath", sourcePath)
                 .addValue("sha256", sha256)
                 .addValue("fileSize", fileSize)
@@ -36,12 +38,12 @@ public class DocumentRepository {
                 .addValue("duplicateOfDocumentId", duplicateOfDocumentId)
                 .addValue("parentVersionDocumentId", parentVersionDocumentId);
         jdbcClient.sql("""
-                        INSERT INTO document (workspace_id, file_name, source_path, sha256,
-                            file_size, mime_type, status, duplicate_of_document_id,
-                            parent_version_document_id, created_at, updated_at)
-                        VALUES (:workspaceId, :fileName, :sourcePath, :sha256,
-                            :fileSize, :mimeType, :status, :duplicateOfDocumentId,
-                            :parentVersionDocumentId, :createdAt, :createdAt)
+                        INSERT INTO document (workspace_id, file_name, original_file_name, extension,
+                            source_path, sha256, file_size, mime_type, status,
+                            duplicate_of_document_id, parent_version_document_id, created_at, updated_at)
+                        VALUES (:workspaceId, :fileName, :originalFileName, :extension,
+                            :sourcePath, :sha256, :fileSize, :mimeType, :status,
+                            :duplicateOfDocumentId, :parentVersionDocumentId, :createdAt, :createdAt)
                         """)
                 .paramSource(params)
                 .update(keyHolder);
@@ -116,5 +118,89 @@ public class DocumentRepository {
                 .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
                 .param("id", id)
                 .update();
+    }
+
+    public long countInboxDocuments(long workspaceId, String statusFilter, String extensionFilter) {
+        return jdbcClient.sql(inboxQuery("COUNT(*)", statusFilter, extensionFilter, null))
+                .paramSource(inboxParams(workspaceId, statusFilter, extensionFilter))
+                .query(Long.class)
+                .single();
+    }
+
+    public List<InboxDocumentRow> findInboxDocuments(long workspaceId, String statusFilter,
+                                                     String extensionFilter, String orderBy, int limit, int offset) {
+        String sql = inboxQuery("""
+                id AS document_id, file_name,
+                COALESCE(original_file_name, file_name) AS original_file_name,
+                extension, mime_type, file_size, status, created_at""", statusFilter, extensionFilter, orderBy)
+                + " LIMIT :limit OFFSET :offset";
+        return jdbcClient.sql(sql)
+                .paramSource(inboxParams(workspaceId, statusFilter, extensionFilter)
+                        .addValue("limit", limit)
+                        .addValue("offset", offset))
+                .query((rs, rowNum) -> new InboxDocumentRow(
+                        rs.getLong("document_id"),
+                        rs.getString("file_name"),
+                        rs.getString("original_file_name"),
+                        rs.getString("extension"),
+                        rs.getString("mime_type"),
+                        rs.getObject("file_size") == null ? null : rs.getLong("file_size"),
+                        rs.getString("status"),
+                        rs.getString("created_at")))
+                .list();
+    }
+
+    public Optional<InboxDocumentRow> findInboxDocument(long workspaceId, long documentId) {
+        return jdbcClient.sql("""
+                        SELECT id AS document_id, file_name,
+                            COALESCE(original_file_name, file_name) AS original_file_name,
+                            extension, mime_type, file_size, status, created_at
+                        FROM document
+                        WHERE workspace_id = :workspaceId AND id = :documentId
+                          AND source_path LIKE 'inbox/%'
+                          AND status NOT IN ('DELETED', 'SUPERSEDED', 'ARCHIVED')
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("documentId", documentId)
+                .query((rs, rowNum) -> new InboxDocumentRow(
+                        rs.getLong("document_id"),
+                        rs.getString("file_name"),
+                        rs.getString("original_file_name"),
+                        rs.getString("extension"),
+                        rs.getString("mime_type"),
+                        rs.getObject("file_size") == null ? null : rs.getLong("file_size"),
+                        rs.getString("status"),
+                        rs.getString("created_at")))
+                .optional();
+    }
+
+    private static org.springframework.jdbc.core.namedparam.MapSqlParameterSource inboxParams(
+            long workspaceId, String statusFilter, String extensionFilter) {
+        var params = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
+                .addValue("workspaceId", workspaceId);
+        if (statusFilter != null) {
+            params.addValue("status", statusFilter);
+        }
+        if (extensionFilter != null) {
+            params.addValue("extension", extensionFilter);
+        }
+        return params;
+    }
+
+    private static String inboxQuery(Object select, String statusFilter, String extensionFilter, String orderBy) {
+        StringBuilder sql = new StringBuilder("SELECT ").append(select).append(" FROM document")
+                .append(" WHERE workspace_id = :workspaceId")
+                .append(" AND source_path LIKE 'inbox/%'")
+                .append(" AND status NOT IN ('DELETED', 'SUPERSEDED', 'ARCHIVED')");
+        if (statusFilter != null) {
+            sql.append(" AND status = :status");
+        }
+        if (extensionFilter != null) {
+            sql.append(" AND extension = :extension");
+        }
+        if (orderBy != null && !orderBy.isBlank()) {
+            sql.append(" ORDER BY ").append(orderBy);
+        }
+        return sql.toString();
     }
 }

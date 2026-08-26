@@ -78,7 +78,7 @@ public class InboxFileService {
             DocumentRegistrationService.RegistrationResult registration;
             try {
                 registration = registrationService.register(
-                        workspace.id(), stored.getFileName().toString(),
+                        workspace.id(), fileName, stored.getFileName().toString(),
                         "inbox/" + stored.getFileName().toString(), written.sha256(),
                         written.size(), file.getContentType(), null);
             } catch (RuntimeException exception) {
