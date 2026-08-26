@@ -1,6 +1,7 @@
 package org.km.llmwiki.workspace;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -21,6 +22,7 @@ public class WorkspaceService {
         this.validator = validator;
     }
 
+    @Transactional
     public WorkspaceResponse create(CreateWorkspaceRequest request) {
         String name = requireNonBlank(request.name(), "name must not be blank");
         Path root = validateRootPath(request.rootPath());
@@ -63,6 +65,7 @@ public class WorkspaceService {
         return statusOf(row);
     }
 
+    @Transactional
     public WorkspaceStatusResponse open(long id) {
         requireRow(id);
         repository.activate(id);
