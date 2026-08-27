@@ -75,6 +75,54 @@ public class DocumentRepository {
                 .optional();
     }
 
+    public Optional<DocumentExtractionTarget> findExtractionTarget(long workspaceId, long documentId) {
+        return jdbcClient.sql("""
+                        SELECT id, file_name, mime_type, source_path, parse_status
+                        FROM document
+                        WHERE workspace_id = :workspaceId AND id = :documentId
+                          AND status NOT IN ('DELETED', 'SUPERSEDED')
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("documentId", documentId)
+                .query((rs, rowNum) -> new DocumentExtractionTarget(
+                        rs.getLong("id"),
+                        rs.getString("file_name"),
+                        rs.getString("mime_type"),
+                        rs.getString("source_path"),
+                        rs.getString("parse_status")))
+                .optional();
+    }
+
+    public void markExtractionSucceeded(long documentId, String extractedTextHash) {
+        jdbcClient.sql("""
+                        UPDATE document
+                        SET parse_status = :parseStatus, extracted_text_hash = :extractedTextHash,
+                            error_code = NULL, error_message = NULL, updated_at = :now
+                        WHERE id = :id
+                        """)
+                .param("parseStatus", DocumentStatus.PROCESSED.name())
+                .param("extractedTextHash", extractedTextHash)
+                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
+                .param("id", documentId)
+                .update();
+    }
+
+    public void markExtractionFailed(long documentId, DocumentStatus parseStatus,
+                                     String errorCode, String errorMessage) {
+        jdbcClient.sql("""
+                        UPDATE document
+                        SET parse_status = :parseStatus, extracted_text_hash = NULL,
+                            error_code = :errorCode, error_message = :errorMessage, updated_at = :now
+                        WHERE id = :id
+                        """)
+                .param("parseStatus", parseStatus.name())
+                .param("errorCode", errorCode)
+                .param("errorMessage", errorMessage)
+                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
+                .param("id", documentId)
+                .update();
+    }
+
     public Optional<DocumentSummary> findActiveByWorkspaceAndSha256(long workspaceId, String sha256) {
         return jdbcClient.sql("""
                         SELECT id, source_path, sha256 FROM document
