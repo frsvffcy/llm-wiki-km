@@ -18,6 +18,8 @@ public class SourceChunkRepository {
     }
 
     public void replaceForDocument(long documentId, List<SourceChunkDraft> chunks) {
+        jdbcClient.sql("DELETE FROM knowledge_candidate WHERE document_id = :documentId")
+                .param("documentId", documentId).update();
         deleteByDocumentId(documentId);
         if (chunks.isEmpty()) {
             return;

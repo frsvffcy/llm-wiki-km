@@ -6,6 +6,7 @@ import org.km.llmwiki.ai.DocumentAnalysisConfigurationLoader;
 import org.km.llmwiki.ai.DocumentAnalysisPrompt;
 import org.km.llmwiki.ai.DocumentAnalysisRequest;
 import org.km.llmwiki.ai.DocumentAnalysisMetadata;
+import org.km.llmwiki.ai.KnowledgeCandidate;
 import org.km.llmwiki.ai.LlmAnalysisResult;
 import org.km.llmwiki.ai.LlmAnalysisValidationException;
 import org.km.llmwiki.ai.LlmClient;
@@ -16,6 +17,8 @@ import org.km.llmwiki.source.DocumentAnalysisTarget;
 import org.km.llmwiki.source.DocumentRepository;
 import org.km.llmwiki.source.SourceChunk;
 import org.km.llmwiki.source.SourceChunkRepository;
+import org.km.llmwiki.wiki.KnowledgeCandidateRepository;
+import org.km.llmwiki.wiki.KnowledgeCandidateValidator;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
@@ -43,6 +46,8 @@ public class DocumentAnalysisJobService {
     private final ProcessingJobItemRepository jobItemRepository;
     private final ProcessingLogRepository logRepository;
     private final DocumentAnalysisRepository analysisRepository;
+    private final KnowledgeCandidateValidator candidateValidator;
+    private final KnowledgeCandidateRepository candidateRepository;
     private final DocumentAnalysisConfigurationLoader configurationLoader;
     private final LlmClient llmClient;
     private final TaskExecutor taskExecutor;
@@ -56,6 +61,8 @@ public class DocumentAnalysisJobService {
                                       ProcessingJobItemRepository jobItemRepository,
                                       ProcessingLogRepository logRepository,
                                       DocumentAnalysisRepository analysisRepository,
+                                      KnowledgeCandidateValidator candidateValidator,
+                                      KnowledgeCandidateRepository candidateRepository,
                                       DocumentAnalysisConfigurationLoader configurationLoader,
                                       LlmClient llmClient,
                                       @Qualifier("documentAnalysisTaskExecutor") TaskExecutor taskExecutor,
@@ -68,6 +75,8 @@ public class DocumentAnalysisJobService {
         this.jobItemRepository = jobItemRepository;
         this.logRepository = logRepository;
         this.analysisRepository = analysisRepository;
+        this.candidateValidator = candidateValidator;
+        this.candidateRepository = candidateRepository;
         this.configurationLoader = configurationLoader;
         this.llmClient = llmClient;
         this.taskExecutor = taskExecutor;
@@ -140,7 +149,8 @@ public class DocumentAnalysisJobService {
             prompt = configuration.prompt();
             LlmAnalysisResult result = llmClient.analyze(request.withConfiguration(configuration));
             validateEvidence(result, request);
-            persistSuccess(job, item, prompt, result);
+            var candidates = candidateValidator.validate(item.document().documentId(), chunks, result.candidates());
+            persistSuccess(job, item, prompt, result, candidates);
         } catch (PromptLoadException exception) {
             persistFailure(job, item, prompt, exception.errorCode().name(), exception.getMessage());
         } catch (LlmClientException exception) {
@@ -151,9 +161,11 @@ public class DocumentAnalysisJobService {
     }
 
     private void persistSuccess(ProcessingJob job, ProcessingJobItem item, DocumentAnalysisPrompt prompt,
-                                LlmAnalysisResult result) {
+                                LlmAnalysisResult result, List<KnowledgeCandidate> candidates) {
         transactionTemplate.executeWithoutResult(status -> {
-            analysisRepository.saveSuccess(item.id(), item.document().documentId(), prompt, result, resultJson(result));
+            long analysisId = analysisRepository.saveSuccess(item.id(), item.document().documentId(), prompt, result,
+                    resultJson(result));
+            candidateRepository.saveAll(analysisId, item.document().documentId(), candidates);
             jobItemRepository.markFinished(item.id(), ProcessingJobItemStatus.SUCCEEDED, null, null);
             logRepository.append(job.id(), item.id(), item.document().documentId(), ProcessingJobItemStatus.SUCCEEDED,
                     "文件分析完成", metadata(Map.of(
