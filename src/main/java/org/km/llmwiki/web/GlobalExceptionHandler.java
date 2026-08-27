@@ -3,6 +3,7 @@ package org.km.llmwiki.web;
 import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
 import org.km.llmwiki.source.DocumentNotFoundException;
+import org.km.llmwiki.source.SourceChunkNotFoundException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceNotFoundException;
@@ -35,6 +36,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DocumentNotFoundException.class)
     public ResponseEntity<ApiError> handleDocumentNotFound(DocumentNotFoundException exception) {
         return respond(HttpStatus.NOT_FOUND, "DOCUMENT_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(SourceChunkNotFoundException.class)
+    public ResponseEntity<ApiError> handleSourceChunkNotFound(SourceChunkNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "SOURCE_CHUNK_NOT_FOUND", exception.getMessage());
     }
 
     @ExceptionHandler(DocumentAlreadyProcessedException.class)
