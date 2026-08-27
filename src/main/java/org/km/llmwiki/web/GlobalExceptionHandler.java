@@ -4,6 +4,7 @@ import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
 import org.km.llmwiki.source.DocumentNotFoundException;
 import org.km.llmwiki.source.SourceChunkNotFoundException;
+import org.km.llmwiki.wiki.KnowledgeProposalNotFoundException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceNotFoundException;
@@ -41,6 +42,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SourceChunkNotFoundException.class)
     public ResponseEntity<ApiError> handleSourceChunkNotFound(SourceChunkNotFoundException exception) {
         return respond(HttpStatus.NOT_FOUND, "SOURCE_CHUNK_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(KnowledgeProposalNotFoundException.class)
+    public ResponseEntity<ApiError> handleKnowledgeProposalNotFound(KnowledgeProposalNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "KNOWLEDGE_PROPOSAL_NOT_FOUND", exception.getMessage());
     }
 
     @ExceptionHandler(DocumentAlreadyProcessedException.class)
