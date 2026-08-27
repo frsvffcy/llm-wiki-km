@@ -48,6 +48,7 @@ class InboxDeleteIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(status().isNoContent());
 
         assertThat(root.resolve("inbox").resolve("doomed.txt")).doesNotExist();
+        assertThat(stagedDeleteFileCount(root)).isZero();
 
         String status = db().sql("SELECT status FROM document WHERE id = :id")
                 .param("id", documentId)
@@ -357,11 +358,7 @@ class InboxDeleteIntegrationTest extends IsolatedIntegrationTest {
                 .single();
         assertThat(status).isEqualTo("PENDING");
 
-        long stagedLeftovers;
-        try (var files = Files.list(root.resolve("temp"))) {
-            stagedLeftovers = files.filter(p -> p.getFileName().toString().startsWith("delete-")).count();
-        }
-        assertThat(stagedLeftovers).isZero();
+        assertThat(stagedDeleteFileCount(root)).isZero();
 
         doCallRealMethod().when(documentRepository).markDeleted(documentId);
 
@@ -371,6 +368,50 @@ class InboxDeleteIntegrationTest extends IsolatedIntegrationTest {
         assertThat(storedFile).doesNotExist();
         assertThat(db().sql("SELECT status FROM document WHERE id = :id")
                 .param("id", documentId).query(String.class).single()).isEqualTo("DELETED");
+    }
+
+    @Test
+    void promotionFailureRollsBackDatabaseAndRestoresStagedCanonicalFile() throws Exception {
+        Path root = createWorkspace();
+        Files.writeString(root.resolve("inbox").resolve("canonical.txt"), "shared");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
+        Files.writeString(root.resolve("inbox").resolve("duplicate.txt"), "shared");
+        mockMvc.perform(post("/api/v1/inbox/rescan"))
+                .andExpect(status().isOk());
+
+        long canonicalId = db().sql("SELECT id FROM document WHERE file_name = 'canonical.txt'")
+                .query(Long.class).single();
+        long duplicateId = db().sql("SELECT id FROM document WHERE file_name = 'duplicate.txt'")
+                .query(Long.class).single();
+        Path canonicalFile = root.resolve("inbox").resolve("canonical.txt");
+
+        doThrow(new IllegalStateException("simulated duplicate repoint failure"))
+                .when(documentRepository).repointDuplicates(canonicalId, duplicateId);
+
+        mockMvc.perform(delete("/api/v1/inbox/files/{id}", canonicalId))
+                .andExpect(status().isInternalServerError());
+
+        assertThat(canonicalFile).content().isEqualTo("shared");
+        assertThat(stagedDeleteFileCount(root)).isZero();
+        assertThat(db().sql("SELECT status FROM document WHERE id = :id")
+                .param("id", canonicalId).query(String.class).single()).isEqualTo("PENDING");
+        assertThat(db().sql("SELECT status FROM document WHERE id = :id")
+                .param("id", duplicateId).query(String.class).single()).isEqualTo("DUPLICATE");
+        assertThat(db().sql("SELECT duplicate_of_document_id FROM document WHERE id = :id")
+                .param("id", duplicateId).query(Long.class).single()).isEqualTo(canonicalId);
+
+        doCallRealMethod().when(documentRepository).repointDuplicates(canonicalId, duplicateId);
+    }
+
+    private long stagedDeleteFileCount(Path root) throws Exception {
+        Path temp = root.resolve("temp");
+        if (!Files.exists(temp)) {
+            return 0;
+        }
+        try (var files = Files.list(temp)) {
+            return files.filter(p -> p.getFileName().toString().startsWith("delete-")).count();
+        }
     }
 
     private void jdbcUpdate(String sql, long id) {
