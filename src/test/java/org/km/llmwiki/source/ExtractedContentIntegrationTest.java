@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
@@ -78,15 +79,42 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
 
     @Test
     void reportsUnderstandableErrorForUnsupportedDocumentType() throws Exception {
-        createWorkspace();
+        Path root = createWorkspace();
         long documentId = upload("archive.bin", "application/octet-stream", "not a supported document");
 
         mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error.code").value("EXTRACTION_UNSUPPORTED_TYPE"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.documentId").value(documentId))
+                .andExpect(jsonPath("$.data.parseStatus").value("UNSUPPORTED"))
+                .andExpect(jsonPath("$.data.chunkCount").value(0))
+                .andExpect(jsonPath("$.data.errorCode").value("EXTRACTION_UNSUPPORTED_TYPE"))
+                .andExpect(jsonPath("$.data.errorMessage").value("不支援此文件類型的文字抽取"));
 
         assertThat(db().sql("SELECT parse_status FROM document WHERE id = :id")
                 .param("id", documentId).query(String.class).single()).isEqualTo("UNSUPPORTED");
+        assertThat(Files.readString(root.resolve("inbox/archive.bin"))).isEqualTo("not a supported document");
+
+        mockMvc.perform(get("/api/v1/inbox"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].parseStatus").value("UNSUPPORTED"))
+                .andExpect(jsonPath("$.data[0].errorCode").value("EXTRACTION_UNSUPPORTED_TYPE"))
+                .andExpect(jsonPath("$.data[0].errorMessage").value("不支援此文件類型的文字抽取"));
+
+        long supportedDocumentId = upload("note.txt", "text/plain", "仍可處理其他文件");
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", supportedDocumentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.parseStatus").value("PROCESSED"));
+
+        db().sql("UPDATE document SET mime_type = 'text/plain' WHERE id = :id")
+                .param("id", documentId).update();
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.parseStatus").value("PROCESSED"))
+                .andExpect(jsonPath("$.data.errorCode").doesNotExist())
+                .andExpect(jsonPath("$.data.errorMessage").doesNotExist());
+
+        assertThat(db().sql("SELECT COUNT(*) FROM document WHERE id = :id AND error_code IS NULL")
+                .param("id", documentId).query(Integer.class).single()).isEqualTo(1);
     }
 
     @Test
@@ -145,7 +173,7 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
         return Long.parseLong(response.replaceAll(".*\\\"documentId\\\":(\\d+).*", "$1"));
     }
 
-    private void createWorkspace() throws Exception {
+    private Path createWorkspace() throws Exception {
         Path root = Path.of("target/test-data/extraction-root-" + UUID.randomUUID()).toAbsolutePath();
         mockMvc.perform(post("/api/v1/workspaces")
                         .contentType(APPLICATION_JSON)
@@ -153,6 +181,7 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
                                 {"name": "Extraction Test", "rootPath": "%s"}
                                 """.formatted(root)))
                 .andExpect(status().isCreated());
+        return root;
     }
 
     private static byte[] blankPdf() throws Exception {
