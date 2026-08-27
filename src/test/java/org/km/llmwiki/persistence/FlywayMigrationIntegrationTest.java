@@ -33,6 +33,10 @@ class FlywayMigrationIntegrationTest {
         assertThat(tableExists("processing_job_item")).isTrue();
         assertThat(tableExists("processing_log")).isTrue();
         assertThat(tableExists("document_analysis")).isTrue();
+        assertThat(tableExists("knowledge_candidate")).isTrue();
+        assertThat(tableExists("knowledge_candidate_evidence")).isTrue();
+        assertThat(tableExists("knowledge_proposal")).isTrue();
+        assertThat(tableExists("knowledge_proposal_evidence")).isTrue();
         assertThat(tableExists("flyway_schema_history")).isTrue();
     }
 
