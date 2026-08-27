@@ -27,15 +27,51 @@ public class ExtractedContentNormalizer {
     }
 
     public String normalize(String content) {
-        String normalized = normalizeLineEndings(Objects.requireNonNull(content, "content must not be null"));
+        return canonicalize(content).content();
+    }
+
+    /**
+     * Builds the document-scoped normalization context used by both the extracted document and its source chunks.
+     */
+    public CanonicalNormalization canonicalize(String content) {
+        String preparedContent = prepare(Objects.requireNonNull(content, "content must not be null"));
+        RepeatedEdges repeatedEdges = repeatedEdges(preparedContent);
+        return new CanonicalNormalization(normalizePrepared(preparedContent, repeatedEdges), repeatedEdges);
+    }
+
+    /**
+     * Normalizes a chunk with the repeated header/footer decision already made for its containing document.
+     */
+    public String normalizeChunk(String content, CanonicalNormalization canonicalNormalization) {
+        Objects.requireNonNull(canonicalNormalization, "canonicalNormalization must not be null");
+        return normalizePrepared(prepare(Objects.requireNonNull(content, "content must not be null")),
+                canonicalNormalization.repeatedEdges());
+    }
+
+    private static String prepare(String content) {
+        String normalized = normalizeLineEndings(content);
         normalized = Normalizer.normalize(normalized, Normalizer.Form.NFC);
         normalized = removeControlCharacters(normalized);
-        normalized = removeTrailingWhitespace(normalized);
-        if (properties.isRepeatedHeaderFooterEnabled()) {
-            normalized = removeRepeatedHeaderAndFooters(normalized,
-                    properties.getRepeatedHeaderFooterMinimumOccurrences());
-        }
+        return removeTrailingWhitespace(normalized);
+    }
+
+    private String normalizePrepared(String content, RepeatedEdges repeatedEdges) {
+        String normalized = removeRepeatedHeaderAndFooters(content, repeatedEdges);
         return collapseExcessBlankLines(normalized);
+    }
+
+    private RepeatedEdges repeatedEdges(String content) {
+        if (!properties.isRepeatedHeaderFooterEnabled()) {
+            return RepeatedEdges.none();
+        }
+        List<List<String>> pages = splitPages(content);
+        int minimumOccurrences = properties.getRepeatedHeaderFooterMinimumOccurrences();
+        if (pages.size() < minimumOccurrences) {
+            return RepeatedEdges.none();
+        }
+        return new RepeatedEdges(
+                repeatedEdgeLines(pages, true, minimumOccurrences),
+                repeatedEdgeLines(pages, false, minimumOccurrences));
     }
 
     private static String normalizeLineEndings(String content) {
@@ -61,20 +97,14 @@ public class ExtractedContentNormalizer {
         return content.replaceAll("\\n{3,}", "\n\n");
     }
 
-    private static String removeRepeatedHeaderAndFooters(String content, int minimumOccurrences) {
+    private static String removeRepeatedHeaderAndFooters(String content, RepeatedEdges repeatedEdges) {
         List<List<String>> pages = splitPages(content);
-        if (pages.size() < minimumOccurrences) {
-            return content;
-        }
-
-        Set<String> repeatedHeaders = repeatedEdgeLines(pages, true, minimumOccurrences);
-        Set<String> repeatedFooters = repeatedEdgeLines(pages, false, minimumOccurrences);
-        if (repeatedHeaders.isEmpty() && repeatedFooters.isEmpty()) {
+        if (repeatedEdges.isEmpty()) {
             return content;
         }
 
         return pages.stream()
-                .map(page -> withoutRepeatedEdges(page, repeatedHeaders, repeatedFooters))
+                .map(page -> withoutRepeatedEdges(page, repeatedEdges.headers(), repeatedEdges.footers()))
                 .map(lines -> String.join("\n", lines))
                 .collect(Collectors.joining(PAGE_BREAK));
     }
@@ -140,6 +170,19 @@ public class ExtractedContentNormalizer {
                 }
                 return;
             }
+        }
+    }
+
+    public record CanonicalNormalization(String content, RepeatedEdges repeatedEdges) {
+    }
+
+    public record RepeatedEdges(Set<String> headers, Set<String> footers) {
+        private static RepeatedEdges none() {
+            return new RepeatedEdges(Set.of(), Set.of());
+        }
+
+        private boolean isEmpty() {
+            return headers.isEmpty() && footers.isEmpty();
         }
     }
 }

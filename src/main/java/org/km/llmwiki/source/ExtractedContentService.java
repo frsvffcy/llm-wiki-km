@@ -67,7 +67,9 @@ public class ExtractedContentService {
                 throw extractionFailure(document, DocumentStatus.FAILED,
                         "EXTRACTION_PARSE_FAILED", "文件文字抽取失敗");
             }
-            String normalizedContent = extractedContentNormalizer.normalize(parsed.content());
+            ExtractedContentNormalizer.CanonicalNormalization canonicalNormalization =
+                    extractedContentNormalizer.canonicalize(parsed.content());
+            String normalizedContent = canonicalNormalization.content();
             if (scannedPdfDetector.requiresOcr(source, document.mimeType(), document.fileName(), normalizedContent)) {
                 extractedContentRepository.deleteByDocumentId(document.documentId());
                 sourceChunkRepository.deleteByDocumentId(document.documentId());
@@ -78,7 +80,8 @@ public class ExtractedContentService {
             }
             int chunkCount = chunkCount(normalizedContent);
             extractedContentRepository.save(document.documentId(), normalizedContent, chunkCount);
-            sourceChunkRepository.replaceForDocument(document.documentId(), sourceChunker.chunk(parsed.content()));
+            sourceChunkRepository.replaceForDocument(document.documentId(),
+                    sourceChunker.chunk(parsed.content(), canonicalNormalization));
             documentRepository.markExtractionSucceeded(document.documentId(), sha256(normalizedContent));
             return new ExtractionResponse(document.documentId(), DocumentStatus.PROCESSED.name(), chunkCount,
                     null, null);

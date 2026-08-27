@@ -13,7 +13,7 @@ class SourceChunkerTest {
         SourceChunker chunker = new SourceChunker(new ExtractedContentNormalizer(
                 new ExtractedContentNormalizationProperties()));
 
-        List<SourceChunkDraft> chunks = chunker.chunk("""
+        String content = """
                 # Overview
 
                 First paragraph.
@@ -23,7 +23,8 @@ class SourceChunkerTest {
                 ## Details
 
                 Detail on the first page.Detail on the second page.
-                """);
+                """;
+        List<SourceChunkDraft> chunks = chunker.chunk(content, canonicalize(content));
 
         assertThat(chunks).hasSize(3);
         assertThat(chunks.get(0))
@@ -47,7 +48,7 @@ class SourceChunkerTest {
                 new ExtractedContentNormalizationProperties()));
         String paragraph = "word ".repeat(SourceChunker.TARGET_MAX_CHUNK_LENGTH);
 
-        List<SourceChunkDraft> chunks = chunker.chunk(paragraph);
+        List<SourceChunkDraft> chunks = chunker.chunk(paragraph, canonicalize(paragraph));
 
         assertThat(chunks).singleElement().satisfies(chunk -> {
             assertThat(chunk.content()).hasSizeGreaterThan(SourceChunker.TARGET_MAX_CHUNK_LENGTH);
@@ -55,5 +56,9 @@ class SourceChunkerTest {
             assertThat(chunk.normalizedContent()).hasSizeGreaterThan(SourceChunker.TARGET_MAX_CHUNK_LENGTH);
             assertThat(chunk.contentHash()).hasSize(64);
         });
+    }
+
+    private static ExtractedContentNormalizer.CanonicalNormalization canonicalize(String content) {
+        return new ExtractedContentNormalizer(new ExtractedContentNormalizationProperties()).canonicalize(content);
     }
 }

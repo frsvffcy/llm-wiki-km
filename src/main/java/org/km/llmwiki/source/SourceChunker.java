@@ -24,10 +24,10 @@ public class SourceChunker {
         this.normalizer = normalizer;
     }
 
-    public List<SourceChunkDraft> chunk(String content) {
-        List<SourceChunkDraft> chunks = new ArrayList<>();
+    public List<SourceChunkDraft> chunk(String content,
+                                        ExtractedContentNormalizer.CanonicalNormalization canonicalNormalization) {
+        List<ChunkCandidate> candidates = new ArrayList<>();
         List<String> headingLevels = new ArrayList<>();
-        int chunkNo = 1;
         String[] pages = content.split("\\f", -1);
         for (int pageIndex = 0; pageIndex < pages.length; pageIndex++) {
             ChunkAccumulator accumulator = null;
@@ -39,7 +39,7 @@ public class SourceChunker {
                 Matcher heading = MARKDOWN_HEADING.matcher(block);
                 if (heading.matches()) {
                     if (accumulator != null) {
-                        chunks.add(toDraft(chunkNo++, accumulator));
+                        candidates.add(toCandidate(accumulator, canonicalNormalization));
                     }
                     updateHeadingLevels(headingLevels, heading.group(1).length(), heading.group(2));
                     accumulator = new ChunkAccumulator(pageIndex + 1, currentSection(headingLevels),
@@ -53,24 +53,52 @@ public class SourceChunker {
                             currentHeadingPath(headingLevels));
                 }
                 if (!accumulator.isEmpty() && accumulator.lengthWith(block) > TARGET_MAX_CHUNK_LENGTH) {
-                    chunks.add(toDraft(chunkNo++, accumulator));
+                    candidates.add(toCandidate(accumulator, canonicalNormalization));
                     accumulator = new ChunkAccumulator(pageIndex + 1, currentSection(headingLevels),
                             currentHeadingPath(headingLevels));
                 }
                 accumulator.append(block);
             }
             if (accumulator != null && !accumulator.isEmpty()) {
-                chunks.add(toDraft(chunkNo++, accumulator));
+                candidates.add(toCandidate(accumulator, canonicalNormalization));
             }
+        }
+        return retainOriginalEvidence(candidates);
+    }
+
+    private ChunkCandidate toCandidate(ChunkAccumulator accumulator,
+                                       ExtractedContentNormalizer.CanonicalNormalization canonicalNormalization) {
+        String originalContent = accumulator.content();
+        String normalizedContent = normalizer.normalizeChunk(originalContent, canonicalNormalization);
+        return new ChunkCandidate(accumulator.pageNo(), accumulator.section(), accumulator.headingPath(),
+                originalContent, normalizedContent);
+    }
+
+    private static List<SourceChunkDraft> retainOriginalEvidence(List<ChunkCandidate> candidates) {
+        List<SourceChunkDraft> chunks = new ArrayList<>();
+        String pendingOriginalContent = null;
+        for (ChunkCandidate candidate : candidates) {
+            if (candidate.normalizedContent().isBlank()) {
+                pendingOriginalContent = appendEvidence(pendingOriginalContent, candidate.originalContent());
+                continue;
+            }
+            String originalContent = appendEvidence(pendingOriginalContent, candidate.originalContent());
+            pendingOriginalContent = null;
+            chunks.add(new SourceChunkDraft(chunks.size() + 1, candidate.pageNo(), candidate.section(),
+                    candidate.headingPath(), originalContent, candidate.normalizedContent(),
+                    sha256(candidate.normalizedContent())));
+        }
+        if (pendingOriginalContent != null && !chunks.isEmpty()) {
+            SourceChunkDraft previous = chunks.removeLast();
+            chunks.add(new SourceChunkDraft(previous.chunkNo(), previous.pageNo(), previous.section(),
+                    previous.headingPath(), appendEvidence(previous.content(), pendingOriginalContent),
+                    previous.normalizedContent(), previous.contentHash()));
         }
         return List.copyOf(chunks);
     }
 
-    private SourceChunkDraft toDraft(int chunkNo, ChunkAccumulator accumulator) {
-        String originalContent = accumulator.content();
-        String normalizedContent = normalizer.normalize(originalContent);
-        return new SourceChunkDraft(chunkNo, accumulator.pageNo(), accumulator.section(),
-                accumulator.headingPath(), originalContent, normalizedContent, sha256(normalizedContent));
+    private static String appendEvidence(String existing, String addition) {
+        return existing == null ? addition : existing + "\n\n" + addition;
     }
 
     private static void updateHeadingLevels(List<String> headingLevels, int level, String heading) {
@@ -155,5 +183,9 @@ public class SourceChunker {
         private String content() {
             return content.toString();
         }
+    }
+
+    private record ChunkCandidate(int pageNo, String section, String headingPath, String originalContent,
+                                  String normalizedContent) {
     }
 }
