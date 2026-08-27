@@ -9,5 +9,7 @@ public record InboxDocumentRow(
         Long fileSize,
         String status,
         String parseStatus,
+        String errorCode,
+        String errorMessage,
         String createdAt) {
 }

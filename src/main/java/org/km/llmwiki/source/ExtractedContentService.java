@@ -56,8 +56,7 @@ public class ExtractedContentService {
         DocumentParser parser = parserRegistry.findParser(document.mimeType(), document.fileName())
                 .orElse(null);
         if (parser == null) {
-            throw extractionFailure(document, DocumentStatus.UNSUPPORTED,
-                    "EXTRACTION_UNSUPPORTED_TYPE", "不支援此文件類型的文字抽取");
+            return unsupported(document);
         }
 
         try {
@@ -74,13 +73,15 @@ public class ExtractedContentService {
                 sourceChunkRepository.deleteByDocumentId(document.documentId());
                 documentRepository.markExtractionFailed(document.documentId(), DocumentStatus.NEED_OCR,
                         "OCR_REQUIRED", "PDF 缺乏可用文字層，需先進行 OCR");
-                return new ExtractionResponse(document.documentId(), DocumentStatus.NEED_OCR.name(), 0);
+                return new ExtractionResponse(document.documentId(), DocumentStatus.NEED_OCR.name(), 0,
+                        "OCR_REQUIRED", "PDF 缺乏可用文字層，需先進行 OCR");
             }
             int chunkCount = chunkCount(normalizedContent);
             extractedContentRepository.save(document.documentId(), normalizedContent, chunkCount);
             sourceChunkRepository.replaceForDocument(document.documentId(), sourceChunker.chunk(parsed.content()));
             documentRepository.markExtractionSucceeded(document.documentId(), sha256(normalizedContent));
-            return new ExtractionResponse(document.documentId(), DocumentStatus.PROCESSED.name(), chunkCount);
+            return new ExtractionResponse(document.documentId(), DocumentStatus.PROCESSED.name(), chunkCount,
+                    null, null);
         } catch (IOException exception) {
             throw extractionFailure(document, DocumentStatus.FAILED,
                     "EXTRACTION_SOURCE_UNAVAILABLE", "無法讀取待抽取的文件");
@@ -119,6 +120,17 @@ public class ExtractedContentService {
         sourceChunkRepository.deleteByDocumentId(document.documentId());
         documentRepository.markExtractionFailed(document.documentId(), parseStatus, errorCode, message);
         return new DocumentExtractionException(errorCode, message);
+    }
+
+    private ExtractionResponse unsupported(DocumentExtractionTarget document) {
+        String errorCode = "EXTRACTION_UNSUPPORTED_TYPE";
+        String errorMessage = "不支援此文件類型的文字抽取";
+        extractedContentRepository.deleteByDocumentId(document.documentId());
+        sourceChunkRepository.deleteByDocumentId(document.documentId());
+        documentRepository.markExtractionFailed(document.documentId(), DocumentStatus.UNSUPPORTED,
+                errorCode, errorMessage);
+        return new ExtractionResponse(document.documentId(), DocumentStatus.UNSUPPORTED.name(), 0,
+                errorCode, errorMessage);
     }
 
     private static Path resolveSource(WorkspaceResponse workspace, String sourcePath) throws IOException {
