@@ -29,8 +29,27 @@ public class DocumentAnalysisConfigurationLoader {
     }
 
     public LoadedDocumentAnalysisConfiguration load(DocumentAnalysisRequest request) {
-        WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
-                .orElseThrow(NoActiveWorkspaceException::new);
+        AnalysisSettings settings = loadSettings();
+        return load(request, settings);
+    }
+
+    /**
+     * Resolves the non-secret settings before evidence is selected for an analysis request.
+     */
+    public AnalysisSettings loadSettings() {
+        WorkspaceResponse workspace = activeWorkspace();
+        return settingsRepository.resolve(workspace.id());
+    }
+
+    /**
+     * Renders the prompt after the selected evidence has been placed on the request.
+     */
+    public LoadedDocumentAnalysisConfiguration load(DocumentAnalysisRequest request, AnalysisSettings settings) {
+        return new LoadedDocumentAnalysisConfiguration(loadPrompt(request), settings);
+    }
+
+    private DocumentAnalysisPrompt loadPrompt(DocumentAnalysisRequest request) {
+        WorkspaceResponse workspace = activeWorkspace();
         if (workspace.configPath() == null || workspace.configPath().isBlank()) {
             throw new PromptLoadException(PromptLoadErrorCode.PROMPT_TEMPLATE_INVALID,
                     "Active workspace has no config directory");
@@ -53,10 +72,15 @@ public class DocumentAnalysisConfigurationLoader {
                         "Document analysis prompt template escapes workspace config directory");
             }
             DocumentAnalysisPrompt prompt = promptTemplate.render(Files.readString(realPromptPath), realPromptPath, request);
-            return new LoadedDocumentAnalysisConfiguration(prompt, settingsRepository.resolve(workspace.id()));
+            return prompt;
         } catch (IOException exception) {
             throw new PromptLoadException(PromptLoadErrorCode.PROMPT_TEMPLATE_INVALID,
                     "Document analysis prompt template could not be read", exception);
         }
+    }
+
+    private WorkspaceResponse activeWorkspace() {
+        return workspaceService.findActiveWithoutValidation()
+                .orElseThrow(NoActiveWorkspaceException::new);
     }
 }
