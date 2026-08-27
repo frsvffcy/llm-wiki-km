@@ -3,7 +3,11 @@ package org.km.llmwiki.source;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -27,6 +31,7 @@ import java.util.Set;
 @Service
 public class InboxFileService {
 
+    private static final Logger log = LoggerFactory.getLogger(InboxFileService.class);
     private static final int MAX_NAME_ALLOCATION_ATTEMPTS = 10_000;
     private static final Set<String> DELETABLE_STATUSES = java.util.Set.of(
             DocumentStatus.PENDING.name(),
@@ -116,8 +121,9 @@ public class InboxFileService {
     /**
      * Consistency model: the physical file is first moved (atomic rename) into the workspace
      * {@code temp/} staging directory; only then is the database row soft-deleted. If the database
-     * update fails, the staged file is restored to its original inbox location so no state change
-     * survives. After a successful commit the staged copy is discarded. A crash between the move
+     * update or transaction commit fails, the staged file is restored to its original inbox location
+     * so no state change survives. The staged copy is discarded only after a successful transaction
+     * commit. A crash between the move
      * and the database update leaves at most an unreferenced file under {@code temp/}; a later
      * rescan reconciles the missing-inbox state through its removed-document detection.
      */
@@ -167,17 +173,8 @@ public class InboxFileService {
             throw new IllegalStateException("Could not stage inbox file for deletion", exception);
         }
 
-        try {
-            documentRepository.markDeleted(documentId);
-        } catch (RuntimeException databaseFailure) {
-            restoreFromStaging(staged, target, databaseFailure);
-            throw databaseFailure;
-        }
-
-        try {
-            Files.deleteIfExists(staged);
-        } catch (IOException ignored) {
-        }
+        registerStagedFileLifecycle(staged, target);
+        documentRepository.markDeleted(documentId);
 
         if (wasCanonical) {
             promoteSuccessorFor(workspace.id(), documentId,
@@ -208,17 +205,37 @@ public class InboxFileService {
         return stagingTarget;
     }
 
-    private static void restoreFromStaging(Path staged, Path originalLocation, RuntimeException cause) {
+    private static void registerStagedFileLifecycle(Path staged, Path originalLocation) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            throw new IllegalStateException("Delete staging requires an active transaction synchronization");
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    Files.deleteIfExists(staged);
+                } catch (IOException cleanupFailure) {
+                    log.error("Delete committed, but staged file could not be removed: {}", staged, cleanupFailure);
+                }
+            }
+
+            @Override
+            public void afterCompletion(int status) {
+                if (status == TransactionSynchronization.STATUS_COMMITTED) {
+                    return;
+                }
+                restoreFromStaging(staged, originalLocation);
+            }
+        });
+    }
+
+    private static void restoreFromStaging(Path staged, Path originalLocation) {
         try {
             Files.createDirectories(originalLocation.getParent());
-            Files.move(staged, originalLocation, StandardCopyOption.REPLACE_EXISTING);
+            Files.move(staged, originalLocation);
         } catch (IOException restoreFailure) {
-            IllegalStateException unrecoverable = new IllegalStateException(
-                    "Delete compensation failed: staged file could not be restored to "
-                            + originalLocation + "; staged copy remains at " + staged,
-                    restoreFailure);
-            unrecoverable.addSuppressed(cause);
-            throw unrecoverable;
+            log.error("Delete rolled back, but staged file could not be restored to {}; "
+                    + "the staged copy remains at {}", originalLocation, staged, restoreFailure);
         }
     }
 
