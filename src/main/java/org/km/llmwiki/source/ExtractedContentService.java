@@ -28,6 +28,7 @@ public class ExtractedContentService {
     private final DocumentParserRegistry parserRegistry;
     private final ExtractedContentRepository extractedContentRepository;
     private final ExtractedContentNormalizer extractedContentNormalizer;
+    private final ScannedPdfDetector scannedPdfDetector;
     private final SourceChunker sourceChunker;
     private final SourceChunkRepository sourceChunkRepository;
 
@@ -35,6 +36,7 @@ public class ExtractedContentService {
                                    DocumentParserRegistry parserRegistry,
                                    ExtractedContentRepository extractedContentRepository,
                                    ExtractedContentNormalizer extractedContentNormalizer,
+                                   ScannedPdfDetector scannedPdfDetector,
                                    SourceChunker sourceChunker,
                                    SourceChunkRepository sourceChunkRepository) {
         this.workspaceService = workspaceService;
@@ -42,6 +44,7 @@ public class ExtractedContentService {
         this.parserRegistry = parserRegistry;
         this.extractedContentRepository = extractedContentRepository;
         this.extractedContentNormalizer = extractedContentNormalizer;
+        this.scannedPdfDetector = scannedPdfDetector;
         this.sourceChunker = sourceChunker;
         this.sourceChunkRepository = sourceChunkRepository;
     }
@@ -66,6 +69,13 @@ public class ExtractedContentService {
                         "EXTRACTION_PARSE_FAILED", "文件文字抽取失敗");
             }
             String normalizedContent = extractedContentNormalizer.normalize(parsed.content());
+            if (scannedPdfDetector.requiresOcr(source, document.mimeType(), document.fileName(), normalizedContent)) {
+                extractedContentRepository.deleteByDocumentId(document.documentId());
+                sourceChunkRepository.deleteByDocumentId(document.documentId());
+                documentRepository.markExtractionFailed(document.documentId(), DocumentStatus.NEED_OCR,
+                        "OCR_REQUIRED", "PDF 缺乏可用文字層，需先進行 OCR");
+                return new ExtractionResponse(document.documentId(), DocumentStatus.NEED_OCR.name(), 0);
+            }
             int chunkCount = chunkCount(normalizedContent);
             extractedContentRepository.save(document.documentId(), normalizedContent, chunkCount);
             sourceChunkRepository.replaceForDocument(document.documentId(), sourceChunker.chunk(parsed.content()));

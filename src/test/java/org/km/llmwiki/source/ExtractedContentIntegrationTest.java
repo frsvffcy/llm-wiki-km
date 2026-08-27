@@ -1,5 +1,10 @@
 package org.km.llmwiki.source;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,6 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -83,14 +89,57 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
                 .param("id", documentId).query(String.class).single()).isEqualTo("UNSUPPORTED");
     }
 
+    @Test
+    void marksTextlessPdfAsNeedOcrWithoutPersistingContentOrChunks() throws Exception {
+        createWorkspace();
+        long documentId = upload("scanned.pdf", "application/pdf", blankPdf());
+
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.documentId").value(documentId))
+                .andExpect(jsonPath("$.data.parseStatus").value("NEED_OCR"))
+                .andExpect(jsonPath("$.data.chunkCount").value(0));
+
+        mockMvc.perform(get("/api/v1/inbox"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].parseStatus").value("NEED_OCR"));
+
+        assertThat(db().sql("SELECT parse_status FROM document WHERE id = :id")
+                .param("id", documentId).query(String.class).single()).isEqualTo("NEED_OCR");
+        assertThat(db().sql("SELECT error_code FROM document WHERE id = :id")
+                .param("id", documentId).query(String.class).single()).isEqualTo("OCR_REQUIRED");
+        assertThat(db().sql("SELECT COUNT(*) FROM document_extracted_content WHERE document_id = :id")
+                .param("id", documentId).query(Integer.class).single()).isZero();
+        assertThat(db().sql("SELECT COUNT(*) FROM source_chunk WHERE document_id = :id")
+                .param("id", documentId).query(Integer.class).single()).isZero();
+    }
+
+    @Test
+    void processesPdfWhenTextMeetsTheConfiguredQualityThreshold() throws Exception {
+        createWorkspace();
+        long documentId = upload("digital.pdf", "application/pdf", pdfWithText("x".repeat(50)));
+
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.parseStatus").value("PROCESSED"))
+                .andExpect(jsonPath("$.data.chunkCount").value(1));
+
+        assertThat(db().sql("SELECT COUNT(*) FROM document_extracted_content WHERE document_id = :id")
+                .param("id", documentId).query(Integer.class).single()).isEqualTo(1);
+    }
+
     private long upload(String fileName, String content) throws Exception {
         return upload(fileName, "text/plain", content);
     }
 
     private long upload(String fileName, String contentType, String content) throws Exception {
+        return upload(fileName, contentType, content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private long upload(String fileName, String contentType, byte[] content) throws Exception {
         String response = mockMvc.perform(multipart("/api/v1/inbox/files")
                         .file(new MockMultipartFile("file", fileName, contentType,
-                                content.getBytes(StandardCharsets.UTF_8))))
+                                content)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return Long.parseLong(response.replaceAll(".*\\\"documentId\\\":(\\d+).*", "$1"));
@@ -104,5 +153,31 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
                                 {"name": "Extraction Test", "rootPath": "%s"}
                                 """.formatted(root)))
                 .andExpect(status().isCreated());
+    }
+
+    private static byte[] blankPdf() throws Exception {
+        try (PDDocument document = new PDDocument();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            document.addPage(new PDPage());
+            document.save(output);
+            return output.toByteArray();
+        }
+    }
+
+    private static byte[] pdfWithText(String text) throws Exception {
+        try (PDDocument document = new PDDocument();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+            try (PDPageContentStream stream = new PDPageContentStream(document, page)) {
+                stream.beginText();
+                stream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                stream.newLineAtOffset(72, 720);
+                stream.showText(text);
+                stream.endText();
+            }
+            document.save(output);
+            return output.toByteArray();
+        }
     }
 }

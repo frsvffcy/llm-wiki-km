@@ -8,5 +8,6 @@ public record InboxDocumentRow(
         String mimeType,
         Long fileSize,
         String status,
+        String parseStatus,
         String createdAt) {
 }
