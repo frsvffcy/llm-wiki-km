@@ -5,7 +5,12 @@ import java.util.Objects;
 
 /** Validated structured output. It is not a Wiki proposal and has no side effects. */
 public record LlmAnalysisResult(LlmProviderMetadata metadata, LlmProposalAction action, String summary,
-                                List<AnalysisEvidence> evidence) {
+                                List<AnalysisEvidence> evidence, List<KnowledgeCandidate> candidates) {
+
+    public LlmAnalysisResult(LlmProviderMetadata metadata, LlmProposalAction action, String summary,
+                             List<AnalysisEvidence> evidence) {
+        this(metadata, action, summary, evidence, List.of());
+    }
 
     public LlmAnalysisResult {
         metadata = Objects.requireNonNull(metadata, "metadata must not be null");
@@ -18,5 +23,6 @@ public record LlmAnalysisResult(LlmProviderMetadata metadata, LlmProposalAction 
         if (evidence.isEmpty()) {
             throw new IllegalArgumentException("evidence must not be empty");
         }
+        candidates = List.copyOf(Objects.requireNonNull(candidates, "candidates must not be null"));
     }
 }

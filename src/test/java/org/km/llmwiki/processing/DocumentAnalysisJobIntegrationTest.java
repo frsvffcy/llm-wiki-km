@@ -10,6 +10,8 @@ import org.km.llmwiki.ai.LlmClientException;
 import org.km.llmwiki.ai.LlmFailureType;
 import org.km.llmwiki.ai.LlmProposalAction;
 import org.km.llmwiki.ai.LlmProviderMetadata;
+import org.km.llmwiki.ai.KnowledgeCandidate;
+import org.km.llmwiki.ai.KnowledgeCandidateType;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -81,6 +83,16 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
                 .param("documentId", documentId).query(String.class).single()).startsWith("document-analysis@");
         assertThat(db().sql("SELECT metadata_json FROM processing_log WHERE document_id = :documentId")
                 .param("documentId", documentId).query(String.class).single()).contains("sourceChunkIds");
+        assertThat(db().sql("SELECT COUNT(*) FROM knowledge_candidate WHERE document_id = :documentId")
+                .param("documentId", documentId).query(Integer.class).single()).isEqualTo(1);
+        assertThat(db().sql("""
+                        SELECT source_chunk.content || '|' || source_chunk.normalized_content
+                        FROM knowledge_candidate_evidence
+                        JOIN knowledge_candidate ON knowledge_candidate.id = knowledge_candidate_evidence.knowledge_candidate_id
+                        JOIN source_chunk ON source_chunk.id = knowledge_candidate_evidence.source_chunk_id
+                        WHERE knowledge_candidate.document_id = :documentId
+                        """).param("documentId", documentId).query(String.class).single())
+                .contains("可作為分析依據的文件內容");
         assertThat(llmClient.calls()).isEqualTo(1);
     }
 
@@ -102,6 +114,27 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
                 .query(String.class).single()).isEqualTo("SKIPPED");
         assertThat(db().sql("SELECT metadata_json FROM processing_log WHERE step = 'ANALYZE'")
                 .query(String.class).single()).contains("NO_ELIGIBLE_DOCUMENTS");
+    }
+
+    @Test
+    void persistsZeroOrMultipleCandidatesWithoutTreatingADocumentAsAWikiPage() throws Exception {
+        createWorkspace();
+        long emptyDocument = uploadAndExtract("empty-candidates.txt", "證據不足的文件內容");
+        long multipleDocument = uploadAndExtract("multiple-candidates.txt", "可產生多個候選的文件內容");
+
+        String body = mockMvc.perform(post("/api/v1/analysis/jobs"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.totalCount").value(2))
+                .andReturn().getResponse().getContentAsString();
+        awaitCompleted(jobId(body));
+
+        assertThat(db().sql("SELECT COUNT(*) FROM knowledge_candidate WHERE document_id = :documentId")
+                .param("documentId", emptyDocument).query(Integer.class).single()).isZero();
+        assertThat(db().sql("SELECT COUNT(*) FROM knowledge_candidate WHERE document_id = :documentId")
+                .param("documentId", multipleDocument).query(Integer.class).single()).isEqualTo(2);
+        assertThat(db().sql("SELECT COUNT(*) FROM knowledge_candidate WHERE document_id IN (:empty, :multiple)")
+                .param("empty", emptyDocument).param("multiple", multipleDocument).query(Integer.class).single())
+                .isEqualTo(2);
     }
 
     @Test
@@ -205,13 +238,27 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
             if (request.document().originalFileName().equals("provider-failure.txt")) {
                 throw new LlmClientException(LlmFailureType.PROVIDER_UNAVAILABLE, "測試 provider 無法使用");
             }
-            long chunkId = request.sourceChunkEvidence().getFirst().sourceChunkId();
-            if (request.document().originalFileName().equals("validation-failure.txt")) {
-                chunkId++;
-            }
+            long evidenceChunkId = request.sourceChunkEvidence().getFirst().sourceChunkId();
+            long candidateChunkId = request.document().originalFileName().equals("validation-failure.txt")
+                    ? evidenceChunkId + 1 : evidenceChunkId;
+            List<KnowledgeCandidate> candidates = candidatesFor(request.document().originalFileName(), candidateChunkId);
             return new LlmAnalysisResult(new LlmProviderMetadata("fake", "integration-test", "v1"),
                     LlmProposalAction.REVIEW, "經驗證的測試分析結果",
-                    List.of(new AnalysisEvidence(chunkId, request.sourceChunkEvidence().getFirst().content())));
+                    List.of(new AnalysisEvidence(evidenceChunkId, request.sourceChunkEvidence().getFirst().content())),
+                    candidates);
+        }
+
+        private static List<KnowledgeCandidate> candidatesFor(String fileName, long sourceChunkId) {
+            if (fileName.equals("empty-candidates.txt")) {
+                return List.of();
+            }
+            KnowledgeCandidate first = new KnowledgeCandidate("測試知識候選", KnowledgeCandidateType.CONCEPT,
+                    "候選摘要", List.of(sourceChunkId), 0.8, "測試證據足以支持候選");
+            if (fileName.equals("multiple-candidates.txt")) {
+                return List.of(first, new KnowledgeCandidate("第二個測試知識候選", KnowledgeCandidateType.PROCEDURE,
+                        "第二個候選摘要", List.of(sourceChunkId), 0.7, "同一文件可支持多個候選"));
+            }
+            return List.of(first);
         }
 
         int calls() {
