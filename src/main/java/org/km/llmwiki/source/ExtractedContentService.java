@@ -28,16 +28,22 @@ public class ExtractedContentService {
     private final DocumentParserRegistry parserRegistry;
     private final ExtractedContentRepository extractedContentRepository;
     private final ExtractedContentNormalizer extractedContentNormalizer;
+    private final SourceChunker sourceChunker;
+    private final SourceChunkRepository sourceChunkRepository;
 
     public ExtractedContentService(WorkspaceService workspaceService, DocumentRepository documentRepository,
                                    DocumentParserRegistry parserRegistry,
                                    ExtractedContentRepository extractedContentRepository,
-                                   ExtractedContentNormalizer extractedContentNormalizer) {
+                                   ExtractedContentNormalizer extractedContentNormalizer,
+                                   SourceChunker sourceChunker,
+                                   SourceChunkRepository sourceChunkRepository) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
         this.parserRegistry = parserRegistry;
         this.extractedContentRepository = extractedContentRepository;
         this.extractedContentNormalizer = extractedContentNormalizer;
+        this.sourceChunker = sourceChunker;
+        this.sourceChunkRepository = sourceChunkRepository;
     }
 
     @Transactional(noRollbackFor = DocumentExtractionException.class)
@@ -62,6 +68,7 @@ public class ExtractedContentService {
             String normalizedContent = extractedContentNormalizer.normalize(parsed.content());
             int chunkCount = chunkCount(normalizedContent);
             extractedContentRepository.save(document.documentId(), normalizedContent, chunkCount);
+            sourceChunkRepository.replaceForDocument(document.documentId(), sourceChunker.chunk(parsed.content()));
             documentRepository.markExtractionSucceeded(document.documentId(), sha256(normalizedContent));
             return new ExtractionResponse(document.documentId(), DocumentStatus.PROCESSED.name(), chunkCount);
         } catch (IOException exception) {
@@ -99,6 +106,7 @@ public class ExtractedContentService {
                                                           DocumentStatus parseStatus,
                                                           String errorCode, String message) {
         extractedContentRepository.deleteByDocumentId(document.documentId());
+        sourceChunkRepository.deleteByDocumentId(document.documentId());
         documentRepository.markExtractionFailed(document.documentId(), parseStatus, errorCode, message);
         return new DocumentExtractionException(errorCode, message);
     }
