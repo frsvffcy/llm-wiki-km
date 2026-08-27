@@ -93,6 +93,30 @@ public class DocumentRepository {
                 .optional();
     }
 
+    public List<DocumentAnalysisTarget> findAnalysisTargets(long workspaceId) {
+        return jdbcClient.sql("""
+                        SELECT document.id, COALESCE(document.original_file_name, document.file_name) AS original_file_name,
+                               COALESCE(document.mime_type, 'application/octet-stream') AS mime_type,
+                               document.extracted_text_hash
+                        FROM document
+                        WHERE document.workspace_id = :workspaceId
+                          AND document.status NOT IN ('DELETED', 'SUPERSEDED')
+                          AND document.parse_status = :parseStatus
+                          AND document.extracted_text_hash IS NOT NULL
+                          AND EXISTS (
+                              SELECT 1 FROM source_chunk
+                              WHERE source_chunk.document_id = document.id
+                          )
+                        ORDER BY document.id
+                        """)
+                .param("workspaceId", workspaceId)
+                .param("parseStatus", DocumentStatus.PROCESSED.name())
+                .query((rs, rowNum) -> new DocumentAnalysisTarget(
+                        rs.getLong("id"), rs.getString("original_file_name"),
+                        rs.getString("mime_type"), rs.getString("extracted_text_hash")))
+                .list();
+    }
+
     public void markExtractionSucceeded(long documentId, String extractedTextHash) {
         jdbcClient.sql("""
                         UPDATE document
