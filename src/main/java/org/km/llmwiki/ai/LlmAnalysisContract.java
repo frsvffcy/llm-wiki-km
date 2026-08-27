@@ -35,7 +35,8 @@ public final class LlmAnalysisContract {
                     evidence(analysis),
                     candidates(analysis));
         } catch (JsonProcessingException exception) {
-            throw new LlmAnalysisValidationException("LLM result is not valid JSON", exception);
+            throw new LlmAnalysisValidationException(LlmFailureType.MALFORMED_JSON,
+                    "LLM result is not valid JSON", exception);
         } catch (IllegalArgumentException exception) {
             throw new LlmAnalysisValidationException("LLM result violates the analysis contract: "
                     + exception.getMessage(), exception);
@@ -62,7 +63,7 @@ public final class LlmAnalysisContract {
         try {
             return LlmProposalAction.valueOf(value);
         } catch (IllegalArgumentException exception) {
-            throw invalid("action is not supported: " + value);
+            throw invalid(LlmFailureType.UNKNOWN_ENUM, "action is not supported: " + value);
         }
     }
 
@@ -104,7 +105,7 @@ public final class LlmAnalysisContract {
         try {
             return KnowledgeCandidateType.valueOf(value);
         } catch (IllegalArgumentException exception) {
-            throw invalid("candidate type is not supported: " + value);
+            throw invalid(LlmFailureType.UNKNOWN_ENUM, "candidate type is not supported: " + value);
         }
     }
 
@@ -133,5 +134,9 @@ public final class LlmAnalysisContract {
 
     private static LlmAnalysisValidationException invalid(String message) {
         return new LlmAnalysisValidationException(message);
+    }
+
+    private static LlmAnalysisValidationException invalid(LlmFailureType failureType, String message) {
+        return new LlmAnalysisValidationException(failureType, message);
     }
 }

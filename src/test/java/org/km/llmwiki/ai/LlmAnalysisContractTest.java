@@ -39,7 +39,9 @@ class LlmAnalysisContractTest {
     void rejectsAnUnknownAction() {
         assertThatThrownBy(() -> contract.parse(payload("PUBLISH", "[{\"sourceChunkId\": 41, \"quote\": \"內容\"}]")))
                 .isInstanceOf(LlmAnalysisValidationException.class)
-                .hasMessageContaining("action is not supported: PUBLISH");
+                .hasMessageContaining("action is not supported: PUBLISH")
+                .extracting(error -> ((LlmAnalysisValidationException) error).errorCode())
+                .isEqualTo(AnalysisFailureCode.UNKNOWN_ENUM);
     }
 
     @Test
@@ -53,10 +55,14 @@ class LlmAnalysisContractTest {
     void rejectsInvalidJsonAndMissingContractFields() {
         assertThatThrownBy(() -> contract.parse("{not json"))
                 .isInstanceOf(LlmAnalysisValidationException.class)
-                .hasMessageContaining("not valid JSON");
+                .hasMessageContaining("not valid JSON")
+                .extracting(error -> ((LlmAnalysisValidationException) error).errorCode())
+                .isEqualTo(AnalysisFailureCode.MALFORMED_JSON);
         assertThatThrownBy(() -> contract.parse("{\"metadata\": {}, \"analysis\": {}}"))
                 .isInstanceOf(LlmAnalysisValidationException.class)
-                .hasMessageContaining("provider must be a non-blank string");
+                .hasMessageContaining("provider must be a non-blank string")
+                .extracting(error -> ((LlmAnalysisValidationException) error).errorCode())
+                .isEqualTo(AnalysisFailureCode.CONTRACT_VALIDATION_FAILED);
     }
 
     @Test

@@ -17,4 +17,8 @@ public class LlmClientException extends RuntimeException {
     public LlmFailureType failureType() {
         return failureType;
     }
+
+    public AnalysisFailureCode errorCode() {
+        return failureType.errorCode();
+    }
 }
