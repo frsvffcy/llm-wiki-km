@@ -3,6 +3,7 @@ package org.km.llmwiki.processing;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.km.llmwiki.ai.DocumentAnalysisConfigurationLoader;
+import org.km.llmwiki.ai.AnalysisSettings;
 import org.km.llmwiki.ai.AnalysisFailureCode;
 import org.km.llmwiki.ai.DocumentAnalysisPrompt;
 import org.km.llmwiki.ai.DocumentAnalysisRequest;
@@ -149,8 +150,9 @@ public class DocumentAnalysisJobService {
                     persistSkipped(job, item, "SOURCE_CHUNKS_MISSING", "文件缺少 Source Chunk，略過分析");
                     return;
                 }
-                DocumentAnalysisRequest request = requestFor(item.document(), chunks);
-                var configuration = configurationLoader.load(request);
+                AnalysisSettings settings = configurationLoader.loadSettings();
+                DocumentAnalysisRequest request = requestFor(item.document(), chunks, settings.maximumEvidenceChunks());
+                var configuration = configurationLoader.load(request, settings);
                 prompt = configuration.prompt();
                 LlmAnalysisResult result = llmClient.analyze(request.withConfiguration(configuration));
                 validateEvidence(result, request);
@@ -242,9 +244,12 @@ public class DocumentAnalysisJobService {
         return retrying;
     }
 
-    private static DocumentAnalysisRequest requestFor(DocumentAnalysisTarget document, List<SourceChunk> chunks) {
+    private static DocumentAnalysisRequest requestFor(DocumentAnalysisTarget document, List<SourceChunk> chunks,
+                                                      int maximumEvidenceChunks) {
         List<SourceChunkEvidence> evidence = chunks.stream()
-                .map(chunk -> new SourceChunkEvidence(chunk.id(), chunk.chunkNo(), chunk.contentHash(), chunk.content()))
+                .limit(maximumEvidenceChunks)
+                .map(chunk -> new SourceChunkEvidence(chunk.id(), chunk.chunkNo(), chunk.contentHash(),
+                        chunk.normalizedContent()))
                 .toList();
         return new DocumentAnalysisRequest(new DocumentAnalysisMetadata(document.documentId(),
                 document.originalFileName(), document.mimeType(), document.extractedTextHash()), evidence);

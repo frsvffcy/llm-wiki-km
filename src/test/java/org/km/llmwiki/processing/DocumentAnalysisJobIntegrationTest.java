@@ -14,6 +14,8 @@ import org.km.llmwiki.ai.LlmProposalAction;
 import org.km.llmwiki.ai.LlmProviderMetadata;
 import org.km.llmwiki.ai.KnowledgeCandidate;
 import org.km.llmwiki.ai.KnowledgeCandidateType;
+import org.km.llmwiki.source.DocumentParser;
+import org.km.llmwiki.source.ParsedDocument;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -28,11 +30,15 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,7 +52,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.persistence.sqlite.path=target/test-data/analysis-${random.uuid}/knowledge.db"
 })
 @AutoConfigureMockMvc
-@Import(DocumentAnalysisJobIntegrationTest.FakeLlmConfiguration.class)
+@Import({DocumentAnalysisJobIntegrationTest.FakeLlmConfiguration.class,
+        DocumentAnalysisJobIntegrationTest.MultiPageParserConfiguration.class})
 class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
@@ -97,6 +104,76 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
                         """).param("documentId", documentId).query(String.class).single())
                 .contains("可作為分析依據的文件內容");
         assertThat(llmClient.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void sendsCanonicalNormalizedEvidenceWithoutChangingRawMultiPageAuditEvidence() throws Exception {
+        createWorkspace();
+        long documentId = upload("repeated-edges.pages", "application/x-test-multipage", "placeholder");
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.parseStatus").value("PROCESSED"));
+
+        List<String> rawContents = db().sql("""
+                        SELECT content FROM source_chunk WHERE document_id = :documentId ORDER BY chunk_no
+                        """).param("documentId", documentId).query(String.class).list();
+        List<String> normalizedContents = db().sql("""
+                        SELECT normalized_content FROM source_chunk WHERE document_id = :documentId ORDER BY chunk_no
+                        """).param("documentId", documentId).query(String.class).list();
+
+        String body = mockMvc.perform(post("/api/v1/analysis/jobs"))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        awaitCompleted(jobId(body));
+
+        DocumentAnalysisRequest request = llmClient.requestsFor("repeated-edges.pages").getFirst();
+        List<String> analysisContents = request.sourceChunkEvidence().stream()
+                .map(evidence -> evidence.content()).toList();
+        assertThat(String.join("\n", rawContents)).contains("文件標頭", "文件頁尾");
+        assertThat(String.join("\n", analysisContents))
+                .doesNotContain("文件標頭", "文件頁尾", "\f", "Café")
+                .contains("Café 第一頁內容。", "第二頁內容。");
+        assertThat(analysisContents).isEqualTo(normalizedContents);
+        assertThat(request.sourceChunkEvidence()).zipSatisfy(normalizedContents,
+                (evidence, content) -> assertThat(evidence.contentHash()).isEqualTo(sha256(content)));
+    }
+
+    @Test
+    void limitsEvidenceToConfiguredMaximumInSourceChunkOrder() throws Exception {
+        createWorkspace();
+        long documentId = uploadAndExtract("many-chunks.txt", "先建立可分析文件");
+        db().sql("DELETE FROM source_chunk WHERE document_id = :documentId")
+                .param("documentId", documentId).update();
+        for (int chunkNo = 1; chunkNo <= 4; chunkNo++) {
+            String normalized = "canonical chunk " + chunkNo;
+            db().sql("""
+                            INSERT INTO source_chunk (document_id, chunk_no, page_no, content, normalized_content, content_hash,
+                                created_at, updated_at)
+                            VALUES (:documentId, :chunkNo, :pageNo, :content, :normalizedContent, :contentHash, :now, :now)
+                            """).param("documentId", documentId).param("chunkNo", chunkNo).param("pageNo", chunkNo)
+                    .param("content", "raw chunk " + chunkNo).param("normalizedContent", normalized)
+                    .param("contentHash", sha256(normalized)).param("now", Instant.now().toString()).update();
+        }
+        long workspaceId = db().sql("SELECT id FROM workspace WHERE status = 'ACTIVE'").query(Long.class).single();
+        db().sql("""
+                        INSERT INTO setting (workspace_id, setting_group, setting_key, setting_value, value_type,
+                            created_at, updated_at)
+                        VALUES (:workspaceId, 'analysis', 'maximum_evidence_chunks', '2', 'STRING', :now, :now)
+                        """).param("workspaceId", workspaceId).param("now", Instant.now().toString()).update();
+
+        String body = mockMvc.perform(post("/api/v1/analysis/jobs"))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        awaitCompleted(jobId(body));
+
+        assertThat(db().sql("SELECT status FROM document_analysis WHERE document_id = :documentId")
+                .param("documentId", documentId).query(String.class).single()).isEqualTo("SUCCEEDED");
+        DocumentAnalysisRequest request = llmClient.requestsFor("many-chunks.txt").getFirst();
+        assertThat(request.sourceChunkEvidence()).hasSize(2);
+        assertThat(request.sourceChunkEvidence()).extracting(evidence -> evidence.chunkNo())
+                .containsExactly(1, 2);
+        assertThat(request.sourceChunkEvidence()).extracting(evidence -> evidence.content())
+                .containsExactly("canonical chunk 1", "canonical chunk 2");
+        assertThat(request.sourceChunkEvidence()).extracting(evidence -> evidence.contentHash())
+                .containsExactly(sha256("canonical chunk 1"), sha256("canonical chunk 2"));
     }
 
     @Test
@@ -258,8 +335,12 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
     }
 
     private long upload(String filename, String content) throws Exception {
+        return upload(filename, "text/plain", content);
+    }
+
+    private long upload(String filename, String contentType, String content) throws Exception {
         String response = mockMvc.perform(multipart("/api/v1/inbox/files")
-                        .file(new MockMultipartFile("file", filename, "text/plain",
+                        .file(new MockMultipartFile("file", filename, contentType,
                                 content.getBytes(StandardCharsets.UTF_8))))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
@@ -311,6 +392,15 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
         return response.replaceAll(".*\\\"jobId\\\":\\\"([^\\\"]+)\\\".*", "$1");
     }
 
+    private static String sha256(String content) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(content.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     @TestConfiguration
     static class FakeLlmConfiguration {
 
@@ -321,14 +411,52 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
         }
     }
 
+    @TestConfiguration(proxyBeanMethods = false)
+    static class MultiPageParserConfiguration {
+
+        @Bean
+        DocumentParser multiPageDocumentParser() {
+            return new DocumentParser() {
+                @Override
+                public boolean supportsMimeType(String mimeType) {
+                    return "application/x-test-multipage".equals(mimeType);
+                }
+
+                @Override
+                public boolean supportsExtension(String extension) {
+                    return "pages".equals(extension);
+                }
+
+                @Override
+                public ParsedDocument parse(Path source) {
+                    return new ParsedDocument("""
+                            文件標頭
+
+                            # 總覽
+
+                            Café 第一頁內容。
+
+                            文件頁尾\f文件標頭
+
+                            第二頁內容。
+
+                            文件頁尾
+                            """, Map.of());
+                }
+            };
+        }
+    }
+
     static class RecordingLlmClient implements LlmClient {
 
         private final AtomicInteger calls = new AtomicInteger();
         private final ConcurrentHashMap<String, AtomicInteger> callsByFile = new ConcurrentHashMap<>();
+        private final List<DocumentAnalysisRequest> requests = new CopyOnWriteArrayList<>();
 
         @Override
         public LlmAnalysisResult analyze(DocumentAnalysisRequest request) {
             calls.incrementAndGet();
+            requests.add(request);
             String fileName = request.document().originalFileName();
             int callsForFile = callsByFile.computeIfAbsent(fileName, ignored -> new AtomicInteger()).incrementAndGet();
             if (request.prompt() == null || request.settings() == null) {
@@ -385,11 +513,16 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
         void reset() {
             calls.set(0);
             callsByFile.clear();
+            requests.clear();
         }
 
         int callsFor(String fileName) {
             AtomicInteger fileCalls = callsByFile.get(fileName);
             return fileCalls == null ? 0 : fileCalls.get();
+        }
+
+        List<DocumentAnalysisRequest> requestsFor(String fileName) {
+            return requests.stream().filter(request -> request.document().originalFileName().equals(fileName)).toList();
         }
     }
 }
