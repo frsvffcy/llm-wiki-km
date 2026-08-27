@@ -74,6 +74,40 @@ public class KnowledgeProposalRepository {
                 .optional();
     }
 
+    public long countReviewable(long workspaceId, KnowledgeProposalStatus status) {
+        StringBuilder sql = reviewableSelect("COUNT(*)");
+        if (status != null) {
+            sql.append(" AND knowledge_proposal.status = :status");
+        }
+        var statement = jdbcClient.sql(sql.toString()).param("workspaceId", workspaceId);
+        if (status != null) {
+            statement = statement.param("status", status.name());
+        }
+        Long count = statement.query(Long.class).single();
+        return count == null ? 0 : count;
+    }
+
+    public List<KnowledgeProposalReview> findReviewable(long workspaceId, KnowledgeProposalStatus status,
+                                                         long offset, int limit) {
+        StringBuilder sql = reviewableSelect(reviewColumns());
+        if (status != null) {
+            sql.append(" AND knowledge_proposal.status = :status");
+        }
+        sql.append(" ORDER BY knowledge_proposal.id DESC LIMIT :limit OFFSET :offset");
+        var statement = jdbcClient.sql(sql.toString()).param("workspaceId", workspaceId)
+                .param("limit", limit).param("offset", offset);
+        if (status != null) {
+            statement = statement.param("status", status.name());
+        }
+        return statement.query((resultSet, rowNum) -> review(resultSet)).list();
+    }
+
+    public Optional<KnowledgeProposalReview> findReviewableById(long workspaceId, long proposalId) {
+        String sql = reviewableSelect(reviewColumns()) + " AND knowledge_proposal.id = :proposalId";
+        return jdbcClient.sql(sql).param("workspaceId", workspaceId).param("proposalId", proposalId)
+                .query((resultSet, rowNum) -> review(resultSet)).optional();
+    }
+
     private long insert(KnowledgeProposalDraft draft, String now) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcClient.sql("""
@@ -141,5 +175,57 @@ public class KnowledgeProposalRepository {
                         SELECT source_chunk_id FROM knowledge_proposal_evidence
                         WHERE knowledge_proposal_id = :proposalId ORDER BY source_chunk_id
                         """).param("proposalId", proposalId).query(Long.class).list();
+    }
+
+    private KnowledgeProposalReview review(java.sql.ResultSet resultSet) throws java.sql.SQLException {
+        long proposalId = resultSet.getLong("proposal_id");
+        return new KnowledgeProposalReview(proposalId, LlmProposalAction.valueOf(resultSet.getString("action")),
+                KnowledgeProposalStatus.valueOf(resultSet.getString("status")),
+                resultSet.getString("merge_target_reference"), resultSet.getLong("document_id"),
+                resultSet.getString("document_file_name"), resultSet.getString("source_path"),
+                resultSet.getLong("candidate_id"), resultSet.getString("title"), resultSet.getString("summary"),
+                resultSet.getDouble("confidence"), resultSet.getString("rationale"), evidenceFor(proposalId));
+    }
+
+    private List<KnowledgeProposalEvidence> evidenceFor(long proposalId) {
+        return jdbcClient.sql("""
+                        SELECT source_chunk.id, source_chunk.chunk_no, source_chunk.page_no, source_chunk.section,
+                               source_chunk.heading_path, source_chunk.content
+                        FROM knowledge_proposal_evidence
+                        JOIN source_chunk ON source_chunk.id = knowledge_proposal_evidence.source_chunk_id
+                        WHERE knowledge_proposal_evidence.knowledge_proposal_id = :proposalId
+                        ORDER BY source_chunk.chunk_no
+                        """).param("proposalId", proposalId)
+                .query((resultSet, rowNum) -> new KnowledgeProposalEvidence(resultSet.getLong("id"),
+                        resultSet.getInt("chunk_no"), nullableInt(resultSet, "page_no"),
+                        resultSet.getString("section"), resultSet.getString("heading_path"),
+                        resultSet.getString("content")))
+                .list();
+    }
+
+    private static Integer nullableInt(java.sql.ResultSet resultSet, String column) throws java.sql.SQLException {
+        int value = resultSet.getInt(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
+    private static StringBuilder reviewableSelect(String columns) {
+        return new StringBuilder("SELECT ").append(columns).append("""
+                 FROM knowledge_proposal
+                 JOIN document ON document.id = knowledge_proposal.document_id
+                 JOIN knowledge_candidate ON knowledge_candidate.id = knowledge_proposal.knowledge_candidate_id
+                 WHERE knowledge_proposal.workspace_id = :workspaceId
+                   AND document.workspace_id = :workspaceId
+                   AND document.status NOT IN ('DELETED', 'SUPERSEDED')
+                """);
+    }
+
+    private static String reviewColumns() {
+        return """
+                knowledge_proposal.id AS proposal_id, knowledge_proposal.action, knowledge_proposal.status,
+                knowledge_proposal.merge_target_reference, document.id AS document_id,
+                COALESCE(document.original_file_name, document.file_name) AS document_file_name, document.source_path,
+                knowledge_candidate.id AS candidate_id, knowledge_candidate.title, knowledge_candidate.summary,
+                knowledge_candidate.confidence, knowledge_candidate.rationale
+                """;
     }
 }
