@@ -56,6 +56,21 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void persistsNormalizedContentAndItsHashForLaterComparison() throws Exception {
+        createWorkspace();
+        long documentId = upload("normalized-note.txt", "Cafe\u0301\r\n\r\n\r\nNext line");
+
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isOk());
+
+        assertThat(db().sql("SELECT content FROM document_extracted_content WHERE document_id = :id")
+                .param("id", documentId).query(String.class).single()).isEqualTo("Caf\u00e9\n\nNext line\n");
+        assertThat(db().sql("SELECT extracted_text_hash FROM document WHERE id = :id")
+                .param("id", documentId).query(String.class).single())
+                .isEqualTo("e05f27724cb3a4bd6a67654f93ceab6a1ee5557310e2ca2549e92a82287af0d1");
+    }
+
+    @Test
     void reportsUnderstandableErrorForUnsupportedDocumentType() throws Exception {
         createWorkspace();
         long documentId = upload("archive.bin", "application/octet-stream", "not a supported document");

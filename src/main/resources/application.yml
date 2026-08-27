@@ -10,6 +10,10 @@ spring:
     locations: classpath:db/migration
 
 app:
+  extraction:
+    normalization:
+      repeated-header-footer-enabled: ${EXTRACTION_REPEATED_HEADER_FOOTER_ENABLED:true}
+      repeated-header-footer-minimum-occurrences: ${EXTRACTION_REPEATED_HEADER_FOOTER_MINIMUM_OCCURRENCES:2}
   persistence:
     sqlite:
       path: ${KNOWLEDGE_DB_PATH:data/knowledge.db}

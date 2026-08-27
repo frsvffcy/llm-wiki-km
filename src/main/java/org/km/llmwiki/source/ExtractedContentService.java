@@ -27,14 +27,17 @@ public class ExtractedContentService {
     private final DocumentRepository documentRepository;
     private final DocumentParserRegistry parserRegistry;
     private final ExtractedContentRepository extractedContentRepository;
+    private final ExtractedContentNormalizer extractedContentNormalizer;
 
     public ExtractedContentService(WorkspaceService workspaceService, DocumentRepository documentRepository,
                                    DocumentParserRegistry parserRegistry,
-                                   ExtractedContentRepository extractedContentRepository) {
+                                   ExtractedContentRepository extractedContentRepository,
+                                   ExtractedContentNormalizer extractedContentNormalizer) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
         this.parserRegistry = parserRegistry;
         this.extractedContentRepository = extractedContentRepository;
+        this.extractedContentNormalizer = extractedContentNormalizer;
     }
 
     @Transactional(noRollbackFor = DocumentExtractionException.class)
@@ -56,10 +59,10 @@ public class ExtractedContentService {
                 throw extractionFailure(document, DocumentStatus.FAILED,
                         "EXTRACTION_PARSE_FAILED", "文件文字抽取失敗");
             }
-            String content = parsed.content();
-            int chunkCount = chunkCount(content);
-            extractedContentRepository.save(document.documentId(), content, chunkCount);
-            documentRepository.markExtractionSucceeded(document.documentId(), sha256(content));
+            String normalizedContent = extractedContentNormalizer.normalize(parsed.content());
+            int chunkCount = chunkCount(normalizedContent);
+            extractedContentRepository.save(document.documentId(), normalizedContent, chunkCount);
+            documentRepository.markExtractionSucceeded(document.documentId(), sha256(normalizedContent));
             return new ExtractionResponse(document.documentId(), DocumentStatus.PROCESSED.name(), chunkCount);
         } catch (IOException exception) {
             throw extractionFailure(document, DocumentStatus.FAILED,
