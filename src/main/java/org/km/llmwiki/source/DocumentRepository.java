@@ -180,7 +180,7 @@ public class DocumentRepository {
         String sql = inboxQuery("""
                 id AS document_id, file_name,
                 COALESCE(original_file_name, file_name) AS original_file_name,
-                extension, mime_type, file_size, status, created_at""", statusFilter, extensionFilter, orderBy)
+                extension, mime_type, file_size, status, parse_status, created_at""", statusFilter, extensionFilter, orderBy)
                 + " LIMIT :limit OFFSET :offset";
         return jdbcClient.sql(sql)
                 .paramSource(inboxParams(workspaceId, statusFilter, extensionFilter)
@@ -194,6 +194,7 @@ public class DocumentRepository {
                         rs.getString("mime_type"),
                         rs.getObject("file_size") == null ? null : rs.getLong("file_size"),
                         rs.getString("status"),
+                        rs.getString("parse_status"),
                         rs.getString("created_at")))
                 .list();
     }
@@ -202,7 +203,7 @@ public class DocumentRepository {
         return jdbcClient.sql("""
                         SELECT id AS document_id, file_name,
                             COALESCE(original_file_name, file_name) AS original_file_name,
-                            extension, mime_type, file_size, status, created_at
+                            extension, mime_type, file_size, status, parse_status, created_at
                         FROM document
                         WHERE workspace_id = :workspaceId AND id = :documentId
                           AND source_path LIKE 'inbox/%'
@@ -218,6 +219,7 @@ public class DocumentRepository {
                         rs.getString("mime_type"),
                         rs.getObject("file_size") == null ? null : rs.getLong("file_size"),
                         rs.getString("status"),
+                        rs.getString("parse_status"),
                         rs.getString("created_at")))
                 .optional();
     }

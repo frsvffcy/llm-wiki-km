@@ -11,6 +11,8 @@ spring:
 
 app:
   extraction:
+    scanned-pdf:
+      minimum-text-characters: ${EXTRACTION_SCANNED_PDF_MINIMUM_TEXT_CHARACTERS:50}
     normalization:
       repeated-header-footer-enabled: ${EXTRACTION_REPEATED_HEADER_FOOTER_ENABLED:true}
       repeated-header-footer-minimum-occurrences: ${EXTRACTION_REPEATED_HEADER_FOOTER_MINIMUM_OCCURRENCES:2}
