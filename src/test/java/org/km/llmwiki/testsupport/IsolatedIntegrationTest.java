@@ -41,6 +41,7 @@ public abstract class IsolatedIntegrationTest {
     private static final List<String> TABLE_DELETE_ORDER = List.of(
             "processing_log",
             "processing_job_item",
+            "document_extracted_content",
             "document",
             "setting",
             "workspace"
