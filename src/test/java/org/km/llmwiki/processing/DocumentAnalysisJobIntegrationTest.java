@@ -3,8 +3,10 @@ package org.km.llmwiki.processing;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.km.llmwiki.ai.AnalysisEvidence;
+import org.km.llmwiki.ai.AnalysisFailureCode;
 import org.km.llmwiki.ai.DocumentAnalysisRequest;
 import org.km.llmwiki.ai.LlmAnalysisResult;
+import org.km.llmwiki.ai.LlmAnalysisValidationException;
 import org.km.llmwiki.ai.LlmClient;
 import org.km.llmwiki.ai.LlmClientException;
 import org.km.llmwiki.ai.LlmFailureType;
@@ -30,6 +32,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -158,10 +161,92 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
         assertThat(db().sql("SELECT status FROM document_analysis WHERE document_id = :documentId")
                 .param("documentId", successfulDocument).query(String.class).single()).isEqualTo("SUCCEEDED");
         assertThat(db().sql("SELECT error_code FROM document_analysis WHERE document_id = :documentId")
-                .param("documentId", failingDocument).query(String.class).single()).isEqualTo("LLM_PROVIDER_UNAVAILABLE");
+                .param("documentId", failingDocument).query(String.class).single()).isEqualTo("PROVIDER_UNAVAILABLE");
         assertThat(db().sql("SELECT error_code FROM document_analysis WHERE document_id = :documentId")
-                .param("documentId", validationFailingDocument).query(String.class).single()).isEqualTo("LLM_VALIDATION");
-        assertThat(llmClient.calls()).isEqualTo(3);
+                .param("documentId", validationFailingDocument).query(String.class).single()).isEqualTo("ILLEGAL_EVIDENCE");
+        assertThat(db().sql("SELECT retry_count FROM processing_job_item WHERE document_id = :documentId")
+                .param("documentId", failingDocument).query(Integer.class).single()).isEqualTo(1);
+        assertThat(llmClient.calls()).isEqualTo(4);
+    }
+
+    @Test
+    void classifiesInvalidOutputsAndProviderTimeoutsWithoutPersistingCandidatesOrSecrets() throws Exception {
+        createWorkspace();
+        long malformed = uploadAndExtract("malformed-json.txt", "不合法 JSON");
+        long contract = uploadAndExtract("contract-failure.txt", "不符合契約");
+        long unknownEnum = uploadAndExtract("unknown-enum.txt", "未知列舉");
+        long illegalEvidence = uploadAndExtract("illegal-evidence.txt", "不合法證據");
+        long insufficientEvidence = uploadAndExtract("insufficient-evidence.txt", "證據不足");
+        long timeout = uploadAndExtract("provider-timeout.txt", "Provider 逾時");
+
+        String body = mockMvc.perform(post("/api/v1/analysis/jobs"))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        awaitCompleted(jobId(body));
+
+        assertFailure(malformed, AnalysisFailureCode.MALFORMED_JSON, false);
+        assertFailure(contract, AnalysisFailureCode.CONTRACT_VALIDATION_FAILED, false);
+        assertFailure(unknownEnum, AnalysisFailureCode.UNKNOWN_ENUM, false);
+        assertFailure(illegalEvidence, AnalysisFailureCode.ILLEGAL_EVIDENCE, false);
+        assertFailure(insufficientEvidence, AnalysisFailureCode.INSUFFICIENT_EVIDENCE, false);
+        assertFailure(timeout, AnalysisFailureCode.PROVIDER_TIMEOUT, true);
+        assertThat(db().sql("SELECT COUNT(*) FROM knowledge_candidate").query(Integer.class).single()).isZero();
+        assertThat(db().sql("SELECT COUNT(*) FROM knowledge_proposal").query(Integer.class).single()).isZero();
+        assertThat(db().sql("SELECT error_message FROM processing_job_item WHERE document_id = :documentId")
+                .param("documentId", timeout).query(String.class).single()).doesNotContain("supersecret");
+        assertThat(db().sql("SELECT metadata_json FROM processing_log WHERE document_id = :documentId")
+                .param("documentId", timeout).query(String.class).list()).allSatisfy(metadata ->
+                assertThat(metadata).doesNotContain("supersecret"));
+    }
+
+    @Test
+    void retriesAProviderFailureOnceAndPersistsOnlyTheSuccessfulAnalysis() throws Exception {
+        createWorkspace();
+        long documentId = uploadAndExtract("retry-success.txt", "第一次失敗，第二次成功");
+
+        String body = mockMvc.perform(post("/api/v1/analysis/jobs"))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        awaitCompleted(jobId(body));
+
+        assertThat(llmClient.callsFor("retry-success.txt")).isEqualTo(2);
+        assertThat(db().sql("SELECT retry_count FROM processing_job_item WHERE document_id = :documentId")
+                .param("documentId", documentId).query(Integer.class).single()).isEqualTo(1);
+        assertThat(db().sql("SELECT status FROM processing_job_item WHERE document_id = :documentId")
+                .param("documentId", documentId).query(String.class).single()).isEqualTo("SUCCEEDED");
+        assertThat(db().sql("SELECT COUNT(*) FROM document_analysis WHERE document_id = :documentId")
+                .param("documentId", documentId).query(Integer.class).single()).isEqualTo(1);
+        assertThat(db().sql("SELECT COUNT(*) FROM knowledge_candidate WHERE document_id = :documentId")
+                .param("documentId", documentId).query(Integer.class).single()).isEqualTo(1);
+        assertThat(db().sql("SELECT status FROM processing_log WHERE document_id = :documentId ORDER BY id")
+                .param("documentId", documentId).query(String.class).list()).containsExactly("FAILED", "SUCCEEDED");
+    }
+
+    @Test
+    void rollsBackPartialAnalysisPersistenceAndRecordsTheFailure() throws Exception {
+        createWorkspace();
+        long documentId = uploadAndExtract("persistence-failure.txt", "持久化失敗");
+        db().sql("""
+                        CREATE TRIGGER fail_analysis_candidate
+                        BEFORE INSERT ON knowledge_candidate
+                        WHEN NEW.document_id = %d
+                        BEGIN
+                            SELECT RAISE(ABORT, 'test persistence failure');
+                        END
+                        """.formatted(documentId)).update();
+        try {
+            String body = mockMvc.perform(post("/api/v1/analysis/jobs"))
+                    .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+            awaitCompleted(jobId(body));
+
+            assertFailure(documentId, AnalysisFailureCode.PERSISTENCE_FAILED, true);
+            assertThat(db().sql("SELECT retry_count FROM processing_job_item WHERE document_id = :documentId")
+                    .param("documentId", documentId).query(Integer.class).single()).isEqualTo(1);
+            assertThat(db().sql("SELECT COUNT(*) FROM knowledge_candidate WHERE document_id = :documentId")
+                    .param("documentId", documentId).query(Integer.class).single()).isZero();
+            assertThat(db().sql("SELECT COUNT(*) FROM knowledge_candidate_evidence").query(Integer.class).single()).isZero();
+            assertThat(db().sql("SELECT COUNT(*) FROM knowledge_proposal").query(Integer.class).single()).isZero();
+        } finally {
+            db().sql("DROP TRIGGER IF EXISTS fail_analysis_candidate").update();
+        }
     }
 
     private long uploadAndExtract(String filename, String content) throws Exception {
@@ -179,6 +264,17 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return Long.parseLong(response.replaceAll(".*\\\"documentId\\\":(\\d+).*", "$1"));
+    }
+
+    private void assertFailure(long documentId, AnalysisFailureCode errorCode, boolean retryEligible) {
+        assertThat(db().sql("SELECT error_code FROM document_analysis WHERE document_id = :documentId")
+                .param("documentId", documentId).query(String.class).single()).isEqualTo(errorCode.name());
+        assertThat(db().sql("SELECT error_code FROM processing_job_item WHERE document_id = :documentId")
+                .param("documentId", documentId).query(String.class).single()).isEqualTo(errorCode.name());
+        assertThat(db().sql("SELECT retry_eligible FROM processing_job_item WHERE document_id = :documentId")
+                .param("documentId", documentId).query(Integer.class).single()).isEqualTo(retryEligible ? 1 : 0);
+        assertThat(db().sql("SELECT metadata_json FROM processing_log WHERE document_id = :documentId ORDER BY id DESC")
+                .param("documentId", documentId).query(String.class).list().getFirst()).contains(errorCode.name());
     }
 
     private void createWorkspace() throws Exception {
@@ -228,20 +324,41 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
     static class RecordingLlmClient implements LlmClient {
 
         private final AtomicInteger calls = new AtomicInteger();
+        private final ConcurrentHashMap<String, AtomicInteger> callsByFile = new ConcurrentHashMap<>();
 
         @Override
         public LlmAnalysisResult analyze(DocumentAnalysisRequest request) {
             calls.incrementAndGet();
+            String fileName = request.document().originalFileName();
+            int callsForFile = callsByFile.computeIfAbsent(fileName, ignored -> new AtomicInteger()).incrementAndGet();
             if (request.prompt() == null || request.settings() == null) {
                 throw new LlmClientException(LlmFailureType.VALIDATION, "分析 request 缺少 Prompt 或設定");
             }
-            if (request.document().originalFileName().equals("provider-failure.txt")) {
-                throw new LlmClientException(LlmFailureType.PROVIDER_UNAVAILABLE, "測試 provider 無法使用");
+            if (fileName.equals("provider-failure.txt")) {
+                throw new LlmClientException(LlmFailureType.PROVIDER_UNAVAILABLE, "apiKey=supersecret");
+            }
+            if (fileName.equals("provider-timeout.txt")) {
+                throw new LlmClientException(LlmFailureType.PROVIDER_TIMEOUT, "token=supersecret");
+            }
+            if (fileName.equals("retry-success.txt") && callsForFile == 1) {
+                throw new LlmClientException(LlmFailureType.PROVIDER_UNAVAILABLE, "authorization=supersecret");
+            }
+            if (fileName.equals("malformed-json.txt")) {
+                throw new LlmAnalysisValidationException(LlmFailureType.MALFORMED_JSON, "不合法 JSON");
+            }
+            if (fileName.equals("contract-failure.txt")) {
+                throw new LlmAnalysisValidationException("契約欄位缺漏");
+            }
+            if (fileName.equals("unknown-enum.txt")) {
+                throw new LlmAnalysisValidationException(LlmFailureType.UNKNOWN_ENUM, "未知 action");
+            }
+            if (fileName.equals("insufficient-evidence.txt")) {
+                throw new LlmAnalysisValidationException(AnalysisFailureCode.INSUFFICIENT_EVIDENCE, "證據不足");
             }
             long evidenceChunkId = request.sourceChunkEvidence().getFirst().sourceChunkId();
-            long candidateChunkId = request.document().originalFileName().equals("validation-failure.txt")
+            long candidateChunkId = fileName.equals("validation-failure.txt") || fileName.equals("illegal-evidence.txt")
                     ? evidenceChunkId + 1 : evidenceChunkId;
-            List<KnowledgeCandidate> candidates = candidatesFor(request.document().originalFileName(), candidateChunkId);
+            List<KnowledgeCandidate> candidates = candidatesFor(fileName, candidateChunkId);
             return new LlmAnalysisResult(new LlmProviderMetadata("fake", "integration-test", "v1"),
                     LlmProposalAction.REVIEW, "經驗證的測試分析結果",
                     List.of(new AnalysisEvidence(evidenceChunkId, request.sourceChunkEvidence().getFirst().content())),
@@ -267,6 +384,12 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
 
         void reset() {
             calls.set(0);
+            callsByFile.clear();
+        }
+
+        int callsFor(String fileName) {
+            AtomicInteger fileCalls = callsByFile.get(fileName);
+            return fileCalls == null ? 0 : fileCalls.get();
         }
     }
 }

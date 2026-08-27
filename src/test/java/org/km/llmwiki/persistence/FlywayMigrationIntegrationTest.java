@@ -52,6 +52,15 @@ class FlywayMigrationIntegrationTest {
     }
 
     @Test
+    void addsRetryEligibilityToProcessingJobItems() {
+        var columnNames = jdbcClient.sql("PRAGMA table_info(processing_job_item)")
+                .query((resultSet, rowNum) -> resultSet.getString("name"))
+                .list();
+
+        assertThat(columnNames).contains("retry_eligible");
+    }
+
+    @Test
     void secondMigrateDoesNotReapply() {
         Integer before = historyCount();
         int appliedAgain = flyway.migrate().migrationsExecuted;

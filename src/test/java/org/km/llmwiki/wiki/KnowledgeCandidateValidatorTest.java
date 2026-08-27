@@ -3,6 +3,7 @@ package org.km.llmwiki.wiki;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.KnowledgeCandidate;
 import org.km.llmwiki.ai.KnowledgeCandidateType;
+import org.km.llmwiki.ai.AnalysisFailureCode;
 import org.km.llmwiki.ai.LlmAnalysisValidationException;
 import org.km.llmwiki.source.SourceChunk;
 
@@ -34,7 +35,9 @@ class KnowledgeCandidateValidatorTest {
 
         assertThatThrownBy(() -> validator.validate(7, chunks, List.of(candidate("無效", List.of(99L)))))
                 .isInstanceOf(LlmAnalysisValidationException.class)
-                .hasMessageContaining("outside this document request");
+                .hasMessageContaining("outside this document request")
+                .extracting(error -> ((LlmAnalysisValidationException) error).errorCode())
+                .isEqualTo(AnalysisFailureCode.ILLEGAL_EVIDENCE);
         assertThatThrownBy(() -> validator.validate(7, List.of(chunk(41, 8, "原始內容", "正規化內容")),
                 List.of(candidate("跨文件", List.of(41L)))))
                 .isInstanceOf(IllegalArgumentException.class)

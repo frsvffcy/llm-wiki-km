@@ -38,19 +38,31 @@ public class ProcessingJobItemRepository {
 
     public void markRunning(long itemId) {
         jdbcClient.sql("""
-                        UPDATE processing_job_item SET status = :status, current_step = 'ANALYZE', started_at = :now
+                        UPDATE processing_job_item
+                        SET status = :status, current_step = 'ANALYZE', started_at = COALESCE(started_at, :now)
                         WHERE id = :id
                         """).param("status", ProcessingJobItemStatus.RUNNING.name()).param("now", now()).param("id", itemId).update();
     }
 
-    public void markFinished(long itemId, ProcessingJobItemStatus status, String errorCode, String errorMessage) {
+    public void markForRetry(long itemId, int retryCount, String errorCode, String errorMessage) {
+        jdbcClient.sql("""
+                        UPDATE processing_job_item
+                        SET status = :status, current_step = 'ANALYZE', retry_count = :retryCount, retry_eligible = 1,
+                            error_code = :errorCode, error_message = :errorMessage
+                        WHERE id = :id
+                        """).param("status", ProcessingJobItemStatus.QUEUED.name()).param("retryCount", retryCount)
+                .param("errorCode", errorCode).param("errorMessage", errorMessage).param("id", itemId).update();
+    }
+
+    public void markFinished(long itemId, ProcessingJobItemStatus status, String errorCode, String errorMessage,
+                             boolean retryEligible) {
         jdbcClient.sql("""
                         UPDATE processing_job_item
                         SET status = :status, current_step = 'ANALYZE', finished_at = :now,
-                            error_code = :errorCode, error_message = :errorMessage
+                            error_code = :errorCode, error_message = :errorMessage, retry_eligible = :retryEligible
                         WHERE id = :id
                         """).param("status", status.name()).param("now", now()).param("errorCode", errorCode)
-                .param("errorMessage", errorMessage).param("id", itemId).update();
+                .param("errorMessage", errorMessage).param("retryEligible", retryEligible ? 1 : 0).param("id", itemId).update();
     }
 
     private static String now() {

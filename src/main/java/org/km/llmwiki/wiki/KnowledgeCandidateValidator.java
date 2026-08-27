@@ -1,6 +1,7 @@
 package org.km.llmwiki.wiki;
 
 import org.km.llmwiki.ai.KnowledgeCandidate;
+import org.km.llmwiki.ai.AnalysisFailureCode;
 import org.km.llmwiki.ai.LlmAnalysisValidationException;
 import org.km.llmwiki.source.SourceChunk;
 import org.springframework.stereotype.Service;
@@ -22,7 +23,7 @@ public class KnowledgeCandidateValidator {
         }
         for (KnowledgeCandidate candidate : candidates) {
             if (!sourceChunkIds.containsAll(candidate.evidenceSourceChunkIds())) {
-                throw new LlmAnalysisValidationException(
+                throw new LlmAnalysisValidationException(AnalysisFailureCode.ILLEGAL_EVIDENCE,
                         "Knowledge candidate cites a Source Chunk outside this document request");
             }
         }
