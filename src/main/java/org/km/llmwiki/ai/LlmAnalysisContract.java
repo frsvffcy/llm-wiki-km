@@ -1,0 +1,86 @@
+package org.km.llmwiki.ai;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/** Parses the versioned JSON contract returned by any LLM provider implementation. */
+public final class LlmAnalysisContract {
+
+    private final ObjectMapper objectMapper;
+
+    public LlmAnalysisContract(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
+
+    public LlmAnalysisResult parse(String payload) {
+        if (payload == null || payload.isBlank()) {
+            throw new LlmAnalysisValidationException("LLM result must be a non-empty JSON object");
+        }
+        try {
+            JsonNode root = objectMapper.readTree(payload);
+            if (root == null || !root.isObject()) {
+                throw invalid("LLM result must be a JSON object");
+            }
+            JsonNode metadata = object(root, "metadata");
+            JsonNode analysis = object(root, "analysis");
+            return new LlmAnalysisResult(
+                    new LlmProviderMetadata(text(metadata, "provider"), text(metadata, "model"),
+                            text(metadata, "contractVersion")),
+                    action(text(analysis, "action")),
+                    text(analysis, "summary"),
+                    evidence(analysis));
+        } catch (JsonProcessingException exception) {
+            throw new LlmAnalysisValidationException("LLM result is not valid JSON", exception);
+        } catch (IllegalArgumentException exception) {
+            throw new LlmAnalysisValidationException("LLM result violates the analysis contract: "
+                    + exception.getMessage(), exception);
+        }
+    }
+
+    private static JsonNode object(JsonNode parent, String field) {
+        JsonNode value = parent.get(field);
+        if (value == null || !value.isObject()) {
+            throw invalid(field + " must be an object");
+        }
+        return value;
+    }
+
+    private static String text(JsonNode parent, String field) {
+        JsonNode value = parent.get(field);
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+            throw invalid(field + " must be a non-blank string");
+        }
+        return value.asText();
+    }
+
+    private static LlmProposalAction action(String value) {
+        try {
+            return LlmProposalAction.valueOf(value);
+        } catch (IllegalArgumentException exception) {
+            throw invalid("action is not supported: " + value);
+        }
+    }
+
+    private static List<AnalysisEvidence> evidence(JsonNode analysis) {
+        JsonNode values = analysis.get("evidence");
+        if (values == null || !values.isArray() || values.isEmpty()) {
+            throw invalid("evidence must be a non-empty array");
+        }
+        List<AnalysisEvidence> evidence = new ArrayList<>();
+        for (JsonNode value : values) {
+            if (!value.isObject() || !value.has("sourceChunkId") || !value.get("sourceChunkId").canConvertToLong()) {
+                throw invalid("evidence.sourceChunkId must be a positive integer");
+            }
+            evidence.add(new AnalysisEvidence(value.get("sourceChunkId").asLong(), text(value, "quote")));
+        }
+        return List.copyOf(evidence);
+    }
+
+    private static LlmAnalysisValidationException invalid(String message) {
+        return new LlmAnalysisValidationException(message);
+    }
+}
