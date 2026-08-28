@@ -1,6 +1,9 @@
 package org.km.llmwiki.persistence.jooq;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.CoreMigrationType;
+import org.flywaydb.core.api.MigrationInfo;
+import org.flywaydb.core.api.MigrationState;
 import org.jooq.codegen.GenerationTool;
 import org.jooq.meta.jaxb.Configuration;
 import org.jooq.meta.jaxb.Database;
@@ -43,6 +46,7 @@ public final class JooqCodeGenerator {
                 .locations("classpath:db/migration")
                 .load();
         flyway.migrate();
+        requireJavaMigrationV3(flyway);
 
         // 2. Run jOOQ GenerationTool
         Configuration configuration = new Configuration()
@@ -62,8 +66,21 @@ public final class JooqCodeGenerator {
                                 .withImplicitJoinPathsToOne(false))
                         .withTarget(new Target()
                                 .withPackageName(TARGET_PACKAGE)
-                                .withDirectory(targetDir.toAbsolutePath().toString())));
+                                .withDirectory(targetDir.toAbsolutePath().toString())
+                                .withClean(true)));
 
         GenerationTool.generate(configuration);
+    }
+
+    private static void requireJavaMigrationV3(Flyway flyway) {
+        for (MigrationInfo migration : flyway.info().applied()) {
+            if (migration.getVersion() != null
+                    && "3".equals(migration.getVersion().getVersion())
+                    && CoreMigrationType.JDBC.equals(migration.getType())
+                    && MigrationState.SUCCESS.equals(migration.getState())) {
+                return;
+            }
+        }
+        throw new IllegalStateException("Flyway Java migration V3 was not applied successfully");
     }
 }

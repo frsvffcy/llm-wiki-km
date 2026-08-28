@@ -162,9 +162,17 @@ class InboxListIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].fileName").value("larger-content-file.txt"));
 
+        mockMvc.perform(get("/api/v1/inbox").param("sort", "fileSize,asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].fileName").value("small.txt"));
+
         mockMvc.perform(get("/api/v1/inbox").param("sort", "fileName,asc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].fileName").value("larger-content-file.txt"));
+
+        mockMvc.perform(get("/api/v1/inbox").param("sort", "fileName,desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].fileName").value("small.txt"));
     }
 
     @Test
@@ -176,6 +184,9 @@ class InboxListIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
 
         mockMvc.perform(get("/api/v1/inbox").param("sort", "sha256,asc"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/v1/inbox").param("sort", "fileName,sideways"))
                 .andExpect(status().isBadRequest());
 
         mockMvc.perform(get("/api/v1/inbox").param("page", "-1"))
