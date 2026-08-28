@@ -1,9 +1,8 @@
 package org.km.llmwiki.source;
 
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.jdbc.support.KeyHolder;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.SortField;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -11,327 +10,343 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
+import static org.jooq.impl.DSL.coalesce;
+import static org.jooq.impl.DSL.exists;
+import static org.jooq.impl.DSL.noCondition;
+import static org.jooq.impl.DSL.selectOne;
+import static org.jooq.impl.DSL.val;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK;
+
 @Repository
 public class DocumentRepository {
 
-    private final JdbcClient jdbcClient;
+    private final DSLContext dsl;
 
-    public DocumentRepository(JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public DocumentRepository(DSLContext dsl) {
+        this.dsl = dsl;
     }
 
     public long insert(long workspaceId, String fileName, String originalFileName, String extension,
                        String sourcePath, String sha256, Long fileSize, String mimeType, String createdAt,
                        String status, Long duplicateOfDocumentId, Long parentVersionDocumentId) {
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("workspaceId", workspaceId)
-                .addValue("fileName", fileName)
-                .addValue("originalFileName", originalFileName)
-                .addValue("extension", extension)
-                .addValue("sourcePath", sourcePath)
-                .addValue("sha256", sha256)
-                .addValue("fileSize", fileSize)
-                .addValue("mimeType", mimeType)
-                .addValue("createdAt", createdAt)
-                .addValue("status", status)
-                .addValue("duplicateOfDocumentId", duplicateOfDocumentId)
-                .addValue("parentVersionDocumentId", parentVersionDocumentId);
-        jdbcClient.sql("""
-                        INSERT INTO document (workspace_id, file_name, original_file_name, extension,
-                            source_path, sha256, file_size, mime_type, status,
-                            duplicate_of_document_id, parent_version_document_id, created_at, updated_at)
-                        VALUES (:workspaceId, :fileName, :originalFileName, :extension,
-                            :sourcePath, :sha256, :fileSize, :mimeType, :status,
-                            :duplicateOfDocumentId, :parentVersionDocumentId, :createdAt, :createdAt)
-                        """)
-                .paramSource(params)
-                .update(keyHolder);
-        Number key = keyHolder.getKey();
-        if (key == null) {
+        Integer id = dsl.insertInto(DOCUMENT)
+                .columns(
+                        DOCUMENT.WORKSPACE_ID,
+                        DOCUMENT.FILE_NAME,
+                        DOCUMENT.ORIGINAL_FILE_NAME,
+                        DOCUMENT.EXTENSION,
+                        DOCUMENT.SOURCE_PATH,
+                        DOCUMENT.SHA256,
+                        DOCUMENT.FILE_SIZE,
+                        DOCUMENT.MIME_TYPE,
+                        DOCUMENT.STATUS,
+                        DOCUMENT.DUPLICATE_OF_DOCUMENT_ID,
+                        DOCUMENT.PARENT_VERSION_DOCUMENT_ID,
+                        DOCUMENT.CREATED_AT,
+                        DOCUMENT.UPDATED_AT
+                )
+                .values(
+                        (int) workspaceId,
+                        fileName,
+                        originalFileName,
+                        extension,
+                        sourcePath,
+                        sha256,
+                        fileSize == null ? null : fileSize.intValue(),
+                        mimeType,
+                        status,
+                        duplicateOfDocumentId == null ? null : duplicateOfDocumentId.intValue(),
+                        parentVersionDocumentId == null ? null : parentVersionDocumentId.intValue(),
+                        createdAt,
+                        createdAt
+                )
+                .returningResult(DOCUMENT.ID)
+                .fetchOne(DOCUMENT.ID);
+
+        if (id == null) {
             throw new IllegalStateException("Document insert did not return a generated id");
         }
-        return key.longValue();
+        return id.longValue();
     }
 
     public void deleteById(long id) {
-        jdbcClient.sql("DELETE FROM document WHERE id = :id")
-                .param("id", id)
-                .update();
+        dsl.deleteFrom(DOCUMENT).where(DOCUMENT.ID.eq((int) id)).execute();
     }
 
     public Optional<DocumentSummary> findActiveByWorkspaceAndSourcePath(long workspaceId, String sourcePath) {
-        return jdbcClient.sql("""
-                        SELECT id, source_path, sha256 FROM document
-                        WHERE workspace_id = :workspaceId AND source_path = :sourcePath
-                          AND status <> 'DELETED' AND status <> 'SUPERSEDED'
-                        ORDER BY id DESC
-                        LIMIT 1
-                        """)
-                .param("workspaceId", workspaceId)
-                .param("sourcePath", sourcePath)
-                .query((rs, rowNum) -> new DocumentSummary(
-                        rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
-                .optional();
+        return dsl.select(DOCUMENT.ID, DOCUMENT.SOURCE_PATH, DOCUMENT.SHA256)
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.SOURCE_PATH.eq(sourcePath))
+                .and(DOCUMENT.STATUS.ne("DELETED"))
+                .and(DOCUMENT.STATUS.ne("SUPERSEDED"))
+                .orderBy(DOCUMENT.ID.desc())
+                .limit(1)
+                .fetchOptional(r -> new DocumentSummary(
+                        r.get(DOCUMENT.ID).longValue(),
+                        r.get(DOCUMENT.SOURCE_PATH),
+                        r.get(DOCUMENT.SHA256)));
     }
 
     public Optional<DocumentExtractionTarget> findExtractionTarget(long workspaceId, long documentId) {
-        return jdbcClient.sql("""
-                        SELECT id, file_name, mime_type, source_path, parse_status
-                        FROM document
-                        WHERE workspace_id = :workspaceId AND id = :documentId
-                          AND status NOT IN ('DELETED', 'SUPERSEDED')
-                        """)
-                .param("workspaceId", workspaceId)
-                .param("documentId", documentId)
-                .query((rs, rowNum) -> new DocumentExtractionTarget(
-                        rs.getLong("id"),
-                        rs.getString("file_name"),
-                        rs.getString("mime_type"),
-                        rs.getString("source_path"),
-                        rs.getString("parse_status")))
-                .optional();
+        return dsl.select(
+                        DOCUMENT.ID,
+                        DOCUMENT.FILE_NAME,
+                        DOCUMENT.MIME_TYPE,
+                        DOCUMENT.SOURCE_PATH,
+                        DOCUMENT.PARSE_STATUS
+                )
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.ID.eq((int) documentId))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"))
+                .fetchOptional(r -> new DocumentExtractionTarget(
+                        r.get(DOCUMENT.ID).longValue(),
+                        r.get(DOCUMENT.FILE_NAME),
+                        r.get(DOCUMENT.MIME_TYPE),
+                        r.get(DOCUMENT.SOURCE_PATH),
+                        r.get(DOCUMENT.PARSE_STATUS)));
     }
 
     public List<DocumentAnalysisTarget> findAnalysisTargets(long workspaceId) {
-        return jdbcClient.sql("""
-                        SELECT document.id, COALESCE(document.original_file_name, document.file_name) AS original_file_name,
-                               COALESCE(document.mime_type, 'application/octet-stream') AS mime_type,
-                               document.extracted_text_hash
-                        FROM document
-                        WHERE document.workspace_id = :workspaceId
-                          AND document.status NOT IN ('DELETED', 'SUPERSEDED')
-                          AND document.parse_status = :parseStatus
-                          AND document.extracted_text_hash IS NOT NULL
-                          AND EXISTS (
-                              SELECT 1 FROM source_chunk
-                              WHERE source_chunk.document_id = document.id
-                          )
-                        ORDER BY document.id
-                        """)
-                .param("workspaceId", workspaceId)
-                .param("parseStatus", DocumentStatus.PROCESSED.name())
-                .query((rs, rowNum) -> new DocumentAnalysisTarget(
-                        rs.getLong("id"), rs.getString("original_file_name"),
-                        rs.getString("mime_type"), rs.getString("extracted_text_hash")))
-                .list();
+        return dsl.select(
+                        DOCUMENT.ID,
+                        coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("original_file_name"),
+                        coalesce(DOCUMENT.MIME_TYPE, "application/octet-stream").as("mime_type"),
+                        DOCUMENT.EXTRACTED_TEXT_HASH
+                )
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"))
+                .and(DOCUMENT.PARSE_STATUS.eq(DocumentStatus.PROCESSED.name()))
+                .and(DOCUMENT.EXTRACTED_TEXT_HASH.isNotNull())
+                .and(exists(
+                        selectOne()
+                                .from(SOURCE_CHUNK)
+                                .where(SOURCE_CHUNK.DOCUMENT_ID.eq(DOCUMENT.ID))
+                ))
+                .orderBy(DOCUMENT.ID.asc())
+                .fetch(r -> new DocumentAnalysisTarget(
+                        r.get(DOCUMENT.ID).longValue(),
+                        r.get("original_file_name", String.class),
+                        r.get("mime_type", String.class),
+                        r.get(DOCUMENT.EXTRACTED_TEXT_HASH)));
     }
 
     public void markExtractionSucceeded(long documentId, String extractedTextHash) {
-        jdbcClient.sql("""
-                        UPDATE document
-                        SET parse_status = :parseStatus, extracted_text_hash = :extractedTextHash,
-                            error_code = NULL, error_message = NULL, updated_at = :now
-                        WHERE id = :id
-                        """)
-                .param("parseStatus", DocumentStatus.PROCESSED.name())
-                .param("extractedTextHash", extractedTextHash)
-                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
-                .param("id", documentId)
-                .update();
+        String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        dsl.update(DOCUMENT)
+                .set(DOCUMENT.PARSE_STATUS, DocumentStatus.PROCESSED.name())
+                .set(DOCUMENT.EXTRACTED_TEXT_HASH, extractedTextHash)
+                .setNull(DOCUMENT.ERROR_CODE)
+                .setNull(DOCUMENT.ERROR_MESSAGE)
+                .set(DOCUMENT.UPDATED_AT, now)
+                .where(DOCUMENT.ID.eq((int) documentId))
+                .execute();
     }
 
     public void markExtractionFailed(long documentId, DocumentStatus parseStatus,
                                      String errorCode, String errorMessage) {
-        jdbcClient.sql("""
-                        UPDATE document
-                        SET parse_status = :parseStatus, extracted_text_hash = NULL,
-                            error_code = :errorCode, error_message = :errorMessage, updated_at = :now
-                        WHERE id = :id
-                        """)
-                .param("parseStatus", parseStatus.name())
-                .param("errorCode", errorCode)
-                .param("errorMessage", errorMessage)
-                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
-                .param("id", documentId)
-                .update();
+        String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        dsl.update(DOCUMENT)
+                .set(DOCUMENT.PARSE_STATUS, parseStatus.name())
+                .setNull(DOCUMENT.EXTRACTED_TEXT_HASH)
+                .set(DOCUMENT.ERROR_CODE, errorCode)
+                .set(DOCUMENT.ERROR_MESSAGE, errorMessage)
+                .set(DOCUMENT.UPDATED_AT, now)
+                .where(DOCUMENT.ID.eq((int) documentId))
+                .execute();
     }
 
     public Optional<DocumentSummary> findActiveByWorkspaceAndSha256(long workspaceId, String sha256) {
-        return jdbcClient.sql("""
-                        SELECT id, source_path, sha256 FROM document
-                        WHERE workspace_id = :workspaceId AND sha256 = :sha256
-                          AND status <> 'DELETED' AND status <> 'SUPERSEDED'
-                        ORDER BY id
-                        LIMIT 1
-                        """)
-                .param("workspaceId", workspaceId)
-                .param("sha256", sha256)
-                .query((rs, rowNum) -> new DocumentSummary(
-                        rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
-                .optional();
+        return dsl.select(DOCUMENT.ID, DOCUMENT.SOURCE_PATH, DOCUMENT.SHA256)
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.SHA256.eq(sha256))
+                .and(DOCUMENT.STATUS.ne("DELETED"))
+                .and(DOCUMENT.STATUS.ne("SUPERSEDED"))
+                .orderBy(DOCUMENT.ID.asc())
+                .limit(1)
+                .fetchOptional(r -> new DocumentSummary(
+                        r.get(DOCUMENT.ID).longValue(),
+                        r.get(DOCUMENT.SOURCE_PATH),
+                        r.get(DOCUMENT.SHA256)));
     }
 
     public List<DocumentSummary> findInboxManaged(long workspaceId) {
-        return jdbcClient.sql("""
-                        SELECT id, source_path, sha256 FROM document
-                        WHERE workspace_id = :workspaceId AND source_path LIKE 'inbox/%'
-                          AND status NOT IN ('DELETED', 'SUPERSEDED', 'ARCHIVED')
-                        """)
-                .param("workspaceId", workspaceId)
-                .query((rs, rowNum) -> new DocumentSummary(
-                        rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
-                .list();
+        return dsl.select(DOCUMENT.ID, DOCUMENT.SOURCE_PATH, DOCUMENT.SHA256)
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.SOURCE_PATH.like("inbox/%"))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED", "ARCHIVED"))
+                .fetch(r -> new DocumentSummary(
+                        r.get(DOCUMENT.ID).longValue(),
+                        r.get(DOCUMENT.SOURCE_PATH),
+                        r.get(DOCUMENT.SHA256)));
     }
 
     public void markDeleted(long id) {
-        jdbcClient.sql("""
-                        UPDATE document SET status = 'DELETED', updated_at = :now WHERE id = :id
-                        """)
-                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
-                .param("id", id)
-                .update();
+        String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        dsl.update(DOCUMENT)
+                .set(DOCUMENT.STATUS, "DELETED")
+                .set(DOCUMENT.UPDATED_AT, now)
+                .where(DOCUMENT.ID.eq((int) id))
+                .execute();
     }
 
     public void markSuperseded(long id) {
-        jdbcClient.sql("""
-                        UPDATE document SET status = 'SUPERSEDED', updated_at = :now WHERE id = :id
-                        """)
-                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
-                .param("id", id)
-                .update();
+        String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        dsl.update(DOCUMENT)
+                .set(DOCUMENT.STATUS, "SUPERSEDED")
+                .set(DOCUMENT.UPDATED_AT, now)
+                .where(DOCUMENT.ID.eq((int) id))
+                .execute();
     }
 
     public long countInboxDocuments(long workspaceId, String statusFilter, String extensionFilter) {
-        return jdbcClient.sql(inboxQuery("COUNT(*)", statusFilter, extensionFilter, null))
-                .paramSource(inboxParams(workspaceId, statusFilter, extensionFilter))
-                .query(Long.class)
-                .single();
+        Condition where = inboxBaseCondition(workspaceId, statusFilter, extensionFilter);
+        Integer count = dsl.selectCount()
+                .from(DOCUMENT)
+                .where(where)
+                .fetchOne(0, Integer.class);
+        return count == null ? 0 : count.longValue();
     }
 
     public List<InboxDocumentRow> findInboxDocuments(long workspaceId, String statusFilter,
                                                      String extensionFilter, String orderBy, int limit, int offset) {
-        String sql = inboxQuery("""
-                id AS document_id, file_name,
-                COALESCE(original_file_name, file_name) AS original_file_name,
-                extension, mime_type, file_size, status, parse_status, error_code, error_message, created_at""", statusFilter, extensionFilter, orderBy)
-                + " LIMIT :limit OFFSET :offset";
-        return jdbcClient.sql(sql)
-                .paramSource(inboxParams(workspaceId, statusFilter, extensionFilter)
-                        .addValue("limit", limit)
-                        .addValue("offset", offset))
-                .query((rs, rowNum) -> new InboxDocumentRow(
-                        rs.getLong("document_id"),
-                        rs.getString("file_name"),
-                        rs.getString("original_file_name"),
-                        rs.getString("extension"),
-                        rs.getString("mime_type"),
-                        rs.getObject("file_size") == null ? null : rs.getLong("file_size"),
-                        rs.getString("status"),
-                        rs.getString("parse_status"),
-                        rs.getString("error_code"),
-                        rs.getString("error_message"),
-                        rs.getString("created_at")))
-                .list();
+        Condition where = inboxBaseCondition(workspaceId, statusFilter, extensionFilter);
+        var step = dsl.select(
+                        DOCUMENT.ID,
+                        DOCUMENT.FILE_NAME,
+                        coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("original_file_name"),
+                        DOCUMENT.EXTENSION,
+                        DOCUMENT.MIME_TYPE,
+                        DOCUMENT.FILE_SIZE,
+                        DOCUMENT.STATUS,
+                        DOCUMENT.PARSE_STATUS,
+                        DOCUMENT.ERROR_CODE,
+                        DOCUMENT.ERROR_MESSAGE,
+                        DOCUMENT.CREATED_AT
+                )
+                .from(DOCUMENT)
+                .where(where);
+
+        var ordered = (orderBy != null && !orderBy.isBlank())
+                ? step.orderBy(parseSortField(orderBy))
+                : step.orderBy(DOCUMENT.CREATED_AT.desc());
+
+        return ordered.limit(limit).offset(offset).fetch(r -> new InboxDocumentRow(
+                r.get(DOCUMENT.ID).longValue(),
+                r.get(DOCUMENT.FILE_NAME),
+                r.get("original_file_name", String.class),
+                r.get(DOCUMENT.EXTENSION),
+                r.get(DOCUMENT.MIME_TYPE),
+                r.get(DOCUMENT.FILE_SIZE) == null ? null : r.get(DOCUMENT.FILE_SIZE).longValue(),
+                r.get(DOCUMENT.STATUS),
+                r.get(DOCUMENT.PARSE_STATUS),
+                r.get(DOCUMENT.ERROR_CODE),
+                r.get(DOCUMENT.ERROR_MESSAGE),
+                r.get(DOCUMENT.CREATED_AT)));
+    }
+
+    private static org.jooq.SortField<?> parseSortField(String orderBy) {
+        // orderBy format: "column_name ASC" or "column_name DESC"
+        String[] parts = orderBy.trim().split("\\s+", 2);
+        var field = org.jooq.impl.DSL.field(org.jooq.impl.DSL.name(parts[0]));
+        if (parts.length > 1 && parts[1].equalsIgnoreCase("DESC")) {
+            return field.desc();
+        }
+        return field.asc();
     }
 
     public Optional<InboxDocumentRow> findInboxDocument(long workspaceId, long documentId) {
-        return jdbcClient.sql("""
-                        SELECT id AS document_id, file_name,
-                            COALESCE(original_file_name, file_name) AS original_file_name,
-                            extension, mime_type, file_size, status, parse_status, error_code, error_message, created_at
-                        FROM document
-                        WHERE workspace_id = :workspaceId AND id = :documentId
-                          AND source_path LIKE 'inbox/%'
-                          AND status NOT IN ('DELETED', 'SUPERSEDED', 'ARCHIVED')
-                        """)
-                .param("workspaceId", workspaceId)
-                .param("documentId", documentId)
-                .query((rs, rowNum) -> new InboxDocumentRow(
-                        rs.getLong("document_id"),
-                        rs.getString("file_name"),
-                        rs.getString("original_file_name"),
-                        rs.getString("extension"),
-                        rs.getString("mime_type"),
-                        rs.getObject("file_size") == null ? null : rs.getLong("file_size"),
-                        rs.getString("status"),
-                        rs.getString("parse_status"),
-                        rs.getString("error_code"),
-                        rs.getString("error_message"),
-                        rs.getString("created_at")))
-                .optional();
-    }
-
-    private static org.springframework.jdbc.core.namedparam.MapSqlParameterSource inboxParams(
-            long workspaceId, String statusFilter, String extensionFilter) {
-        var params = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource()
-                .addValue("workspaceId", workspaceId);
-        if (statusFilter != null) {
-            params.addValue("status", statusFilter);
-        }
-        if (extensionFilter != null) {
-            params.addValue("extension", extensionFilter);
-        }
-        return params;
-    }
-
-    private static String inboxQuery(Object select, String statusFilter, String extensionFilter, String orderBy) {
-        StringBuilder sql = new StringBuilder("SELECT ").append(select).append(" FROM document")
-                .append(" WHERE workspace_id = :workspaceId")
-                .append(" AND source_path LIKE 'inbox/%'")
-                .append(" AND status NOT IN ('DELETED', 'SUPERSEDED', 'ARCHIVED')");
-        if (statusFilter != null) {
-            sql.append(" AND status = :status");
-        }
-        if (extensionFilter != null) {
-            sql.append(" AND extension = :extension");
-        }
-        if (orderBy != null && !orderBy.isBlank()) {
-            sql.append(" ORDER BY ").append(orderBy);
-        }
-        return sql.toString();
+        return dsl.select(
+                        DOCUMENT.ID,
+                        DOCUMENT.FILE_NAME,
+                        coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("original_file_name"),
+                        DOCUMENT.EXTENSION,
+                        DOCUMENT.MIME_TYPE,
+                        DOCUMENT.FILE_SIZE,
+                        DOCUMENT.STATUS,
+                        DOCUMENT.PARSE_STATUS,
+                        DOCUMENT.ERROR_CODE,
+                        DOCUMENT.ERROR_MESSAGE,
+                        DOCUMENT.CREATED_AT
+                )
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.ID.eq((int) documentId))
+                .and(DOCUMENT.SOURCE_PATH.like("inbox/%"))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED", "ARCHIVED"))
+                .fetchOptional(r -> new InboxDocumentRow(
+                        r.get(DOCUMENT.ID).longValue(),
+                        r.get(DOCUMENT.FILE_NAME),
+                        r.get("original_file_name", String.class),
+                        r.get(DOCUMENT.EXTENSION),
+                        r.get(DOCUMENT.MIME_TYPE),
+                        r.get(DOCUMENT.FILE_SIZE) == null ? null : r.get(DOCUMENT.FILE_SIZE).longValue(),
+                        r.get(DOCUMENT.STATUS),
+                        r.get(DOCUMENT.PARSE_STATUS),
+                        r.get(DOCUMENT.ERROR_CODE),
+                        r.get(DOCUMENT.ERROR_MESSAGE),
+                        r.get(DOCUMENT.CREATED_AT)));
     }
 
     public Optional<DocumentDeletionView> findDeletionView(long workspaceId, long documentId) {
-        return jdbcClient.sql("""
-                        SELECT id AS document_id, source_path, status FROM document
-                        WHERE workspace_id = :workspaceId AND id = :documentId
-                        """)
-                .param("workspaceId", workspaceId)
-                .param("documentId", documentId)
-                .query((rs, rowNum) -> new DocumentDeletionView(
-                        rs.getLong("document_id"),
-                        rs.getString("source_path"),
-                        rs.getString("status")))
-                .optional();
+        return dsl.select(DOCUMENT.ID, DOCUMENT.SOURCE_PATH, DOCUMENT.STATUS)
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.ID.eq((int) documentId))
+                .fetchOptional(r -> new DocumentDeletionView(
+                        r.get(DOCUMENT.ID).longValue(),
+                        r.get(DOCUMENT.SOURCE_PATH),
+                        r.get(DOCUMENT.STATUS)));
     }
 
     public List<DocumentSummary> findCurrentDuplicatesOf(long workspaceId, long canonicalDocumentId) {
-        return jdbcClient.sql("""
-                        SELECT id, source_path, sha256 FROM document
-                        WHERE workspace_id = :workspaceId
-                          AND duplicate_of_document_id = :canonicalId
-                          AND status = 'DUPLICATE'
-                        ORDER BY id
-                        """)
-                .param("workspaceId", workspaceId)
-                .param("canonicalId", canonicalDocumentId)
-                .query((rs, rowNum) -> new DocumentSummary(
-                        rs.getLong("id"), rs.getString("source_path"), rs.getString("sha256")))
-                .list();
+        return dsl.select(DOCUMENT.ID, DOCUMENT.SOURCE_PATH, DOCUMENT.SHA256)
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.DUPLICATE_OF_DOCUMENT_ID.eq((int) canonicalDocumentId))
+                .and(DOCUMENT.STATUS.eq("DUPLICATE"))
+                .orderBy(DOCUMENT.ID.asc())
+                .fetch(r -> new DocumentSummary(
+                        r.get(DOCUMENT.ID).longValue(),
+                        r.get(DOCUMENT.SOURCE_PATH),
+                        r.get(DOCUMENT.SHA256)));
     }
 
     public void promoteDuplicateToCanonical(long duplicateDocumentId) {
-        jdbcClient.sql("""
-                        UPDATE document SET status = 'PENDING', duplicate_of_document_id = NULL,
-                            updated_at = :now
-                        WHERE id = :id
-                        """)
-                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
-                .param("id", duplicateDocumentId)
-                .update();
+        String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        dsl.update(DOCUMENT)
+                .set(DOCUMENT.STATUS, "PENDING")
+                .setNull(DOCUMENT.DUPLICATE_OF_DOCUMENT_ID)
+                .set(DOCUMENT.UPDATED_AT, now)
+                .where(DOCUMENT.ID.eq((int) duplicateDocumentId))
+                .execute();
     }
 
     public void repointDuplicates(long previousCanonicalId, long newCanonicalId) {
-        jdbcClient.sql("""
-                        UPDATE document SET duplicate_of_document_id = :newCanonicalId,
-                            updated_at = :now
-                        WHERE duplicate_of_document_id = :previousCanonicalId
-                          AND status = 'DUPLICATE'
-                        """)
-                .param("newCanonicalId", newCanonicalId)
-                .param("previousCanonicalId", previousCanonicalId)
-                .param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
-                .update();
+        String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        dsl.update(DOCUMENT)
+                .set(DOCUMENT.DUPLICATE_OF_DOCUMENT_ID, (int) newCanonicalId)
+                .set(DOCUMENT.UPDATED_AT, now)
+                .where(DOCUMENT.DUPLICATE_OF_DOCUMENT_ID.eq((int) previousCanonicalId))
+                .and(DOCUMENT.STATUS.eq("DUPLICATE"))
+                .execute();
+    }
+
+    private static Condition inboxBaseCondition(long workspaceId, String statusFilter, String extensionFilter) {
+        Condition condition = DOCUMENT.WORKSPACE_ID.eq((int) workspaceId)
+                .and(DOCUMENT.SOURCE_PATH.like("inbox/%"))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED", "ARCHIVED"));
+        if (statusFilter != null) {
+            condition = condition.and(DOCUMENT.STATUS.eq(statusFilter));
+        }
+        if (extensionFilter != null) {
+            condition = condition.and(DOCUMENT.EXTENSION.eq(extensionFilter));
+        }
+        return condition;
     }
 }

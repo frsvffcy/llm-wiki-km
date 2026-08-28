@@ -1,11 +1,13 @@
 package org.km.llmwiki.ai;
 
-import org.springframework.jdbc.core.simple.JdbcClient;
+import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static org.km.llmwiki.persistence.jooq.generated.Tables.SETTING;
 
 /**
  * Reads only allow-listed, non-secret analysis settings. Workspace values take precedence over
@@ -18,32 +20,35 @@ public class AnalysisSettingsRepository {
     private static final String LLM_MODEL = "llm.model";
     private static final String MAXIMUM_EVIDENCE_CHUNKS = "analysis.maximum_evidence_chunks";
 
-    private final JdbcClient jdbcClient;
+    private final DSLContext dsl;
 
-    public AnalysisSettingsRepository(JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public AnalysisSettingsRepository(DSLContext dsl) {
+        this.dsl = dsl;
     }
 
     public AnalysisSettings resolve(long workspaceId) {
         Map<String, String> global = new HashMap<>();
         Map<String, String> workspace = new HashMap<>();
-        List<SettingRow> rows = jdbcClient.sql("""
-                        SELECT workspace_id, setting_group, setting_key, setting_value
-                        FROM setting
-                        WHERE (workspace_id IS NULL OR workspace_id = :workspaceId)
-                          AND (
-                              (setting_group = 'llm' AND setting_key IN ('provider', 'model'))
-                              OR (setting_group = 'analysis' AND setting_key = 'maximum_evidence_chunks')
-                          )
-                        """)
-                .param("workspaceId", workspaceId)
-                .query((resultSet, rowNum) -> {
-                    Object workspaceValue = resultSet.getObject("workspace_id");
-                    Long rowWorkspaceId = workspaceValue == null ? null : ((Number) workspaceValue).longValue();
-                    return new SettingRow(rowWorkspaceId, resultSet.getString("setting_group"),
-                            resultSet.getString("setting_key"), resultSet.getString("setting_value"));
-                })
-                .list();
+
+        List<SettingRow> rows = dsl.select(
+                        SETTING.WORKSPACE_ID,
+                        SETTING.SETTING_GROUP,
+                        SETTING.SETTING_KEY,
+                        SETTING.SETTING_VALUE
+                )
+                .from(SETTING)
+                .where(SETTING.WORKSPACE_ID.isNull().or(SETTING.WORKSPACE_ID.eq((int) workspaceId)))
+                .and(
+                        (SETTING.SETTING_GROUP.eq("llm").and(SETTING.SETTING_KEY.in("provider", "model")))
+                                .or(SETTING.SETTING_GROUP.eq("analysis").and(SETTING.SETTING_KEY.eq("maximum_evidence_chunks")))
+                )
+                .fetch(r -> new SettingRow(
+                        r.get(SETTING.WORKSPACE_ID) == null ? null : r.get(SETTING.WORKSPACE_ID).longValue(),
+                        r.get(SETTING.SETTING_GROUP),
+                        r.get(SETTING.SETTING_KEY),
+                        r.get(SETTING.SETTING_VALUE)
+                ));
+
         for (SettingRow row : rows) {
             String name = row.group() + "." + row.key();
             if (!isAllowed(name)) {

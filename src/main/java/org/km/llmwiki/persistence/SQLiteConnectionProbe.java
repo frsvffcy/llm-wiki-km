@@ -1,19 +1,19 @@
 package org.km.llmwiki.persistence;
 
-import org.springframework.jdbc.core.simple.JdbcClient;
+import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class SQLiteConnectionProbe {
 
-    private final JdbcClient jdbcClient;
+    private final DSLContext dsl;
 
-    public SQLiteConnectionProbe(JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public SQLiteConnectionProbe(DSLContext dsl) {
+        this.dsl = dsl;
     }
 
     public boolean isReachable() {
-        Integer result = jdbcClient.sql("SELECT 1").query(Integer.class).single();
-        return result == 1;
+        Integer result = dsl.selectOne().fetchOne(0, Integer.class);
+        return result != null && result == 1;
     }
 }

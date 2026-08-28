@@ -1,54 +1,62 @@
 package org.km.llmwiki.source;
 
-import org.springframework.jdbc.core.simple.JdbcClient;
+import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 
+import static org.jooq.impl.DSL.excluded;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT_EXTRACTED_CONTENT;
+
 @Repository
 public class ExtractedContentRepository {
 
-    private final JdbcClient jdbcClient;
+    private final DSLContext dsl;
 
-    public ExtractedContentRepository(JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public ExtractedContentRepository(DSLContext dsl) {
+        this.dsl = dsl;
     }
 
     public void save(long documentId, String content, int chunkCount) {
         String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
-        jdbcClient.sql("""
-                        INSERT INTO document_extracted_content (
-                            document_id, content, chunk_count, created_at, updated_at)
-                        VALUES (:documentId, :content, :chunkCount, :now, :now)
-                        ON CONFLICT(document_id) DO UPDATE SET
-                            content = excluded.content,
-                            chunk_count = excluded.chunk_count,
-                            updated_at = excluded.updated_at
-                        """)
-                .param("documentId", documentId)
-                .param("content", content)
-                .param("chunkCount", chunkCount)
-                .param("now", now)
-                .update();
+        dsl.insertInto(DOCUMENT_EXTRACTED_CONTENT)
+                .columns(
+                        DOCUMENT_EXTRACTED_CONTENT.DOCUMENT_ID,
+                        DOCUMENT_EXTRACTED_CONTENT.CONTENT,
+                        DOCUMENT_EXTRACTED_CONTENT.CHUNK_COUNT,
+                        DOCUMENT_EXTRACTED_CONTENT.CREATED_AT,
+                        DOCUMENT_EXTRACTED_CONTENT.UPDATED_AT
+                )
+                .values(
+                        (int) documentId,
+                        content,
+                        chunkCount,
+                        now,
+                        now
+                )
+                .onConflict(DOCUMENT_EXTRACTED_CONTENT.DOCUMENT_ID)
+                .doUpdate()
+                .set(DOCUMENT_EXTRACTED_CONTENT.CONTENT, excluded(DOCUMENT_EXTRACTED_CONTENT.CONTENT))
+                .set(DOCUMENT_EXTRACTED_CONTENT.CHUNK_COUNT, excluded(DOCUMENT_EXTRACTED_CONTENT.CHUNK_COUNT))
+                .set(DOCUMENT_EXTRACTED_CONTENT.UPDATED_AT, excluded(DOCUMENT_EXTRACTED_CONTENT.UPDATED_AT))
+                .execute();
     }
 
     public Optional<ExtractedContentRecord> findByDocumentId(long documentId) {
-        return jdbcClient.sql("""
-                        SELECT document_id, content, chunk_count
-                        FROM document_extracted_content
-                        WHERE document_id = :documentId
-                        """)
-                .param("documentId", documentId)
-                .query((rs, rowNum) -> new ExtractedContentRecord(
-                        rs.getLong("document_id"), rs.getString("content"), rs.getInt("chunk_count")))
-                .optional();
+        return dsl.selectFrom(DOCUMENT_EXTRACTED_CONTENT)
+                .where(DOCUMENT_EXTRACTED_CONTENT.DOCUMENT_ID.eq((int) documentId))
+                .fetchOptional(r -> new ExtractedContentRecord(
+                        r.getDocumentId().longValue(),
+                        r.getContent(),
+                        r.getChunkCount()
+                ));
     }
 
     public void deleteByDocumentId(long documentId) {
-        jdbcClient.sql("DELETE FROM document_extracted_content WHERE document_id = :documentId")
-                .param("documentId", documentId)
-                .update();
+        dsl.deleteFrom(DOCUMENT_EXTRACTED_CONTENT)
+                .where(DOCUMENT_EXTRACTED_CONTENT.DOCUMENT_ID.eq((int) documentId))
+                .execute();
     }
 }

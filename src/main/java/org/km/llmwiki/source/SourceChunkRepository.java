@@ -1,6 +1,6 @@
 package org.km.llmwiki.source;
 
-import org.springframework.jdbc.core.simple.JdbcClient;
+import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -8,18 +8,24 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
+import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_CANDIDATE;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK;
+
 @Repository
 public class SourceChunkRepository {
 
-    private final JdbcClient jdbcClient;
+    private final DSLContext dsl;
 
-    public SourceChunkRepository(JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public SourceChunkRepository(DSLContext dsl) {
+        this.dsl = dsl;
     }
 
     public void replaceForDocument(long documentId, List<SourceChunkDraft> chunks) {
-        jdbcClient.sql("DELETE FROM knowledge_candidate WHERE document_id = :documentId")
-                .param("documentId", documentId).update();
+        dsl.deleteFrom(KNOWLEDGE_CANDIDATE)
+                .where(KNOWLEDGE_CANDIDATE.DOCUMENT_ID.eq((int) documentId))
+                .execute();
+
         deleteByDocumentId(documentId);
         if (chunks.isEmpty()) {
             return;
@@ -27,72 +33,85 @@ public class SourceChunkRepository {
 
         String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
         for (SourceChunkDraft chunk : chunks) {
-            jdbcClient.sql("""
-                            INSERT INTO source_chunk (
-                                document_id, chunk_no, page_no, section, heading_path,
-                                content, normalized_content, content_hash, created_at, updated_at)
-                            VALUES (
-                                :documentId, :chunkNo, :pageNo, :section, :headingPath,
-                                :content, :normalizedContent, :contentHash, :now, :now)
-                            """)
-                    .param("documentId", documentId)
-                    .param("chunkNo", chunk.chunkNo())
-                    .param("pageNo", chunk.pageNo())
-                    .param("section", chunk.section())
-                    .param("headingPath", chunk.headingPath())
-                    .param("content", chunk.content())
-                    .param("normalizedContent", chunk.normalizedContent())
-                    .param("contentHash", chunk.contentHash())
-                    .param("now", now)
-                    .update();
+            dsl.insertInto(SOURCE_CHUNK)
+                    .columns(
+                            SOURCE_CHUNK.DOCUMENT_ID,
+                            SOURCE_CHUNK.CHUNK_NO,
+                            SOURCE_CHUNK.PAGE_NO,
+                            SOURCE_CHUNK.SECTION,
+                            SOURCE_CHUNK.HEADING_PATH,
+                            SOURCE_CHUNK.CONTENT,
+                            SOURCE_CHUNK.NORMALIZED_CONTENT,
+                            SOURCE_CHUNK.CONTENT_HASH,
+                            SOURCE_CHUNK.CREATED_AT,
+                            SOURCE_CHUNK.UPDATED_AT
+                    )
+                    .values(
+                            (int) documentId,
+                            chunk.chunkNo(),
+                            chunk.pageNo(),
+                            chunk.section(),
+                            chunk.headingPath(),
+                            chunk.content(),
+                            chunk.normalizedContent(),
+                            chunk.contentHash(),
+                            now,
+                            now
+                    )
+                    .execute();
         }
     }
 
     public List<SourceChunk> findByDocumentId(long documentId) {
-        return jdbcClient.sql("""
-                        SELECT id, document_id, chunk_no, page_no, section, heading_path,
-                               content, normalized_content, content_hash
-                        FROM source_chunk
-                        WHERE document_id = :documentId
-                        ORDER BY chunk_no
-                        """)
-                .param("documentId", documentId)
-                .query((rs, rowNum) -> sourceChunk(rs))
-                .list();
+        return dsl.selectFrom(SOURCE_CHUNK)
+                .where(SOURCE_CHUNK.DOCUMENT_ID.eq((int) documentId))
+                .orderBy(SOURCE_CHUNK.CHUNK_NO.asc())
+                .fetch(r -> new SourceChunk(
+                        r.getId().longValue(),
+                        r.getDocumentId().longValue(),
+                        r.getChunkNo(),
+                        r.getPageNo(),
+                        r.getSection(),
+                        r.getHeadingPath(),
+                        r.getContent(),
+                        r.getNormalizedContent(),
+                        r.getContentHash()
+                ));
     }
 
     public Optional<SourceChunk> findByIdAndWorkspaceId(long chunkId, long workspaceId) {
-        return jdbcClient.sql("""
-                        SELECT source_chunk.id, source_chunk.document_id, source_chunk.chunk_no,
-                               source_chunk.page_no, source_chunk.section, source_chunk.heading_path,
-                               source_chunk.content, source_chunk.normalized_content, source_chunk.content_hash
-                        FROM source_chunk
-                        JOIN document ON document.id = source_chunk.document_id
-                        WHERE source_chunk.id = :chunkId AND document.workspace_id = :workspaceId
-                          AND document.status NOT IN ('DELETED', 'SUPERSEDED')
-                        """)
-                .param("chunkId", chunkId)
-                .param("workspaceId", workspaceId)
-                .query((rs, rowNum) -> sourceChunk(rs))
-                .optional();
+        return dsl.select(
+                        SOURCE_CHUNK.ID,
+                        SOURCE_CHUNK.DOCUMENT_ID,
+                        SOURCE_CHUNK.CHUNK_NO,
+                        SOURCE_CHUNK.PAGE_NO,
+                        SOURCE_CHUNK.SECTION,
+                        SOURCE_CHUNK.HEADING_PATH,
+                        SOURCE_CHUNK.CONTENT,
+                        SOURCE_CHUNK.NORMALIZED_CONTENT,
+                        SOURCE_CHUNK.CONTENT_HASH
+                )
+                .from(SOURCE_CHUNK)
+                .join(DOCUMENT).on(DOCUMENT.ID.eq(SOURCE_CHUNK.DOCUMENT_ID))
+                .where(SOURCE_CHUNK.ID.eq((int) chunkId))
+                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"))
+                .fetchOptional(r -> new SourceChunk(
+                        r.get(SOURCE_CHUNK.ID).longValue(),
+                        r.get(SOURCE_CHUNK.DOCUMENT_ID).longValue(),
+                        r.get(SOURCE_CHUNK.CHUNK_NO),
+                        r.get(SOURCE_CHUNK.PAGE_NO),
+                        r.get(SOURCE_CHUNK.SECTION),
+                        r.get(SOURCE_CHUNK.HEADING_PATH),
+                        r.get(SOURCE_CHUNK.CONTENT),
+                        r.get(SOURCE_CHUNK.NORMALIZED_CONTENT),
+                        r.get(SOURCE_CHUNK.CONTENT_HASH)
+                ));
     }
 
     public void deleteByDocumentId(long documentId) {
-        jdbcClient.sql("DELETE FROM source_chunk WHERE document_id = :documentId")
-                .param("documentId", documentId)
-                .update();
-    }
-
-    private static SourceChunk sourceChunk(java.sql.ResultSet resultSet) throws java.sql.SQLException {
-        return new SourceChunk(
-                resultSet.getLong("id"),
-                resultSet.getLong("document_id"),
-                resultSet.getInt("chunk_no"),
-                resultSet.getObject("page_no", Integer.class),
-                resultSet.getString("section"),
-                resultSet.getString("heading_path"),
-                resultSet.getString("content"),
-                resultSet.getString("normalized_content"),
-                resultSet.getString("content_hash"));
+        dsl.deleteFrom(SOURCE_CHUNK)
+                .where(SOURCE_CHUNK.DOCUMENT_ID.eq((int) documentId))
+                .execute();
     }
 }
