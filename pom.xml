@@ -78,6 +78,51 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>compile-jooq-codegen-bootstrap</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>db/migration/V3__BackfillDocumentFileNames.java</include>
+                                <include>org/km/llmwiki/persistence/jooq/JooqCodeGenerator.java</include>
+                            </includes>
+                            <outputDirectory>${project.build.directory}/jooq-codegen-classes</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <id>generate-jooq-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>org.km.llmwiki.persistence.jooq.JooqCodeGenerator</mainClass>
+                            <arguments>
+                                <argument>${project.build.directory}/generated-sources/jooq</argument>
+                            </arguments>
+                            <classpathScope>compile</classpathScope>
+                            <additionalClasspathElements>
+                                <additionalClasspathElement>${project.build.directory}/jooq-codegen-classes</additionalClasspathElement>
+                                <additionalClasspathElement>${project.basedir}/src/main/resources</additionalClasspathElement>
+                            </additionalClasspathElements>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
                 <version>3.6.0</version>

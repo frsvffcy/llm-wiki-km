@@ -19,6 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class KnowledgeProposalReviewApiIntegrationTest extends IsolatedIntegrationTest {
 
+    private static final double HIGH_PRECISION_CONFIDENCE = 0.123456789012345;
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -43,6 +45,19 @@ class KnowledgeProposalReviewApiIntegrationTest extends IsolatedIntegrationTest 
                 .andExpect(jsonPath("$.page.number").value(0))
                 .andExpect(jsonPath("$.page.size").value(1))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    void preservesStoredConfidencePrecisionWhenReadingProposalReview() throws Exception {
+        Fixture active = createFixture("ACTIVE", "precise.txt", "DRAFT", HIGH_PRECISION_CONFIDENCE);
+
+        String response = mockMvc.perform(get("/api/v1/proposals/{proposalId}", active.proposalId()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        double confidence = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(response).path("data").path("confidence").doubleValue();
+        assertThat(confidence).isEqualTo(HIGH_PRECISION_CONFIDENCE);
     }
 
     @Test
@@ -121,6 +136,10 @@ class KnowledgeProposalReviewApiIntegrationTest extends IsolatedIntegrationTest 
     }
 
     private Fixture createFixture(String workspaceStatus, String fileName, String proposalStatus) {
+        return createFixture(workspaceStatus, fileName, proposalStatus, 0.86);
+    }
+
+    private Fixture createFixture(String workspaceStatus, String fileName, String proposalStatus, double confidence) {
         long workspaceId = insert("""
                 INSERT INTO workspace (name, root_path, inbox_path, archive_path, vault_path, data_path, status, created_at, updated_at)
                 VALUES (:name, :rootPath, :inboxPath, :archivePath, :vaultPath, :dataPath, :status, :now, :now)
@@ -152,8 +171,9 @@ class KnowledgeProposalReviewApiIntegrationTest extends IsolatedIntegrationTest 
         long candidateId = insert("""
                 INSERT INTO knowledge_candidate (document_analysis_id, document_id, candidate_no, title, candidate_type,
                     summary, confidence, rationale, created_at, updated_at)
-                VALUES (:analysisId, :documentId, 1, '審核測試 Proposal', 'CONCEPT', 'Proposal 摘要', 0.86, '具備來源佐證', :now, :now)
-                """, "analysisId", analysisId, "documentId", documentId, "now", "2026-08-27T00:00:00Z");
+                VALUES (:analysisId, :documentId, 1, '審核測試 Proposal', 'CONCEPT', 'Proposal 摘要', :confidence, '具備來源佐證', :now, :now)
+                """, "analysisId", analysisId, "documentId", documentId, "confidence", confidence,
+                "now", "2026-08-27T00:00:00Z");
         long proposalId = insert("""
                 INSERT INTO knowledge_proposal (workspace_id, document_analysis_id, document_id, knowledge_candidate_id,
                     action, status, merge_target_reference, provider, model, prompt_identifier, prompt_version,
