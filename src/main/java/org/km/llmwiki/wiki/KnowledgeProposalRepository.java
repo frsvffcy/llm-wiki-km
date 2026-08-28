@@ -2,6 +2,7 @@ package org.km.llmwiki.wiki;
 
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.km.llmwiki.ai.KnowledgeCandidateType;
 import org.km.llmwiki.ai.LlmProposalAction;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ import static org.jooq.impl.DSL.count;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT_ANALYSIS;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_CANDIDATE;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_CANDIDATE_EVIDENCE;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PROPOSAL;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PROPOSAL_EVIDENCE;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK;
@@ -103,6 +105,50 @@ public class KnowledgeProposalRepository {
                         r.get(KNOWLEDGE_PROPOSAL.VALIDATED_PAYLOAD_JSON),
                         r.get(KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON),
                         evidenceIds(r.get(KNOWLEDGE_PROPOSAL.ID).longValue())
+                ));
+    }
+
+    /**
+     * Loads the complete read-only source needed by STORY-402. The workspace and document joins are
+     * deliberate authority checks; no untrusted proposal field is interpreted as a filesystem path.
+     */
+    public Optional<WikiDraftConversionSource> findDraftConversionSource(long workspaceId, long proposalId) {
+        Condition condition = KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId)
+                .and(KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"));
+
+        return dsl.select(
+                        KNOWLEDGE_PROPOSAL.ID,
+                        KNOWLEDGE_PROPOSAL.WORKSPACE_ID,
+                        KNOWLEDGE_PROPOSAL.DOCUMENT_ID,
+                        KNOWLEDGE_PROPOSAL.ACTION,
+                        KNOWLEDGE_PROPOSAL.STATUS,
+                        KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE,
+                        KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON,
+                        KNOWLEDGE_CANDIDATE.ID,
+                        KNOWLEDGE_CANDIDATE.CANDIDATE_TYPE,
+                        KNOWLEDGE_CANDIDATE.TITLE,
+                        KNOWLEDGE_CANDIDATE.SUMMARY
+                )
+                .from(KNOWLEDGE_PROPOSAL)
+                .join(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
+                .join(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID
+                        .eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
+                .where(condition)
+                .fetchOptional(r -> new WikiDraftConversionSource(
+                        r.get(KNOWLEDGE_PROPOSAL.ID).longValue(),
+                        r.get(KNOWLEDGE_PROPOSAL.WORKSPACE_ID).longValue(),
+                        r.get(KNOWLEDGE_PROPOSAL.DOCUMENT_ID).longValue(),
+                        LlmProposalAction.valueOf(r.get(KNOWLEDGE_PROPOSAL.ACTION)),
+                        KnowledgeProposalStatus.valueOf(r.get(KNOWLEDGE_PROPOSAL.STATUS)),
+                        r.get(KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE),
+                        r.get(KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON),
+                        KnowledgeCandidateType.valueOf(r.get(KNOWLEDGE_CANDIDATE.CANDIDATE_TYPE)),
+                        r.get(KNOWLEDGE_CANDIDATE.TITLE),
+                        r.get(KNOWLEDGE_CANDIDATE.SUMMARY),
+                        candidateEvidenceIds(r.get(KNOWLEDGE_CANDIDATE.ID).longValue()),
+                        evidenceFor(r.get(KNOWLEDGE_PROPOSAL.ID).longValue())
                 ));
     }
 
@@ -277,6 +323,14 @@ public class KnowledgeProposalRepository {
                 .where(KNOWLEDGE_PROPOSAL_EVIDENCE.KNOWLEDGE_PROPOSAL_ID.eq((int) proposalId))
                 .orderBy(KNOWLEDGE_PROPOSAL_EVIDENCE.SOURCE_CHUNK_ID.asc())
                 .fetch(r -> r.get(KNOWLEDGE_PROPOSAL_EVIDENCE.SOURCE_CHUNK_ID).longValue());
+    }
+
+    private List<Long> candidateEvidenceIds(long candidateId) {
+        return dsl.select(KNOWLEDGE_CANDIDATE_EVIDENCE.SOURCE_CHUNK_ID)
+                .from(KNOWLEDGE_CANDIDATE_EVIDENCE)
+                .where(KNOWLEDGE_CANDIDATE_EVIDENCE.KNOWLEDGE_CANDIDATE_ID.eq((int) candidateId))
+                .orderBy(KNOWLEDGE_CANDIDATE_EVIDENCE.SOURCE_CHUNK_ID.asc())
+                .fetch(r -> r.get(KNOWLEDGE_CANDIDATE_EVIDENCE.SOURCE_CHUNK_ID).longValue());
     }
 
     private KnowledgeProposalReview toReview(org.jooq.Record r) {

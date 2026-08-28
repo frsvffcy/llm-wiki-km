@@ -23,7 +23,7 @@ import java.nio.file.Path;
  * <p>This service has <strong>no side effects</strong>: it does not create, modify, or delete any files.
  */
 @Service
-public class ActiveWorkspaceWikiPathResolver {
+public class ActiveWorkspaceWikiPathResolver implements WikiLogicalPathAuthority {
 
     private final WorkspaceService workspaceService;
     private final WikiPathContract wikiPathContract;
@@ -69,6 +69,7 @@ public class ActiveWorkspaceWikiPathResolver {
      * @param title the page title
      * @return the logical relative path (e.g. {@code "vault/concepts/spring-boot-3.md"})
      */
+    @Override
     public String resolveLogicalPath(WikiPageType type, String title) {
         return wikiPathContract.resolveLogicalPath(type, title);
     }
