@@ -1,36 +1,49 @@
 package org.km.llmwiki.processing;
 
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.jdbc.support.KeyHolder;
+import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 
+import static org.jooq.impl.DSL.count;
+import static org.jooq.impl.DSL.select;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.PROCESSING_JOB;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.PROCESSING_JOB_ITEM;
+
 @Repository
 public class ProcessingJobRepository {
 
-    private final JdbcClient jdbcClient;
+    private final DSLContext dsl;
 
-    public ProcessingJobRepository(JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public ProcessingJobRepository(DSLContext dsl) {
+        this.dsl = dsl;
     }
 
     public ProcessingJob create(long workspaceId, String jobId, int totalCount) {
         String now = now();
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        jdbcClient.sql("""
-                        INSERT INTO processing_job (workspace_id, job_id, job_type, status, total_count, created_at, updated_at)
-                        VALUES (:workspaceId, :jobId, 'ANALYZE', :status, :totalCount, :now, :now)
-                        """)
-                .paramSource(new MapSqlParameterSource()
-                        .addValue("workspaceId", workspaceId).addValue("jobId", jobId)
-                        .addValue("status", ProcessingJobStatus.QUEUED.name()).addValue("totalCount", totalCount)
-                        .addValue("now", now))
-                .update(keyHolder);
-        Number id = keyHolder.getKey();
+        Integer id = dsl.insertInto(PROCESSING_JOB)
+                .columns(
+                        PROCESSING_JOB.WORKSPACE_ID,
+                        PROCESSING_JOB.JOB_ID,
+                        PROCESSING_JOB.JOB_TYPE,
+                        PROCESSING_JOB.STATUS,
+                        PROCESSING_JOB.TOTAL_COUNT,
+                        PROCESSING_JOB.CREATED_AT,
+                        PROCESSING_JOB.UPDATED_AT
+                )
+                .values(
+                        (int) workspaceId,
+                        jobId,
+                        "ANALYZE",
+                        ProcessingJobStatus.QUEUED.name(),
+                        totalCount,
+                        now,
+                        now
+                )
+                .returningResult(PROCESSING_JOB.ID)
+                .fetchOne(PROCESSING_JOB.ID);
+
         if (id == null) {
             throw new IllegalStateException("Processing job insert did not return a generated id");
         }
@@ -38,27 +51,53 @@ public class ProcessingJobRepository {
     }
 
     public void markRunning(long jobId) {
-        jdbcClient.sql("""
-                        UPDATE processing_job SET status = :status, started_at = :now, updated_at = :now
-                        WHERE id = :id
-                        """)
-                .param("status", ProcessingJobStatus.RUNNING.name()).param("now", now()).param("id", jobId).update();
+        String now = now();
+        dsl.update(PROCESSING_JOB)
+                .set(PROCESSING_JOB.STATUS, ProcessingJobStatus.RUNNING.name())
+                .set(PROCESSING_JOB.STARTED_AT, now)
+                .set(PROCESSING_JOB.UPDATED_AT, now)
+                .where(PROCESSING_JOB.ID.eq((int) jobId))
+                .execute();
     }
 
     public void markCompleted(long jobId) {
         String now = now();
-        jdbcClient.sql("""
-                        UPDATE processing_job
-                        SET status = :status,
-                            processed_count = (SELECT COUNT(*) FROM processing_job_item WHERE job_id = :id
-                                               AND status IN ('SUCCEEDED', 'FAILED', 'SKIPPED')),
-                            success_count = (SELECT COUNT(*) FROM processing_job_item WHERE job_id = :id AND status = 'SUCCEEDED'),
-                            failed_count = (SELECT COUNT(*) FROM processing_job_item WHERE job_id = :id AND status = 'FAILED'),
-                            skipped_count = (SELECT COUNT(*) FROM processing_job_item WHERE job_id = :id AND status = 'SKIPPED'),
-                            finished_at = :now, updated_at = :now
-                        WHERE id = :id
-                        """)
-                .param("status", ProcessingJobStatus.COMPLETED.name()).param("id", jobId).param("now", now).update();
+        int intJobId = (int) jobId;
+
+        dsl.update(PROCESSING_JOB)
+                .set(PROCESSING_JOB.STATUS, ProcessingJobStatus.COMPLETED.name())
+                .set(
+                        PROCESSING_JOB.PROCESSED_COUNT,
+                        select(count())
+                                .from(PROCESSING_JOB_ITEM)
+                                .where(PROCESSING_JOB_ITEM.JOB_ID.eq(intJobId))
+                                .and(PROCESSING_JOB_ITEM.STATUS.in("SUCCEEDED", "FAILED", "SKIPPED"))
+                )
+                .set(
+                        PROCESSING_JOB.SUCCESS_COUNT,
+                        select(count())
+                                .from(PROCESSING_JOB_ITEM)
+                                .where(PROCESSING_JOB_ITEM.JOB_ID.eq(intJobId))
+                                .and(PROCESSING_JOB_ITEM.STATUS.eq("SUCCEEDED"))
+                )
+                .set(
+                        PROCESSING_JOB.FAILED_COUNT,
+                        select(count())
+                                .from(PROCESSING_JOB_ITEM)
+                                .where(PROCESSING_JOB_ITEM.JOB_ID.eq(intJobId))
+                                .and(PROCESSING_JOB_ITEM.STATUS.eq("FAILED"))
+                )
+                .set(
+                        PROCESSING_JOB.SKIPPED_COUNT,
+                        select(count())
+                                .from(PROCESSING_JOB_ITEM)
+                                .where(PROCESSING_JOB_ITEM.JOB_ID.eq(intJobId))
+                                .and(PROCESSING_JOB_ITEM.STATUS.eq("SKIPPED"))
+                )
+                .set(PROCESSING_JOB.FINISHED_AT, now)
+                .set(PROCESSING_JOB.UPDATED_AT, now)
+                .where(PROCESSING_JOB.ID.eq(intJobId))
+                .execute();
     }
 
     private static String now() {

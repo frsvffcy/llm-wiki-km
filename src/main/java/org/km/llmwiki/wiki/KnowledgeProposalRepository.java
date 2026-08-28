@@ -1,10 +1,8 @@
 package org.km.llmwiki.wiki;
 
+import org.jooq.Condition;
+import org.jooq.DSLContext;
 import org.km.llmwiki.ai.LlmProposalAction;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,14 +11,24 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
+import static org.jooq.impl.DSL.cast;
+import static org.jooq.impl.DSL.coalesce;
+import static org.jooq.impl.DSL.count;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT_ANALYSIS;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_CANDIDATE;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PROPOSAL;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PROPOSAL_EVIDENCE;
+import static org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK;
+
 /** JDBC access for auditable Proposal workflow data, isolated from future Wiki publishing. */
 @Repository
 public class KnowledgeProposalRepository {
 
-    private final JdbcClient jdbcClient;
+    private final DSLContext dsl;
 
-    public KnowledgeProposalRepository(JdbcClient jdbcClient) {
-        this.jdbcClient = jdbcClient;
+    public KnowledgeProposalRepository(DSLContext dsl) {
+        this.dsl = dsl;
     }
 
     @Transactional
@@ -29,11 +37,16 @@ public class KnowledgeProposalRepository {
         String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
         long proposalId = insert(draft, now);
         for (long sourceChunkId : draft.evidenceSourceChunkIds()) {
-            jdbcClient.sql("""
-                            INSERT INTO knowledge_proposal_evidence (knowledge_proposal_id, source_chunk_id)
-                            VALUES (:proposalId, :sourceChunkId)
-                            """)
-                    .param("proposalId", proposalId).param("sourceChunkId", sourceChunkId).update();
+            dsl.insertInto(KNOWLEDGE_PROPOSAL_EVIDENCE)
+                    .columns(
+                            KNOWLEDGE_PROPOSAL_EVIDENCE.KNOWLEDGE_PROPOSAL_ID,
+                            KNOWLEDGE_PROPOSAL_EVIDENCE.SOURCE_CHUNK_ID
+                    )
+                    .values(
+                            (int) proposalId,
+                            (int) sourceChunkId
+                    )
+                    .execute();
         }
         return proposalId;
     }
@@ -41,98 +54,177 @@ public class KnowledgeProposalRepository {
     @Transactional
     public void transitionStatus(long proposalId, KnowledgeProposalStatus expected, KnowledgeProposalStatus next) {
         expected.requireTransitionTo(next);
-        int updated = jdbcClient.sql("""
-                        UPDATE knowledge_proposal
-                        SET status = :next, updated_at = :now
-                        WHERE id = :proposalId AND status = :expected
-                        """)
-                .param("next", next.name()).param("now", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
-                .param("proposalId", proposalId).param("expected", expected.name()).update();
+        String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        int updated = dsl.update(KNOWLEDGE_PROPOSAL)
+                .set(KNOWLEDGE_PROPOSAL.STATUS, next.name())
+                .set(KNOWLEDGE_PROPOSAL.UPDATED_AT, now)
+                .where(KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId))
+                .and(KNOWLEDGE_PROPOSAL.STATUS.eq(expected.name()))
+                .execute();
         if (updated != 1) {
             throw new IllegalStateException("Knowledge proposal was missing or did not have expected status");
         }
     }
 
     public Optional<KnowledgeProposal> findById(long proposalId) {
-        return jdbcClient.sql("""
-                        SELECT id, workspace_id, document_analysis_id, document_id, knowledge_candidate_id, action,
-                               status, merge_target_reference, provider, model, prompt_identifier, prompt_version,
-                               contract_version, validated_payload_json, normalized_data_json
-                        FROM knowledge_proposal WHERE id = :proposalId
-                        """).param("proposalId", proposalId)
-                .query((resultSet, rowNum) -> new KnowledgeProposal(
-                        resultSet.getLong("id"), resultSet.getLong("workspace_id"),
-                        resultSet.getLong("document_analysis_id"), resultSet.getLong("document_id"),
-                        resultSet.getLong("knowledge_candidate_id"),
-                        LlmProposalAction.valueOf(resultSet.getString("action")),
-                        KnowledgeProposalStatus.valueOf(resultSet.getString("status")),
-                        resultSet.getString("merge_target_reference"), resultSet.getString("provider"),
-                        resultSet.getString("model"), resultSet.getString("prompt_identifier"),
-                        resultSet.getString("prompt_version"), resultSet.getString("contract_version"),
-                        resultSet.getString("validated_payload_json"), resultSet.getString("normalized_data_json"),
-                        evidenceIds(resultSet.getLong("id"))))
-                .optional();
+        return dsl.select(
+                        KNOWLEDGE_PROPOSAL.ID,
+                        KNOWLEDGE_PROPOSAL.WORKSPACE_ID,
+                        KNOWLEDGE_PROPOSAL.DOCUMENT_ANALYSIS_ID,
+                        KNOWLEDGE_PROPOSAL.DOCUMENT_ID,
+                        KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID,
+                        KNOWLEDGE_PROPOSAL.ACTION,
+                        KNOWLEDGE_PROPOSAL.STATUS,
+                        KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE,
+                        KNOWLEDGE_PROPOSAL.PROVIDER,
+                        KNOWLEDGE_PROPOSAL.MODEL,
+                        KNOWLEDGE_PROPOSAL.PROMPT_IDENTIFIER,
+                        KNOWLEDGE_PROPOSAL.PROMPT_VERSION,
+                        KNOWLEDGE_PROPOSAL.CONTRACT_VERSION,
+                        KNOWLEDGE_PROPOSAL.VALIDATED_PAYLOAD_JSON,
+                        KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON
+                )
+                .from(KNOWLEDGE_PROPOSAL)
+                .where(KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId))
+                .fetchOptional(r -> new KnowledgeProposal(
+                        r.get(KNOWLEDGE_PROPOSAL.ID).longValue(),
+                        r.get(KNOWLEDGE_PROPOSAL.WORKSPACE_ID).longValue(),
+                        r.get(KNOWLEDGE_PROPOSAL.DOCUMENT_ANALYSIS_ID).longValue(),
+                        r.get(KNOWLEDGE_PROPOSAL.DOCUMENT_ID).longValue(),
+                        r.get(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID).longValue(),
+                        LlmProposalAction.valueOf(r.get(KNOWLEDGE_PROPOSAL.ACTION)),
+                        KnowledgeProposalStatus.valueOf(r.get(KNOWLEDGE_PROPOSAL.STATUS)),
+                        r.get(KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE),
+                        r.get(KNOWLEDGE_PROPOSAL.PROVIDER),
+                        r.get(KNOWLEDGE_PROPOSAL.MODEL),
+                        r.get(KNOWLEDGE_PROPOSAL.PROMPT_IDENTIFIER),
+                        r.get(KNOWLEDGE_PROPOSAL.PROMPT_VERSION),
+                        r.get(KNOWLEDGE_PROPOSAL.CONTRACT_VERSION),
+                        r.get(KNOWLEDGE_PROPOSAL.VALIDATED_PAYLOAD_JSON),
+                        r.get(KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON),
+                        evidenceIds(r.get(KNOWLEDGE_PROPOSAL.ID).longValue())
+                ));
     }
 
     public long countReviewable(long workspaceId, KnowledgeProposalStatus status) {
-        StringBuilder sql = reviewableSelect("COUNT(*)");
+        Condition condition = KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId)
+                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"));
         if (status != null) {
-            sql.append(" AND knowledge_proposal.status = :status");
+            condition = condition.and(KNOWLEDGE_PROPOSAL.STATUS.eq(status.name()));
         }
-        var statement = jdbcClient.sql(sql.toString()).param("workspaceId", workspaceId);
-        if (status != null) {
-            statement = statement.param("status", status.name());
-        }
-        Long count = statement.query(Long.class).single();
-        return count == null ? 0 : count;
+
+        Integer count = dsl.select(count())
+                .from(KNOWLEDGE_PROPOSAL)
+                .join(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
+                .join(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
+                .where(condition)
+                .fetchOne(0, Integer.class);
+
+        return count == null ? 0 : count.longValue();
     }
 
     public List<KnowledgeProposalReview> findReviewable(long workspaceId, KnowledgeProposalStatus status,
                                                          long offset, int limit) {
-        StringBuilder sql = reviewableSelect(reviewColumns());
+        Condition condition = KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId)
+                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"));
         if (status != null) {
-            sql.append(" AND knowledge_proposal.status = :status");
+            condition = condition.and(KNOWLEDGE_PROPOSAL.STATUS.eq(status.name()));
         }
-        sql.append(" ORDER BY knowledge_proposal.id DESC LIMIT :limit OFFSET :offset");
-        var statement = jdbcClient.sql(sql.toString()).param("workspaceId", workspaceId)
-                .param("limit", limit).param("offset", offset);
-        if (status != null) {
-            statement = statement.param("status", status.name());
-        }
-        return statement.query((resultSet, rowNum) -> review(resultSet)).list();
+
+        return dsl.select(
+                        KNOWLEDGE_PROPOSAL.ID,
+                        KNOWLEDGE_PROPOSAL.ACTION,
+                        KNOWLEDGE_PROPOSAL.STATUS,
+                        KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE,
+                        DOCUMENT.ID,
+                        coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("document_file_name"),
+                        DOCUMENT.SOURCE_PATH,
+                        KNOWLEDGE_CANDIDATE.ID,
+                        KNOWLEDGE_CANDIDATE.TITLE,
+                        KNOWLEDGE_CANDIDATE.SUMMARY,
+                        cast(KNOWLEDGE_CANDIDATE.CONFIDENCE, Double.class).as("confidence"),
+                        KNOWLEDGE_CANDIDATE.RATIONALE
+                )
+                .from(KNOWLEDGE_PROPOSAL)
+                .join(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
+                .join(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
+                .where(condition)
+                .orderBy(KNOWLEDGE_PROPOSAL.ID.desc())
+                .limit(limit)
+                .offset((int) offset)
+                .fetch(this::toReview);
     }
 
     public Optional<KnowledgeProposalReview> findReviewableById(long workspaceId, long proposalId) {
-        String sql = reviewableSelect(reviewColumns()) + " AND knowledge_proposal.id = :proposalId";
-        return jdbcClient.sql(sql).param("workspaceId", workspaceId).param("proposalId", proposalId)
-                .query((resultSet, rowNum) -> review(resultSet)).optional();
+        Condition condition = KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId)
+                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"))
+                .and(KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId));
+
+        return dsl.select(
+                        KNOWLEDGE_PROPOSAL.ID,
+                        KNOWLEDGE_PROPOSAL.ACTION,
+                        KNOWLEDGE_PROPOSAL.STATUS,
+                        KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE,
+                        DOCUMENT.ID,
+                        coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("document_file_name"),
+                        DOCUMENT.SOURCE_PATH,
+                        KNOWLEDGE_CANDIDATE.ID,
+                        KNOWLEDGE_CANDIDATE.TITLE,
+                        KNOWLEDGE_CANDIDATE.SUMMARY,
+                        cast(KNOWLEDGE_CANDIDATE.CONFIDENCE, Double.class).as("confidence"),
+                        KNOWLEDGE_CANDIDATE.RATIONALE
+                )
+                .from(KNOWLEDGE_PROPOSAL)
+                .join(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
+                .join(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
+                .where(condition)
+                .fetchOptional(this::toReview);
     }
 
     private long insert(KnowledgeProposalDraft draft, String now) {
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        jdbcClient.sql("""
-                        INSERT INTO knowledge_proposal (
-                            workspace_id, document_analysis_id, document_id, knowledge_candidate_id, action, status,
-                            merge_target_reference, provider, model, prompt_identifier, prompt_version,
-                            contract_version, validated_payload_json, normalized_data_json, created_at, updated_at)
-                        VALUES (
-                            :workspaceId, :documentAnalysisId, :documentId, :knowledgeCandidateId, :action, :status,
-                            :mergeTargetReference, :provider, :model, :promptIdentifier, :promptVersion,
-                            :contractVersion, :validatedPayloadJson, :normalizedDataJson, :now, :now)
-                        """)
-                .paramSource(new MapSqlParameterSource()
-                        .addValue("workspaceId", draft.workspaceId())
-                        .addValue("documentAnalysisId", draft.documentAnalysisId())
-                        .addValue("documentId", draft.documentId())
-                        .addValue("knowledgeCandidateId", draft.knowledgeCandidateId())
-                        .addValue("action", draft.action().name()).addValue("status", KnowledgeProposalStatus.DRAFT.name())
-                        .addValue("mergeTargetReference", draft.mergeTargetReference()).addValue("provider", draft.provider())
-                        .addValue("model", draft.model()).addValue("promptIdentifier", draft.promptIdentifier())
-                        .addValue("promptVersion", draft.promptVersion()).addValue("contractVersion", draft.contractVersion())
-                        .addValue("validatedPayloadJson", draft.validatedPayloadJson())
-                        .addValue("normalizedDataJson", draft.normalizedDataJson()).addValue("now", now))
-                .update(keyHolder);
-        Number id = keyHolder.getKey();
+        Integer id = dsl.insertInto(KNOWLEDGE_PROPOSAL)
+                .columns(
+                        KNOWLEDGE_PROPOSAL.WORKSPACE_ID,
+                        KNOWLEDGE_PROPOSAL.DOCUMENT_ANALYSIS_ID,
+                        KNOWLEDGE_PROPOSAL.DOCUMENT_ID,
+                        KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID,
+                        KNOWLEDGE_PROPOSAL.ACTION,
+                        KNOWLEDGE_PROPOSAL.STATUS,
+                        KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE,
+                        KNOWLEDGE_PROPOSAL.PROVIDER,
+                        KNOWLEDGE_PROPOSAL.MODEL,
+                        KNOWLEDGE_PROPOSAL.PROMPT_IDENTIFIER,
+                        KNOWLEDGE_PROPOSAL.PROMPT_VERSION,
+                        KNOWLEDGE_PROPOSAL.CONTRACT_VERSION,
+                        KNOWLEDGE_PROPOSAL.VALIDATED_PAYLOAD_JSON,
+                        KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON,
+                        KNOWLEDGE_PROPOSAL.CREATED_AT,
+                        KNOWLEDGE_PROPOSAL.UPDATED_AT
+                )
+                .values(
+                        (int) draft.workspaceId(),
+                        (int) draft.documentAnalysisId(),
+                        (int) draft.documentId(),
+                        (int) draft.knowledgeCandidateId(),
+                        draft.action().name(),
+                        KnowledgeProposalStatus.DRAFT.name(),
+                        draft.mergeTargetReference(),
+                        draft.provider(),
+                        draft.model(),
+                        draft.promptIdentifier(),
+                        draft.promptVersion(),
+                        draft.contractVersion(),
+                        draft.validatedPayloadJson(),
+                        draft.normalizedDataJson(),
+                        now,
+                        now
+                )
+                .returningResult(KNOWLEDGE_PROPOSAL.ID)
+                .fetchOne(KNOWLEDGE_PROPOSAL.ID);
+
         if (id == null) {
             throw new IllegalStateException("Knowledge proposal insert did not return a generated id");
         }
@@ -140,92 +232,92 @@ public class KnowledgeProposalRepository {
     }
 
     private void requireConsistentReferences(KnowledgeProposalDraft draft) {
-        requireCount("SELECT COUNT(*) FROM document WHERE id = :documentId AND workspace_id = :workspaceId", draft,
-                "document must belong to workspace");
-        requireCount("SELECT COUNT(*) FROM document_analysis WHERE id = :documentAnalysisId AND document_id = :documentId",
-                draft, "document analysis must belong to document");
-        requireCount("""
-                        SELECT COUNT(*) FROM knowledge_candidate
-                        WHERE id = :knowledgeCandidateId AND document_analysis_id = :documentAnalysisId
-                          AND document_id = :documentId
-                        """, draft, "knowledge candidate must belong to analysis and document");
-        Integer evidenceCount = jdbcClient.sql("""
-                        SELECT COUNT(*) FROM source_chunk
-                        WHERE document_id = :documentId AND id IN (:sourceChunkIds)
-                        """).param("documentId", draft.documentId()).param("sourceChunkIds", draft.evidenceSourceChunkIds())
-                .query(Integer.class).single();
+        Integer docCount = dsl.select(count())
+                .from(DOCUMENT)
+                .where(DOCUMENT.ID.eq((int) draft.documentId()))
+                .and(DOCUMENT.WORKSPACE_ID.eq((int) draft.workspaceId()))
+                .fetchOne(0, Integer.class);
+        if (docCount == null || docCount != 1) {
+            throw new IllegalArgumentException("document must belong to workspace");
+        }
+
+        Integer analysisCount = dsl.select(count())
+                .from(DOCUMENT_ANALYSIS)
+                .where(DOCUMENT_ANALYSIS.ID.eq((int) draft.documentAnalysisId()))
+                .and(DOCUMENT_ANALYSIS.DOCUMENT_ID.eq((int) draft.documentId()))
+                .fetchOne(0, Integer.class);
+        if (analysisCount == null || analysisCount != 1) {
+            throw new IllegalArgumentException("document analysis must belong to document");
+        }
+
+        Integer candidateCount = dsl.select(count())
+                .from(KNOWLEDGE_CANDIDATE)
+                .where(KNOWLEDGE_CANDIDATE.ID.eq((int) draft.knowledgeCandidateId()))
+                .and(KNOWLEDGE_CANDIDATE.DOCUMENT_ANALYSIS_ID.eq((int) draft.documentAnalysisId()))
+                .and(KNOWLEDGE_CANDIDATE.DOCUMENT_ID.eq((int) draft.documentId()))
+                .fetchOne(0, Integer.class);
+        if (candidateCount == null || candidateCount != 1) {
+            throw new IllegalArgumentException("knowledge candidate must belong to analysis and document");
+        }
+
+        List<Integer> chunkIntIds = draft.evidenceSourceChunkIds().stream().map(Long::intValue).toList();
+        Integer evidenceCount = dsl.select(count())
+                .from(SOURCE_CHUNK)
+                .where(SOURCE_CHUNK.DOCUMENT_ID.eq((int) draft.documentId()))
+                .and(SOURCE_CHUNK.ID.in(chunkIntIds))
+                .fetchOne(0, Integer.class);
         if (evidenceCount == null || evidenceCount != draft.evidenceSourceChunkIds().size()) {
             throw new IllegalArgumentException("proposal evidence must belong to document");
         }
     }
 
-    private void requireCount(String sql, KnowledgeProposalDraft draft, String message) {
-        Integer count = jdbcClient.sql(sql).paramSource(new MapSqlParameterSource()
-                        .addValue("workspaceId", draft.workspaceId())
-                        .addValue("documentAnalysisId", draft.documentAnalysisId()).addValue("documentId", draft.documentId())
-                        .addValue("knowledgeCandidateId", draft.knowledgeCandidateId()))
-                .query(Integer.class).single();
-        if (count == null || count != 1) {
-            throw new IllegalArgumentException(message);
-        }
-    }
-
     private List<Long> evidenceIds(long proposalId) {
-        return jdbcClient.sql("""
-                        SELECT source_chunk_id FROM knowledge_proposal_evidence
-                        WHERE knowledge_proposal_id = :proposalId ORDER BY source_chunk_id
-                        """).param("proposalId", proposalId).query(Long.class).list();
+        return dsl.select(KNOWLEDGE_PROPOSAL_EVIDENCE.SOURCE_CHUNK_ID)
+                .from(KNOWLEDGE_PROPOSAL_EVIDENCE)
+                .where(KNOWLEDGE_PROPOSAL_EVIDENCE.KNOWLEDGE_PROPOSAL_ID.eq((int) proposalId))
+                .orderBy(KNOWLEDGE_PROPOSAL_EVIDENCE.SOURCE_CHUNK_ID.asc())
+                .fetch(r -> r.get(KNOWLEDGE_PROPOSAL_EVIDENCE.SOURCE_CHUNK_ID).longValue());
     }
 
-    private KnowledgeProposalReview review(java.sql.ResultSet resultSet) throws java.sql.SQLException {
-        long proposalId = resultSet.getLong("proposal_id");
-        return new KnowledgeProposalReview(proposalId, LlmProposalAction.valueOf(resultSet.getString("action")),
-                KnowledgeProposalStatus.valueOf(resultSet.getString("status")),
-                resultSet.getString("merge_target_reference"), resultSet.getLong("document_id"),
-                resultSet.getString("document_file_name"), resultSet.getString("source_path"),
-                resultSet.getLong("candidate_id"), resultSet.getString("title"), resultSet.getString("summary"),
-                resultSet.getDouble("confidence"), resultSet.getString("rationale"), evidenceFor(proposalId));
+    private KnowledgeProposalReview toReview(org.jooq.Record r) {
+        long proposalId = r.get(KNOWLEDGE_PROPOSAL.ID).longValue();
+        return new KnowledgeProposalReview(
+                proposalId,
+                LlmProposalAction.valueOf(r.get(KNOWLEDGE_PROPOSAL.ACTION)),
+                KnowledgeProposalStatus.valueOf(r.get(KNOWLEDGE_PROPOSAL.STATUS)),
+                r.get(KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE),
+                r.get(DOCUMENT.ID).longValue(),
+                r.get("document_file_name", String.class),
+                r.get(DOCUMENT.SOURCE_PATH),
+                r.get(KNOWLEDGE_CANDIDATE.ID).longValue(),
+                r.get(KNOWLEDGE_CANDIDATE.TITLE),
+                r.get(KNOWLEDGE_CANDIDATE.SUMMARY),
+                r.get("confidence", Double.class),
+                r.get(KNOWLEDGE_CANDIDATE.RATIONALE),
+                evidenceFor(proposalId)
+        );
     }
 
     private List<KnowledgeProposalEvidence> evidenceFor(long proposalId) {
-        return jdbcClient.sql("""
-                        SELECT source_chunk.id, source_chunk.chunk_no, source_chunk.page_no, source_chunk.section,
-                               source_chunk.heading_path, source_chunk.content
-                        FROM knowledge_proposal_evidence
-                        JOIN source_chunk ON source_chunk.id = knowledge_proposal_evidence.source_chunk_id
-                        WHERE knowledge_proposal_evidence.knowledge_proposal_id = :proposalId
-                        ORDER BY source_chunk.chunk_no
-                        """).param("proposalId", proposalId)
-                .query((resultSet, rowNum) -> new KnowledgeProposalEvidence(resultSet.getLong("id"),
-                        resultSet.getInt("chunk_no"), nullableInt(resultSet, "page_no"),
-                        resultSet.getString("section"), resultSet.getString("heading_path"),
-                        resultSet.getString("content")))
-                .list();
-    }
-
-    private static Integer nullableInt(java.sql.ResultSet resultSet, String column) throws java.sql.SQLException {
-        int value = resultSet.getInt(column);
-        return resultSet.wasNull() ? null : value;
-    }
-
-    private static StringBuilder reviewableSelect(String columns) {
-        return new StringBuilder("SELECT ").append(columns).append("""
-                 FROM knowledge_proposal
-                 JOIN document ON document.id = knowledge_proposal.document_id
-                 JOIN knowledge_candidate ON knowledge_candidate.id = knowledge_proposal.knowledge_candidate_id
-                 WHERE knowledge_proposal.workspace_id = :workspaceId
-                   AND document.workspace_id = :workspaceId
-                   AND document.status NOT IN ('DELETED', 'SUPERSEDED')
-                """);
-    }
-
-    private static String reviewColumns() {
-        return """
-                knowledge_proposal.id AS proposal_id, knowledge_proposal.action, knowledge_proposal.status,
-                knowledge_proposal.merge_target_reference, document.id AS document_id,
-                COALESCE(document.original_file_name, document.file_name) AS document_file_name, document.source_path,
-                knowledge_candidate.id AS candidate_id, knowledge_candidate.title, knowledge_candidate.summary,
-                knowledge_candidate.confidence, knowledge_candidate.rationale
-                """;
+        return dsl.select(
+                        SOURCE_CHUNK.ID,
+                        SOURCE_CHUNK.CHUNK_NO,
+                        SOURCE_CHUNK.PAGE_NO,
+                        SOURCE_CHUNK.SECTION,
+                        SOURCE_CHUNK.HEADING_PATH,
+                        SOURCE_CHUNK.CONTENT
+                )
+                .from(KNOWLEDGE_PROPOSAL_EVIDENCE)
+                .join(SOURCE_CHUNK).on(SOURCE_CHUNK.ID.eq(KNOWLEDGE_PROPOSAL_EVIDENCE.SOURCE_CHUNK_ID))
+                .where(KNOWLEDGE_PROPOSAL_EVIDENCE.KNOWLEDGE_PROPOSAL_ID.eq((int) proposalId))
+                .orderBy(SOURCE_CHUNK.CHUNK_NO.asc())
+                .fetch(r -> new KnowledgeProposalEvidence(
+                        r.get(SOURCE_CHUNK.ID).longValue(),
+                        r.get(SOURCE_CHUNK.CHUNK_NO),
+                        r.get(SOURCE_CHUNK.PAGE_NO),
+                        r.get(SOURCE_CHUNK.SECTION),
+                        r.get(SOURCE_CHUNK.HEADING_PATH),
+                        r.get(SOURCE_CHUNK.CONTENT)
+                ));
     }
 }
