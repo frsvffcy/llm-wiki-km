@@ -75,6 +75,35 @@ class WikiPathContractTest {
             assertThat(result).endsWith(".md");
         }
 
+        @Test
+        void canonicalUnicodeEquivalenceProducesSameFileName() {
+            // e with acute accent: composed (NFC, \u00E9) vs decomposed (NFD, e + \u0301)
+            String composed = "caf\u00E9";
+            String decomposed = "cafe\u0301";
+
+            String resultFromComposed = contract.normalizeTitleToFileName(composed);
+            String resultFromDecomposed = contract.normalizeTitleToFileName(decomposed);
+
+            assertThat(resultFromComposed).isEqualTo(resultFromDecomposed);
+            assertThat(resultFromComposed).isEqualTo("café.md");
+        }
+
+        @Test
+        void localeIndependentLowercaseWithTurkishLocale() {
+            java.util.Locale originalDefault = java.util.Locale.getDefault();
+            try {
+                // In Turkish (tr-TR), uppercase 'I' converts to dotless 'ı' (\u0131) under default toLowerCase()
+                // With Locale.ROOT, 'I' converts to standard ASCII 'i'
+                java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"));
+
+                String result = contract.normalizeTitleToFileName("SPRING BOOT");
+                assertThat(result).isEqualTo("spring-boot.md");
+                assertThat(result).doesNotContain("ı");
+            } finally {
+                java.util.Locale.setDefault(originalDefault);
+            }
+        }
+
         @ParameterizedTest
         @NullAndEmptySource
         @ValueSource(strings = {"   "})
@@ -140,11 +169,13 @@ class WikiPathContractTest {
     class ValidateLogicalPath {
 
         @Test
-        void acceptsValidPaths() {
-            // Should complete without exception
-            contract.validateLogicalPath("vault/concepts/spring-boot-3.md");
-            contract.validateLogicalPath("vault/technologies/apache-kafka.md");
-            contract.validateLogicalPath("vault/people/jane-smith.md");
+        void acceptsValidPathsAndReturnsControlledType() {
+            assertThat(contract.validateLogicalPath("vault/concepts/spring-boot-3.md"))
+                    .isEqualTo(WikiPageType.CONCEPT);
+            assertThat(contract.validateLogicalPath("vault/technologies/apache-kafka.md"))
+                    .isEqualTo(WikiPageType.TECHNOLOGY);
+            assertThat(contract.validateLogicalPath("vault/people/jane-smith.md"))
+                    .isEqualTo(WikiPageType.PERSON);
         }
 
         @ParameterizedTest
@@ -196,6 +227,45 @@ class WikiPathContractTest {
                     .isInstanceOf(WikiPathValidationException.class)
                     .satisfies(ex -> assertThat(((WikiPathValidationException) ex).reason())
                             .isEqualTo(WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "vault/random-folder/foo.md",
+                "vault/uncontrolled/test.md",
+                "vault/notes/memo.md"
+        })
+        void rejectsUncontrolledVaultFolders(String path) {
+            assertThatThrownBy(() -> contract.validateLogicalPath(path))
+                    .isInstanceOf(WikiPathValidationException.class)
+                    .satisfies(ex -> assertThat(((WikiPathValidationException) ex).reason())
+                            .isEqualTo(WikiPathValidationException.Reason.UNKNOWN_PAGE_TYPE));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "vault/concepts",
+                "vault/concepts/sub/nested.md",
+                "vault/concepts/a/b/c.md"
+        })
+        void rejectsInvalidSegmentCount(String path) {
+            assertThatThrownBy(() -> contract.validateLogicalPath(path))
+                    .isInstanceOf(WikiPathValidationException.class)
+                    .satisfies(ex -> assertThat(((WikiPathValidationException) ex).reason())
+                            .isEqualTo(WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "vault/concepts/foo.txt",
+                "vault/concepts/foo.pdf",
+                "vault/concepts/foo"
+        })
+        void rejectsNonMarkdownExtension(String path) {
+            assertThatThrownBy(() -> contract.validateLogicalPath(path))
+                    .isInstanceOf(WikiPathValidationException.class)
+                    .satisfies(ex -> assertThat(((WikiPathValidationException) ex).reason())
+                            .isEqualTo(WikiPathValidationException.Reason.INVALID_TITLE));
         }
     }
 

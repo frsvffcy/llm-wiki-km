@@ -81,10 +81,32 @@ class WikiPageTypeTest {
                         .isEqualTo(WikiPathValidationException.Reason.UNKNOWN_PAGE_TYPE));
     }
 
+    // -----------------------------------------------------------------------
+    // fromFolderName()
+    // -----------------------------------------------------------------------
+
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({
+            "concepts,        CONCEPT",
+            "technologies,    TECHNOLOGY",
+            "troubleshooting, TROUBLESHOOTING",
+            "decisions,       DECISION",
+            "projects,        PROJECT",
+            "references,      REFERENCE",
+            "howtos,          HOWTO",
+            "people,          PERSON",
+            "organizations,   ORGANIZATION"
+    })
+    void fromFolderNameMatchesExpected(String folder, WikiPageType expectedType) {
+        assertThat(WikiPageType.fromFolderName(folder)).isEqualTo(expectedType);
+        assertThat(WikiPageType.fromFolderName(folder.toUpperCase())).isEqualTo(expectedType);
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"UNKNOWN", "WIKI", "NOTE", "FAQ", "ARTICLE", "concepts", "CONCEPT_X"})
-    void fromRejectsUnknownValues(String rawType) {
-        assertThatThrownBy(() -> WikiPageType.from(rawType))
+    @NullAndEmptySource
+    @ValueSource(strings = {"   ", "unknown", "vault", "CONCEPT"})
+    void fromFolderNameRejectsInvalid(String folder) {
+        assertThatThrownBy(() -> WikiPageType.fromFolderName(folder))
                 .isInstanceOf(WikiPathValidationException.class)
                 .satisfies(ex -> assertThat(((WikiPathValidationException) ex).reason())
                         .isEqualTo(WikiPathValidationException.Reason.UNKNOWN_PAGE_TYPE));

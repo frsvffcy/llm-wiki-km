@@ -7,6 +7,9 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 
+import java.text.Normalizer;
+import java.util.Locale;
+
 /**
  * Enforces the vault path contract for Wiki pages.
  *
@@ -15,9 +18,10 @@ import java.nio.file.Path;
  * directly.  The following invariants are always enforced:
  *
  * <ul>
- *   <li>Titles are normalized to safe, deterministic filenames.</li>
+ *   <li>Titles are normalized to safe, deterministic filenames using Unicode NFC and {@link Locale#ROOT}.</li>
  *   <li>Resulting paths are workspace-relative logical strings (no leading slash).</li>
  *   <li>Paths must not contain {@code ..} segments.</li>
+ *   <li>Paths must belong to a controlled {@link WikiPageType} sub-directory.</li>
  *   <li>After real-path resolution the path must reside strictly inside the
  *       workspace {@code vault/} directory – symlink escapes are rejected.</li>
  * </ul>
@@ -41,6 +45,8 @@ public class WikiPathContract {
      * <p>Normalization rules (applied in order):
      * <ol>
      *   <li>Strip leading/trailing whitespace.</li>
+     *   <li>Normalize Unicode characters to Canonical Composition (NFC).</li>
+     *   <li>Convert to lowercase using {@link Locale#ROOT} to ensure locale-independent results.</li>
      *   <li>Replace one or more consecutive whitespace characters with a single hyphen.</li>
      *   <li>Remove any character that is not alphanumeric, a CJK/Unicode letter, a hyphen, or an underscore.</li>
      *   <li>Collapse consecutive hyphens to a single hyphen.</li>
@@ -63,16 +69,22 @@ public class WikiPathContract {
         // 1. Strip surrounding whitespace
         String stem = title.strip();
 
-        // 2. Replace whitespace runs with hyphen
+        // 2. Unicode Canonical Composition (NFC)
+        stem = Normalizer.normalize(stem, Normalizer.Form.NFC);
+
+        // 3. Locale-independent lowercase
+        stem = stem.toLowerCase(Locale.ROOT);
+
+        // 4. Replace whitespace runs with hyphen
         stem = stem.replaceAll("\\s+", "-");
 
-        // 3. Remove unsafe characters; keep Unicode letters/digits, hyphen, underscore
+        // 5. Remove unsafe characters; keep Unicode letters/digits, hyphen, underscore
         stem = stem.replaceAll("[^\\p{L}\\p{N}\\-_]", "");
 
-        // 4. Collapse consecutive hyphens
+        // 6. Collapse consecutive hyphens
         stem = stem.replaceAll("-{2,}", "-");
 
-        // 5. Strip leading/trailing hyphens
+        // 7. Strip leading/trailing hyphens
         stem = stem.replaceAll("^-+|-+$", "");
 
         if (stem.isEmpty()) {
@@ -81,7 +93,7 @@ public class WikiPathContract {
                     "Wiki page title '" + title + "' cannot be normalized to a valid filename");
         }
 
-        // 6. Truncate
+        // 8. Truncate
         if (stem.length() > MAX_STEM_LENGTH) {
             stem = stem.substring(0, MAX_STEM_LENGTH);
             // Re-strip trailing hyphens that may have been exposed after truncation
@@ -94,8 +106,8 @@ public class WikiPathContract {
                     "Wiki page title '" + title + "' cannot be normalized to a valid filename after truncation");
         }
 
-        // 7. Append extension (lowercase stem for reproducibility)
-        return stem.toLowerCase() + ".md";
+        // 9. Append extension
+        return stem + ".md";
     }
 
     /**
@@ -120,16 +132,18 @@ public class WikiPathContract {
     }
 
     /**
-     * Validates that a workspace-relative logical path is structurally safe.
+     * Validates that a workspace-relative logical path is structurally safe and belongs to a
+     * controlled {@link WikiPageType} folder.
      *
      * <p>This performs a <em>lexical</em> check only — it does not access the filesystem.
      * For real-path boundary enforcement, use
      * {@link #resolveAndValidateRealPath(Path, String)} instead.
      *
      * @param logicalRelativePath the workspace-relative path to validate
-     * @throws WikiPathValidationException if the path violates any structural rule
+     * @return the resolved {@link WikiPageType} associated with the path's sub-directory
+     * @throws WikiPathValidationException if the path violates any structural rule or has an uncontrolled folder
      */
-    public void validateLogicalPath(String logicalRelativePath) {
+    public WikiPageType validateLogicalPath(String logicalRelativePath) {
         if (logicalRelativePath == null || logicalRelativePath.isBlank()) {
             throw new WikiPathValidationException(
                     WikiPathValidationException.Reason.INVALID_TITLE,
@@ -167,6 +181,25 @@ public class WikiPathContract {
                     WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY,
                     "Wiki path must start with 'vault/': " + logicalRelativePath);
         }
+
+        // Path structure must be exactly: vault/<folderName>/<filename>.md (3 segments)
+        if (parsed.getNameCount() != 3) {
+            throw new WikiPathValidationException(
+                    WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY,
+                    "Wiki path must have exactly 3 segments (vault/<type-folder>/<file>.md): " + logicalRelativePath);
+        }
+
+        String folderName = parsed.getName(1).toString();
+        String fileName = parsed.getName(2).toString();
+
+        if (!fileName.endsWith(".md")) {
+            throw new WikiPathValidationException(
+                    WikiPathValidationException.Reason.INVALID_TITLE,
+                    "Wiki filename must end with '.md': " + logicalRelativePath);
+        }
+
+        // Ensure folderName is a controlled WikiPageType
+        return WikiPageType.fromFolderName(folderName);
     }
 
     /**
