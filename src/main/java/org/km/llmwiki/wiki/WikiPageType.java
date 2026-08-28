@@ -71,6 +71,30 @@ public enum WikiPageType {
                 "Unknown Wiki page type: '" + rawType + "'. Accepted values: " + acceptedValues());
     }
 
+    /**
+     * Finds a {@code WikiPageType} matching the given vault folder name.
+     *
+     * @param folderName the folder name (e.g. {@code "concepts"})
+     * @return the matching enum value
+     * @throws WikiPathValidationException if the folder name does not match any controlled type
+     */
+    public static WikiPageType fromFolderName(String folderName) {
+        if (folderName == null || folderName.isBlank()) {
+            throw new WikiPathValidationException(
+                    WikiPathValidationException.Reason.UNKNOWN_PAGE_TYPE,
+                    "Vault folder name must not be null or blank");
+        }
+        String normalized = folderName.strip().toLowerCase();
+        for (WikiPageType type : values()) {
+            if (type.folderName().equals(normalized)) {
+                return type;
+            }
+        }
+        throw new WikiPathValidationException(
+                WikiPathValidationException.Reason.UNKNOWN_PAGE_TYPE,
+                "Unknown vault folder name: '" + folderName + "'");
+    }
+
     private static String acceptedValues() {
         StringBuilder sb = new StringBuilder();
         WikiPageType[] values = values();

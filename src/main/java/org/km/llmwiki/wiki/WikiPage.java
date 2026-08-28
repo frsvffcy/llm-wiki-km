@@ -33,8 +33,9 @@ public record WikiPage(
         List<Long> sourceDocumentIds
 ) {
     /**
-     * Compact constructor that defensively copies mutable collections and
-     * validates the mandatory fields.
+     * Compact constructor that defensively copies mutable collections, validates mandatory fields,
+     * and enforces that {@code logicalRelativePath} conforms to the controlled path contract
+     * for the given {@code pageType}.
      */
     public WikiPage {
         if (title == null || title.isBlank()) {
@@ -46,8 +47,42 @@ public record WikiPage(
         if (logicalRelativePath == null || logicalRelativePath.isBlank()) {
             throw new IllegalArgumentException("WikiPage logicalRelativePath must not be null or blank");
         }
+
+        // Validate logicalRelativePath against WikiPathContract and ensure matching pageType
+        WikiPathContract contract = new WikiPathContract();
+        WikiPageType pathType = contract.validateLogicalPath(logicalRelativePath);
+        if (pathType != pageType) {
+            throw new IllegalArgumentException(
+                    "WikiPage pageType '" + pageType + "' does not match logicalRelativePath folder for '" + pathType + "'");
+        }
+
         tags = tags == null ? List.of() : List.copyOf(tags);
         aliases = aliases == null ? List.of() : List.copyOf(aliases);
         sourceDocumentIds = sourceDocumentIds == null ? List.of() : List.copyOf(sourceDocumentIds);
+    }
+
+    /**
+     * Factory method that constructs a valid {@link WikiPage} by automatically deriving the
+     * canonical logical relative path from {@code pageType} and {@code title}.
+     *
+     * @param title             page title
+     * @param pageType          controlled page type
+     * @param summary           optional summary
+     * @param tags              tags list
+     * @param aliases           aliases list
+     * @param sourceDocumentIds source document IDs list
+     * @return a fully validated {@code WikiPage}
+     */
+    public static WikiPage create(
+            String title,
+            WikiPageType pageType,
+            String summary,
+            List<String> tags,
+            List<String> aliases,
+            List<Long> sourceDocumentIds
+    ) {
+        WikiPathContract contract = new WikiPathContract();
+        String logicalPath = contract.resolveLogicalPath(pageType, title);
+        return new WikiPage(title, pageType, logicalPath, summary, tags, aliases, sourceDocumentIds);
     }
 }
