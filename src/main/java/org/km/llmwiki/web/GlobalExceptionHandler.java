@@ -5,6 +5,9 @@ import org.km.llmwiki.source.DocumentExtractionException;
 import org.km.llmwiki.source.DocumentNotFoundException;
 import org.km.llmwiki.source.SourceChunkNotFoundException;
 import org.km.llmwiki.wiki.KnowledgeProposalNotFoundException;
+import org.km.llmwiki.wiki.WikiDraftLifecycleException;
+import org.km.llmwiki.wiki.WikiDraftNotFoundException;
+import org.km.llmwiki.wiki.WikiDraftTargetException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceNotFoundException;
@@ -47,6 +50,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(KnowledgeProposalNotFoundException.class)
     public ResponseEntity<ApiError> handleKnowledgeProposalNotFound(KnowledgeProposalNotFoundException exception) {
         return respond(HttpStatus.NOT_FOUND, "KNOWLEDGE_PROPOSAL_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(WikiDraftNotFoundException.class)
+    public ResponseEntity<ApiError> handleWikiDraftNotFound(WikiDraftNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "WIKI_DRAFT_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(WikiDraftLifecycleException.class)
+    public ResponseEntity<ApiError> handleWikiDraftLifecycle(WikiDraftLifecycleException exception) {
+        return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_LIFECYCLE_CONFLICT", exception.getMessage());
+    }
+
+    @ExceptionHandler(WikiDraftTargetException.class)
+    public ResponseEntity<ApiError> handleWikiDraftTarget(WikiDraftTargetException exception) {
+        return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_TARGET_" + exception.reason().name(),
+                exception.getMessage());
     }
 
     @ExceptionHandler(DocumentAlreadyProcessedException.class)
