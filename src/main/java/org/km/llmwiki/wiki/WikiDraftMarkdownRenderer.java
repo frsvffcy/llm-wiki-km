@@ -20,7 +20,12 @@ public class WikiDraftMarkdownRenderer {
         list(markdown, "aliases", frontmatter.aliases(), WikiDraftMarkdownRenderer::quote);
         list(markdown, "sourceDocumentIds", frontmatter.sourceDocumentIds(), String::valueOf);
         list(markdown, "sourceChunkIds", frontmatter.sourceChunkIds(), String::valueOf);
-        markdown.append("---\n\n# ").append(draft.title()).append("\n\n");
+        markdown.append("---\n\n").append(renderBody(draft));
+        return markdown.toString();
+    }
+
+    public String renderBody(WikiDraft draft) {
+        StringBuilder markdown = new StringBuilder("# ").append(draft.title()).append("\n\n");
 
         for (WikiDraftSection section : draft.sections()) {
             markdown.append("## ").append(section.heading()).append("\n\n")

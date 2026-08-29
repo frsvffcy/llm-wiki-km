@@ -9,12 +9,18 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -26,6 +32,9 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoSpyBean
+    private WikiPublicationRepository publicationRepository;
 
     @TempDir
     Path tempDir;
@@ -206,6 +215,230 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         assertThat(proposalStatus(proposal.id())).isEqualTo("REVIEW");
     }
 
+    @Test
+    void explicitlyPublishesCreateWithAuditableMetadataAndReturnsSafeNoOpOnRepeat() throws Exception {
+        Workspace workspace = createWorkspace("publish", "ACTIVE");
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Published Topic");
+        long draftId = createDraft(proposal.id());
+        Path target = workspace.root().resolve("vault/concepts/published-topic.md");
+
+        String created = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.outcome").value("CREATED"))
+                .andExpect(jsonPath("$.data.workspaceId").value(workspace.id()))
+                .andExpect(jsonPath("$.data.proposalId").value(proposal.id()))
+                .andExpect(jsonPath("$.data.draftId").value(draftId))
+                .andExpect(jsonPath("$.data.targetPath").value("vault/concepts/published-topic.md"))
+                .andExpect(jsonPath("$.data.revision").value(1))
+                .andReturn().getResponse().getContentAsString();
+
+        String published = Files.readString(target);
+        String contentHash = WikiContentHash.sha256(Files.readAllBytes(target));
+        String knowledgeId = json(created, "/data/knowledgeId");
+        String publishedAt = json(created, "/data/publishedAt");
+        long operationId = Long.parseLong(json(created, "/data/operationId"));
+        long knowledgePageId = Long.parseLong(json(created, "/data/knowledgePageId"));
+        assertThat(published)
+                .startsWith("---\nid: \"" + knowledgeId + "\"\n")
+                .contains("title: \"Published Topic\"")
+                .contains("type: \"CONCEPT\"")
+                .contains("status: \"PUBLISHED\"")
+                .contains("aliases: []")
+                .contains("tags: []")
+                .contains("sources:\n  - \"document:")
+                .contains("created_at: \"" + publishedAt + "\"")
+                .contains("updated_at: \"" + publishedAt + "\"")
+                .contains("proposal_id: " + proposal.id())
+                .contains("draft_id: " + draftId)
+                .contains("revision: 1")
+                .contains("# Published Topic")
+                .contains("## Summary")
+                .contains("## Evidence");
+        assertThat(json(created, "/data/contentHash")).isEqualTo(contentHash);
+
+        Map<String, Object> page = row("""
+                SELECT knowledge_id, markdown_path, status, content_hash, revision, proposal_id, draft_id,
+                    published_at, created_at, updated_at
+                FROM knowledge_page WHERE id = :id
+                """, "id", knowledgePageId);
+        assertThat(page).containsEntry("knowledge_id", knowledgeId)
+                .containsEntry("markdown_path", "vault/concepts/published-topic.md")
+                .containsEntry("status", "PUBLISHED")
+                .containsEntry("content_hash", contentHash)
+                .containsEntry("revision", 1)
+                .containsEntry("proposal_id", Math.toIntExact(proposal.id()))
+                .containsEntry("draft_id", Math.toIntExact(draftId))
+                .containsEntry("published_at", publishedAt)
+                .containsEntry("created_at", publishedAt)
+                .containsEntry("updated_at", publishedAt);
+        Map<String, Object> draft = row("""
+                SELECT status, published_path, published_content_hash, published_revision, published_at
+                FROM wiki_draft WHERE id = :id
+                """, "id", draftId);
+        assertThat(draft).containsEntry("status", "PUBLISHED")
+                .containsEntry("published_path", "vault/concepts/published-topic.md")
+                .containsEntry("published_content_hash", contentHash)
+                .containsEntry("published_revision", 1)
+                .containsEntry("published_at", publishedAt);
+        assertThat(row("SELECT status, knowledge_page_id FROM wiki_publish_operation WHERE id = :id",
+                "id", operationId)).containsEntry("status", "COMPLETED")
+                .containsEntry("knowledge_page_id", Math.toIntExact(knowledgePageId));
+
+        String noOp = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("NO_OP"))
+                .andExpect(jsonPath("$.data.operationId").value(operationId))
+                .andExpect(jsonPath("$.data.knowledgePageId").value(knowledgePageId))
+                .andExpect(jsonPath("$.data.contentHash").value(contentHash))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json(noOp, "/data/publishedAt")).isEqualTo(publishedAt);
+        assertThat(Files.readString(target)).isEqualTo(published);
+        assertThat(count("knowledge_page")).isEqualTo(1);
+        assertThat(count("wiki_publish_operation")).isEqualTo(1);
+
+        Files.writeString(target, "external published-file drift\n");
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_PUBLISHED_FILE_DRIFT"));
+        assertThat(Files.readString(target)).isEqualTo("external published-file drift\n");
+        assertThat(count("knowledge_page")).isEqualTo(1);
+        assertThat(count("wiki_publish_operation")).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsNonReadyAndMergeDraftsWithoutFilesystemSideEffects() throws Exception {
+        Workspace workspace = createWorkspace("publish-rejections", "ACTIVE");
+        Proposal createProposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Invalidated Topic");
+        long invalidatedDraftId = createDraft(createProposal.id());
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/invalidate", invalidatedDraftId))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", invalidatedDraftId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_DRAFT_NOT_READY"));
+        assertThat(Files.exists(workspace.root().resolve("vault/concepts/invalidated-topic.md"))).isFalse();
+
+        Path mergeTarget = workspace.root().resolve("vault/concepts/existing-topic.md");
+        String baseline = "# Existing Topic\n\nManual baseline\n";
+        Files.writeString(mergeTarget, baseline);
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic",
+                WikiContentHash.sha256(Files.readAllBytes(mergeTarget)));
+        Proposal mergeProposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Merge Candidate");
+        long mergeDraftId = createDraft(mergeProposal.id());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", mergeDraftId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_ACTION_NOT_CREATE"));
+        assertThat(Files.readString(mergeTarget)).isEqualTo(baseline);
+        assertThat(count("wiki_publish_operation")).isZero();
+    }
+
+    @Test
+    void protectsManualOrObsidianTargetThatAppearsAfterDraftCreation() throws Exception {
+        Workspace workspace = createWorkspace("manual-conflict", "ACTIVE");
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Manual Topic");
+        long draftId = createDraft(proposal.id());
+        Path target = workspace.root().resolve("vault/concepts/manual-topic.md");
+        String manualContent = "# Manual Obsidian page\n\nNever overwrite me.\n";
+        Files.writeString(target, manualContent);
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_TARGET_CONFLICT"));
+
+        assertThat(Files.readString(target)).isEqualTo(manualContent);
+        assertThat(count("knowledge_page")).isZero();
+        assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
+                .containsEntry("status", "ROLLED_BACK");
+    }
+
+    @Test
+    void isolatesPublishByActiveWorkspaceAndRejectsInvalidProposalOrTamperedCanonicalPath() throws Exception {
+        Workspace active = createWorkspace("publish-active", "ACTIVE");
+        Proposal activeProposal = createProposal(active.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Active Publish Topic");
+        long foreignDraftId = createDraft(activeProposal.id());
+        Workspace foreign = createWorkspace("publish-foreign", "INACTIVE");
+        activate(foreign.id());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", foreignDraftId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("WIKI_DRAFT_NOT_FOUND"));
+        assertThat(Files.exists(active.root().resolve("vault/concepts/active-publish-topic.md"))).isFalse();
+
+        activate(active.id());
+        Proposal invalidProposal = createProposal(active.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Invalid Proposal Topic");
+        long invalidProposalDraft = createDraft(invalidProposal.id());
+        db().sql("UPDATE knowledge_proposal SET status = 'REVIEW' WHERE id = :id")
+                .param("id", invalidProposal.id()).update();
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", invalidProposalDraft))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_PROPOSAL_INVALID"));
+
+        Proposal tamperedProposal = createProposal(active.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Canonical Topic");
+        long tamperedDraft = createDraft(tamperedProposal.id());
+        db().sql("UPDATE wiki_draft SET target_path = 'vault/concepts/attacker-path.md' WHERE id = :id")
+                .param("id", tamperedDraft).update();
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", tamperedDraft))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_TARGET_CONFLICT"));
+        assertThat(Files.exists(active.root().resolve("vault/concepts/attacker-path.md"))).isFalse();
+        assertThat(Files.exists(active.root().resolve("vault/concepts/canonical-topic.md"))).isFalse();
+        assertThat(count("wiki_publish_operation")).isZero();
+    }
+
+    @Test
+    void compensatesExactFinalFileWhenDatabaseFinalizationFails() throws Exception {
+        Workspace workspace = createWorkspace("db-compensation", "ACTIVE");
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Compensated Topic");
+        long draftId = createDraft(proposal.id());
+        Path target = workspace.root().resolve("vault/concepts/compensated-topic.md");
+        doThrow(new IllegalStateException("simulated DB finalization failure"))
+                .when(publicationRepository).insertKnowledgePage(any(), any(), anyString());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_METADATA_FAILURE"));
+
+        assertThat(Files.exists(target)).isFalse();
+        assertThat(count("knowledge_page")).isZero();
+        assertThat(row("SELECT status, failure_detail FROM wiki_publish_operation WHERE draft_id = :id",
+                "id", draftId)).containsEntry("status", "ROLLED_BACK");
+        assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
+                .containsEntry("status", "READY");
+    }
+
+    @Test
+    void recordsReconciliationWhenDatabaseFailsAndFinalFileNoLongerMatches() throws Exception {
+        Workspace workspace = createWorkspace("db-reconciliation", "ACTIVE");
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Reconciliation Topic");
+        long draftId = createDraft(proposal.id());
+        Path target = workspace.root().resolve("vault/concepts/reconciliation-topic.md");
+        doAnswer(invocation -> {
+            Files.writeString(target, "externally changed during DB finalization\n");
+            throw new IllegalStateException("simulated DB failure after external file drift");
+        }).when(publicationRepository).insertKnowledgePage(any(), any(), anyString());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_RECONCILIATION_REQUIRED"));
+
+        assertThat(Files.readString(target)).isEqualTo("externally changed during DB finalization\n");
+        assertThat(count("knowledge_page")).isZero();
+        assertThat(row("SELECT status, failure_detail FROM wiki_publish_operation WHERE draft_id = :id",
+                "id", draftId)).containsEntry("status", "RECONCILIATION_REQUIRED");
+        assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
+                .containsEntry("status", "READY");
+    }
+
     private long createDraft(long proposalId) throws Exception {
         String response = mockMvc.perform(post("/api/v1/wiki-drafts").contentType("application/json")
                         .content("{\"proposalId\":" + proposalId + "}"))
@@ -324,6 +557,14 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
     private int count(String table) {
         return db().sql("SELECT COUNT(*) FROM " + table).query(Integer.class).single();
+    }
+
+    private Map<String, Object> row(String sql, Object... parameters) {
+        var statement = db().sql(sql);
+        for (int index = 0; index < parameters.length; index += 2) {
+            statement = statement.param((String) parameters[index], parameters[index + 1]);
+        }
+        return statement.query().singleRow();
     }
 
     private static String json(String body, String pointer) throws Exception {
