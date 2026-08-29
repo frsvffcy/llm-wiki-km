@@ -6,16 +6,16 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /** Shared SHA-256 representation for persisted Wiki review content. */
-final class WikiContentHash {
+public final class WikiContentHash {
 
     private WikiContentHash() {
     }
 
-    static String sha256(String value) {
+    public static String sha256(String value) {
         return sha256(value.getBytes(StandardCharsets.UTF_8));
     }
 
-    static String sha256(byte[] value) {
+    public static String sha256(byte[] value) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
         } catch (NoSuchAlgorithmException exception) {
