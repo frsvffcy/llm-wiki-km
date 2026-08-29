@@ -3,6 +3,10 @@ package org.km.llmwiki.wiki;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.ai.LlmProposalAction;
+import org.km.llmwiki.search.FtsSearchIndexRepository;
+import org.km.llmwiki.search.PublishedWikiIndexingService;
+import org.km.llmwiki.search.WikiIndexSyncResult;
+import org.km.llmwiki.search.WikiIndexSyncStatus;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -23,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -41,6 +46,15 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
     @MockitoSpyBean
     private AtomicWikiFileReplacer atomicFileReplacer;
+
+    @MockitoSpyBean
+    private WikiAtomicFilePublisher atomicFilePublisher;
+
+    @MockitoSpyBean
+    private FtsSearchIndexRepository ftsSearchIndexRepository;
+
+    @Autowired
+    private PublishedWikiIndexingService publishedWikiIndexingService;
 
     @Autowired
     private WikiMergePublishService mergePublishService;
@@ -222,6 +236,234 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data.invalidatedReason").value("SOURCE_PROPOSAL_INVALID"))
                 .andExpect(jsonPath("$.data.publishReady").value(false));
         assertThat(proposalStatus(proposal.id())).isEqualTo("REVIEW");
+    }
+
+    @Test
+    void indexesCreatePublishAndKeepsNoOpIdempotent() throws Exception {
+        Workspace workspace = createWorkspace("fts-create", "ACTIVE");
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "FTS Create Topic");
+        long draftId = createDraft(proposal.id());
+
+        String created = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.outcome").value("CREATED"))
+                .andExpect(jsonPath("$.data.result").value("PUBLISHED"))
+                .andReturn().getResponse().getContentAsString();
+        String knowledgeId = json(created, "/data/knowledgeId");
+        long pageId = Long.parseLong(json(created, "/data/knowledgePageId"));
+        String contentHash = json(created, "/data/contentHash");
+
+        assertThat(ftsSearch(workspace.id(), "Rendered content"))
+                .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
+                .containsExactly(knowledgeId);
+        assertThat(db().sql("SELECT COUNT(*) FROM search_index_identity "
+                + "WHERE corpus = 'KNOWLEDGE' AND workspace_id = :workspace AND stable_id = :stableId")
+                .param("workspace", workspace.id()).param("stableId", knowledgeId)
+                .query(Integer.class).single()).isEqualTo(1);
+        assertThat(row("""
+                SELECT status, knowledge_id, content_hash, indexed_content_hash, failure_detail
+                FROM knowledge_search_index_sync
+                WHERE workspace_id = :workspace AND knowledge_page_id = :page
+                """, "workspace", workspace.id(), "page", pageId))
+                .containsEntry("status", "SYNCED")
+                .containsEntry("knowledge_id", knowledgeId)
+                .containsEntry("content_hash", contentHash)
+                .containsEntry("indexed_content_hash", contentHash)
+                .containsEntry("failure_detail", null);
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("NO_OP"));
+        assertThat(ftsSearch(workspace.id(), "Rendered content"))
+                .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
+                .containsExactly(knowledgeId);
+        assertThat(db().sql("SELECT COUNT(*) FROM search_index_identity "
+                + "WHERE corpus = 'KNOWLEDGE' AND workspace_id = :workspace")
+                .param("workspace", workspace.id()).query(Integer.class).single()).isEqualTo(1);
+    }
+
+    @Test
+    void updatesTheSameFtsIdentityForMergeAndReindexIsDeterministic() throws Exception {
+        Workspace workspace = createWorkspace("fts-merge", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        String baseline = "# Existing Topic\n\nBaseline\n";
+        Files.writeString(target, baseline);
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic",
+                WikiContentHash.sha256(Files.readAllBytes(target)));
+
+        Proposal firstProposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "First Merge");
+        long firstDraftId = createDraft(firstProposal.id());
+        String first = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", firstDraftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("MERGED"))
+                .andReturn().getResponse().getContentAsString();
+        long pageId = Long.parseLong(json(first, "/data/knowledgePageId"));
+        String knowledgeId = json(first, "/data/knowledgeId");
+        long firstRowId = db().sql("SELECT fts_rowid FROM search_index_identity "
+                + "WHERE corpus = 'KNOWLEDGE' AND workspace_id = :workspace AND stable_id = :stableId")
+                .param("workspace", workspace.id()).param("stableId", knowledgeId)
+                .query(Long.class).single();
+
+        Proposal secondProposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Second Merge");
+        db().sql("UPDATE knowledge_proposal SET normalized_data_json = "
+                + "REPLACE(normalized_data_json, 'Rendered content', 'Revision two unique') "
+                + "WHERE id = :id").param("id", secondProposal.id()).update();
+        long secondDraftId = createDraft(secondProposal.id());
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", secondDraftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("MERGED"));
+
+        assertThat(ftsSearch(workspace.id(), "Revision two unique"))
+                .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
+                .containsExactly(knowledgeId);
+        assertThat(ftsSearch(workspace.id(), "Rendered content")).isEmpty();
+        assertThat(db().sql("SELECT COUNT(*) FROM search_index_identity "
+                + "WHERE corpus = 'KNOWLEDGE' AND workspace_id = :workspace AND stable_id = :stableId")
+                .param("workspace", workspace.id()).param("stableId", knowledgeId)
+                .query(Integer.class).single()).isEqualTo(1);
+
+        WikiIndexSyncResult firstReindex = publishedWikiIndexingService.reindex(workspace.id(), pageId);
+        WikiIndexSyncResult secondReindex = publishedWikiIndexingService.reindex(workspace.id(), pageId);
+        assertThat(firstReindex.status()).isEqualTo(WikiIndexSyncStatus.SYNCED);
+        assertThat(secondReindex.status()).isEqualTo(WikiIndexSyncStatus.SYNCED);
+        assertThat(db().sql("SELECT fts_rowid FROM search_index_identity "
+                + "WHERE corpus = 'KNOWLEDGE' AND workspace_id = :workspace AND stable_id = :stableId")
+                .param("workspace", workspace.id()).param("stableId", knowledgeId)
+                .query(Long.class).single()).isEqualTo(firstRowId);
+    }
+
+    @Test
+    void doesNotIndexConflictedOrFailedPublish() throws Exception {
+        Workspace conflictWorkspace = createWorkspace("fts-conflict", "ACTIVE");
+        Proposal conflictProposal = createProposal(conflictWorkspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "FTS Conflict Topic");
+        long conflictDraftId = createDraft(conflictProposal.id());
+        Files.writeString(conflictWorkspace.root().resolve("vault/concepts/fts-conflict-topic.md"),
+                "manual content\n");
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", conflictDraftId))
+                .andExpect(status().isConflict());
+        assertThat(count("knowledge_fts")).isZero();
+        assertThat(count("knowledge_search_index_sync")).isZero();
+
+        Workspace failedWorkspace = createWorkspace("fts-failed", "INACTIVE");
+        activate(failedWorkspace.id());
+        Proposal failedProposal = createProposal(failedWorkspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "FTS Failed Topic");
+        long failedDraftId = createDraft(failedProposal.id());
+        doThrow(new IllegalStateException("simulated CREATE filesystem failure"))
+                .when(atomicFilePublisher).commit(any());
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", failedDraftId))
+                .andExpect(status().isInternalServerError());
+        assertThat(count("knowledge_fts")).isZero();
+        assertThat(count("knowledge_search_index_sync")).isZero();
+        assertThat(count("knowledge_page")).isZero();
+    }
+
+    @Test
+    void keepsSuccessfulVaultPublishWhenFtsFailsAndRepairsItLater() throws Exception {
+        Workspace workspace = createWorkspace("fts-pending", "ACTIVE");
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "FTS Pending Topic");
+        long draftId = createDraft(proposal.id());
+        doThrow(new IllegalStateException("simulated FTS outage"))
+                .when(ftsSearchIndexRepository).upsertKnowledge(any());
+
+        String published = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.result").value("PUBLISHED"))
+                .andReturn().getResponse().getContentAsString();
+        long pageId = Long.parseLong(json(published, "/data/knowledgePageId"));
+        String knowledgeId = json(published, "/data/knowledgeId");
+        Path target = workspace.root().resolve("vault/concepts/fts-pending-topic.md");
+        assertThat(Files.exists(target)).isTrue();
+        assertThat(count("knowledge_page")).isEqualTo(1);
+        assertThat(count("knowledge_fts")).isZero();
+        Map<String, Object> pendingLedger = row("""
+                SELECT status, failure_detail, indexed_content_hash
+                FROM knowledge_search_index_sync
+                WHERE workspace_id = :workspace AND knowledge_page_id = :page
+                """, "workspace", workspace.id(), "page", pageId);
+        assertThat(pendingLedger).containsEntry("status", "INDEX_PENDING")
+                .containsEntry("indexed_content_hash", null)
+                .containsEntry("failure_detail", "Published Wiki FTS sync failed: IllegalStateException: simulated FTS outage");
+
+        doCallRealMethod().when(ftsSearchIndexRepository).upsertKnowledge(any());
+        WikiIndexSyncResult repaired = publishedWikiIndexingService.reindex(workspace.id(), pageId);
+        assertThat(repaired.status()).isEqualTo(WikiIndexSyncStatus.SYNCED);
+        assertThat(ftsSearch(workspace.id(), "Rendered content"))
+                .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
+                .containsExactly(knowledgeId);
+        assertThat(row("""
+                SELECT status, indexed_content_hash, failure_detail
+                FROM knowledge_search_index_sync
+                WHERE workspace_id = :workspace AND knowledge_page_id = :page
+                """, "workspace", workspace.id(), "page", pageId))
+                .containsEntry("status", "SYNCED")
+                .containsEntry("failure_detail", null)
+                .containsEntry("indexed_content_hash", json(published, "/data/contentHash"));
+    }
+
+    @Test
+    void failsClosedOnVaultOrDatabaseContentHashDriftWithoutOverwritingOldIndex() throws Exception {
+        Workspace workspace = createWorkspace("fts-drift", "ACTIVE");
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "FTS Drift Topic");
+        long draftId = createDraft(proposal.id());
+        String published = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long pageId = Long.parseLong(json(published, "/data/knowledgePageId"));
+        String knowledgeId = json(published, "/data/knowledgeId");
+        Path target = workspace.root().resolve("vault/concepts/fts-drift-topic.md");
+        byte[] canonical = Files.readAllBytes(target);
+        Files.writeString(target, "manual edit outside publish\n");
+
+        WikiIndexSyncResult vaultDrift = publishedWikiIndexingService.reindex(workspace.id(), pageId);
+        assertThat(vaultDrift.status()).isEqualTo(WikiIndexSyncStatus.DRIFT);
+        assertThat(ftsSearch(workspace.id(), "Rendered content"))
+                .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
+                .containsExactly(knowledgeId);
+        assertThat(ftsSearch(workspace.id(), "manual edit outside publish")).isEmpty();
+        assertThat(row("SELECT status FROM knowledge_search_index_sync "
+                + "WHERE workspace_id = :workspace AND knowledge_page_id = :page",
+                "workspace", workspace.id(), "page", pageId)).containsEntry("status", "DRIFT");
+
+        Files.write(target, canonical);
+        db().sql("UPDATE knowledge_page SET content_hash = :hash WHERE id = :id")
+                .param("hash", "0".repeat(64)).param("id", pageId).update();
+        WikiIndexSyncResult databaseDrift = publishedWikiIndexingService.reindex(workspace.id(), pageId);
+        assertThat(databaseDrift.status()).isEqualTo(WikiIndexSyncStatus.DRIFT);
+        assertThat(ftsSearch(workspace.id(), "Rendered content"))
+                .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
+                .containsExactly(knowledgeId);
+        assertThat(row("SELECT status, indexed_content_hash FROM knowledge_search_index_sync "
+                + "WHERE workspace_id = :workspace AND knowledge_page_id = :page",
+                "workspace", workspace.id(), "page", pageId))
+                .containsEntry("status", "DRIFT")
+                .containsEntry("indexed_content_hash", json(published, "/data/contentHash"));
+    }
+
+    @Test
+    void isolatesPublishedWikiIndexAcrossWorkspaces() throws Exception {
+        Workspace first = createWorkspace("fts-isolation-first", "ACTIVE");
+        Proposal firstProposal = createProposal(first.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Workspace Scoped Topic");
+        long firstDraft = createDraft(firstProposal.id());
+        String firstPublished = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", firstDraft))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String firstKnowledgeId = json(firstPublished, "/data/knowledgeId");
+        assertThat(ftsSearch(first.id(), "Rendered content"))
+                .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
+                .containsExactly(firstKnowledgeId);
+
+        Workspace second = createWorkspace("fts-isolation-second", "INACTIVE");
+        activate(second.id());
+        assertThat(ftsSearch(second.id(), "Rendered content")).isEmpty();
+        assertThat(ftsSearch(first.id(), "Rendered content"))
+                .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
+                .containsExactly(firstKnowledgeId);
     }
 
     @Test
@@ -1086,6 +1328,10 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
     private int count(String table) {
         return db().sql("SELECT COUNT(*) FROM " + table).query(Integer.class).single();
+    }
+
+    private java.util.List<org.km.llmwiki.search.SearchIndexMatch> ftsSearch(long workspaceId, String query) {
+        return ftsSearchIndexRepository.matchKnowledge(workspaceId, query);
     }
 
     private Map<String, Object> row(String sql, Object... parameters) {

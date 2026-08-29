@@ -1,6 +1,7 @@
 package org.km.llmwiki.wiki;
 
 import org.km.llmwiki.ai.LlmProposalAction;
+import org.km.llmwiki.search.PublishedWikiIndexingService;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.stereotype.Service;
@@ -18,19 +19,22 @@ public class WikiPublishService {
     private final WikiMergePublishService mergePublishService;
     private final WikiPublicationRepository publicationRepository;
     private final WikiPublishAttemptRepository attemptRepository;
+    private final PublishedWikiIndexingService publishedWikiIndexingService;
     private final ConcurrentHashMap<String, ReentrantLock> draftLocks = new ConcurrentHashMap<>();
 
     public WikiPublishService(WorkspaceService workspaceService, WikiDraftRepository draftRepository,
                               WikiCreatePublishService createPublishService,
                               WikiMergePublishService mergePublishService,
                               WikiPublicationRepository publicationRepository,
-                              WikiPublishAttemptRepository attemptRepository) {
+                              WikiPublishAttemptRepository attemptRepository,
+                              PublishedWikiIndexingService publishedWikiIndexingService) {
         this.workspaceService = workspaceService;
         this.draftRepository = draftRepository;
         this.createPublishService = createPublishService;
         this.mergePublishService = mergePublishService;
         this.publicationRepository = publicationRepository;
         this.attemptRepository = attemptRepository;
+        this.publishedWikiIndexingService = publishedWikiIndexingService;
     }
 
     public WikiPublishResult publish(long draftId) {
@@ -46,6 +50,9 @@ public class WikiPublishService {
             WikiPublishResult result = draft.action() == LlmProposalAction.CREATE
                     ? createPublishService.publish(draftId)
                     : mergePublishService.publish(draftId);
+            // FTS is a rebuildable projection. A failed sync is recorded as repairable state and
+            // is deliberately never allowed to roll back a completed vault publish.
+            publishedWikiIndexingService.synchronizeAfterPublish(result);
             StoredWikiPublishOperation operation = publicationRepository.findByDraft(workspaceId, draftId)
                     .orElseThrow(() -> new WikiPublishException(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
                             "Successful publish did not retain its operation identity"));
