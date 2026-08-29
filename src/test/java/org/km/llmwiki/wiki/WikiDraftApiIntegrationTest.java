@@ -17,7 +17,9 @@ import java.nio.file.Path;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -35,6 +37,12 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
     @MockitoSpyBean
     private WikiPublicationRepository publicationRepository;
+
+    @MockitoSpyBean
+    private AtomicWikiFileReplacer atomicFileReplacer;
+
+    @Autowired
+    private WikiMergePublishService mergePublishService;
 
     @TempDir
     Path tempDir;
@@ -307,7 +315,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
-    void rejectsNonReadyAndMergeDraftsWithoutFilesystemSideEffects() throws Exception {
+    void rejectsNonReadyAndPublishesMergeWithStableIdentityAndRevisionMetadata() throws Exception {
         Workspace workspace = createWorkspace("publish-rejections", "ACTIVE");
         Proposal createProposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
                 KnowledgeProposalStatus.APPROVED, "Invalidated Topic");
@@ -323,17 +331,378 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         Path mergeTarget = workspace.root().resolve("vault/concepts/existing-topic.md");
         String baseline = "# Existing Topic\n\nManual baseline\n";
         Files.writeString(mergeTarget, baseline);
-        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic",
-                WikiContentHash.sha256(Files.readAllBytes(mergeTarget)));
+        String beforeHash = WikiContentHash.sha256(Files.readAllBytes(mergeTarget));
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", beforeHash);
         Proposal mergeProposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
                 KnowledgeProposalStatus.APPROVED, "Merge Candidate");
         long mergeDraftId = createDraft(mergeProposal.id());
 
-        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", mergeDraftId))
+        String merged = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", mergeDraftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("MERGED"))
+                .andExpect(jsonPath("$.data.knowledgeId").value("existing-topic"))
+                .andExpect(jsonPath("$.data.beforeHash").value(beforeHash))
+                .andExpect(jsonPath("$.data.revision").value(2))
+                .andReturn().getResponse().getContentAsString();
+        String afterHash = WikiContentHash.sha256(Files.readAllBytes(mergeTarget));
+        String publishedAt = json(merged, "/data/publishedAt");
+        long operationId = Long.parseLong(json(merged, "/data/operationId"));
+        long pageId = Long.parseLong(json(merged, "/data/knowledgePageId"));
+        assertThat(json(merged, "/data/afterHash")).isEqualTo(afterHash);
+        assertThat(Files.readString(mergeTarget))
+                .contains("id: \"existing-topic\"")
+                .contains("title: \"Existing Topic\"")
+                .contains("created_at: \"2026-08-29T00:00:00Z\"")
+                .contains("updated_at: \"" + publishedAt + "\"")
+                .contains("revision: 2")
+                .contains("# Existing Topic")
+                .doesNotContain("# Merge Candidate");
+        assertThat(row("""
+                SELECT knowledge_id, title, markdown_path, status, content_hash, revision, proposal_id, draft_id,
+                    created_at, updated_at, published_at
+                FROM knowledge_page WHERE id = :id
+                """, "id", pageId)).containsEntry("knowledge_id", "existing-topic")
+                .containsEntry("title", "Existing Topic")
+                .containsEntry("markdown_path", "vault/concepts/existing-topic.md")
+                .containsEntry("status", "PUBLISHED")
+                .containsEntry("content_hash", afterHash)
+                .containsEntry("revision", 2)
+                .containsEntry("proposal_id", Math.toIntExact(mergeProposal.id()))
+                .containsEntry("draft_id", Math.toIntExact(mergeDraftId))
+                .containsEntry("created_at", "2026-08-29T00:00:00Z")
+                .containsEntry("updated_at", publishedAt)
+                .containsEntry("published_at", publishedAt);
+        assertThat(row("""
+                SELECT action, before_content_hash, content_hash, revision, status, knowledge_page_id
+                FROM wiki_publish_operation WHERE id = :id
+                """, "id", operationId)).containsEntry("action", "MERGE")
+                .containsEntry("before_content_hash", beforeHash)
+                .containsEntry("content_hash", afterHash)
+                .containsEntry("revision", 2)
+                .containsEntry("status", "COMPLETED")
+                .containsEntry("knowledge_page_id", Math.toIntExact(pageId));
+        assertThat(row("""
+                SELECT status, published_path, published_content_hash, published_revision, published_at
+                FROM wiki_draft WHERE id = :id
+                """, "id", mergeDraftId)).containsEntry("status", "PUBLISHED")
+                .containsEntry("published_path", "vault/concepts/existing-topic.md")
+                .containsEntry("published_content_hash", afterHash)
+                .containsEntry("published_revision", 2)
+                .containsEntry("published_at", publishedAt);
+    }
+
+    @Test
+    void rejectsMergeHashMismatchBeforeAnyDatabaseOrFilesystemSideEffect() throws Exception {
+        Workspace workspace = createWorkspace("merge-manual-edit", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        String baseline = "# Existing Topic\r\n\r\nOriginal bytes\r\n";
+        Files.write(target, baseline.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String expectedHash = WikiContentHash.sha256(Files.readAllBytes(target));
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", expectedHash);
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Merge Candidate");
+        long draftId = createDraft(proposal.id());
+        String manual = "# Existing Topic\n\nEdited manually in Obsidian\n";
+        Files.writeString(target, manual);
+        Map<String, Object> pageBefore = row("""
+                SELECT content_hash, revision, proposal_id, draft_id, updated_at, published_at
+                FROM knowledge_page WHERE knowledge_id = 'existing-topic'
+                """);
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_ACTION_NOT_CREATE"));
-        assertThat(Files.readString(mergeTarget)).isEqualTo(baseline);
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_OPTIMISTIC_LOCK_CONFLICT"));
+
+        assertThat(Files.readString(target)).isEqualTo(manual);
         assertThat(count("wiki_publish_operation")).isZero();
+        assertThat(row("""
+                SELECT content_hash, revision, proposal_id, draft_id, updated_at, published_at
+                FROM knowledge_page WHERE knowledge_id = 'existing-topic'
+                """)).isEqualTo(pageBefore);
+        assertThat(row("SELECT status, published_at FROM wiki_draft WHERE id = :id", "id", draftId))
+                .containsEntry("status", "READY").containsEntry("published_at", null);
+    }
+
+    @Test
+    void publishesMergeWhenDatabaseHashIsStaleButFilesystemMatchesDraftExpectedHash() throws Exception {
+        Workspace workspace = createWorkspace("merge-filesystem-authority", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        String baseline = "# Existing Topic\n\nFilesystem authority\n";
+        Files.writeString(target, baseline);
+        String expectedHash = WikiContentHash.sha256(Files.readAllBytes(target));
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", expectedHash);
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Filesystem Authority Merge");
+        long draftId = createDraft(proposal.id());
+        db().sql("UPDATE knowledge_page SET content_hash = :hash WHERE knowledge_id = 'existing-topic'")
+                .param("hash", "0".repeat(64)).update();
+
+        String response = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("MERGED"))
+                .andExpect(jsonPath("$.data.beforeHash").value(expectedHash))
+                .andExpect(jsonPath("$.data.revision").value(2))
+                .andReturn().getResponse().getContentAsString();
+
+        String afterHash = WikiContentHash.sha256(Files.readAllBytes(target));
+        assertThat(json(response, "/data/afterHash")).isEqualTo(afterHash);
+        assertThat(row("SELECT content_hash, revision FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
+                .containsEntry("content_hash", afterHash)
+                .containsEntry("revision", 2);
+        assertThat(row("SELECT status, published_content_hash, published_revision FROM wiki_draft WHERE id = :id",
+                "id", draftId)).containsEntry("status", "PUBLISHED")
+                .containsEntry("published_content_hash", afterHash)
+                .containsEntry("published_revision", 2);
+    }
+
+    @Test
+    void failsClosedWhenMergeTargetIsMissingOrDraftTargetIdentityIsTampered() throws Exception {
+        Workspace workspace = createWorkspace("merge-target-failures", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        Files.writeString(target, "# Existing Topic\n\nBaseline\n");
+        String hash = WikiContentHash.sha256(Files.readAllBytes(target));
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", hash);
+        Proposal missingProposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Missing Candidate");
+        long missingDraft = createDraft(missingProposal.id());
+        Files.delete(target);
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", missingDraft))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_TARGET_MISSING"));
+        assertThat(count("wiki_publish_operation")).isZero();
+
+        Files.writeString(target, "# Existing Topic\n\nBaseline\n");
+        Proposal tamperedProposal = createProposal(workspace.id(), LlmProposalAction.MERGE,
+                "wiki:existing-topic", KnowledgeProposalStatus.APPROVED, "Tampered Candidate");
+        long tamperedDraft = createDraft(tamperedProposal.id());
+        db().sql("UPDATE wiki_draft SET target_path = 'vault/concepts/attacker.md' WHERE id = :id")
+                .param("id", tamperedDraft).update();
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", tamperedDraft))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_TARGET_CONFLICT"));
+        assertThat(Files.readString(target)).isEqualTo("# Existing Topic\n\nBaseline\n");
+        assertThat(Files.exists(workspace.root().resolve("vault/concepts/attacker.md"))).isFalse();
+        assertThat(count("wiki_publish_operation")).isZero();
+    }
+
+    @Test
+    void isolatesMergePublishAndRejectsDirectNonMergeOrNonReadyCalls() throws Exception {
+        Workspace active = createWorkspace("merge-isolation-active", "ACTIVE");
+        Path target = active.root().resolve("vault/concepts/existing-topic.md");
+        Files.writeString(target, "# Existing Topic\n\nBaseline\n");
+        insertKnowledgePage(active.id(), "existing-topic", "Existing Topic",
+                WikiContentHash.sha256(Files.readAllBytes(target)));
+        Proposal mergeProposal = createProposal(active.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Foreign Merge");
+        long mergeDraft = createDraft(mergeProposal.id());
+        Proposal createProposal = createProposal(active.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Create Only");
+        long createDraft = createDraft(createProposal.id());
+        assertThatThrownBy(() -> mergePublishService.publish(createDraft))
+                .isInstanceOfSatisfying(WikiPublishException.class, exception ->
+                        assertThat(exception.reason()).isEqualTo(WikiPublishException.Reason.ACTION_NOT_MERGE));
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/invalidate", mergeDraft)).andExpect(status().isOk());
+        assertThatThrownBy(() -> mergePublishService.publish(mergeDraft))
+                .isInstanceOfSatisfying(WikiPublishException.class, exception ->
+                        assertThat(exception.reason()).isEqualTo(WikiPublishException.Reason.DRAFT_NOT_READY));
+
+        Workspace foreign = createWorkspace("merge-isolation-foreign", "INACTIVE");
+        activate(foreign.id());
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", mergeDraft))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("WIKI_DRAFT_NOT_FOUND"));
+        assertThat(Files.readString(target)).isEqualTo("# Existing Topic\n\nBaseline\n");
+        assertThat(count("wiki_publish_operation")).isZero();
+    }
+
+    @Test
+    void safelyReturnsMergeNoOpAndNeverOverwritesLaterManualEdit() throws Exception {
+        Workspace workspace = createWorkspace("merge-repeat", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        Files.writeString(target, "# Existing Topic\n\nBaseline\n");
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic",
+                WikiContentHash.sha256(Files.readAllBytes(target)));
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Repeat Merge");
+        long draftId = createDraft(proposal.id());
+        String first = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.outcome").value("MERGED"))
+                .andReturn().getResponse().getContentAsString();
+        String firstBytes = Files.readString(target);
+        long operationId = Long.parseLong(json(first, "/data/operationId"));
+        long pageId = Long.parseLong(json(first, "/data/knowledgePageId"));
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("NO_OP"))
+                .andExpect(jsonPath("$.data.operationId").value(operationId))
+                .andExpect(jsonPath("$.data.revision").value(2));
+        assertThat(Files.readString(target)).isEqualTo(firstBytes);
+        assertThat(count("wiki_publish_operation")).isEqualTo(1);
+        assertThat(row("SELECT revision FROM knowledge_page WHERE id = :id", "id", pageId))
+                .containsEntry("revision", 2);
+
+        String manual = "manual change after successful publish\n";
+        Files.writeString(target, manual);
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_PUBLISHED_FILE_DRIFT"));
+        assertThat(Files.readString(target)).isEqualTo(manual);
+        assertThat(count("wiki_publish_operation")).isEqualTo(1);
+        assertThat(row("SELECT revision FROM knowledge_page WHERE id = :id", "id", pageId))
+                .containsEntry("revision", 2);
+    }
+
+    @Test
+    void rollsBackMergeOperationWhenAtomicReplaceFails() throws Exception {
+        Workspace workspace = createWorkspace("merge-atomic-failure", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        String baseline = "# Existing Topic\n\nBaseline\n";
+        Files.writeString(target, baseline);
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic",
+                WikiContentHash.sha256(Files.readAllBytes(target)));
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Atomic Failure");
+        long draftId = createDraft(proposal.id());
+        doThrow(new java.io.IOException("simulated atomic replace failure"))
+                .when(atomicFileReplacer).replace(any(), any());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_FILESYSTEM_FAILURE"));
+
+        assertThat(Files.readString(target)).isEqualTo(baseline);
+        assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
+                .containsEntry("status", "ROLLED_BACK");
+        assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
+                .containsEntry("status", "READY");
+        assertThat(row("SELECT revision, content_hash FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
+                .containsEntry("revision", 1)
+                .containsEntry("content_hash", WikiContentHash.sha256(baseline));
+    }
+
+    @Test
+    void restoresMergeTargetWhenAtomicReplacerThrowsAfterMovingFile() throws Exception {
+        Workspace workspace = createWorkspace("merge-post-move-failure", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        byte[] baseline = ("\ufeff# Existing Topic\r\n\r\nOriginal bytes\r\n")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Files.write(target, baseline);
+        String hash = WikiContentHash.sha256(baseline);
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", hash);
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Post Move Failure");
+        long draftId = createDraft(proposal.id());
+        doAnswer(invocation -> {
+            Path staged = invocation.getArgument(0);
+            Path destination = invocation.getArgument(1);
+            Files.move(staged, destination, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            throw new IllegalStateException("simulated failure after atomic move");
+        }).when(atomicFileReplacer).replace(any(), any());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_FILESYSTEM_FAILURE"));
+
+        assertThat(Files.readAllBytes(target)).containsExactly(baseline);
+        assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
+                .containsEntry("status", "ROLLED_BACK");
+        assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
+                .containsEntry("status", "READY");
+        assertThat(row("SELECT revision, content_hash FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
+                .containsEntry("revision", 1).containsEntry("content_hash", hash);
+    }
+
+    @Test
+    void recordsReconciliationWhenAtomicReplacerDriftsTargetAfterMovingFile() throws Exception {
+        Workspace workspace = createWorkspace("merge-post-move-drift", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        String baseline = "# Existing Topic\n\nBaseline\n";
+        Files.writeString(target, baseline);
+        String hash = WikiContentHash.sha256(Files.readAllBytes(target));
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", hash);
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Post Move Drift");
+        long draftId = createDraft(proposal.id());
+        doAnswer(invocation -> {
+            Path staged = invocation.getArgument(0);
+            Path destination = invocation.getArgument(1);
+            Files.move(staged, destination, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(destination, "external edit after atomic move\n");
+            throw new java.io.IOException("simulated failure after external drift");
+        }).when(atomicFileReplacer).replace(any(), any());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_RECONCILIATION_REQUIRED"));
+
+        assertThat(Files.readString(target)).isEqualTo("external edit after atomic move\n");
+        assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
+                .containsEntry("status", "RECONCILIATION_REQUIRED");
+        assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
+                .containsEntry("status", "READY");
+        assertThat(row("SELECT revision, content_hash FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
+                .containsEntry("revision", 1).containsEntry("content_hash", hash);
+    }
+
+    @Test
+    void restoresExactMergeBytesWhenDatabaseFinalizationFails() throws Exception {
+        Workspace workspace = createWorkspace("merge-db-compensation", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        byte[] baseline = ("\ufeff# Existing Topic\r\n\r\nExact CRLF bytes\r\n")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Files.write(target, baseline);
+        String hash = WikiContentHash.sha256(baseline);
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", hash);
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "DB Failure");
+        long draftId = createDraft(proposal.id());
+        doThrow(new IllegalStateException("simulated MERGE DB failure"))
+                .when(publicationRepository).updateKnowledgePageForMerge(any(), any(), anyLong(), anyString());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_METADATA_FAILURE"));
+
+        assertThat(Files.readAllBytes(target)).containsExactly(baseline);
+        assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
+                .containsEntry("status", "ROLLED_BACK");
+        assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
+                .containsEntry("status", "READY");
+        assertThat(row("SELECT revision, content_hash FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
+                .containsEntry("revision", 1).containsEntry("content_hash", hash);
+    }
+
+    @Test
+    void recordsMergeReconciliationWhenDbFailsAfterExternalFileDrift() throws Exception {
+        Workspace workspace = createWorkspace("merge-db-reconciliation", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        String baseline = "# Existing Topic\n\nBaseline\n";
+        Files.writeString(target, baseline);
+        String hash = WikiContentHash.sha256(Files.readAllBytes(target));
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", hash);
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Reconciliation");
+        long draftId = createDraft(proposal.id());
+        doAnswer(invocation -> {
+            Files.writeString(target, "external edit during MERGE DB finalization\n");
+            throw new IllegalStateException("simulated MERGE DB failure after drift");
+        }).when(publicationRepository).updateKnowledgePageForMerge(any(), any(), anyLong(), anyString());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_RECONCILIATION_REQUIRED"));
+
+        assertThat(Files.readString(target)).isEqualTo("external edit during MERGE DB finalization\n");
+        assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
+                .containsEntry("status", "RECONCILIATION_REQUIRED");
+        assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
+                .containsEntry("status", "READY");
+        assertThat(row("SELECT revision, content_hash FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
+                .containsEntry("revision", 1).containsEntry("content_hash", hash);
     }
 
     @Test

@@ -77,7 +77,8 @@ public class WikiCreatePublishService {
         String content = renderer.render(structuredDraft, knowledgeId, draft.id(), INITIAL_REVISION, publishedAt);
         String contentHash = WikiContentHash.sha256(content);
         StoredWikiPublishOperation operation = publicationRepository.prepare(new NewWikiPublishOperation(
-                workspace.id(), draft.id(), draft.proposalId(), knowledgeId, canonicalPath, contentHash,
+                workspace.id(), draft.id(), draft.proposalId(), LlmProposalAction.CREATE,
+                knowledgeId, canonicalPath, null, contentHash,
                 INITIAL_REVISION, publishedAt));
 
         StagedWikiFile staged = null;
@@ -103,7 +104,8 @@ public class WikiCreatePublishService {
 
     private WikiCreatePublishResponse repeatNoOp(long workspaceId, StoredWikiDraft draft) {
         StoredWikiPublishOperation operation = requireOperation(workspaceId, draft.id());
-        if (operation.status() != WikiPublishOperationStatus.COMPLETED) {
+        if (operation.action() != LlmProposalAction.CREATE
+                || operation.status() != WikiPublishOperationStatus.COMPLETED) {
             throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
                     "Published Wiki Draft does not have a completed publish operation");
         }

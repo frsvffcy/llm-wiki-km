@@ -5,8 +5,11 @@ public class WikiPublishException extends RuntimeException {
     public enum Reason {
         DRAFT_NOT_READY,
         ACTION_NOT_CREATE,
+        ACTION_NOT_MERGE,
         PROPOSAL_INVALID,
         TARGET_CONFLICT,
+        TARGET_MISSING,
+        OPTIMISTIC_LOCK_CONFLICT,
         OPERATION_CONFLICT,
         FILESYSTEM_FAILURE,
         CONTENT_VALIDATION_FAILED,

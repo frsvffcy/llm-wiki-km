@@ -1,6 +1,7 @@
 package org.km.llmwiki.wiki;
 
 import org.jooq.DSLContext;
+import org.km.llmwiki.ai.LlmProposalAction;
 import org.km.llmwiki.persistence.jooq.generated.tables.records.WikiPublishOperationRecord;
 import org.springframework.stereotype.Repository;
 
@@ -11,7 +12,7 @@ import java.util.Optional;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PAGE;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.WIKI_PUBLISH_OPERATION;
 
-/** jOOQ-only metadata and recovery ledger for controlled CREATE publish. */
+/** jOOQ-only metadata and recovery ledger for controlled CREATE and MERGE publish. */
 @Repository
 public class WikiPublicationRepository {
 
@@ -26,11 +27,13 @@ public class WikiPublicationRepository {
                 .columns(WIKI_PUBLISH_OPERATION.WORKSPACE_ID, WIKI_PUBLISH_OPERATION.DRAFT_ID,
                         WIKI_PUBLISH_OPERATION.PROPOSAL_ID, WIKI_PUBLISH_OPERATION.ACTION,
                         WIKI_PUBLISH_OPERATION.KNOWLEDGE_ID, WIKI_PUBLISH_OPERATION.TARGET_PATH,
+                        WIKI_PUBLISH_OPERATION.BEFORE_CONTENT_HASH,
                         WIKI_PUBLISH_OPERATION.CONTENT_HASH, WIKI_PUBLISH_OPERATION.REVISION,
                         WIKI_PUBLISH_OPERATION.STATUS, WIKI_PUBLISH_OPERATION.CREATED_AT,
                         WIKI_PUBLISH_OPERATION.UPDATED_AT)
                 .values((int) operation.workspaceId(), (int) operation.draftId(), (int) operation.proposalId(),
-                        "CREATE", operation.knowledgeId(), operation.targetPath(), operation.contentHash(),
+                        operation.action().name(), operation.knowledgeId(), operation.targetPath(),
+                        operation.beforeContentHash(), operation.contentHash(),
                         operation.revision(), WikiPublishOperationStatus.PREPARED.name(), operation.createdAt(),
                         operation.createdAt())
                 .onConflictDoNothing()
@@ -38,7 +41,7 @@ public class WikiPublicationRepository {
                 .fetchOne(WIKI_PUBLISH_OPERATION.ID);
         if (id == null) {
             throw new WikiPublishException(WikiPublishException.Reason.OPERATION_CONFLICT,
-                    "A CREATE publish reservation already exists for this Draft or target");
+                    "A publish reservation already exists for this Draft");
         }
         return require(operation.workspaceId(), id.longValue());
     }
@@ -65,6 +68,9 @@ public class WikiPublicationRepository {
 
     public long insertKnowledgePage(StoredWikiDraft draft, StoredWikiPublishOperation operation,
                                     String publishedAt) {
+        if (operation.action() != LlmProposalAction.CREATE) {
+            throw new IllegalArgumentException("Only CREATE inserts a new knowledge page");
+        }
         Integer id = dsl.insertInto(KNOWLEDGE_PAGE)
                 .columns(KNOWLEDGE_PAGE.WORKSPACE_ID, KNOWLEDGE_PAGE.KNOWLEDGE_ID,
                         KNOWLEDGE_PAGE.TITLE, KNOWLEDGE_PAGE.NORMALIZED_TITLE, KNOWLEDGE_PAGE.TYPE,
@@ -84,6 +90,39 @@ public class WikiPublicationRepository {
         return id.longValue();
     }
 
+    public Optional<WikiMergeTargetMetadata> findMergeTarget(long workspaceId, String knowledgeId) {
+        return dsl.selectFrom(KNOWLEDGE_PAGE)
+                .where(KNOWLEDGE_PAGE.WORKSPACE_ID.eq((int) workspaceId))
+                .and(KNOWLEDGE_PAGE.KNOWLEDGE_ID.eq(knowledgeId))
+                .fetchOptional(record -> new WikiMergeTargetMetadata(record.getId().longValue(),
+                        record.getWorkspaceId().longValue(), record.getKnowledgeId(), record.getTitle(),
+                        WikiPageType.from(record.getType()), record.getMarkdownPath(),
+                        PageStatus.valueOf(record.getStatus()), record.getContentHash(), record.getRevision(),
+                        record.getCreatedAt()));
+    }
+
+    public void updateKnowledgePageForMerge(StoredWikiDraft draft, StoredWikiPublishOperation operation,
+                                            long knowledgePageId, String publishedAt) {
+        if (operation.action() != LlmProposalAction.MERGE || operation.beforeContentHash() == null) {
+            throw new IllegalArgumentException("MERGE metadata update requires before and after hashes");
+        }
+        int updated = dsl.update(KNOWLEDGE_PAGE)
+                .set(KNOWLEDGE_PAGE.CONTENT_HASH, operation.contentHash())
+                .set(KNOWLEDGE_PAGE.REVISION, operation.revision())
+                .set(KNOWLEDGE_PAGE.PROPOSAL_ID, Math.toIntExact(draft.proposalId()))
+                .set(KNOWLEDGE_PAGE.DRAFT_ID, Math.toIntExact(draft.id()))
+                .set(KNOWLEDGE_PAGE.PUBLISHED_AT, publishedAt)
+                .set(KNOWLEDGE_PAGE.UPDATED_AT, publishedAt)
+                .where(KNOWLEDGE_PAGE.ID.eq(Math.toIntExact(knowledgePageId)))
+                .and(KNOWLEDGE_PAGE.WORKSPACE_ID.eq(Math.toIntExact(operation.workspaceId())))
+                .and(KNOWLEDGE_PAGE.KNOWLEDGE_ID.eq(operation.knowledgeId()))
+                .and(KNOWLEDGE_PAGE.MARKDOWN_PATH.eq(operation.targetPath()))
+                .and(KNOWLEDGE_PAGE.STATUS.eq(PageStatus.PUBLISHED.name()))
+                .and(KNOWLEDGE_PAGE.REVISION.eq(operation.revision() - 1))
+                .execute();
+        requireSingle(updated, "MERGE target metadata changed before finalization");
+    }
+
     public void complete(long workspaceId, long operationId, long knowledgePageId, String completedAt) {
         int updated = dsl.update(WIKI_PUBLISH_OPERATION)
                 .set(WIKI_PUBLISH_OPERATION.STATUS, WikiPublishOperationStatus.COMPLETED.name())
@@ -94,7 +133,7 @@ public class WikiPublicationRepository {
                 .and(WIKI_PUBLISH_OPERATION.WORKSPACE_ID.eq((int) workspaceId))
                 .and(WIKI_PUBLISH_OPERATION.STATUS.eq(WikiPublishOperationStatus.FILE_COMMITTED.name()))
                 .execute();
-        requireSingle(updated, "CREATE publish operation could not be completed");
+        requireSingle(updated, "Wiki publish operation could not be completed");
     }
 
     private void markFailure(long workspaceId, long operationId, WikiPublishOperationStatus next,
@@ -110,7 +149,7 @@ public class WikiPublicationRepository {
                 .and(WIKI_PUBLISH_OPERATION.STATUS.in(WikiPublishOperationStatus.PREPARED.name(),
                         WikiPublishOperationStatus.FILE_COMMITTED.name()))
                 .execute();
-        requireSingle(updated, "CREATE publish failure outcome could not be persisted");
+        requireSingle(updated, "Wiki publish failure outcome could not be persisted");
     }
 
     private void transition(long workspaceId, long operationId, WikiPublishOperationStatus expected,
@@ -123,7 +162,7 @@ public class WikiPublicationRepository {
                 .and(WIKI_PUBLISH_OPERATION.WORKSPACE_ID.eq((int) workspaceId))
                 .and(WIKI_PUBLISH_OPERATION.STATUS.eq(expected.name()))
                 .execute();
-        requireSingle(updated, "CREATE publish operation did not have expected state " + expected);
+        requireSingle(updated, "Wiki publish operation did not have expected state " + expected);
     }
 
     private StoredWikiPublishOperation require(long workspaceId, long operationId) {
@@ -131,14 +170,15 @@ public class WikiPublicationRepository {
                 .where(WIKI_PUBLISH_OPERATION.ID.eq((int) operationId))
                 .and(WIKI_PUBLISH_OPERATION.WORKSPACE_ID.eq((int) workspaceId))
                 .fetchOptional(this::map)
-                .orElseThrow(() -> new IllegalStateException("CREATE publish operation was not persisted"));
+                .orElseThrow(() -> new IllegalStateException("Wiki publish operation was not persisted"));
     }
 
     private StoredWikiPublishOperation map(WikiPublishOperationRecord record) {
         Integer pageId = record.getKnowledgePageId();
         return new StoredWikiPublishOperation(record.getId().longValue(), record.getWorkspaceId().longValue(),
-                record.getDraftId().longValue(), record.getProposalId().longValue(), record.getKnowledgeId(),
-                record.getTargetPath(), record.getContentHash(), record.getRevision(),
+                record.getDraftId().longValue(), record.getProposalId().longValue(),
+                LlmProposalAction.valueOf(record.getAction()), record.getKnowledgeId(), record.getTargetPath(),
+                record.getBeforeContentHash(), record.getContentHash(), record.getRevision(),
                 WikiPublishOperationStatus.valueOf(record.getStatus()),
                 pageId == null ? null : pageId.longValue(), record.getFailureDetail(), record.getCreatedAt(),
                 record.getUpdatedAt(), record.getCompletedAt());

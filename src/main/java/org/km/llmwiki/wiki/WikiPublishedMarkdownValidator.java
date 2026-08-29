@@ -14,6 +14,11 @@ public class WikiPublishedMarkdownValidator {
             "created_at:", "updated_at:", "proposal_id:", "draft_id:", "revision:");
 
     public void validate(byte[] bytes, String expectedContent, String expectedHash, WikiDraft draft) {
+        validate(bytes, expectedContent, expectedHash, draft, draft.title());
+    }
+
+    public void validate(byte[] bytes, String expectedContent, String expectedHash, WikiDraft draft,
+                         String publishedTitle) {
         String actual = new String(bytes, StandardCharsets.UTF_8);
         if (!actual.equals(expectedContent) || !WikiContentHash.sha256(bytes).equals(expectedHash)) {
             throw new WikiPublishException(WikiPublishException.Reason.CONTENT_VALIDATION_FAILED,
@@ -27,7 +32,7 @@ public class WikiPublishedMarkdownValidator {
                 throw invalid("Published Wiki Markdown is missing required frontmatter field " + field);
             }
         }
-        if (!actual.contains("\n# " + draft.title() + "\n")) {
+        if (!actual.contains("\n# " + publishedTitle + "\n")) {
             throw invalid("Published Wiki Markdown title does not match the READY Draft");
         }
         for (String heading : draft.expectedContentContract().requiredSectionHeadings()) {
