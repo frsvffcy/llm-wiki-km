@@ -58,7 +58,8 @@ public final class JooqCodeGenerator {
                         .withDatabase(new Database()
                                 .withName("org.jooq.meta.sqlite.SQLiteDatabase")
                                 .withIncludes(".*")
-                                .withExcludes("flyway_schema_history|sqlite_sequence"))
+                                .withExcludes("flyway_schema_history|sqlite_sequence|search_index_contract|"
+                                        + "search_index_identity|knowledge_fts.*|source_fts.*"))
                         .withGenerate(new Generate()
                                 .withRecords(true)
                                 .withPojos(false)
