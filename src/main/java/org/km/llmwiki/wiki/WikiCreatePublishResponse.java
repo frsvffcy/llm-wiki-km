@@ -4,10 +4,11 @@ package org.km.llmwiki.wiki;
 public record WikiCreatePublishResponse(WikiPublishOutcome outcome, long operationId, long workspaceId,
                                         long proposalId, long draftId, long knowledgePageId,
                                         String knowledgeId, String targetPath, String contentHash,
-                                        int revision, String publishedAt) {
+                                        int revision, String publishedAt) implements WikiPublishResult {
     public static WikiCreatePublishResponse from(WikiPublishOutcome outcome,
                                                  StoredWikiPublishOperation operation) {
-        if (operation.status() != WikiPublishOperationStatus.COMPLETED
+        if (operation.action() != org.km.llmwiki.ai.LlmProposalAction.CREATE
+                || operation.status() != WikiPublishOperationStatus.COMPLETED
                 || operation.knowledgePageId() == null || operation.completedAt() == null) {
             throw new IllegalArgumentException("Only a completed CREATE publish can produce a response");
         }

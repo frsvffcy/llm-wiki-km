@@ -78,7 +78,7 @@ public class WikiDraftRepository {
                               int revision, String publishedAt) {
         WikiDraftStatus.READY.requireTransitionTo(WikiDraftStatus.PUBLISHED);
         if (publishedPath == null || publishedPath.isBlank() || contentHash == null || contentHash.isBlank()
-                || revision != 1 || publishedAt == null || publishedAt.isBlank()) {
+                || revision < 1 || publishedAt == null || publishedAt.isBlank()) {
             throw new IllegalArgumentException("Published Wiki Draft metadata is incomplete");
         }
         int updated = dsl.update(WIKI_DRAFT)
@@ -95,6 +95,18 @@ public class WikiDraftRepository {
         if (updated != 1) {
             throw new WikiDraftLifecycleException("Wiki Draft was missing or was no longer READY at publish");
         }
+    }
+
+    public boolean matchesPublishedState(long workspaceId, long draftId, StoredWikiPublishOperation operation) {
+        return dsl.fetchExists(dsl.selectOne()
+                .from(WIKI_DRAFT)
+                .where(WIKI_DRAFT.ID.eq(Math.toIntExact(draftId)))
+                .and(WIKI_DRAFT.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(WIKI_DRAFT.STATUS.eq(WikiDraftStatus.PUBLISHED.name()))
+                .and(WIKI_DRAFT.PUBLISHED_PATH.eq(operation.targetPath()))
+                .and(WIKI_DRAFT.PUBLISHED_CONTENT_HASH.eq(operation.contentHash()))
+                .and(WIKI_DRAFT.PUBLISHED_REVISION.eq(operation.revision()))
+                .and(WIKI_DRAFT.PUBLISHED_AT.eq(operation.completedAt())));
     }
 
     private StoredWikiDraft map(WikiDraftRecord record) {

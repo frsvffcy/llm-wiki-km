@@ -17,9 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class WikiDraftController {
 
     private final WikiDraftPersistenceService service;
-    private final WikiCreatePublishService publishService;
+    private final WikiPublishService publishService;
 
-    public WikiDraftController(WikiDraftPersistenceService service, WikiCreatePublishService publishService) {
+    public WikiDraftController(WikiDraftPersistenceService service, WikiPublishService publishService) {
         this.service = service;
         this.publishService = publishService;
     }
@@ -57,8 +57,8 @@ public class WikiDraftController {
     }
 
     @PostMapping("/{draftId}/publish")
-    public ResponseEntity<ApiResponse<WikiCreatePublishResponse>> publish(@PathVariable long draftId) {
-        WikiCreatePublishResponse response = publishService.publish(draftId);
+    public ResponseEntity<ApiResponse<WikiPublishResult>> publish(@PathVariable long draftId) {
+        WikiPublishResult response = publishService.publish(draftId);
         HttpStatus status = response.outcome() == WikiPublishOutcome.CREATED
                 ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(new ApiResponse<>(response));
