@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.Objects;
 
 /** Human-explicit MERGE publish with a filesystem-authoritative optimistic lock. */
 @Service
@@ -56,15 +57,16 @@ public class WikiMergePublishService {
             return repeatNoOp(workspace.id(), draft);
         }
         requirePublishable(workspace.id(), draft);
-        if (publicationRepository.findByDraft(workspace.id(), draft.id()).isPresent()) {
-            throw failure(WikiPublishException.Reason.OPERATION_CONFLICT,
-                    "This Wiki Draft already has a prior publish operation and requires reconciliation");
-        }
 
         WikiDraft structuredDraft = deserialize(draft);
         WikiTargetSnapshot resolved = resolveTarget(workspace.id(), structuredDraft);
         WikiMergeTargetMetadata targetMetadata = requireTargetMetadata(workspace.id(), draft, resolved);
         Path target = pathResolver.resolveAndValidateRealPath(targetMetadata.targetPath());
+        StoredWikiPublishOperation prior = publicationRepository.findByDraft(workspace.id(), draft.id())
+                .orElse(null);
+        if (prior != null) {
+            return recoverOrResume(draft, structuredDraft, targetMetadata, prior, target);
+        }
         String publishedAt = now();
         int revision = Math.addExact(targetMetadata.revision(), 1);
         String content = renderer.render(structuredDraft, targetMetadata.knowledgeId(), targetMetadata.title(),
@@ -85,20 +87,99 @@ public class WikiMergePublishService {
             throw exception;
         }
 
+        return executePrepared(draft, targetMetadata, operation, staged);
+    }
+
+    private WikiMergePublishResponse recoverOrResume(StoredWikiDraft draft, WikiDraft structuredDraft,
+                                                      WikiMergeTargetMetadata metadata,
+                                                      StoredWikiPublishOperation operation, Path target) {
+        requireSameIntent(draft, metadata, operation);
+        String content = renderer.render(structuredDraft, operation.knowledgeId(), metadata.title(), draft.id(),
+                operation.revision(), metadata.createdAt(), operation.createdAt());
+        if (!WikiContentHash.sha256(content).equals(operation.contentHash())) {
+            throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "MERGE operation identity no longer renders its recorded after hash");
+        }
+        if (fileReplacer.matches(target, operation.contentHash())) {
+            return finalizeRecovered(draft, metadata, operation);
+        }
+        if (!fileReplacer.matches(target, operation.beforeContentHash())) {
+            throw failure(WikiPublishException.Reason.OPTIMISTIC_LOCK_CONFLICT,
+                    "MERGE target differs from both the expected and previously published content; no write occurred");
+        }
+        operation = switch (operation.status()) {
+            case PREPARED -> operation;
+            case ROLLED_BACK, RECONCILIATION_REQUIRED ->
+                    publicationRepository.restart(draft.workspaceId(), operation.id());
+            case FILE_COMMITTED, COMPLETED -> throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "MERGE DB state records a published file but the filesystem contains the old revision");
+        };
+        StagedWikiReplacement staged = fileReplacer.stage(target, content, operation.beforeContentHash(),
+                operation.contentHash(), structuredDraft, metadata.title());
+        return executePrepared(draft, metadata, operation, staged);
+    }
+
+    private WikiMergePublishResponse executePrepared(StoredWikiDraft draft,
+                                                      WikiMergeTargetMetadata targetMetadata,
+                                                      StoredWikiPublishOperation operation,
+                                                      StagedWikiReplacement staged) {
         try {
             fileReplacer.commit(staged);
-            publicationRepository.markFileCommitted(workspace.id(), operation.id());
+            publicationRepository.markFileCommitted(draft.workspaceId(), operation.id());
             StoredWikiPublishOperation completed = finalizer.complete(draft,
-                    requireOperation(workspace.id(), draft.id()), targetMetadata.id(), publishedAt);
+                    requireOperation(draft.workspaceId(), draft.id()), targetMetadata.id(), operation.createdAt());
             return WikiMergePublishResponse.from(WikiPublishOutcome.MERGED, completed);
         } catch (RuntimeException exception) {
             fileReplacer.discard(staged);
-            compensateFailure(workspace.id(), operation, staged, exception);
+            compensateFailure(draft.workspaceId(), operation, staged, exception);
             if (exception instanceof WikiPublishException publishException) {
                 throw publishException;
             }
             throw new WikiPublishException(WikiPublishException.Reason.METADATA_FAILURE,
                     "MERGE Wiki file was restored after DB metadata finalization failed", exception);
+        }
+    }
+
+    private WikiMergePublishResponse finalizeRecovered(StoredWikiDraft draft, WikiMergeTargetMetadata metadata,
+                                                        StoredWikiPublishOperation operation) {
+        if (operation.status() == WikiPublishOperationStatus.COMPLETED) {
+            throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "Completed MERGE operation does not match the Draft lifecycle state");
+        }
+        try {
+            StoredWikiPublishOperation committed = publicationRepository.recoverFileCommitted(
+                    draft.workspaceId(), operation.id());
+            StoredWikiPublishOperation completed = finalizer.complete(draft, committed, metadata.id(),
+                    operation.createdAt());
+            return WikiMergePublishResponse.from(WikiPublishOutcome.MERGED, completed);
+        } catch (RuntimeException exception) {
+            try {
+                publicationRepository.markReconciliationRequired(draft.workspaceId(), operation.id(),
+                        "MERGE recovery DB finalization failed: " + nullToEmpty(exception.getMessage()));
+            } catch (RuntimeException ledgerFailure) {
+                exception.addSuppressed(ledgerFailure);
+            }
+            if (exception instanceof WikiPublishException publishException) {
+                throw publishException;
+            }
+            throw new WikiPublishException(WikiPublishException.Reason.METADATA_FAILURE,
+                    "MERGE file is intact but DB recovery finalization failed", exception);
+        }
+    }
+
+    private static void requireSameIntent(StoredWikiDraft draft, WikiMergeTargetMetadata metadata,
+                                          StoredWikiPublishOperation operation) {
+        boolean same = operation.workspaceId() == draft.workspaceId()
+                && operation.draftId() == draft.id()
+                && operation.proposalId() == draft.proposalId()
+                && operation.action() == LlmProposalAction.MERGE
+                && Objects.equals(operation.knowledgeId(), metadata.knowledgeId())
+                && Objects.equals(operation.targetPath(), draft.targetPath())
+                && Objects.equals(operation.beforeContentHash(), draft.expectedContentHash())
+                && operation.revision() == Math.addExact(metadata.revision(), 1);
+        if (!same) {
+            throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "Stored MERGE operation does not match this Draft publish intent");
         }
     }
 

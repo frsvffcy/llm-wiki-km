@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -233,7 +234,9 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
         String created = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.result").value("PUBLISHED"))
                 .andExpect(jsonPath("$.data.outcome").value("CREATED"))
+                .andExpect(jsonPath("$.data.attemptId").isNumber())
                 .andExpect(jsonPath("$.data.workspaceId").value(workspace.id()))
                 .andExpect(jsonPath("$.data.proposalId").value(proposal.id()))
                 .andExpect(jsonPath("$.data.draftId").value(draftId))
@@ -246,6 +249,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         String knowledgeId = json(created, "/data/knowledgeId");
         String publishedAt = json(created, "/data/publishedAt");
         long operationId = Long.parseLong(json(created, "/data/operationId"));
+        long firstAttemptId = Long.parseLong(json(created, "/data/attemptId"));
         long knowledgePageId = Long.parseLong(json(created, "/data/knowledgePageId"));
         assertThat(published)
                 .startsWith("---\nid: \"" + knowledgeId + "\"\n")
@@ -295,23 +299,61 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
         String noOp = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("NO_OP"))
                 .andExpect(jsonPath("$.data.outcome").value("NO_OP"))
+                .andExpect(jsonPath("$.data.attemptId").isNumber())
                 .andExpect(jsonPath("$.data.operationId").value(operationId))
                 .andExpect(jsonPath("$.data.knowledgePageId").value(knowledgePageId))
                 .andExpect(jsonPath("$.data.contentHash").value(contentHash))
                 .andReturn().getResponse().getContentAsString();
+        long noOpAttemptId = Long.parseLong(json(noOp, "/data/attemptId"));
+        assertThat(noOpAttemptId).isNotEqualTo(firstAttemptId);
         assertThat(json(noOp, "/data/publishedAt")).isEqualTo(publishedAt);
         assertThat(Files.readString(target)).isEqualTo(published);
         assertThat(count("knowledge_page")).isEqualTo(1);
         assertThat(count("wiki_publish_operation")).isEqualTo(1);
+        assertThat(row("""
+                SELECT COUNT(*) AS attempt_count, COUNT(DISTINCT idempotency_key) AS identity_count,
+                    SUM(CASE WHEN result = 'PUBLISHED' THEN 1 ELSE 0 END) AS published_count,
+                    SUM(CASE WHEN result = 'NO_OP' THEN 1 ELSE 0 END) AS no_op_count
+                FROM wiki_publish_attempt WHERE draft_id = :id
+                """, "id", draftId)).containsEntry("attempt_count", 2)
+                .containsEntry("identity_count", 1)
+                .containsEntry("published_count", 1)
+                .containsEntry("no_op_count", 1);
+        assertThat(row("""
+                SELECT operation_id, action, target_path, after_content_hash, revision, result,
+                    failure_category, failure_code, failure_stage, error_detail,
+                    started_at IS NOT NULL AS has_started, finished_at IS NOT NULL AS has_finished
+                FROM wiki_publish_attempt WHERE id = :id
+                """, "id", firstAttemptId)).containsEntry("operation_id", Math.toIntExact(operationId))
+                .containsEntry("action", "CREATE")
+                .containsEntry("target_path", "vault/concepts/published-topic.md")
+                .containsEntry("after_content_hash", contentHash)
+                .containsEntry("revision", 1)
+                .containsEntry("result", "PUBLISHED")
+                .containsEntry("failure_category", null)
+                .containsEntry("failure_code", null)
+                .containsEntry("failure_stage", null)
+                .containsEntry("error_detail", null)
+                .containsEntry("has_started", 1)
+                .containsEntry("has_finished", 1);
 
-        Files.writeString(target, "external published-file drift\n");
+        Files.delete(target);
         mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_PUBLISHED_FILE_DRIFT"));
-        assertThat(Files.readString(target)).isEqualTo("external published-file drift\n");
+        assertThat(Files.exists(target)).isFalse();
         assertThat(count("knowledge_page")).isEqualTo(1);
         assertThat(count("wiki_publish_operation")).isEqualTo(1);
+        assertThat(row("""
+                SELECT operation_id, result, failure_category, failure_code, failure_stage, error_detail
+                FROM wiki_publish_attempt WHERE draft_id = :id ORDER BY id DESC LIMIT 1
+                """, "id", draftId)).containsEntry("operation_id", Math.toIntExact(operationId))
+                .containsEntry("result", "FAILED")
+                .containsEntry("failure_category", "RECONCILIATION")
+                .containsEntry("failure_code", "PUBLISHED_FILE_DRIFT")
+                .containsEntry("failure_stage", "RECONCILIATION");
     }
 
     @Test
@@ -412,6 +454,9 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_OPTIMISTIC_LOCK_CONFLICT"));
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_OPTIMISTIC_LOCK_CONFLICT"));
 
         assertThat(Files.readString(target)).isEqualTo(manual);
         assertThat(count("wiki_publish_operation")).isZero();
@@ -421,6 +466,20 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 """)).isEqualTo(pageBefore);
         assertThat(row("SELECT status, published_at FROM wiki_draft WHERE id = :id", "id", draftId))
                 .containsEntry("status", "READY").containsEntry("published_at", null);
+        assertThat(row("""
+                SELECT COUNT(*) AS attempt_count, COUNT(DISTINCT idempotency_key) AS identity_count,
+                    SUM(CASE WHEN result = 'CONFLICT' THEN 1 ELSE 0 END) AS conflict_count,
+                    SUM(CASE WHEN operation_id IS NULL THEN 1 ELSE 0 END) AS no_operation_count,
+                    MIN(failure_category) AS failure_category, MIN(failure_code) AS failure_code,
+                    MIN(failure_stage) AS failure_stage
+                FROM wiki_publish_attempt WHERE draft_id = :id
+                """, "id", draftId)).containsEntry("attempt_count", 2)
+                .containsEntry("identity_count", 1)
+                .containsEntry("conflict_count", 2)
+                .containsEntry("no_operation_count", 2)
+                .containsEntry("failure_category", "CONFLICT")
+                .containsEntry("failure_code", "OPTIMISTIC_LOCK_CONFLICT")
+                .containsEntry("failure_stage", "TARGET_CHECK");
     }
 
     @Test
@@ -527,7 +586,9 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 KnowledgeProposalStatus.APPROVED, "Repeat Merge");
         long draftId = createDraft(proposal.id());
         String first = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.outcome").value("MERGED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("PUBLISHED"))
+                .andExpect(jsonPath("$.data.outcome").value("MERGED"))
                 .andReturn().getResponse().getContentAsString();
         String firstBytes = Files.readString(target);
         long operationId = Long.parseLong(json(first, "/data/operationId"));
@@ -535,6 +596,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
         mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("NO_OP"))
                 .andExpect(jsonPath("$.data.outcome").value("NO_OP"))
                 .andExpect(jsonPath("$.data.operationId").value(operationId))
                 .andExpect(jsonPath("$.data.revision").value(2));
@@ -542,6 +604,17 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         assertThat(count("wiki_publish_operation")).isEqualTo(1);
         assertThat(row("SELECT revision FROM knowledge_page WHERE id = :id", "id", pageId))
                 .containsEntry("revision", 2);
+        assertThat(row("""
+                SELECT COUNT(*) AS attempt_count, COUNT(DISTINCT idempotency_key) AS identity_count,
+                    SUM(CASE WHEN result = 'PUBLISHED' THEN 1 ELSE 0 END) AS published_count,
+                    SUM(CASE WHEN result = 'NO_OP' THEN 1 ELSE 0 END) AS no_op_count,
+                    COUNT(DISTINCT revision) AS revision_count
+                FROM wiki_publish_attempt WHERE draft_id = :id
+                """, "id", draftId)).containsEntry("attempt_count", 2)
+                .containsEntry("identity_count", 1)
+                .containsEntry("published_count", 1)
+                .containsEntry("no_op_count", 1)
+                .containsEntry("revision_count", 1);
 
         String manual = "manual change after successful publish\n";
         Files.writeString(target, manual);
@@ -660,7 +733,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
                 KnowledgeProposalStatus.APPROVED, "DB Failure");
         long draftId = createDraft(proposal.id());
-        doThrow(new IllegalStateException("simulated MERGE DB failure"))
+        doThrow(new IllegalStateException("simulated MERGE DB failure")).doCallRealMethod()
                 .when(publicationRepository).updateKnowledgePageForMerge(any(), any(), anyLong(), anyString());
 
         mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
@@ -674,6 +747,43 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 .containsEntry("status", "READY");
         assertThat(row("SELECT revision, content_hash FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
                 .containsEntry("revision", 1).containsEntry("content_hash", hash);
+
+        long operationId = ((Number) row("""
+                SELECT id FROM wiki_publish_operation WHERE draft_id = :id
+                """, "id", draftId).get("id")).longValue();
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("PUBLISHED"))
+                .andExpect(jsonPath("$.data.outcome").value("MERGED"))
+                .andExpect(jsonPath("$.data.operationId").value(operationId))
+                .andExpect(jsonPath("$.data.revision").value(2));
+        String recovered = Files.readString(target);
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("NO_OP"))
+                .andExpect(jsonPath("$.data.operationId").value(operationId))
+                .andExpect(jsonPath("$.data.revision").value(2));
+
+        assertThat(Files.readString(target)).isEqualTo(recovered);
+        assertThat(count("wiki_publish_operation")).isEqualTo(1);
+        assertThat(row("SELECT status, revision FROM wiki_publish_operation WHERE id = :id", "id", operationId))
+                .containsEntry("status", "COMPLETED").containsEntry("revision", 2);
+        assertThat(row("SELECT revision FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
+                .containsEntry("revision", 2);
+        assertThat(row("""
+                SELECT COUNT(*) AS attempt_count, COUNT(DISTINCT operation_id) AS operation_count,
+                    COUNT(DISTINCT revision) AS revision_count,
+                    SUM(CASE WHEN result = 'FAILED' AND failure_category = 'DATABASE'
+                        AND failure_stage = 'DATABASE_FINALIZATION' THEN 1 ELSE 0 END) AS database_failure_count,
+                    SUM(CASE WHEN result = 'PUBLISHED' THEN 1 ELSE 0 END) AS published_count,
+                    SUM(CASE WHEN result = 'NO_OP' THEN 1 ELSE 0 END) AS no_op_count
+                FROM wiki_publish_attempt WHERE draft_id = :id
+                """, "id", draftId)).containsEntry("attempt_count", 3)
+                .containsEntry("operation_count", 1)
+                .containsEntry("revision_count", 1)
+                .containsEntry("database_failure_count", 1)
+                .containsEntry("published_count", 1)
+                .containsEntry("no_op_count", 1);
     }
 
     @Test
@@ -763,13 +873,17 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
-    void compensatesExactFinalFileWhenDatabaseFinalizationFails() throws Exception {
+    void recoversCreateFromVerifiedAfterHashWithSameOperationAndAuditsEveryAttempt() throws Exception {
         Workspace workspace = createWorkspace("db-compensation", "ACTIVE");
         Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
                 KnowledgeProposalStatus.APPROVED, "Compensated Topic");
         long draftId = createDraft(proposal.id());
         Path target = workspace.root().resolve("vault/concepts/compensated-topic.md");
-        doThrow(new IllegalStateException("simulated DB finalization failure"))
+        AtomicReference<String> committedContent = new AtomicReference<>();
+        doAnswer(invocation -> {
+            committedContent.set(Files.readString(target));
+            throw new IllegalStateException("simulated DB finalization failure");
+        }).doCallRealMethod()
                 .when(publicationRepository).insertKnowledgePage(any(), any(), anyString());
 
         mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
@@ -782,6 +896,52 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 "id", draftId)).containsEntry("status", "ROLLED_BACK");
         assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
                 .containsEntry("status", "READY");
+
+        Map<String, Object> failedOperation = row("""
+                SELECT id, content_hash, revision FROM wiki_publish_operation WHERE draft_id = :id
+                """, "id", draftId);
+        long operationId = ((Number) failedOperation.get("id")).longValue();
+        assertThat(committedContent.get()).isNotBlank();
+        assertThat(WikiContentHash.sha256(committedContent.get()))
+                .isEqualTo(failedOperation.get("content_hash"));
+
+        // Models a retry after the atomic CREATE became visible but DB finalization was not durable.
+        Files.writeString(target, committedContent.get());
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.result").value("PUBLISHED"))
+                .andExpect(jsonPath("$.data.outcome").value("CREATED"))
+                .andExpect(jsonPath("$.data.operationId").value(operationId))
+                .andExpect(jsonPath("$.data.revision").value(1));
+        String recovered = Files.readString(target);
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("NO_OP"))
+                .andExpect(jsonPath("$.data.operationId").value(operationId))
+                .andExpect(jsonPath("$.data.revision").value(1));
+
+        assertThat(Files.readString(target)).isEqualTo(recovered);
+        assertThat(count("knowledge_page")).isEqualTo(1);
+        assertThat(count("wiki_publish_operation")).isEqualTo(1);
+        assertThat(row("SELECT status, revision FROM wiki_publish_operation WHERE id = :id", "id", operationId))
+                .containsEntry("status", "COMPLETED").containsEntry("revision", 1);
+        assertThat(row("""
+                SELECT COUNT(*) AS attempt_count, COUNT(DISTINCT idempotency_key) AS identity_count,
+                    COUNT(DISTINCT operation_id) AS operation_count, COUNT(DISTINCT revision) AS revision_count,
+                    SUM(CASE WHEN result = 'FAILED' AND failure_category = 'DATABASE'
+                        AND failure_code = 'METADATA_FAILURE'
+                        AND failure_stage = 'DATABASE_FINALIZATION'
+                        AND error_detail IS NOT NULL THEN 1 ELSE 0 END) AS audited_failure_count,
+                    SUM(CASE WHEN result = 'PUBLISHED' THEN 1 ELSE 0 END) AS published_count,
+                    SUM(CASE WHEN result = 'NO_OP' THEN 1 ELSE 0 END) AS no_op_count
+                FROM wiki_publish_attempt WHERE draft_id = :id
+                """, "id", draftId)).containsEntry("attempt_count", 3)
+                .containsEntry("identity_count", 1)
+                .containsEntry("operation_count", 1)
+                .containsEntry("revision_count", 1)
+                .containsEntry("audited_failure_count", 1)
+                .containsEntry("published_count", 1)
+                .containsEntry("no_op_count", 1);
     }
 
     @Test
