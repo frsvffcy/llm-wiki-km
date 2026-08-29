@@ -58,6 +58,41 @@ public class WikiPublicationRepository {
                 WikiPublishOperationStatus.FILE_COMMITTED, null);
     }
 
+    /** Reuses the same operation identity after a verified rollback; no new revision is allocated. */
+    public StoredWikiPublishOperation restart(long workspaceId, long operationId) {
+        int updated = dsl.update(WIKI_PUBLISH_OPERATION)
+                .set(WIKI_PUBLISH_OPERATION.STATUS, WikiPublishOperationStatus.PREPARED.name())
+                .set(WIKI_PUBLISH_OPERATION.FAILURE_DETAIL, (String) null)
+                .set(WIKI_PUBLISH_OPERATION.UPDATED_AT, now())
+                .where(WIKI_PUBLISH_OPERATION.ID.eq(Math.toIntExact(operationId)))
+                .and(WIKI_PUBLISH_OPERATION.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(WIKI_PUBLISH_OPERATION.STATUS.in(WikiPublishOperationStatus.ROLLED_BACK.name(),
+                        WikiPublishOperationStatus.RECONCILIATION_REQUIRED.name()))
+                .execute();
+        requireSingle(updated, "Wiki publish operation could not be restarted safely");
+        return require(workspaceId, operationId);
+    }
+
+    /** Records a file proven by after-hash, including crash recovery after the atomic move. */
+    public StoredWikiPublishOperation recoverFileCommitted(long workspaceId, long operationId) {
+        StoredWikiPublishOperation current = require(workspaceId, operationId);
+        if (current.status() == WikiPublishOperationStatus.FILE_COMMITTED) {
+            return current;
+        }
+        int updated = dsl.update(WIKI_PUBLISH_OPERATION)
+                .set(WIKI_PUBLISH_OPERATION.STATUS, WikiPublishOperationStatus.FILE_COMMITTED.name())
+                .set(WIKI_PUBLISH_OPERATION.FAILURE_DETAIL, (String) null)
+                .set(WIKI_PUBLISH_OPERATION.UPDATED_AT, now())
+                .where(WIKI_PUBLISH_OPERATION.ID.eq(Math.toIntExact(operationId)))
+                .and(WIKI_PUBLISH_OPERATION.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(WIKI_PUBLISH_OPERATION.STATUS.in(WikiPublishOperationStatus.PREPARED.name(),
+                        WikiPublishOperationStatus.ROLLED_BACK.name(),
+                        WikiPublishOperationStatus.RECONCILIATION_REQUIRED.name()))
+                .execute();
+        requireSingle(updated, "Verified Wiki file could not be recorded for recovery");
+        return require(workspaceId, operationId);
+    }
+
     public void markRolledBack(long workspaceId, long operationId, String detail) {
         markFailure(workspaceId, operationId, WikiPublishOperationStatus.ROLLED_BACK, detail);
     }
@@ -147,7 +182,7 @@ public class WikiPublicationRepository {
                 .where(WIKI_PUBLISH_OPERATION.ID.eq((int) operationId))
                 .and(WIKI_PUBLISH_OPERATION.WORKSPACE_ID.eq((int) workspaceId))
                 .and(WIKI_PUBLISH_OPERATION.STATUS.in(WikiPublishOperationStatus.PREPARED.name(),
-                        WikiPublishOperationStatus.FILE_COMMITTED.name()))
+                        WikiPublishOperationStatus.FILE_COMMITTED.name(), next.name()))
                 .execute();
         requireSingle(updated, "Wiki publish failure outcome could not be persisted");
     }

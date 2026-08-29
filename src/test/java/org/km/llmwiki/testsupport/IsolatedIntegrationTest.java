@@ -39,6 +39,7 @@ public abstract class IsolatedIntegrationTest {
     }
 
     private static final List<String> TABLE_DELETE_ORDER = List.of(
+            "wiki_publish_attempt",
             "wiki_publish_operation",
             "wiki_draft",
             "knowledge_page",

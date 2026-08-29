@@ -5,6 +5,9 @@ import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+
 /** Dispatches the explicit publish endpoint without broadening either action-specific service. */
 @Service
 public class WikiPublishService {
@@ -13,14 +16,21 @@ public class WikiPublishService {
     private final WikiDraftRepository draftRepository;
     private final WikiCreatePublishService createPublishService;
     private final WikiMergePublishService mergePublishService;
+    private final WikiPublicationRepository publicationRepository;
+    private final WikiPublishAttemptRepository attemptRepository;
+    private final ConcurrentHashMap<String, ReentrantLock> draftLocks = new ConcurrentHashMap<>();
 
     public WikiPublishService(WorkspaceService workspaceService, WikiDraftRepository draftRepository,
                               WikiCreatePublishService createPublishService,
-                              WikiMergePublishService mergePublishService) {
+                              WikiMergePublishService mergePublishService,
+                              WikiPublicationRepository publicationRepository,
+                              WikiPublishAttemptRepository attemptRepository) {
         this.workspaceService = workspaceService;
         this.draftRepository = draftRepository;
         this.createPublishService = createPublishService;
         this.mergePublishService = mergePublishService;
+        this.publicationRepository = publicationRepository;
+        this.attemptRepository = attemptRepository;
     }
 
     public WikiPublishResult publish(long draftId) {
@@ -28,8 +38,33 @@ public class WikiPublishService {
                 .orElseThrow(NoActiveWorkspaceException::new).id();
         StoredWikiDraft draft = draftRepository.findById(workspaceId, draftId)
                 .orElseThrow(() -> new WikiDraftNotFoundException(draftId));
-        return draft.action() == LlmProposalAction.CREATE
-                ? createPublishService.publish(draftId)
-                : mergePublishService.publish(draftId);
+        StoredWikiPublishAttempt attempt = attemptRepository.start(draft);
+        String lockKey = workspaceId + ":" + draftId;
+        ReentrantLock lock = draftLocks.computeIfAbsent(lockKey, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
+            WikiPublishResult result = draft.action() == LlmProposalAction.CREATE
+                    ? createPublishService.publish(draftId)
+                    : mergePublishService.publish(draftId);
+            StoredWikiPublishOperation operation = publicationRepository.findByDraft(workspaceId, draftId)
+                    .orElseThrow(() -> new WikiPublishException(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                            "Successful publish did not retain its operation identity"));
+            attemptRepository.complete(attempt, result.result(), operation);
+            return result.withAttemptId(attempt.id());
+        } catch (RuntimeException exception) {
+            StoredWikiPublishOperation operation = publicationRepository.findByDraft(workspaceId, draftId)
+                    .orElse(null);
+            try {
+                attemptRepository.fail(attempt, WikiPublishFailure.from(exception), operation);
+            } catch (RuntimeException auditFailure) {
+                exception.addSuppressed(auditFailure);
+            }
+            throw exception;
+        } finally {
+            lock.unlock();
+            if (!lock.hasQueuedThreads()) {
+                draftLocks.remove(lockKey, lock);
+            }
+        }
     }
 }

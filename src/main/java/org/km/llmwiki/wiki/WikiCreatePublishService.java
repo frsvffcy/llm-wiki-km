@@ -8,6 +8,8 @@ import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -59,14 +61,15 @@ public class WikiCreatePublishService {
             return repeatNoOp(workspace.id(), draft);
         }
         requirePublishable(workspace.id(), draft);
-        if (publicationRepository.findByDraft(workspace.id(), draft.id()).isPresent()) {
-            throw failure(WikiPublishException.Reason.OPERATION_CONFLICT,
-                    "This Wiki Draft already has a prior publish operation and requires reconciliation");
-        }
 
         WikiDraft structuredDraft = deserialize(draft);
         String canonicalPath = requireCanonicalCreateTarget(draft, structuredDraft);
         Path target = pathResolver.resolveAndValidateRealPath(canonicalPath);
+        StoredWikiPublishOperation prior = publicationRepository.findByDraft(workspace.id(), draft.id())
+                .orElse(null);
+        if (prior != null) {
+            return recoverOrResume(draft, structuredDraft, prior, target);
+        }
         if (targetCatalog.existsAtCanonicalPath(workspace.id(), canonicalPath)) {
             throw failure(WikiPublishException.Reason.TARGET_CONFLICT,
                     "CREATE target already exists in Wiki metadata and will not be overwritten");
@@ -81,24 +84,97 @@ public class WikiCreatePublishService {
                 knowledgeId, canonicalPath, null, contentHash,
                 INITIAL_REVISION, publishedAt));
 
+        return executePrepared(draft, structuredDraft, operation, target);
+    }
+
+    private WikiCreatePublishResponse recoverOrResume(StoredWikiDraft draft, WikiDraft structuredDraft,
+                                                       StoredWikiPublishOperation operation, Path target) {
+        requireSameIntent(draft, operation);
+        String content = renderer.render(structuredDraft, operation.knowledgeId(), draft.id(),
+                operation.revision(), operation.createdAt());
+        if (!WikiContentHash.sha256(content).equals(operation.contentHash())) {
+            throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "CREATE operation identity no longer renders its recorded content hash");
+        }
+        if (filePublisher.matches(target, operation.contentHash())) {
+            return finalizeRecovered(draft, operation);
+        }
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+            throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "CREATE target contains unknown content and will not be overwritten");
+        }
+        operation = switch (operation.status()) {
+            case PREPARED -> operation;
+            case ROLLED_BACK, RECONCILIATION_REQUIRED ->
+                    publicationRepository.restart(draft.workspaceId(), operation.id());
+            case FILE_COMMITTED, COMPLETED -> throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "CREATE DB state records a published file that is missing");
+        };
+        return executePrepared(draft, structuredDraft, operation, target);
+    }
+
+    private WikiCreatePublishResponse executePrepared(StoredWikiDraft draft, WikiDraft structuredDraft,
+                                                       StoredWikiPublishOperation operation, Path target) {
+        String content = renderer.render(structuredDraft, operation.knowledgeId(), draft.id(),
+                operation.revision(), operation.createdAt());
         StagedWikiFile staged = null;
         boolean finalFileCommitted = false;
         try {
-            staged = filePublisher.stage(target, content, contentHash, structuredDraft);
+            staged = filePublisher.stage(target, content, operation.contentHash(), structuredDraft);
             filePublisher.commit(staged);
             finalFileCommitted = true;
-            publicationRepository.markFileCommitted(workspace.id(), operation.id());
+            publicationRepository.markFileCommitted(draft.workspaceId(), operation.id());
             StoredWikiPublishOperation completed = finalizer.complete(draft,
-                    requireOperation(workspace.id(), draft.id()), publishedAt);
+                    requireOperation(draft.workspaceId(), draft.id()), operation.createdAt());
             return WikiCreatePublishResponse.from(WikiPublishOutcome.CREATED, completed);
         } catch (RuntimeException exception) {
             filePublisher.discard(staged);
-            compensateFailure(workspace.id(), operation, target, finalFileCommitted, exception);
+            compensateFailure(draft.workspaceId(), operation, target, finalFileCommitted, exception);
             if (exception instanceof WikiPublishException publishException) {
                 throw publishException;
             }
             throw new WikiPublishException(WikiPublishException.Reason.METADATA_FAILURE,
                     "CREATE Wiki file was compensated after DB metadata finalization failed", exception);
+        }
+    }
+
+    private WikiCreatePublishResponse finalizeRecovered(StoredWikiDraft draft,
+                                                         StoredWikiPublishOperation operation) {
+        if (operation.status() == WikiPublishOperationStatus.COMPLETED) {
+            throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "Completed CREATE operation does not match the Draft lifecycle state");
+        }
+        try {
+            StoredWikiPublishOperation committed = publicationRepository.recoverFileCommitted(
+                    draft.workspaceId(), operation.id());
+            StoredWikiPublishOperation completed = finalizer.complete(draft, committed, operation.createdAt());
+            return WikiCreatePublishResponse.from(WikiPublishOutcome.CREATED, completed);
+        } catch (RuntimeException exception) {
+            try {
+                publicationRepository.markReconciliationRequired(draft.workspaceId(), operation.id(),
+                        "CREATE recovery DB finalization failed: " + nullToEmpty(exception.getMessage()));
+            } catch (RuntimeException ledgerFailure) {
+                exception.addSuppressed(ledgerFailure);
+            }
+            if (exception instanceof WikiPublishException publishException) {
+                throw publishException;
+            }
+            throw new WikiPublishException(WikiPublishException.Reason.METADATA_FAILURE,
+                    "CREATE file is intact but DB recovery finalization failed", exception);
+        }
+    }
+
+    private static void requireSameIntent(StoredWikiDraft draft, StoredWikiPublishOperation operation) {
+        boolean same = operation.workspaceId() == draft.workspaceId()
+                && operation.draftId() == draft.id()
+                && operation.proposalId() == draft.proposalId()
+                && operation.action() == LlmProposalAction.CREATE
+                && operation.targetPath().equals(draft.targetPath())
+                && operation.beforeContentHash() == null
+                && operation.revision() == INITIAL_REVISION;
+        if (!same) {
+            throw failure(WikiPublishException.Reason.RECONCILIATION_REQUIRED,
+                    "Stored CREATE operation does not match this Draft publish intent");
         }
     }
 

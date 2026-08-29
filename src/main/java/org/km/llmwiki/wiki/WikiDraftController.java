@@ -59,7 +59,8 @@ public class WikiDraftController {
     @PostMapping("/{draftId}/publish")
     public ResponseEntity<ApiResponse<WikiPublishResult>> publish(@PathVariable long draftId) {
         WikiPublishResult response = publishService.publish(draftId);
-        HttpStatus status = response.outcome() == WikiPublishOutcome.CREATED
+        HttpStatus status = response.result() == WikiPublishResultType.PUBLISHED
+                && response.outcome() == WikiPublishOutcome.CREATED
                 ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(new ApiResponse<>(response));
     }
