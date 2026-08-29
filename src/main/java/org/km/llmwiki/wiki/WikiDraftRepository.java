@@ -74,6 +74,29 @@ public class WikiDraftRepository {
         }
     }
 
+    public void markPublished(long workspaceId, long draftId, String publishedPath, String contentHash,
+                              int revision, String publishedAt) {
+        WikiDraftStatus.READY.requireTransitionTo(WikiDraftStatus.PUBLISHED);
+        if (publishedPath == null || publishedPath.isBlank() || contentHash == null || contentHash.isBlank()
+                || revision != 1 || publishedAt == null || publishedAt.isBlank()) {
+            throw new IllegalArgumentException("Published Wiki Draft metadata is incomplete");
+        }
+        int updated = dsl.update(WIKI_DRAFT)
+                .set(WIKI_DRAFT.STATUS, WikiDraftStatus.PUBLISHED.name())
+                .set(WIKI_DRAFT.PUBLISHED_PATH, publishedPath)
+                .set(WIKI_DRAFT.PUBLISHED_CONTENT_HASH, contentHash)
+                .set(WIKI_DRAFT.PUBLISHED_REVISION, revision)
+                .set(WIKI_DRAFT.PUBLISHED_AT, publishedAt)
+                .set(WIKI_DRAFT.UPDATED_AT, publishedAt)
+                .where(WIKI_DRAFT.ID.eq((int) draftId))
+                .and(WIKI_DRAFT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(WIKI_DRAFT.STATUS.eq(WikiDraftStatus.READY.name()))
+                .execute();
+        if (updated != 1) {
+            throw new WikiDraftLifecycleException("Wiki Draft was missing or was no longer READY at publish");
+        }
+    }
+
     private StoredWikiDraft map(WikiDraftRecord record) {
         String reason = record.getInvalidatedReason();
         Integer parentId = record.getRegeneratedFromDraftId();

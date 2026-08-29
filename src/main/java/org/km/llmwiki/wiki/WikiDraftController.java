@@ -2,6 +2,7 @@ package org.km.llmwiki.wiki;
 
 import org.km.llmwiki.web.ApiResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,9 +17,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class WikiDraftController {
 
     private final WikiDraftPersistenceService service;
+    private final WikiCreatePublishService publishService;
 
-    public WikiDraftController(WikiDraftPersistenceService service) {
+    public WikiDraftController(WikiDraftPersistenceService service, WikiCreatePublishService publishService) {
         this.service = service;
+        this.publishService = publishService;
     }
 
     @PostMapping
@@ -51,5 +54,13 @@ public class WikiDraftController {
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<WikiDraftResponse> regenerate(@PathVariable long draftId) {
         return new ApiResponse<>(service.regenerate(draftId));
+    }
+
+    @PostMapping("/{draftId}/publish")
+    public ResponseEntity<ApiResponse<WikiCreatePublishResponse>> publish(@PathVariable long draftId) {
+        WikiCreatePublishResponse response = publishService.publish(draftId);
+        HttpStatus status = response.outcome() == WikiPublishOutcome.CREATED
+                ? HttpStatus.CREATED : HttpStatus.OK;
+        return ResponseEntity.status(status).body(new ApiResponse<>(response));
     }
 }

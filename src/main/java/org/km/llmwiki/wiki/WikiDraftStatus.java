@@ -3,7 +3,7 @@ package org.km.llmwiki.wiki;
 import java.util.EnumSet;
 import java.util.Set;
 
-/** Review lifecycle for one persisted Wiki Draft. Publish transitions are reserved for later stories. */
+/** Review and publish lifecycle for one persisted Wiki Draft. */
 public enum WikiDraftStatus {
     DRAFT,
     READY,

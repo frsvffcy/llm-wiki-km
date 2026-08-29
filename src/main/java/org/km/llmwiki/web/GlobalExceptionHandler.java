@@ -8,6 +8,7 @@ import org.km.llmwiki.wiki.KnowledgeProposalNotFoundException;
 import org.km.llmwiki.wiki.WikiDraftLifecycleException;
 import org.km.llmwiki.wiki.WikiDraftNotFoundException;
 import org.km.llmwiki.wiki.WikiDraftTargetException;
+import org.km.llmwiki.wiki.WikiPublishException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceNotFoundException;
@@ -66,6 +67,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleWikiDraftTarget(WikiDraftTargetException exception) {
         return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_TARGET_" + exception.reason().name(),
                 exception.getMessage());
+    }
+
+    @ExceptionHandler(WikiPublishException.class)
+    public ResponseEntity<ApiError> handleWikiPublish(WikiPublishException exception) {
+        HttpStatus status = switch (exception.reason()) {
+            case FILESYSTEM_FAILURE, CONTENT_VALIDATION_FAILED, METADATA_FAILURE, RECONCILIATION_REQUIRED ->
+                    HttpStatus.INTERNAL_SERVER_ERROR;
+            default -> HttpStatus.CONFLICT;
+        };
+        return respond(status, "WIKI_PUBLISH_" + exception.reason().name(), exception.getMessage());
     }
 
     @ExceptionHandler(DocumentAlreadyProcessedException.class)
