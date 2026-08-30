@@ -20,4 +20,11 @@ public record SearchResult(
         String section,
         String headingPath
 ) {
+    static SearchResult from(SearchCandidate candidate) {
+        return new SearchResult(candidate.kind(), candidate.stableId(), candidate.score(),
+                candidate.snippet(), candidate.workspace(), candidate.knowledgeId(),
+                candidate.title(), candidate.pageType(), candidate.path(), candidate.revision(),
+                candidate.sourceChunkId(), candidate.documentId(), candidate.documentName(),
+                candidate.chunkNo(), candidate.pageNo(), candidate.section(), candidate.headingPath());
+    }
 }

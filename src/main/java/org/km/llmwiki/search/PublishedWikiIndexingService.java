@@ -1,24 +1,14 @@
 package org.km.llmwiki.search;
 
-import org.km.llmwiki.wiki.PageStatus;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
+import org.km.llmwiki.wiki.PublishedWikiContentReader;
+import org.km.llmwiki.wiki.PageStatus;
 import org.km.llmwiki.wiki.StoredPublishedWiki;
-import org.km.llmwiki.wiki.WikiContentHash;
-import org.km.llmwiki.wiki.WikiPageType;
-import org.km.llmwiki.wiki.WikiPathContract;
 import org.km.llmwiki.wiki.WikiPublishResult;
 import org.km.llmwiki.wiki.WikiCreatePublishResponse;
 import org.km.llmwiki.wiki.WikiMergePublishResponse;
-import org.km.llmwiki.workspace.WorkspaceRepository;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.text.Normalizer;
 import java.util.Optional;
 
 /**
@@ -32,22 +22,17 @@ import java.util.Optional;
 @Service
 public class PublishedWikiIndexingService {
 
-    private static final String FRONTMATTER_SEPARATOR = "\n---\n\n";
-
     private final PublishedWikiRepository publishedWikiRepository;
-    private final WorkspaceRepository workspaceRepository;
-    private final WikiPathContract pathContract;
+    private final PublishedWikiContentReader contentReader;
     private final FtsSearchIndexRepository ftsRepository;
     private final WikiSearchIndexSyncRepository syncRepository;
 
     public PublishedWikiIndexingService(PublishedWikiRepository publishedWikiRepository,
-                                        WorkspaceRepository workspaceRepository,
-                                        WikiPathContract pathContract,
+                                        PublishedWikiContentReader contentReader,
                                         FtsSearchIndexRepository ftsRepository,
                                         WikiSearchIndexSyncRepository syncRepository) {
         this.publishedWikiRepository = publishedWikiRepository;
-        this.workspaceRepository = workspaceRepository;
-        this.pathContract = pathContract;
+        this.contentReader = contentReader;
         this.ftsRepository = ftsRepository;
         this.syncRepository = syncRepository;
     }
@@ -63,16 +48,7 @@ public class PublishedWikiIndexingService {
 
         StoredPublishedWiki published = page.get();
         try {
-            Path target = resolveTarget(published);
-            byte[] bytes = Files.readAllBytes(target);
-            String markdown = decodeUtf8(bytes);
-            if (!WikiContentHash.sha256(bytes).equals(published.contentHash())) {
-                return pending(published, WikiSearchIndexSyncStatus.DRIFT,
-                        "Vault Markdown hash differs from knowledge_page.content_hash; index was not changed");
-            }
-            validateCanonicalMarkdown(published, markdown);
-
-            String searchableContent = searchableProjection(markdown);
+            String searchableContent = contentReader.readSearchableContent(published);
             KnowledgeSearchDocument document = new KnowledgeSearchDocument(
                     published.workspaceId(), published.knowledgeId(), published.title(),
                     published.normalizedTitle(), searchableContent, published.markdownPath(),
@@ -81,8 +57,11 @@ public class PublishedWikiIndexingService {
             StoredWikiSearchIndexSync ledger = syncRepository.markSynced(published);
             return new WikiIndexSyncResult(WikiIndexSyncStatus.SYNCED, ledger.workspaceId(),
                     ledger.knowledgePageId(), null);
-        } catch (RuntimeException | IOException exception) {
-            return pending(published, WikiSearchIndexSyncStatus.INDEX_PENDING,
+        } catch (RuntimeException exception) {
+            WikiSearchIndexSyncStatus status = exception.getMessage() != null
+                    && exception.getMessage().contains("content_hash")
+                    ? WikiSearchIndexSyncStatus.DRIFT : WikiSearchIndexSyncStatus.INDEX_PENDING;
+            return pending(published, status,
                     "Published Wiki FTS sync failed: " + exception.getClass().getSimpleName()
                             + ": " + safeMessage(exception));
         }
@@ -107,46 +86,6 @@ public class PublishedWikiIndexingService {
         throw new IllegalArgumentException("Unsupported Wiki publish result");
     }
 
-    private Path resolveTarget(StoredPublishedWiki page) {
-        var workspace = workspaceRepository.findById(page.workspaceId())
-                .orElseThrow(() -> new IllegalStateException("Published Wiki workspace was not found"));
-        WikiPageType pathType = pathContract.validateLogicalPath(page.markdownPath());
-        if (pathType != page.pageType()
-                || !pathContract.resolveLogicalPath(page.pageType(), page.title()).equals(page.markdownPath())) {
-            throw new IllegalStateException("Published Wiki metadata path is not canonical");
-        }
-        return pathContract.resolveAndValidateRealPath(Path.of(workspace.vaultPath()), page.markdownPath());
-    }
-
-    private static void validateCanonicalMarkdown(StoredPublishedWiki page, String markdown) {
-        if (!markdown.startsWith("---\n") || !markdown.contains(FRONTMATTER_SEPARATOR)) {
-            throw new IllegalStateException("Published Wiki Markdown has no complete frontmatter block");
-        }
-        requireFrontmatter(markdown, "id", quote(page.knowledgeId()));
-        requireFrontmatter(markdown, "title", quote(page.title()));
-        requireFrontmatter(markdown, "type", quote(page.pageType().name()));
-        requireFrontmatter(markdown, "status", quote(PageStatus.PUBLISHED.name()));
-        if (!markdown.contains("\n# " + page.title() + "\n")) {
-            throw new IllegalStateException("Published Wiki Markdown title does not match metadata");
-        }
-    }
-
-    private static String searchableProjection(String markdown) {
-        int separator = markdown.indexOf(FRONTMATTER_SEPARATOR);
-        if (separator < 0 || separator + FRONTMATTER_SEPARATOR.length() >= markdown.length()) {
-            throw new IllegalStateException("Published Wiki Markdown has no searchable body");
-        }
-        String body = markdown.substring(separator + FRONTMATTER_SEPARATOR.length());
-        return Normalizer.normalize(body, Normalizer.Form.NFC);
-    }
-
-    private static void requireFrontmatter(String markdown, String name, String value) {
-        String expected = name + ": " + value;
-        if (markdown.lines().noneMatch(line -> line.equals(expected))) {
-            throw new IllegalStateException("Published Wiki frontmatter field does not match " + name);
-        }
-    }
-
     private WikiIndexSyncResult pending(StoredPublishedWiki page, WikiSearchIndexSyncStatus status,
                                         String detail) {
         try {
@@ -159,18 +98,6 @@ public class PublishedWikiIndexingService {
                     page.workspaceId(), page.id(),
                     detail + "; repair ledger write failed: " + safeMessage(ledgerFailure));
         }
-    }
-
-    private static String decodeUtf8(byte[] bytes) throws CharacterCodingException {
-        return StandardCharsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
-    }
-
-    private static String quote(String value) {
-        return '"' + value.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n") + '"';
     }
 
     private static String safeMessage(Exception exception) {

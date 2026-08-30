@@ -5,7 +5,6 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -95,12 +94,12 @@ public class SourceChunkIndexingService {
     }
 
     private static List<SourceSearchDocument> eligibleDocuments(SourceSearchAuthorityDocument authority) {
-        if (!documentEligible(authority)) {
+        if (!SourceSearchEligibilityPolicy.documentEligible(authority)) {
             return List.of();
         }
         List<SourceSearchDocument> result = new ArrayList<>();
         for (SourceSearchAuthorityChunk chunk : authority.chunks()) {
-            if (!chunkEligible(chunk)) {
+            if (!SourceSearchEligibilityPolicy.chunkEligible(chunk)) {
                 continue;
             }
             result.add(new SourceSearchDocument(authority.workspaceId(), chunk.sourceChunkId(),
@@ -108,22 +107,6 @@ public class SourceChunkIndexingService {
                     chunk.section(), chunk.headingPath(), chunk.contentHash()));
         }
         return List.copyOf(result);
-    }
-
-    private static boolean documentEligible(SourceSearchAuthorityDocument authority) {
-        return "PROCESSED".equals(authority.parseStatus())
-                && !List.of("DELETED", "SUPERSEDED", "DUPLICATE").contains(authority.documentStatus());
-    }
-
-    private static boolean chunkEligible(SourceSearchAuthorityChunk chunk) {
-        String content = chunk.normalizedContent();
-        return chunk.sourceChunkId() > 0
-                && chunk.chunkNo() > 0
-                && (chunk.pageNo() == null || chunk.pageNo() > 0)
-                && content != null
-                && !content.isBlank()
-                && Normalizer.isNormalized(content, Normalizer.Form.NFC)
-                && sha256(content).equals(chunk.contentHash());
     }
 
     private static String fingerprint(List<SourceSearchDocument> documents) {
@@ -146,11 +129,6 @@ public class SourceChunkIndexingService {
         digest.update((byte) ':');
         digest.update(bytes);
         digest.update((byte) ';');
-    }
-
-    private static String sha256(String content) {
-        MessageDigest digest = sha256Digest();
-        return HexFormat.of().formatHex(digest.digest(content.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static MessageDigest sha256Digest() {
