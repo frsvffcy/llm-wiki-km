@@ -9,6 +9,7 @@ public record SourceSearchDocument(
         long sourceChunkId,
         long documentId,
         int chunkNo,
+        Integer pageNo,
         String normalizedContent,
         String section,
         String headingPath,
@@ -18,11 +19,15 @@ public record SourceSearchDocument(
         if (workspaceId <= 0 || sourceChunkId <= 0 || documentId <= 0 || chunkNo <= 0) {
             throw new IllegalArgumentException("Source identity and chunk numbers must be positive");
         }
-        normalizedContent = Normalizer.normalize(
-                Objects.requireNonNull(normalizedContent, "normalizedContent must not be null"),
-                Normalizer.Form.NFC);
+        Objects.requireNonNull(normalizedContent, "normalizedContent must not be null");
         if (normalizedContent.isBlank()) {
             throw new IllegalArgumentException("normalizedContent must not be blank");
+        }
+        if (!Normalizer.isNormalized(normalizedContent, Normalizer.Form.NFC)) {
+            throw new IllegalArgumentException("normalizedContent must already be NFC");
+        }
+        if (pageNo != null && pageNo <= 0) {
+            throw new IllegalArgumentException("pageNo must be positive when present");
         }
         contentHash = requireText(contentHash, "contentHash");
     }

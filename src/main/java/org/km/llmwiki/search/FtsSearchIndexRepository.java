@@ -58,6 +58,63 @@ public class FtsSearchIndexRepository {
         clearCorpus(SOURCE, workspaceId);
     }
 
+    /** Removes one workspace-scoped Source Chunk projection and its stable rowid mapping. */
+    @Transactional
+    public void deleteSource(long workspaceId, long sourceChunkId) {
+        String stableId = Long.toString(sourceChunkId);
+        Long rowId = existingRowId(SOURCE, workspaceId, stableId);
+        if (rowId == null) {
+            return;
+        }
+        dsl.execute("DELETE FROM source_fts WHERE rowid = {0}", rowId);
+        dsl.execute("""
+                DELETE FROM search_index_identity
+                 WHERE corpus = 'SOURCE' AND workspace_id = {0} AND stable_id = {1}
+                """, workspaceId, stableId);
+    }
+
+    /** Removes every Source projection for one document without crossing workspace boundaries. */
+    @Transactional
+    public void deleteSourceDocument(long workspaceId, long documentId) {
+        List<Long> rowIds = dsl.fetch("""
+                        SELECT identity.fts_rowid
+                          FROM search_index_identity identity
+                          JOIN source_fts
+                            ON source_fts.rowid = identity.fts_rowid
+                           AND source_fts.workspace_id = identity.workspace_id
+                           AND source_fts.source_chunk_id = identity.stable_id
+                         WHERE identity.corpus = 'SOURCE'
+                           AND identity.workspace_id = {0}
+                           AND source_fts.document_id = {1}
+                        """, workspaceId, documentId)
+                .getValues("fts_rowid", Long.class);
+        for (Long rowId : rowIds) {
+            dsl.execute("DELETE FROM source_fts WHERE rowid = {0}", rowId);
+            dsl.execute("""
+                    DELETE FROM search_index_identity
+                     WHERE corpus = 'SOURCE' AND workspace_id = {0} AND fts_rowid = {1}
+                    """, workspaceId, rowId);
+        }
+    }
+
+    /** Lists existing logical Source Chunk identities for one workspace-scoped document. */
+    @Transactional(readOnly = true)
+    public List<Long> findSourceChunkIds(long workspaceId, long documentId) {
+        return dsl.fetch("""
+                        SELECT source_fts.source_chunk_id
+                          FROM source_fts
+                          JOIN search_index_identity identity
+                            ON identity.fts_rowid = source_fts.rowid
+                           AND identity.workspace_id = source_fts.workspace_id
+                           AND identity.stable_id = source_fts.source_chunk_id
+                         WHERE identity.corpus = 'SOURCE'
+                           AND source_fts.workspace_id = {0}
+                           AND source_fts.document_id = {1}
+                         ORDER BY source_fts.rowid
+                        """, workspaceId, documentId)
+                .map(record -> Long.parseLong(record.get("source_chunk_id", String.class)));
+    }
+
     /** Explicit full reset primitive used by a future rebuild job and by isolated tests. */
     @Transactional
     public void clearAll() {
@@ -120,14 +177,26 @@ public class FtsSearchIndexRepository {
 
     @Transactional(readOnly = true)
     public List<SearchIndexMatch> matchSource(long workspaceId, String query) {
+        return matchSourceEvidence(workspaceId, query).stream()
+                .map(match -> new SearchIndexMatch(SOURCE, match.workspaceId(),
+                        Long.toString(match.sourceChunkId()), null, match.normalizedContent(),
+                        match.headingPath(), null, match.contentHash(), match.rank()))
+                .toList();
+    }
+
+    /** Evidence-search projection with stable provenance back to the authoritative Source Chunk. */
+    @Transactional(readOnly = true)
+    public List<SourceSearchEvidenceMatch> matchSourceEvidence(long workspaceId, String query) {
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
         return dsl.fetch("""
                         SELECT source_fts.workspace_id AS workspace_id,
-                               source_fts.source_chunk_id AS stable_id,
-                               NULL AS title,
-                               source_fts.normalized_content AS searchable_text,
-                               source_fts.heading_path AS location,
-                               NULL AS page_type,
+                               source_fts.source_chunk_id AS source_chunk_id,
+                               source_fts.document_id AS document_id,
+                               source_fts.chunk_no AS chunk_no,
+                               source_fts.page_no AS page_no,
+                               source_fts.section AS section,
+                               source_fts.heading_path AS heading_path,
+                               source_fts.normalized_content AS normalized_content,
                                source_fts.content_hash AS content_hash,
                                bm25(source_fts) AS rank
                         FROM source_fts
@@ -140,14 +209,15 @@ public class FtsSearchIndexRepository {
                           AND source_fts.workspace_id = {1}
                         ORDER BY rank ASC, identity.fts_rowid ASC
                         """, expression, workspaceId)
-                .map(record -> new SearchIndexMatch(
-                        SOURCE,
+                .map(record -> new SourceSearchEvidenceMatch(
+                        Long.parseLong(record.get("source_chunk_id", String.class)),
                         record.get("workspace_id", Long.class),
-                        record.get("stable_id", String.class),
-                        record.get("title", String.class),
-                        record.get("searchable_text", String.class),
-                        record.get("location", String.class),
-                        record.get("page_type", String.class),
+                        record.get("document_id", Long.class),
+                        record.get("chunk_no", Integer.class),
+                        record.get("page_no", Integer.class),
+                        record.get("section", String.class),
+                        record.get("heading_path", String.class),
+                        record.get("normalized_content", String.class),
                         record.get("content_hash", String.class),
                         record.get("rank", Double.class)));
     }
@@ -190,12 +260,12 @@ public class FtsSearchIndexRepository {
     private void insertSource(long rowId, SourceSearchDocument document) {
         dsl.execute("""
                         INSERT INTO source_fts
-                            (rowid, workspace_id, source_chunk_id, document_id, chunk_no,
+                            (rowid, workspace_id, source_chunk_id, document_id, chunk_no, page_no,
                              normalized_content, section, heading_path, content_hash)
-                        VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8})
+                        VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9})
                         """, rowId, document.workspaceId(), document.stableId(), document.documentId(),
-                document.chunkNo(), document.normalizedContent(), document.section(), document.headingPath(),
-                document.contentHash());
+                document.chunkNo(), document.pageNo(), document.normalizedContent(), document.section(),
+                document.headingPath(), document.contentHash());
     }
 
     private void clearCorpus(String corpus, long workspaceId) {

@@ -60,6 +60,10 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
 
         assertThat(db().sql("SELECT extracted_text_hash FROM document WHERE id = :id")
                 .param("id", documentId).query(String.class).single()).isNotBlank();
+        assertThat(db().sql("SELECT COUNT(*) FROM source_fts WHERE document_id = :id")
+                .param("id", documentId).query(Integer.class).single()).isEqualTo(1);
+        assertThat(db().sql("SELECT status FROM source_search_index_sync WHERE document_id = :id")
+                .param("id", documentId).query(String.class).single()).isEqualTo("SYNCED");
     }
 
     @Test
@@ -92,6 +96,8 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
 
         assertThat(db().sql("SELECT parse_status FROM document WHERE id = :id")
                 .param("id", documentId).query(String.class).single()).isEqualTo("UNSUPPORTED");
+        assertThat(db().sql("SELECT status FROM source_search_index_sync WHERE document_id = :id")
+                .param("id", documentId).query(String.class).single()).isEqualTo("INELIGIBLE");
         assertThat(Files.readString(root.resolve("inbox/archive.bin"))).isEqualTo("not a supported document");
 
         mockMvc.perform(get("/api/v1/inbox"))

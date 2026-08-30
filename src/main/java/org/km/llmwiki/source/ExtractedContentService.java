@@ -1,11 +1,14 @@
 package org.km.llmwiki.source;
 
 import org.km.llmwiki.web.PageResponse;
+import org.km.llmwiki.search.SourceChunkIndexingService;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +34,7 @@ public class ExtractedContentService {
     private final ScannedPdfDetector scannedPdfDetector;
     private final SourceChunker sourceChunker;
     private final SourceChunkRepository sourceChunkRepository;
+    private final SourceChunkIndexingService sourceChunkIndexingService;
 
     public ExtractedContentService(WorkspaceService workspaceService, DocumentRepository documentRepository,
                                    DocumentParserRegistry parserRegistry,
@@ -38,7 +42,8 @@ public class ExtractedContentService {
                                    ExtractedContentNormalizer extractedContentNormalizer,
                                    ScannedPdfDetector scannedPdfDetector,
                                    SourceChunker sourceChunker,
-                                   SourceChunkRepository sourceChunkRepository) {
+                                   SourceChunkRepository sourceChunkRepository,
+                                   SourceChunkIndexingService sourceChunkIndexingService) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
         this.parserRegistry = parserRegistry;
@@ -47,12 +52,14 @@ public class ExtractedContentService {
         this.scannedPdfDetector = scannedPdfDetector;
         this.sourceChunker = sourceChunker;
         this.sourceChunkRepository = sourceChunkRepository;
+        this.sourceChunkIndexingService = sourceChunkIndexingService;
     }
 
     @Transactional(noRollbackFor = DocumentExtractionException.class)
     public ExtractionResponse extract(long documentId) {
         WorkspaceResponse workspace = activeWorkspace();
         DocumentExtractionTarget document = target(workspace, documentId);
+        scheduleSourceIndexSync(workspace.id(), document.documentId());
         DocumentParser parser = parserRegistry.findParser(document.mimeType(), document.fileName())
                 .orElse(null);
         if (parser == null) {
@@ -134,6 +141,28 @@ public class ExtractedContentService {
                 errorCode, errorMessage);
         return new ExtractionResponse(document.documentId(), DocumentStatus.UNSUPPORTED.name(), 0,
                 errorCode, errorMessage);
+    }
+
+    /** FTS is refreshed only after canonical extraction state has committed successfully. */
+    private void scheduleSourceIndexSync(long workspaceId, long documentId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            synchronizeWithoutAffectingCanonicalResult(workspaceId, documentId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                synchronizeWithoutAffectingCanonicalResult(workspaceId, documentId);
+            }
+        });
+    }
+
+    private void synchronizeWithoutAffectingCanonicalResult(long workspaceId, long documentId) {
+        try {
+            sourceChunkIndexingService.synchronizeDocument(workspaceId, documentId);
+        } catch (RuntimeException ignored) {
+            // Canonical Source Chunk commit must never be rewritten as an extraction failure.
+        }
     }
 
     private static Path resolveSource(WorkspaceResponse workspace, String sourcePath) throws IOException {
