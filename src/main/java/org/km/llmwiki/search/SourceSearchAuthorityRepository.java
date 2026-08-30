@@ -8,6 +8,7 @@ import java.util.Optional;
 
 import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK;
+import static org.jooq.impl.DSL.coalesce;
 
 /** jOOQ read boundary from authoritative document and source_chunk rows. */
 @Repository
@@ -20,7 +21,9 @@ public class SourceSearchAuthorityRepository {
     }
 
     public Optional<SourceSearchAuthorityDocument> findDocument(long workspaceId, long documentId) {
-        var document = dsl.select(DOCUMENT.ID, DOCUMENT.STATUS, DOCUMENT.PARSE_STATUS)
+        var document = dsl.select(DOCUMENT.ID,
+                        coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("document_name"),
+                        DOCUMENT.STATUS, DOCUMENT.PARSE_STATUS)
                 .from(DOCUMENT)
                 .where(DOCUMENT.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
                 .and(DOCUMENT.ID.eq(Math.toIntExact(documentId)))
@@ -48,6 +51,7 @@ public class SourceSearchAuthorityRepository {
                         record.get(SOURCE_CHUNK.NORMALIZED_CONTENT),
                         record.get(SOURCE_CHUNK.CONTENT_HASH)));
         return Optional.of(new SourceSearchAuthorityDocument(workspaceId, documentId,
+                document.get("document_name", String.class),
                 document.get(DOCUMENT.STATUS), document.get(DOCUMENT.PARSE_STATUS), chunks));
     }
 

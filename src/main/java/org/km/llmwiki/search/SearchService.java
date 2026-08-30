@@ -21,10 +21,10 @@ public class SearchService {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int RRF_RANK_CONSTANT = 60;
 
-    private static final Comparator<SearchResult> RESULT_ORDER =
-            Comparator.comparingDouble(SearchResult::score).reversed()
+    private static final Comparator<SearchCandidate> RESULT_ORDER =
+            Comparator.comparingDouble(SearchCandidate::score).reversed()
                     .thenComparing(result -> result.kind().name())
-                    .thenComparing(SearchResult::stableId);
+                    .thenComparing(SearchCandidate::stableId);
 
     private final WorkspaceService workspaceService;
     private final FtsSearchIndexRepository repository;
@@ -43,69 +43,87 @@ public class SearchService {
         validateCompatibleFilters(corpus, pageType, validatedDocumentId);
         int pageNumber = validatePage(page);
         int pageSize = validateSize(size);
+        SearchCandidatePage candidates = findCandidates(new SearchQuery(query, corpus, pageType,
+                validatedDocumentId, pageNumber, pageSize));
+        return PageResponse.of(candidates.items().stream().map(SearchResult::from).toList(),
+                candidates.page(), candidates.size(), candidates.totalElements());
+    }
+
+    /**
+     * Shared application boundary for deterministic FTS candidates.
+     *
+     * <p>REST and Retrieval call this method; neither calls the other's controller.
+     */
+    public SearchCandidatePage findCandidates(SearchQuery query) {
+        if (query == null || query.corpus() == null) {
+            throw new IllegalArgumentException("Search query and corpus are required");
+        }
+        validateCompatibleFilters(query.corpus(), query.pageType(), query.documentId());
+        int pageNumber = validatePage(query.page());
+        int pageSize = validateSize(query.size());
         long offset = candidateOffset(pageNumber, pageSize);
 
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
                 .orElseThrow(NoActiveWorkspaceException::new);
-        if (query == null || query.isBlank()) {
-            return PageResponse.of(List.of(), pageNumber, pageSize, 0);
+        if (query.query() == null || query.query().isBlank()) {
+            return new SearchCandidatePage(List.of(), pageNumber, pageSize, 0);
         }
 
-        String normalizedQuery = Normalizer.normalize(query.strip(), Normalizer.Form.NFC);
+        String normalizedQuery = Normalizer.normalize(query.query().strip(), Normalizer.Form.NFC);
         // Validate once before any count query. Repository methods independently enforce the same boundary.
         FtsMatchQuery.literalExpression(normalizedQuery);
 
-        long wikiTotal = includesWiki(corpus)
-                ? repository.countWikiSearch(workspace.id(), normalizedQuery, pageType) : 0;
-        long sourceTotal = includesSource(corpus)
-                ? repository.countSourceSearch(workspace.id(), normalizedQuery, validatedDocumentId) : 0;
+        long wikiTotal = includesWiki(query.corpus())
+                ? repository.countWikiSearch(workspace.id(), normalizedQuery, query.pageType()) : 0;
+        long sourceTotal = includesSource(query.corpus())
+                ? repository.countSourceSearch(workspace.id(), normalizedQuery, query.documentId()) : 0;
         long total = Math.addExact(wikiTotal, sourceTotal);
         if (total == 0 || offset >= total) {
-            return PageResponse.of(List.of(), pageNumber, pageSize, total);
+            return new SearchCandidatePage(List.of(), pageNumber, pageSize, total);
         }
 
         int candidateLimit = Math.toIntExact(Math.min(total, Math.addExact(offset, pageSize)));
         SearchWorkspaceProvenance provenance =
                 new SearchWorkspaceProvenance(workspace.id(), workspace.name());
-        List<SearchResult> fused = new ArrayList<>();
-        if (includesWiki(corpus) && wikiTotal > 0) {
+        List<SearchCandidate> fused = new ArrayList<>();
+        if (includesWiki(query.corpus()) && wikiTotal > 0) {
             addWikiResults(fused, provenance,
-                    repository.searchWiki(workspace.id(), normalizedQuery, pageType,
+                    repository.searchWiki(workspace.id(), normalizedQuery, query.pageType(),
                             (int) Math.min(wikiTotal, candidateLimit)));
         }
-        if (includesSource(corpus) && sourceTotal > 0) {
+        if (includesSource(query.corpus()) && sourceTotal > 0) {
             addSourceResults(fused, provenance,
-                    repository.searchSource(workspace.id(), normalizedQuery, validatedDocumentId,
+                    repository.searchSource(workspace.id(), normalizedQuery, query.documentId(),
                             (int) Math.min(sourceTotal, candidateLimit)));
         }
 
         fused.sort(RESULT_ORDER);
         int fromIndex = Math.toIntExact(offset);
         int toIndex = Math.min(fused.size(), Math.addExact(fromIndex, pageSize));
-        List<SearchResult> items = fromIndex >= fused.size()
+        List<SearchCandidate> items = fromIndex >= fused.size()
                 ? List.of() : List.copyOf(fused.subList(fromIndex, toIndex));
-        return PageResponse.of(items, pageNumber, pageSize, total);
+        return new SearchCandidatePage(items, pageNumber, pageSize, total);
     }
 
-    private static void addWikiResults(List<SearchResult> results,
+    private static void addWikiResults(List<SearchCandidate> results,
                                        SearchWorkspaceProvenance workspace,
                                        List<WikiFtsSearchMatch> matches) {
         for (int index = 0; index < matches.size(); index++) {
             WikiFtsSearchMatch match = matches.get(index);
-            results.add(new SearchResult(SearchResultKind.WIKI, match.knowledgeId(), score(index),
+            results.add(new SearchCandidate(SearchResultKind.WIKI, match.knowledgeId(), score(index),
                     SearchSnippet.bounded(match.snippet()), workspace,
                     match.knowledgeId(), match.title(), match.pageType(), match.path(), match.revision(),
                     null, null, null, null, null, null, null));
         }
     }
 
-    private static void addSourceResults(List<SearchResult> results,
+    private static void addSourceResults(List<SearchCandidate> results,
                                          SearchWorkspaceProvenance workspace,
                                          List<SourceFtsSearchMatch> matches) {
         for (int index = 0; index < matches.size(); index++) {
             SourceFtsSearchMatch match = matches.get(index);
             String stableId = Long.toString(match.sourceChunkId());
-            results.add(new SearchResult(SearchResultKind.SOURCE_CHUNK, stableId, score(index),
+            results.add(new SearchCandidate(SearchResultKind.SOURCE_CHUNK, stableId, score(index),
                     SearchSnippet.bounded(match.snippet()), workspace,
                     null, null, null, null, null,
                     match.sourceChunkId(), match.documentId(), match.documentName(), match.chunkNo(),
