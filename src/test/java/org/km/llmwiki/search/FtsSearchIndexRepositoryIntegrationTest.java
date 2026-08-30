@@ -69,7 +69,7 @@ class FtsSearchIndexRepositoryIntegrationTest extends IsolatedIntegrationTest {
                         "rebuildStrategy", "clear-and-repopulate from source_chunk",
                         "rebuildable", 1));
 
-        assertThat(columnNames("source_fts")).contains("normalized_content")
+        assertThat(columnNames("source_fts")).contains("normalized_content", "page_no")
                 .doesNotContain("content");
         assertThat(columnNames("knowledge_fts")).contains("title", "content", "page_status");
     }
@@ -95,6 +95,16 @@ class FtsSearchIndexRepositoryIntegrationTest extends IsolatedIntegrationTest {
         assertThat(repository.matchSource(firstWorkspace, "中文搜尋"))
                 .extracting(SearchIndexMatch::stableId)
                 .containsExactly("101");
+        assertThat(repository.matchSourceEvidence(firstWorkspace, "jOOQ"))
+                .singleElement()
+                .extracting(SourceSearchEvidenceMatch::sourceChunkId,
+                        SourceSearchEvidenceMatch::workspaceId,
+                        SourceSearchEvidenceMatch::documentId,
+                        SourceSearchEvidenceMatch::chunkNo,
+                        SourceSearchEvidenceMatch::pageNo,
+                        SourceSearchEvidenceMatch::section,
+                        SourceSearchEvidenceMatch::headingPath)
+                .containsExactly(101L, firstWorkspace, 1L, 1, 7, "Notes", "Notes");
         assertThat(repository.matchSource(firstWorkspace, "foreign")).isEmpty();
         assertThat(repository.matchSource(secondWorkspace, "foreign"))
                 .extracting(SearchIndexMatch::stableId)
@@ -115,11 +125,11 @@ class FtsSearchIndexRepositoryIntegrationTest extends IsolatedIntegrationTest {
 
         long workspaceId = insertWorkspace("evidence");
         long documentId = insertDocument(workspaceId);
-        long chunkId = insertSourceChunk(documentId, "原始內容 Cafe\u0301", "中文搜尋 Café SQLite");
+        long chunkId = insertSourceChunk(documentId, "原始內容 Cafe\u0301", "中文搜尋 Café SQLite");
         String rawBefore = jdbcClient.sql("SELECT content FROM source_chunk WHERE id = :id")
                 .param("id", chunkId).query(String.class).single();
 
-        repository.upsertSource(source(workspaceId, chunkId, "中文搜尋 Cafe\u0301 SQLite"));
+        repository.upsertSource(source(workspaceId, chunkId, "中文搜尋 Café SQLite"));
 
         assertThat(repository.matchSource(workspaceId, "Café"))
                 .extracting(SearchIndexMatch::stableId)
@@ -179,7 +189,7 @@ class FtsSearchIndexRepositoryIntegrationTest extends IsolatedIntegrationTest {
     }
 
     private SourceSearchDocument source(long workspaceId, long chunkId, String normalizedContent) {
-        return new SourceSearchDocument(workspaceId, chunkId, 1, 1, normalizedContent,
+        return new SourceSearchDocument(workspaceId, chunkId, 1, 1, 7, normalizedContent,
                 "Notes", "Notes", HASH);
     }
 

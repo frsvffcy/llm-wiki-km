@@ -42,6 +42,7 @@ public abstract class IsolatedIntegrationTest {
             "knowledge_fts",
             "source_fts",
             "search_index_identity",
+            "source_search_index_sync",
             "knowledge_search_index_sync",
             "wiki_publish_attempt",
             "wiki_publish_operation",
