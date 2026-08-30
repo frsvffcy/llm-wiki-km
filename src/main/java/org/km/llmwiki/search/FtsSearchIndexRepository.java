@@ -222,6 +222,148 @@ public class FtsSearchIndexRepository {
                         record.get("rank", Double.class)));
     }
 
+    /** Counts authoritative Published Wiki matches for the workspace and controlled page-type filter. */
+    @Transactional(readOnly = true)
+    public long countWikiSearch(long workspaceId, String query, String pageType) {
+        String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        return dsl.fetchOne("""
+                        SELECT COUNT(*) AS total
+                          FROM knowledge_fts
+                          JOIN search_index_identity identity
+                            ON identity.corpus = 'KNOWLEDGE'
+                           AND identity.workspace_id = knowledge_fts.workspace_id
+                           AND identity.stable_id = knowledge_fts.knowledge_id
+                           AND identity.fts_rowid = knowledge_fts.rowid
+                          JOIN knowledge_page page
+                            ON page.workspace_id = knowledge_fts.workspace_id
+                           AND page.knowledge_id = knowledge_fts.knowledge_id
+                           AND page.status = 'PUBLISHED'
+                         WHERE knowledge_fts MATCH {0}
+                           AND knowledge_fts.workspace_id = {1}
+                           AND knowledge_fts.page_status = 'PUBLISHED'
+                           AND ({2} IS NULL OR page.type = {2})
+                        """, expression, workspaceId, pageType)
+                .get("total", Long.class);
+    }
+
+    /**
+     * Returns the leading Wiki candidates. BM25 uses an explicit title boost and remains
+     * internal: the application layer converts the per-corpus order into a comparable score.
+     */
+    @Transactional(readOnly = true)
+    public List<WikiFtsSearchMatch> searchWiki(long workspaceId, String query,
+                                               String pageType, int limit) {
+        String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        return dsl.fetch("""
+                        SELECT knowledge_fts.workspace_id AS workspace_id,
+                               knowledge_fts.knowledge_id AS knowledge_id,
+                               page.title AS title,
+                               page.type AS page_type,
+                               page.markdown_path AS markdown_path,
+                               page.revision AS revision,
+                               snippet(knowledge_fts, -1, '<mark>', '</mark>', '…', 24) AS snippet,
+                               bm25(knowledge_fts, 0.0, 0.0, 8.0, 1.0,
+                                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0) AS raw_rank
+                          FROM knowledge_fts
+                          JOIN search_index_identity identity
+                            ON identity.corpus = 'KNOWLEDGE'
+                           AND identity.workspace_id = knowledge_fts.workspace_id
+                           AND identity.stable_id = knowledge_fts.knowledge_id
+                           AND identity.fts_rowid = knowledge_fts.rowid
+                          JOIN knowledge_page page
+                            ON page.workspace_id = knowledge_fts.workspace_id
+                           AND page.knowledge_id = knowledge_fts.knowledge_id
+                           AND page.status = 'PUBLISHED'
+                         WHERE knowledge_fts MATCH {0}
+                           AND knowledge_fts.workspace_id = {1}
+                           AND knowledge_fts.page_status = 'PUBLISHED'
+                           AND ({2} IS NULL OR page.type = {2})
+                         ORDER BY raw_rank ASC, knowledge_fts.knowledge_id ASC
+                         LIMIT {3}
+                        """, expression, workspaceId, pageType, limit)
+                .map(record -> new WikiFtsSearchMatch(
+                        record.get("workspace_id", Long.class),
+                        record.get("knowledge_id", String.class),
+                        record.get("title", String.class),
+                        record.get("page_type", String.class),
+                        record.get("markdown_path", String.class),
+                        record.get("revision", Integer.class),
+                        record.get("snippet", String.class),
+                        record.get("raw_rank", Double.class)));
+    }
+
+    /** Counts Source Chunk matches constrained to one workspace and optional document. */
+    @Transactional(readOnly = true)
+    public long countSourceSearch(long workspaceId, String query, Long documentId) {
+        String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        return dsl.fetchOne("""
+                        SELECT COUNT(*) AS total
+                          FROM source_fts
+                          JOIN search_index_identity identity
+                            ON identity.corpus = 'SOURCE'
+                           AND identity.workspace_id = source_fts.workspace_id
+                           AND identity.stable_id = source_fts.source_chunk_id
+                           AND identity.fts_rowid = source_fts.rowid
+                          JOIN document document
+                            ON document.id = source_fts.document_id
+                           AND document.workspace_id = source_fts.workspace_id
+                          JOIN source_chunk chunk
+                            ON chunk.id = source_fts.source_chunk_id
+                           AND chunk.document_id = document.id
+                         WHERE source_fts MATCH {0}
+                           AND source_fts.workspace_id = {1}
+                           AND ({2} IS NULL OR document.id = {2})
+                        """, expression, workspaceId, documentId)
+                .get("total", Long.class);
+    }
+
+    /** Returns the leading Source Chunk candidates in deterministic BM25 order. */
+    @Transactional(readOnly = true)
+    public List<SourceFtsSearchMatch> searchSource(long workspaceId, String query,
+                                                   Long documentId, int limit) {
+        String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        return dsl.fetch("""
+                        SELECT source_fts.workspace_id AS workspace_id,
+                               CAST(source_fts.source_chunk_id AS INTEGER) AS source_chunk_id,
+                               document.id AS document_id,
+                               COALESCE(document.original_file_name, document.file_name) AS document_name,
+                               source_fts.chunk_no AS chunk_no,
+                               source_fts.page_no AS page_no,
+                               source_fts.section AS section,
+                               source_fts.heading_path AS heading_path,
+                               snippet(source_fts, -1, '<mark>', '</mark>', '…', 24) AS snippet,
+                               bm25(source_fts) AS raw_rank
+                          FROM source_fts
+                          JOIN search_index_identity identity
+                            ON identity.corpus = 'SOURCE'
+                           AND identity.workspace_id = source_fts.workspace_id
+                           AND identity.stable_id = source_fts.source_chunk_id
+                           AND identity.fts_rowid = source_fts.rowid
+                          JOIN document document
+                            ON document.id = source_fts.document_id
+                           AND document.workspace_id = source_fts.workspace_id
+                          JOIN source_chunk chunk
+                            ON chunk.id = source_fts.source_chunk_id
+                           AND chunk.document_id = document.id
+                         WHERE source_fts MATCH {0}
+                           AND source_fts.workspace_id = {1}
+                           AND ({2} IS NULL OR document.id = {2})
+                         ORDER BY raw_rank ASC, source_fts.source_chunk_id ASC
+                         LIMIT {3}
+                        """, expression, workspaceId, documentId, limit)
+                .map(record -> new SourceFtsSearchMatch(
+                        record.get("workspace_id", Long.class),
+                        record.get("source_chunk_id", Long.class),
+                        record.get("document_id", Long.class),
+                        record.get("document_name", String.class),
+                        record.get("chunk_no", Integer.class),
+                        record.get("page_no", Integer.class),
+                        record.get("section", String.class),
+                        record.get("heading_path", String.class),
+                        record.get("snippet", String.class),
+                        record.get("raw_rank", Double.class)));
+    }
+
     private void upsertIdentity(String corpus, long workspaceId, String stableId,
                                 RowInserter inserter) {
         Long existingRowId = existingRowId(corpus, workspaceId, stableId);
