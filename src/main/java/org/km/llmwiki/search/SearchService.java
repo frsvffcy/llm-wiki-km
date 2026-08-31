@@ -6,12 +6,14 @@ import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /** Shared application boundary used by REST now and Retrieval orchestration in a later Story. */
 @Service
@@ -28,10 +30,13 @@ public class SearchService {
 
     private final WorkspaceService workspaceService;
     private final FtsSearchIndexRepository repository;
+    private final SearchServingConsistencyGate consistencyGate;
 
-    public SearchService(WorkspaceService workspaceService, FtsSearchIndexRepository repository) {
+    public SearchService(WorkspaceService workspaceService, FtsSearchIndexRepository repository,
+                         SearchServingConsistencyGate consistencyGate) {
         this.workspaceService = workspaceService;
         this.repository = repository;
+        this.consistencyGate = consistencyGate;
     }
 
     public PageResponse<List<SearchResult>> search(String query, String corpusValue,
@@ -54,6 +59,7 @@ public class SearchService {
      *
      * <p>REST and Retrieval call this method; neither calls the other's controller.
      */
+    @Transactional(readOnly = true)
     public SearchCandidatePage findCandidates(SearchQuery query) {
         if (query == null || query.corpus() == null) {
             throw new IllegalArgumentException("Search query and corpus are required");
@@ -73,10 +79,15 @@ public class SearchService {
         // Validate once before any count query. Repository methods independently enforce the same boundary.
         FtsMatchQuery.literalExpression(normalizedQuery);
 
+        Set<Long> freshSourceDocumentIds = includesSource(query.corpus())
+                ? consistencyGate.freshSourceDocumentIds(workspace.id(), normalizedQuery,
+                query.documentId()) : Set.of();
+
         long wikiTotal = includesWiki(query.corpus())
                 ? repository.countWikiSearch(workspace.id(), normalizedQuery, query.pageType()) : 0;
         long sourceTotal = includesSource(query.corpus())
-                ? repository.countSourceSearch(workspace.id(), normalizedQuery, query.documentId()) : 0;
+                ? repository.countSourceSearch(workspace.id(), normalizedQuery, query.documentId(),
+                freshSourceDocumentIds) : 0;
         long total = Math.addExact(wikiTotal, sourceTotal);
         if (total == 0 || offset >= total) {
             return new SearchCandidatePage(List.of(), pageNumber, pageSize, total);
@@ -94,7 +105,7 @@ public class SearchService {
         if (includesSource(query.corpus()) && sourceTotal > 0) {
             addSourceResults(fused, provenance,
                     repository.searchSource(workspace.id(), normalizedQuery, query.documentId(),
-                            (int) Math.min(sourceTotal, candidateLimit)));
+                            (int) Math.min(sourceTotal, candidateLimit), freshSourceDocumentIds));
         }
 
         fused.sort(RESULT_ORDER);
@@ -113,6 +124,7 @@ public class SearchService {
             results.add(new SearchCandidate(SearchResultKind.WIKI, match.knowledgeId(), score(index),
                     SearchSnippet.bounded(match.snippet()), workspace,
                     match.knowledgeId(), match.title(), match.pageType(), match.path(), match.revision(),
+                    match.indexedContentHash(), null, null,
                     null, null, null, null, null, null, null));
         }
     }
@@ -125,7 +137,8 @@ public class SearchService {
             String stableId = Long.toString(match.sourceChunkId());
             results.add(new SearchCandidate(SearchResultKind.SOURCE_CHUNK, stableId, score(index),
                     SearchSnippet.bounded(match.snippet()), workspace,
-                    null, null, null, null, null,
+                    null, null, null, null, null, match.indexedContentHash(),
+                    match.documentFingerprint(), match.eligibleChunkCount(),
                     match.sourceChunkId(), match.documentId(), match.documentName(), match.chunkNo(),
                     match.pageNo(), match.section(), match.headingPath()));
         }

@@ -1,6 +1,7 @@
 package org.km.llmwiki.search;
 
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -319,9 +320,18 @@ public class FtsSearchIndexRepository {
                             ON page.workspace_id = knowledge_fts.workspace_id
                            AND page.knowledge_id = knowledge_fts.knowledge_id
                            AND page.status = 'PUBLISHED'
+                          JOIN knowledge_search_index_sync sync
+                            ON sync.workspace_id = page.workspace_id
+                           AND sync.knowledge_page_id = page.id
+                           AND sync.knowledge_id = page.knowledge_id
+                           AND sync.status = 'SYNCED'
+                           AND sync.content_hash = page.content_hash
+                           AND sync.indexed_content_hash = page.content_hash
+                           AND sync.indexed_revision = page.revision
                          WHERE knowledge_fts MATCH {0}
                            AND knowledge_fts.workspace_id = {1}
                            AND knowledge_fts.page_status = 'PUBLISHED'
+                           AND knowledge_fts.content_hash = page.content_hash
                            AND ({2} IS NULL OR page.type = {2})
                         """, expression, workspaceId, pageType)
                 .get("total", Long.class);
@@ -342,6 +352,7 @@ public class FtsSearchIndexRepository {
                                page.type AS page_type,
                                page.markdown_path AS markdown_path,
                                page.revision AS revision,
+                               knowledge_fts.content_hash AS indexed_content_hash,
                                snippet(knowledge_fts, -1, '<mark>', '</mark>', '…', 24) AS snippet,
                                bm25(knowledge_fts, 0.0, 0.0, 8.0, 1.0,
                                     0.0, 0.0, 0.0, 0.0, 0.0, 0.0) AS raw_rank
@@ -355,9 +366,18 @@ public class FtsSearchIndexRepository {
                             ON page.workspace_id = knowledge_fts.workspace_id
                            AND page.knowledge_id = knowledge_fts.knowledge_id
                            AND page.status = 'PUBLISHED'
+                          JOIN knowledge_search_index_sync sync
+                            ON sync.workspace_id = page.workspace_id
+                           AND sync.knowledge_page_id = page.id
+                           AND sync.knowledge_id = page.knowledge_id
+                           AND sync.status = 'SYNCED'
+                           AND sync.content_hash = page.content_hash
+                           AND sync.indexed_content_hash = page.content_hash
+                           AND sync.indexed_revision = page.revision
                          WHERE knowledge_fts MATCH {0}
                            AND knowledge_fts.workspace_id = {1}
                            AND knowledge_fts.page_status = 'PUBLISHED'
+                           AND knowledge_fts.content_hash = page.content_hash
                            AND ({2} IS NULL OR page.type = {2})
                          ORDER BY raw_rank ASC, knowledge_fts.knowledge_id ASC
                          LIMIT {3}
@@ -369,13 +389,44 @@ public class FtsSearchIndexRepository {
                         record.get("page_type", String.class),
                         record.get("markdown_path", String.class),
                         record.get("revision", Integer.class),
+                        record.get("indexed_content_hash", String.class),
                         record.get("snippet", String.class),
                         record.get("raw_rank", Double.class)));
     }
 
+    /** Finds query-matched Source document identities before the authority freshness check. */
+    @Transactional(readOnly = true)
+    public List<Long> findMatchedSourceDocumentIds(long workspaceId, String query, Long documentId) {
+        String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        return dsl.fetch("""
+                        SELECT DISTINCT CAST(source_fts.document_id AS INTEGER) AS document_id
+                          FROM source_fts
+                          JOIN search_index_identity identity
+                            ON identity.corpus = 'SOURCE'
+                           AND identity.workspace_id = source_fts.workspace_id
+                           AND identity.stable_id = source_fts.source_chunk_id
+                           AND identity.fts_rowid = source_fts.rowid
+                          JOIN document document
+                            ON document.id = source_fts.document_id
+                           AND document.workspace_id = source_fts.workspace_id
+                          JOIN source_chunk chunk
+                            ON chunk.id = source_fts.source_chunk_id
+                           AND chunk.document_id = document.id
+                         WHERE source_fts MATCH {0}
+                           AND source_fts.workspace_id = {1}
+                           AND ({2} IS NULL OR document.id = {2})
+                         ORDER BY document_id
+                        """, expression, workspaceId, documentId)
+                .getValues("document_id", Long.class);
+    }
+
     /** Counts Source Chunk matches constrained to one workspace and optional document. */
     @Transactional(readOnly = true)
-    public long countSourceSearch(long workspaceId, String query, Long documentId) {
+    public long countSourceSearch(long workspaceId, String query, Long documentId,
+                                  Collection<Long> freshDocumentIds) {
+        if (freshDocumentIds.isEmpty()) {
+            return 0;
+        }
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
         return dsl.fetchOne("""
                         SELECT COUNT(*) AS total
@@ -391,17 +442,38 @@ public class FtsSearchIndexRepository {
                           JOIN source_chunk chunk
                             ON chunk.id = source_fts.source_chunk_id
                            AND chunk.document_id = document.id
+                          JOIN source_search_index_sync sync
+                            ON sync.workspace_id = document.workspace_id
+                           AND sync.document_id = document.id
+                           AND sync.status = 'SYNCED'
+                           AND sync.eligible_chunk_count = sync.indexed_chunk_count
+                           AND sync.canonical_fingerprint = sync.indexed_fingerprint
                          WHERE source_fts MATCH {0}
                            AND source_fts.workspace_id = {1}
                            AND ({2} IS NULL OR document.id = {2})
-                        """, expression, workspaceId, documentId)
+                           AND {3}
+                           AND document.parse_status = 'PROCESSED'
+                           AND document.status NOT IN ('DELETED', 'SUPERSEDED', 'DUPLICATE')
+                           AND source_fts.normalized_content = chunk.normalized_content
+                           AND source_fts.content_hash = chunk.content_hash
+                           AND CAST(source_fts.chunk_no AS INTEGER) = chunk.chunk_no
+                           AND (source_fts.page_no = chunk.page_no
+                                OR (source_fts.page_no IS NULL AND chunk.page_no IS NULL))
+                           AND COALESCE(source_fts.section, '') = COALESCE(chunk.section, '')
+                           AND COALESCE(source_fts.heading_path, '') = COALESCE(chunk.heading_path, '')
+                        """, expression, workspaceId, documentId,
+                        DSL.field("document.id", Long.class).in(freshDocumentIds))
                 .get("total", Long.class);
     }
 
     /** Returns the leading Source Chunk candidates in deterministic BM25 order. */
     @Transactional(readOnly = true)
     public List<SourceFtsSearchMatch> searchSource(long workspaceId, String query,
-                                                   Long documentId, int limit) {
+                                                   Long documentId, int limit,
+                                                   Collection<Long> freshDocumentIds) {
+        if (freshDocumentIds.isEmpty()) {
+            return List.of();
+        }
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
         return dsl.fetch("""
                         SELECT source_fts.workspace_id AS workspace_id,
@@ -412,6 +484,9 @@ public class FtsSearchIndexRepository {
                                source_fts.page_no AS page_no,
                                source_fts.section AS section,
                                source_fts.heading_path AS heading_path,
+                               source_fts.content_hash AS indexed_content_hash,
+                               sync.indexed_fingerprint AS document_fingerprint,
+                               sync.indexed_chunk_count AS eligible_chunk_count,
                                snippet(source_fts, -1, '<mark>', '</mark>', '…', 24) AS snippet,
                                bm25(source_fts) AS raw_rank
                           FROM source_fts
@@ -424,14 +499,31 @@ public class FtsSearchIndexRepository {
                             ON document.id = source_fts.document_id
                            AND document.workspace_id = source_fts.workspace_id
                           JOIN source_chunk chunk
-                            ON chunk.id = source_fts.source_chunk_id
+                           ON chunk.id = source_fts.source_chunk_id
                            AND chunk.document_id = document.id
+                          JOIN source_search_index_sync sync
+                            ON sync.workspace_id = document.workspace_id
+                           AND sync.document_id = document.id
+                           AND sync.status = 'SYNCED'
+                           AND sync.eligible_chunk_count = sync.indexed_chunk_count
+                           AND sync.canonical_fingerprint = sync.indexed_fingerprint
                          WHERE source_fts MATCH {0}
                            AND source_fts.workspace_id = {1}
                            AND ({2} IS NULL OR document.id = {2})
+                           AND {4}
+                           AND document.parse_status = 'PROCESSED'
+                           AND document.status NOT IN ('DELETED', 'SUPERSEDED', 'DUPLICATE')
+                           AND source_fts.normalized_content = chunk.normalized_content
+                           AND source_fts.content_hash = chunk.content_hash
+                           AND CAST(source_fts.chunk_no AS INTEGER) = chunk.chunk_no
+                           AND (source_fts.page_no = chunk.page_no
+                                OR (source_fts.page_no IS NULL AND chunk.page_no IS NULL))
+                           AND COALESCE(source_fts.section, '') = COALESCE(chunk.section, '')
+                           AND COALESCE(source_fts.heading_path, '') = COALESCE(chunk.heading_path, '')
                          ORDER BY raw_rank ASC, source_fts.source_chunk_id ASC
                          LIMIT {3}
-                        """, expression, workspaceId, documentId, limit)
+                        """, expression, workspaceId, documentId, limit,
+                        DSL.field("document.id", Long.class).in(freshDocumentIds))
                 .map(record -> new SourceFtsSearchMatch(
                         record.get("workspace_id", Long.class),
                         record.get("source_chunk_id", Long.class),
@@ -441,6 +533,9 @@ public class FtsSearchIndexRepository {
                         record.get("page_no", Integer.class),
                         record.get("section", String.class),
                         record.get("heading_path", String.class),
+                        record.get("indexed_content_hash", String.class),
+                        record.get("document_fingerprint", String.class),
+                        record.get("eligible_chunk_count", Integer.class),
                         record.get("snippet", String.class),
                         record.get("raw_rank", Double.class)));
     }

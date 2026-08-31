@@ -13,6 +13,7 @@ import org.km.llmwiki.search.SearchWorkspaceProvenance;
 import org.km.llmwiki.search.SourceSearchAuthorityChunk;
 import org.km.llmwiki.search.SourceSearchAuthorityDocument;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
+import org.km.llmwiki.search.SourceSearchFreshness;
 import org.km.llmwiki.wiki.PageStatus;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
@@ -26,8 +27,10 @@ import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,6 +50,8 @@ class RetrievalServiceTest {
     private PublishedWikiContentReader wikiContentReader;
     private SourceSearchAuthorityRepository sourceRepository;
     private RetrievalService retrievalService;
+    private Map<String, String> wikiHashes;
+    private Map<Long, SourceSearchAuthorityDocument> sourceDocuments;
 
     @BeforeEach
     void setUp() {
@@ -55,6 +60,8 @@ class RetrievalServiceTest {
         wikiRepository = mock(PublishedWikiRepository.class);
         wikiContentReader = mock(PublishedWikiContentReader.class);
         sourceRepository = mock(SourceSearchAuthorityRepository.class);
+        wikiHashes = new HashMap<>();
+        sourceDocuments = new HashMap<>();
         retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
                 wikiContentReader, sourceRepository);
 
@@ -141,12 +148,15 @@ class RetrievalServiceTest {
         SearchCandidate foreign = new SearchCandidate(SearchResultKind.WIKI, "foreign", 0.8,
                 "snippet", new SearchWorkspaceProvenance(99, "Foreign"), "foreign", "Foreign",
                 "CONCEPT", "vault/concepts/foreign.md", 1,
-                null, null, null, null, null, null, null);
+                "0".repeat(64), null, null, null, null, null, null, null, null, null);
         SourceSearchAuthorityChunk invalidChunk = new SourceSearchAuthorityChunk(
                 30L, 1, null, null, null, "stale", "0".repeat(64));
+        SourceSearchAuthorityDocument invalidDocument = new SourceSearchAuthorityDocument(
+                WORKSPACE_ID, 300L, "stale.txt", "PENDING", "PROCESSED",
+                List.of(invalidChunk));
+        sourceDocuments.put(300L, invalidDocument);
         when(sourceRepository.findDocument(WORKSPACE_ID, 300L)).thenReturn(Optional.of(
-                new SourceSearchAuthorityDocument(WORKSPACE_ID, 300L, "stale.txt", "PENDING",
-                        "PROCESSED", List.of(invalidChunk))));
+                invalidDocument));
         when(searchService.findCandidates(any())).thenReturn(page(List.of(
                 wikiCandidate("drift", 0.9), foreign, sourceCandidate(30L, 300L, 0.7))));
 
@@ -159,6 +169,35 @@ class RetrievalServiceTest {
         verify(wikiRepository, never()).findPublishedByKnowledgeId(WORKSPACE_ID, "foreign");
     }
 
+    @Test
+    void rejectsSearchCandidatesWhenWikiOrSourceAuthorityDriftsBeforeRevalidation() {
+        stubWiki("race-wiki", "wiki v1");
+        stubSource(40L, 400L, "source v1");
+        SearchCandidate wiki = wikiCandidate("race-wiki", 0.9);
+        SearchCandidate source = sourceCandidate(40L, 400L, 0.8);
+
+        StoredPublishedWiki changedWiki = new StoredPublishedWiki(1, WORKSPACE_ID, "race-wiki",
+                "Title race-wiki", "title race-wiki", WikiPageType.CONCEPT,
+                "vault/concepts/title-race-wiki.md", PageStatus.PUBLISHED, sha256("wiki v2"), 2,
+                "2026-08-31T00:00:00Z", "2026-08-31T00:01:00Z");
+        when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "race-wiki"))
+                .thenReturn(Optional.of(changedWiki));
+        SourceSearchAuthorityChunk changedChunk = new SourceSearchAuthorityChunk(40L, 1, 3,
+                "Section", "Root > Section", "source v2", sha256("source v2"));
+        when(sourceRepository.findDocument(WORKSPACE_ID, 400L)).thenReturn(Optional.of(
+                new SourceSearchAuthorityDocument(WORKSPACE_ID, 400L, "source.txt", "PENDING",
+                        "PROCESSED", List.of(changedChunk))));
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(wiki, source)));
+
+        EvidenceBundle bundle = retrievalService.retrieve(
+                RetrievalRequest.defaults("race", RetrievalMode.HYBRID_FTS));
+
+        assertThat(bundle.items()).isEmpty();
+        assertThat(bundle.rejectedCandidateCount()).isEqualTo(2);
+        assertThat(bundle.insufficientEvidence()).isTrue();
+        verify(wikiContentReader, never()).readSearchableContent(changedWiki);
+    }
+
     private void stubWiki(String knowledgeId, String content) {
         StoredPublishedWiki page = new StoredPublishedWiki(knowledgeId.hashCode() & 0x7fffffff,
                 WORKSPACE_ID, knowledgeId, "Title " + knowledgeId, "title " + knowledgeId,
@@ -168,26 +207,34 @@ class RetrievalServiceTest {
         when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, knowledgeId))
                 .thenReturn(Optional.of(page));
         when(wikiContentReader.readSearchableContent(page)).thenReturn(content);
+        wikiHashes.put(knowledgeId, page.contentHash());
     }
 
     private void stubSource(long chunkId, long documentId, String content) {
         SourceSearchAuthorityChunk chunk = new SourceSearchAuthorityChunk(chunkId, 1, 3,
                 "Section", "Root > Section", content, sha256(content));
-        when(sourceRepository.findDocument(WORKSPACE_ID, documentId)).thenReturn(Optional.of(
-                new SourceSearchAuthorityDocument(WORKSPACE_ID, documentId, "source.txt", "PENDING",
-                        "PROCESSED", List.of(chunk))));
+        SourceSearchAuthorityDocument document = new SourceSearchAuthorityDocument(WORKSPACE_ID,
+                documentId, "source.txt", "PENDING", "PROCESSED", List.of(chunk));
+        sourceDocuments.put(documentId, document);
+        when(sourceRepository.findDocument(WORKSPACE_ID, documentId)).thenReturn(Optional.of(document));
     }
 
-    private static SearchCandidate wikiCandidate(String knowledgeId, double score) {
+    private SearchCandidate wikiCandidate(String knowledgeId, double score) {
         return new SearchCandidate(SearchResultKind.WIKI, knowledgeId, score, "wiki snippet",
                 provenance(), knowledgeId, "Title " + knowledgeId, "CONCEPT",
                 "vault/concepts/title-" + knowledgeId + ".md", 1,
+                wikiHashes.get(knowledgeId), null, null,
                 null, null, null, null, null, null, null);
     }
 
-    private static SearchCandidate sourceCandidate(long chunkId, long documentId, double score) {
+    private SearchCandidate sourceCandidate(long chunkId, long documentId, double score) {
+        SourceSearchAuthorityDocument authority = sourceDocuments.get(documentId);
+        SourceSearchAuthorityChunk chunk = authority.chunks().stream()
+                .filter(item -> item.sourceChunkId() == chunkId).findFirst().orElseThrow();
         return new SearchCandidate(SearchResultKind.SOURCE_CHUNK, Long.toString(chunkId), score,
                 "source snippet", provenance(), null, null, null, null, null,
+                chunk.contentHash(), SourceSearchFreshness.fingerprint(authority),
+                SourceSearchFreshness.eligibleDocuments(authority).size(),
                 chunkId, documentId, "source.txt", 1, 3, "Section", "Root > Section");
     }
 

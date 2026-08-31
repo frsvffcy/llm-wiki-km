@@ -8,6 +8,7 @@ import org.km.llmwiki.search.SourceSearchAuthorityChunk;
 import org.km.llmwiki.search.SourceSearchAuthorityDocument;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
 import org.km.llmwiki.search.SourceSearchEligibilityPolicy;
+import org.km.llmwiki.search.SourceSearchFreshness;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.km.llmwiki.wiki.StoredPublishedWiki;
@@ -60,11 +61,17 @@ public class RetrievalService {
         RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
         WorkspaceResponse active = workspaceService.findActiveWithoutValidation()
                 .orElseThrow(NoActiveWorkspaceException::new);
-        EvidenceWorkspace workspace = new EvidenceWorkspace(active.id(), active.name());
-
         SearchCandidatePage page = searchService.findCandidates(new SearchQuery(
                 request.query(), request.mode().searchCorpus(), null, null,
                 0, limits.candidateLimit()));
+        return assembleEvidence(request, active, page);
+    }
+
+    /** Testable boundary that also makes the Search-to-authority revalidation race explicit. */
+    EvidenceBundle assembleEvidence(RetrievalRequest request, WorkspaceResponse active,
+                                    SearchCandidatePage page) {
+        RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
+        EvidenceWorkspace workspace = new EvidenceWorkspace(active.id(), active.name());
         List<SearchCandidate> ordered = page.items().stream().sorted(CANDIDATE_ORDER).toList();
 
         List<EvidenceItem> evidence = new ArrayList<>();
@@ -140,6 +147,10 @@ public class RetrievalService {
         }
         return publishedWikiRepository
                 .findPublishedByKnowledgeId(workspaceId, candidate.stableId())
+                .filter(page -> candidate.indexedContentHash() != null
+                        && candidate.indexedContentHash().equals(page.contentHash()))
+                .filter(page -> candidate.revision() != null
+                        && candidate.revision() == page.revision())
                 .map(page -> wikiAuthority(page,
                         publishedWikiContentReader.readSearchableContent(page)));
     }
@@ -159,9 +170,19 @@ public class RetrievalService {
                 || !SourceSearchEligibilityPolicy.documentEligible(document.get())) {
             return Optional.empty();
         }
+        var eligible = SourceSearchFreshness.eligibleDocuments(document.get());
+        if (candidate.indexedContentHash() == null
+                || candidate.sourceDocumentFingerprint() == null
+                || candidate.sourceEligibleChunkCount() == null
+                || candidate.sourceEligibleChunkCount() != eligible.size()
+                || !candidate.sourceDocumentFingerprint()
+                .equals(SourceSearchFreshness.fingerprint(document.get()))) {
+            return Optional.empty();
+        }
         return document.get().chunks().stream()
                 .filter(chunk -> chunk.sourceChunkId() == candidate.sourceChunkId())
                 .filter(SourceSearchEligibilityPolicy::chunkEligible)
+                .filter(chunk -> candidate.indexedContentHash().equals(chunk.contentHash()))
                 .findFirst()
                 .map(chunk -> sourceAuthority(document.get(), chunk));
     }
