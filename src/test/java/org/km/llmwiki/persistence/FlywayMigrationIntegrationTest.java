@@ -37,6 +37,7 @@ class FlywayMigrationIntegrationTest {
         assertThat(tableExists("knowledge_candidate_evidence")).isTrue();
         assertThat(tableExists("knowledge_proposal")).isTrue();
         assertThat(tableExists("knowledge_proposal_evidence")).isTrue();
+        assertThat(tableExists("search_index_rebuild_state")).isTrue();
         assertThat(tableExists("flyway_schema_history")).isTrue();
     }
 
@@ -58,6 +59,15 @@ class FlywayMigrationIntegrationTest {
                 .list();
 
         assertThat(columnNames).contains("retry_eligible");
+    }
+
+    @Test
+    void addsIndexedRevisionToWikiSearchSyncLedger() {
+        var columnNames = jdbcClient.sql("PRAGMA table_info(knowledge_search_index_sync)")
+                .query((resultSet, rowNum) -> resultSet.getString("name"))
+                .list();
+
+        assertThat(columnNames).contains("indexed_revision");
     }
 
     @Test

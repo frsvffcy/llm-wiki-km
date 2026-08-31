@@ -93,7 +93,7 @@ public class SourceChunkIndexingService {
                 authority.documentId(), sourceChunkId, eligible.size(), 0, detail);
     }
 
-    private static List<SourceSearchDocument> eligibleDocuments(SourceSearchAuthorityDocument authority) {
+    static List<SourceSearchDocument> eligibleDocuments(SourceSearchAuthorityDocument authority) {
         if (!SourceSearchEligibilityPolicy.documentEligible(authority)) {
             return List.of();
         }
@@ -109,7 +109,7 @@ public class SourceChunkIndexingService {
         return List.copyOf(result);
     }
 
-    private static String fingerprint(List<SourceSearchDocument> documents) {
+    static String fingerprint(List<SourceSearchDocument> documents) {
         MessageDigest digest = sha256Digest();
         for (SourceSearchDocument document : documents) {
             update(digest, Long.toString(document.sourceChunkId()));

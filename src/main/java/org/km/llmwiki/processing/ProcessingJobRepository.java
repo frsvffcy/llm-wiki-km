@@ -21,6 +21,11 @@ public class ProcessingJobRepository {
     }
 
     public ProcessingJob create(long workspaceId, String jobId, int totalCount) {
+        return create(workspaceId, jobId, ProcessingJobType.ANALYZE, totalCount);
+    }
+
+    public ProcessingJob create(long workspaceId, String jobId, ProcessingJobType jobType,
+                                int totalCount) {
         String now = now();
         Integer id = dsl.insertInto(PROCESSING_JOB)
                 .columns(
@@ -35,7 +40,7 @@ public class ProcessingJobRepository {
                 .values(
                         (int) workspaceId,
                         jobId,
-                        "ANALYZE",
+                        jobType.name(),
                         ProcessingJobStatus.QUEUED.name(),
                         totalCount,
                         now,
@@ -97,6 +102,35 @@ public class ProcessingJobRepository {
                 .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.eq(intJobId))
+                .execute();
+    }
+
+    public void markCompleted(long jobId, int processedCount, int successCount,
+                              int failedCount, int skippedCount) {
+        String now = now();
+        dsl.update(PROCESSING_JOB)
+                .set(PROCESSING_JOB.STATUS, ProcessingJobStatus.COMPLETED.name())
+                .set(PROCESSING_JOB.PROCESSED_COUNT, processedCount)
+                .set(PROCESSING_JOB.SUCCESS_COUNT, successCount)
+                .set(PROCESSING_JOB.FAILED_COUNT, failedCount)
+                .set(PROCESSING_JOB.SKIPPED_COUNT, skippedCount)
+                .set(PROCESSING_JOB.FINISHED_AT, now)
+                .set(PROCESSING_JOB.UPDATED_AT, now)
+                .where(PROCESSING_JOB.ID.eq(Math.toIntExact(jobId)))
+                .execute();
+    }
+
+    public void markFailed(long jobId, int processedCount, int successCount,
+                           int failedCount, String failureDetail) {
+        String now = now();
+        dsl.update(PROCESSING_JOB)
+                .set(PROCESSING_JOB.STATUS, ProcessingJobStatus.FAILED.name())
+                .set(PROCESSING_JOB.PROCESSED_COUNT, processedCount)
+                .set(PROCESSING_JOB.SUCCESS_COUNT, successCount)
+                .set(PROCESSING_JOB.FAILED_COUNT, failedCount)
+                .set(PROCESSING_JOB.FINISHED_AT, now)
+                .set(PROCESSING_JOB.UPDATED_AT, now)
+                .where(PROCESSING_JOB.ID.eq(Math.toIntExact(jobId)))
                 .execute();
     }
 

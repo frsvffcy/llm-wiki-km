@@ -222,6 +222,87 @@ public class FtsSearchIndexRepository {
                         record.get("rank", Double.class)));
     }
 
+    @Transactional(readOnly = true)
+    List<WikiIndexProjection> listKnowledgeProjections(long workspaceId) {
+        return dsl.fetch("""
+                        SELECT knowledge_fts.rowid AS row_id,
+                               identity.fts_rowid IS NOT NULL AS identity_valid,
+                               knowledge_fts.knowledge_id AS knowledge_id,
+                               knowledge_fts.title AS title,
+                               knowledge_fts.content AS content,
+                               knowledge_fts.normalized_title AS normalized_title,
+                               knowledge_fts.markdown_path AS markdown_path,
+                               knowledge_fts.page_type AS page_type,
+                               knowledge_fts.page_status AS page_status,
+                               knowledge_fts.content_hash AS content_hash
+                          FROM knowledge_fts
+                          LEFT JOIN search_index_identity identity
+                            ON identity.corpus = 'KNOWLEDGE'
+                           AND identity.workspace_id = knowledge_fts.workspace_id
+                           AND identity.stable_id = knowledge_fts.knowledge_id
+                           AND identity.fts_rowid = knowledge_fts.rowid
+                         WHERE knowledge_fts.workspace_id = {0}
+                         ORDER BY knowledge_fts.knowledge_id, knowledge_fts.rowid
+                        """, workspaceId)
+                .map(record -> new WikiIndexProjection(
+                        record.get("row_id", Long.class),
+                        Boolean.TRUE.equals(record.get("identity_valid", Boolean.class)),
+                        record.get("knowledge_id", String.class), record.get("title", String.class),
+                        record.get("content", String.class), record.get("normalized_title", String.class),
+                        record.get("markdown_path", String.class), record.get("page_type", String.class),
+                        record.get("page_status", String.class), record.get("content_hash", String.class)));
+    }
+
+    @Transactional(readOnly = true)
+    List<SourceIndexProjection> listSourceProjections(long workspaceId) {
+        return dsl.fetch("""
+                        SELECT source_fts.rowid AS row_id,
+                               identity.fts_rowid IS NOT NULL AS identity_valid,
+                               source_fts.source_chunk_id AS source_chunk_id,
+                               source_fts.document_id AS document_id,
+                               source_fts.chunk_no AS chunk_no,
+                               source_fts.page_no AS page_no,
+                               source_fts.normalized_content AS normalized_content,
+                               source_fts.section AS section,
+                               source_fts.heading_path AS heading_path,
+                               source_fts.content_hash AS content_hash
+                          FROM source_fts
+                          LEFT JOIN search_index_identity identity
+                            ON identity.corpus = 'SOURCE'
+                           AND identity.workspace_id = source_fts.workspace_id
+                           AND identity.stable_id = source_fts.source_chunk_id
+                           AND identity.fts_rowid = source_fts.rowid
+                         WHERE source_fts.workspace_id = {0}
+                         ORDER BY CAST(source_fts.source_chunk_id AS INTEGER), source_fts.rowid
+                        """, workspaceId)
+                .map(record -> new SourceIndexProjection(
+                        record.get("row_id", Long.class),
+                        Boolean.TRUE.equals(record.get("identity_valid", Boolean.class)),
+                        record.get("source_chunk_id", String.class),
+                        record.get("document_id", Long.class), record.get("chunk_no", Integer.class),
+                        record.get("page_no", Integer.class), record.get("normalized_content", String.class),
+                        record.get("section", String.class), record.get("heading_path", String.class),
+                        record.get("content_hash", String.class)));
+    }
+
+    @Transactional(readOnly = true)
+    long countDanglingIdentities(long workspaceId, String corpus) {
+        String controlledCorpus = switch (corpus) {
+            case KNOWLEDGE -> KNOWLEDGE;
+            case SOURCE -> SOURCE;
+            default -> throw new IllegalArgumentException("Unknown FTS corpus: " + corpus);
+        };
+        return dsl.fetchOne("""
+                        SELECT COUNT(*) AS total
+                          FROM search_index_identity identity
+                          LEFT JOIN %s fts ON fts.rowid = identity.fts_rowid
+                         WHERE identity.workspace_id = {0}
+                           AND identity.corpus = {1}
+                           AND fts.rowid IS NULL
+                        """.formatted(table(controlledCorpus)), workspaceId, controlledCorpus)
+                .get("total", Long.class);
+    }
+
     /** Counts authoritative Published Wiki matches for the workspace and controlled page-type filter. */
     @Transactional(readOnly = true)
     public long countWikiSearch(long workspaceId, String query, String pageType) {
