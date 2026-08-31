@@ -41,10 +41,12 @@ public class SourceSearchIndexSyncRepository {
                         SOURCE_SEARCH_INDEX_SYNC.INDEXED_CHUNK_COUNT,
                         SOURCE_SEARCH_INDEX_SYNC.CANONICAL_FINGERPRINT,
                         SOURCE_SEARCH_INDEX_SYNC.INDEXED_FINGERPRINT,
+                        SOURCE_SEARCH_INDEX_SYNC.PROJECTION_VERSION,
                         SOURCE_SEARCH_INDEX_SYNC.FAILURE_DETAIL,
                         SOURCE_SEARCH_INDEX_SYNC.UPDATED_AT)
                 .values(Math.toIntExact(workspaceId), Math.toIntExact(documentId), status.name(),
-                        eligibleChunkCount, indexedChunkCount, fingerprint, indexedFingerprint, null, now)
+                        eligibleChunkCount, indexedChunkCount, fingerprint, indexedFingerprint,
+                        CjkBigramProjector.VERSION, null, now)
                 .onConflict(SOURCE_SEARCH_INDEX_SYNC.WORKSPACE_ID,
                         SOURCE_SEARCH_INDEX_SYNC.DOCUMENT_ID)
                 .doUpdate()
@@ -53,6 +55,7 @@ public class SourceSearchIndexSyncRepository {
                 .set(SOURCE_SEARCH_INDEX_SYNC.INDEXED_CHUNK_COUNT, indexedChunkCount)
                 .set(SOURCE_SEARCH_INDEX_SYNC.CANONICAL_FINGERPRINT, fingerprint)
                 .set(SOURCE_SEARCH_INDEX_SYNC.INDEXED_FINGERPRINT, indexedFingerprint)
+                .set(SOURCE_SEARCH_INDEX_SYNC.PROJECTION_VERSION, CjkBigramProjector.VERSION)
                 .set(SOURCE_SEARCH_INDEX_SYNC.FAILURE_DETAIL, (String) null)
                 .set(SOURCE_SEARCH_INDEX_SYNC.UPDATED_AT, now)
                 .execute();
@@ -74,17 +77,19 @@ public class SourceSearchIndexSyncRepository {
                         SOURCE_SEARCH_INDEX_SYNC.ELIGIBLE_CHUNK_COUNT,
                         SOURCE_SEARCH_INDEX_SYNC.INDEXED_CHUNK_COUNT,
                         SOURCE_SEARCH_INDEX_SYNC.CANONICAL_FINGERPRINT,
+                        SOURCE_SEARCH_INDEX_SYNC.PROJECTION_VERSION,
                         SOURCE_SEARCH_INDEX_SYNC.FAILURE_DETAIL,
                         SOURCE_SEARCH_INDEX_SYNC.UPDATED_AT)
                 .values(Math.toIntExact(workspaceId), Math.toIntExact(documentId),
                         SourceSearchIndexSyncStatus.INDEX_PENDING.name(), eligibleChunkCount, 0,
-                        canonicalFingerprint, safeDetail, now)
+                        canonicalFingerprint, CjkBigramProjector.VERSION, safeDetail, now)
                 .onConflict(SOURCE_SEARCH_INDEX_SYNC.WORKSPACE_ID,
                         SOURCE_SEARCH_INDEX_SYNC.DOCUMENT_ID)
                 .doUpdate()
                 .set(SOURCE_SEARCH_INDEX_SYNC.STATUS, SourceSearchIndexSyncStatus.INDEX_PENDING.name())
                 .set(SOURCE_SEARCH_INDEX_SYNC.ELIGIBLE_CHUNK_COUNT, eligibleChunkCount)
                 .set(SOURCE_SEARCH_INDEX_SYNC.CANONICAL_FINGERPRINT, canonicalFingerprint)
+                .set(SOURCE_SEARCH_INDEX_SYNC.PROJECTION_VERSION, CjkBigramProjector.VERSION)
                 .set(SOURCE_SEARCH_INDEX_SYNC.FAILURE_DETAIL, safeDetail)
                 .set(SOURCE_SEARCH_INDEX_SYNC.UPDATED_AT, now)
                 .execute();
@@ -121,7 +126,7 @@ public class SourceSearchIndexSyncRepository {
                 record.getDocumentId().longValue(), SourceSearchIndexSyncStatus.valueOf(record.getStatus()),
                 record.getEligibleChunkCount(), record.getIndexedChunkCount(),
                 record.getCanonicalFingerprint(), record.getIndexedFingerprint(),
-                record.getFailureDetail(), record.getUpdatedAt());
+                record.getProjectionVersion(), record.getFailureDetail(), record.getUpdatedAt());
     }
 
     private static String now() {

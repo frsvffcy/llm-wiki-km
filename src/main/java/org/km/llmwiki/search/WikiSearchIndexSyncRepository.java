@@ -31,11 +31,12 @@ public class WikiSearchIndexSyncRepository {
                         KNOWLEDGE_SEARCH_INDEX_SYNC.CONTENT_HASH,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_CONTENT_HASH,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_REVISION,
+                        KNOWLEDGE_SEARCH_INDEX_SYNC.PROJECTION_VERSION,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.FAILURE_DETAIL,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.UPDATED_AT)
                 .values(Math.toIntExact(page.workspaceId()), Math.toIntExact(page.id()), page.knowledgeId(),
                         WikiSearchIndexSyncStatus.SYNCED.name(), page.contentHash(), page.contentHash(),
-                        page.revision(), null, now)
+                        page.revision(), CjkBigramProjector.VERSION, null, now)
                 .onConflict(KNOWLEDGE_SEARCH_INDEX_SYNC.WORKSPACE_ID,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.KNOWLEDGE_PAGE_ID)
                 .doUpdate()
@@ -44,6 +45,7 @@ public class WikiSearchIndexSyncRepository {
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.CONTENT_HASH, page.contentHash())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_CONTENT_HASH, page.contentHash())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_REVISION, page.revision())
+                .set(KNOWLEDGE_SEARCH_INDEX_SYNC.PROJECTION_VERSION, CjkBigramProjector.VERSION)
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.FAILURE_DETAIL, (String) null)
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.UPDATED_AT, now)
                 .execute();
@@ -66,10 +68,11 @@ public class WikiSearchIndexSyncRepository {
                         KNOWLEDGE_SEARCH_INDEX_SYNC.KNOWLEDGE_ID,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.STATUS,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.CONTENT_HASH,
+                        KNOWLEDGE_SEARCH_INDEX_SYNC.PROJECTION_VERSION,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.FAILURE_DETAIL,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.UPDATED_AT)
                 .values(Math.toIntExact(page.workspaceId()), Math.toIntExact(page.id()), page.knowledgeId(),
-                        status.name(), page.contentHash(), safeDetail, now)
+                        status.name(), page.contentHash(), CjkBigramProjector.VERSION, safeDetail, now)
                 .onConflict(KNOWLEDGE_SEARCH_INDEX_SYNC.WORKSPACE_ID,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.KNOWLEDGE_PAGE_ID)
                 .doUpdate()
@@ -77,6 +80,7 @@ public class WikiSearchIndexSyncRepository {
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.STATUS, status.name())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.CONTENT_HASH, page.contentHash())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_REVISION, (Integer) null)
+                .set(KNOWLEDGE_SEARCH_INDEX_SYNC.PROJECTION_VERSION, CjkBigramProjector.VERSION)
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.FAILURE_DETAIL, safeDetail)
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.UPDATED_AT, now)
                 .execute();
@@ -112,8 +116,8 @@ public class WikiSearchIndexSyncRepository {
         return new StoredWikiSearchIndexSync(record.getWorkspaceId().longValue(),
                 record.getKnowledgePageId().longValue(), record.getKnowledgeId(),
                 WikiSearchIndexSyncStatus.valueOf(record.getStatus()), record.getContentHash(),
-                record.getIndexedContentHash(), record.getIndexedRevision(), record.getFailureDetail(),
-                record.getUpdatedAt());
+                record.getIndexedContentHash(), record.getIndexedRevision(), record.getProjectionVersion(),
+                record.getFailureDetail(), record.getUpdatedAt());
     }
 
     private static String now() {

@@ -29,7 +29,8 @@ public class SearchServingConsistencyGate {
             var ledger = syncRepository.find(workspaceId, matchedDocumentId);
             if (authority.isEmpty() || ledger.isEmpty()
                     || !SourceSearchEligibilityPolicy.documentEligible(authority.get())
-                    || ledger.get().status() != SourceSearchIndexSyncStatus.SYNCED) {
+                    || ledger.get().status() != SourceSearchIndexSyncStatus.SYNCED
+                    || !CjkBigramProjector.VERSION.equals(ledger.get().projectionVersion())) {
                 continue;
             }
             var eligible = SourceSearchFreshness.eligibleDocuments(authority.get());

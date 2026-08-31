@@ -5,5 +5,6 @@ public record StoredSourceSearchIndexSync(long workspaceId, long documentId,
                                           SourceSearchIndexSyncStatus status,
                                           int eligibleChunkCount, int indexedChunkCount,
                                           String canonicalFingerprint, String indexedFingerprint,
-                                          String failureDetail, String updatedAt) {
+                                          String projectionVersion, String failureDetail,
+                                          String updatedAt) {
 }

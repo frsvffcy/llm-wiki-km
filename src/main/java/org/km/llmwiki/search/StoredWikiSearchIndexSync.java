@@ -4,5 +4,6 @@ package org.km.llmwiki.search;
 public record StoredWikiSearchIndexSync(long workspaceId, long knowledgePageId, String knowledgeId,
                                         WikiSearchIndexSyncStatus status, String contentHash,
                                         String indexedContentHash, Integer indexedRevision,
-                                        String failureDetail, String updatedAt) {
+                                        String projectionVersion, String failureDetail,
+                                        String updatedAt) {
 }

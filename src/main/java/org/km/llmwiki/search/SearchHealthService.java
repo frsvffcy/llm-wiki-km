@@ -103,17 +103,27 @@ public class SearchHealthService {
                 .stream().collect(Collectors.toMap(StoredWikiSearchIndexSync::knowledgePageId,
                         Function.identity()));
         Set<String> stale = new HashSet<>();
+        if (!ftsRepository.projectionContractMatches("KNOWLEDGE")) {
+            stale.add("projection-contract");
+        }
+        if (rebuildState != null
+                && !CjkBigramProjector.VERSION.equals(rebuildState.projectionVersion())) {
+            stale.add("rebuild-projection-version");
+        }
         for (StoredPublishedWiki page : pages) {
             List<WikiIndexProjection> matches = valid.getOrDefault(page.knowledgeId(), List.of());
             if (matches.size() == 1 && canonicalContent.containsKey(page.knowledgeId())) {
                 WikiIndexProjection row = matches.getFirst();
-                if (!Objects.equals(row.title(), page.title())
+                if (!Objects.equals(row.title(), CjkBigramProjector.transform(page.title()))
+                        || !Objects.equals(row.content(), CjkBigramProjector.transform(canonicalContent.get(page.knowledgeId())))
+                        || !Objects.equals(row.canonicalTitle(), page.title())
+                        || !Objects.equals(row.canonicalContent(), canonicalContent.get(page.knowledgeId()))
                         || !Objects.equals(row.normalizedTitle(), page.normalizedTitle())
-                        || !Objects.equals(row.content(), canonicalContent.get(page.knowledgeId()))
                         || !Objects.equals(row.markdownPath(), page.markdownPath())
                         || !Objects.equals(row.pageType(), page.pageType().name())
                         || !Objects.equals(row.pageStatus(), page.status().name())
-                        || !Objects.equals(row.contentHash(), page.contentHash())) {
+                        || !Objects.equals(row.contentHash(), page.contentHash())
+                        || !Objects.equals(row.projectionVersion(), CjkBigramProjector.VERSION)) {
                     stale.add(page.knowledgeId());
                 }
             }
@@ -121,7 +131,8 @@ public class SearchHealthService {
             if (ledger == null || ledger.status() != WikiSearchIndexSyncStatus.SYNCED
                     || !Objects.equals(ledger.contentHash(), page.contentHash())
                     || !Objects.equals(ledger.indexedContentHash(), page.contentHash())
-                    || !Objects.equals(ledger.indexedRevision(), page.revision())) {
+                    || !Objects.equals(ledger.indexedRevision(), page.revision())
+                    || !Objects.equals(ledger.projectionVersion(), CjkBigramProjector.VERSION)) {
                 stale.add(page.knowledgeId());
             }
         }
@@ -158,6 +169,13 @@ public class SearchHealthService {
         long missing = eligible.keySet().stream()
                 .filter(id -> valid.getOrDefault(id, List.of()).size() != 1).count();
         Set<String> stale = new HashSet<>();
+        if (!ftsRepository.projectionContractMatches("SOURCE")) {
+            stale.add("projection-contract");
+        }
+        if (rebuildState != null
+                && !CjkBigramProjector.VERSION.equals(rebuildState.projectionVersion())) {
+            stale.add("rebuild-projection-version");
+        }
         for (Map.Entry<Long, SourceSearchDocument> entry : eligible.entrySet()) {
             List<SourceIndexProjection> matches = valid.getOrDefault(entry.getKey(), List.of());
             if (matches.size() == 1 && !sameProjection(matches.getFirst(), entry.getValue())) {
@@ -183,7 +201,8 @@ public class SearchHealthService {
                     || ledger.eligibleChunkCount() != projections.size()
                     || ledger.indexedChunkCount() != projections.size()
                     || !Objects.equals(ledger.canonicalFingerprint(), fingerprint)
-                    || !Objects.equals(ledger.indexedFingerprint(), expectedIndexedFingerprint)) {
+                    || !Objects.equals(ledger.indexedFingerprint(), expectedIndexedFingerprint)
+                    || !Objects.equals(ledger.projectionVersion(), CjkBigramProjector.VERSION)) {
                 stale.add("document:" + document.documentId());
             }
         }
@@ -200,7 +219,10 @@ public class SearchHealthService {
                 && Objects.equals(row.normalizedContent(), authority.normalizedContent())
                 && Objects.equals(row.section(), authority.section())
                 && Objects.equals(row.headingPath(), authority.headingPath())
-                && Objects.equals(row.contentHash(), authority.contentHash());
+                && Objects.equals(row.contentHash(), authority.contentHash())
+                && Objects.equals(row.projectedContent(),
+                        CjkBigramProjector.transform(authority.normalizedContent()))
+                && Objects.equals(row.projectionVersion(), CjkBigramProjector.VERSION);
     }
 
     private static SearchCorpusHealth corpusHealth(SearchCorpus corpus, long indexed, long missing,
