@@ -18,7 +18,8 @@ For the developer test tiers and when each profile is appropriate, see
 [docs/development/testing.md](docs/development/testing.md). In brief, `mvn test` runs the full
 regression suite; use `mvn test -Pfast` for unit/contract feedback, `mvn test -Pintegration` for
 Spring/SQLite/filesystem/REST/FTS coverage, and `mvn clean verify -Pfull` as the final PR and build
-integrity gate.
+integrity gate. Pull requests targeting `main` also run the three-stage GitHub Actions workflow
+documented in [docs/development/testing.md](docs/development/testing.md).
 
 ## Run
 
