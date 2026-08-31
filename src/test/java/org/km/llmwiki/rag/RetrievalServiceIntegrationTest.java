@@ -4,6 +4,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.search.FtsSearchIndexRepository;
 import org.km.llmwiki.search.KnowledgeSearchDocument;
+import org.km.llmwiki.search.SearchCandidatePage;
+import org.km.llmwiki.search.SearchCorpus;
+import org.km.llmwiki.search.SearchQuery;
+import org.km.llmwiki.search.SearchService;
+import org.km.llmwiki.search.SourceChunkIndexingService;
+import org.km.llmwiki.search.SourceIndexSyncStatus;
 import org.km.llmwiki.search.SourceSearchDocument;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.km.llmwiki.wiki.WikiContentHash;
@@ -11,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
+import org.km.llmwiki.workspace.WorkspaceService;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -36,6 +43,15 @@ class RetrievalServiceIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private FtsSearchIndexRepository ftsRepository;
+
+    @Autowired
+    private SourceChunkIndexingService sourceChunkIndexingService;
+
+    @Autowired
+    private SearchService searchService;
+
+    @Autowired
+    private WorkspaceService workspaceService;
 
     @Test
     void retrievesWikiSourceAndHybridFromSharedFtsWithAuthoritativeProvenance() throws Exception {
@@ -105,9 +121,52 @@ class RetrievalServiceIntegrationTest extends IsolatedIntegrationTest {
                 RetrievalRequest.defaults("authority", RetrievalMode.HYBRID_FTS));
 
         assertThat(bundle.workspace().id()).isEqualTo(active.id());
+        assertThat(bundle.searchedCandidateCount()).isEqualTo(1);
+        assertThat(bundle.rejectedCandidateCount()).isEqualTo(1);
+        assertThat(bundle.items()).isEmpty();
+        assertThat(bundle.insufficientEvidence()).isTrue();
+    }
+
+    @Test
+    void failsClosedWhenAuthorityDriftsBetweenSearchAndRetrievalRevalidation() throws Exception {
+        WorkspaceFixture active = insertWorkspace("race", "ACTIVE");
+        WikiFixture wiki = insertWiki(active, "race-wiki", "Race Wiki",
+                "raceintegration wiki v1");
+        SourceFixture source = insertSource(active.id(), "race.txt", 1, null,
+                null, null, "raceintegration source v1");
+        RetrievalRequest request = RetrievalRequest.defaults(
+                "raceintegration", RetrievalMode.HYBRID_FTS);
+        SearchCandidatePage candidates = searchService.findCandidates(new SearchQuery(
+                request.query(), SearchCorpus.ALL, null, null, 0, 32));
+        assertThat(candidates.items()).hasSize(2);
+
+        String wikiV2 = """
+                ---
+                id: "race-wiki"
+                title: "Race Wiki"
+                type: "CONCEPT"
+                status: "PUBLISHED"
+                ---
+
+                # Race Wiki
+
+                authoritative wiki v2
+                """;
+        String wikiV2Hash = sha256(wikiV2);
+        Files.writeString(wiki.path(), wikiV2, StandardCharsets.UTF_8);
+        db().sql("UPDATE knowledge_page SET content_hash = :hash, revision = revision + 1 WHERE knowledge_id = :id")
+                .param("hash", wikiV2Hash).param("id", "race-wiki").update();
+        String sourceV2 = "authoritative source v2";
+        db().sql("UPDATE source_chunk SET normalized_content = :content, content_hash = :hash WHERE id = :id")
+                .param("content", sourceV2).param("hash", sha256(sourceV2))
+                .param("id", source.chunkId()).update();
+
+        EvidenceBundle bundle = retrievalService.assembleEvidence(request,
+                workspaceService.findActiveWithoutValidation().orElseThrow(), candidates);
+
+        assertThat(bundle.items()).isEmpty();
         assertThat(bundle.searchedCandidateCount()).isEqualTo(2);
         assertThat(bundle.rejectedCandidateCount()).isEqualTo(2);
-        assertThat(bundle.items()).isEmpty();
         assertThat(bundle.insufficientEvidence()).isTrue();
     }
 
@@ -119,6 +178,7 @@ class RetrievalServiceIntegrationTest extends IsolatedIntegrationTest {
         Files.createDirectories(root.resolve("data"));
         Files.createDirectories(root.resolve("config"));
         KeyHolder key = new GeneratedKeyHolder();
+        KeyHolder pageKey = new GeneratedKeyHolder();
         db().sql("""
                         INSERT INTO workspace (name, root_path, inbox_path, archive_path, vault_path,
                             data_path, config_path, status, created_at, updated_at)
@@ -159,6 +219,7 @@ class RetrievalServiceIntegrationTest extends IsolatedIntegrationTest {
         Path target = workspace.root().resolve(logicalPath);
         Files.write(target, bytes);
 
+        KeyHolder pageKey = new GeneratedKeyHolder();
         db().sql("""
                         INSERT INTO knowledge_page (workspace_id, knowledge_id, title, normalized_title,
                             type, markdown_path, status, content_hash, revision, created_at, updated_at,
@@ -169,9 +230,19 @@ class RetrievalServiceIntegrationTest extends IsolatedIntegrationTest {
                 .param("workspace", workspace.id()).param("knowledgeId", knowledgeId)
                 .param("title", title).param("normalizedTitle", title.toLowerCase())
                 .param("path", logicalPath).param("hash", hash)
-                .param("created", "2026-08-31T00:00:00Z").update();
+                .param("created", "2026-08-31T00:00:00Z").update(pageKey);
+        long pageId = pageKey.getKey().longValue();
         ftsRepository.upsertKnowledge(new KnowledgeSearchDocument(workspace.id(), knowledgeId,
                 title, title.toLowerCase(), body, logicalPath, "CONCEPT", "PUBLISHED", hash));
+        db().sql("""
+                        INSERT INTO knowledge_search_index_sync
+                            (workspace_id, knowledge_page_id, knowledge_id, status, content_hash,
+                             indexed_content_hash, indexed_revision, failure_detail, updated_at)
+                        VALUES (:workspace, :pageId, :knowledgeId, 'SYNCED', :hash, :hash,
+                                3, NULL, '2026-08-31T00:00:00Z')
+                        """)
+                .param("workspace", workspace.id()).param("pageId", pageId)
+                .param("knowledgeId", knowledgeId).param("hash", hash).update();
         return new WikiFixture(target, hash);
     }
 
@@ -201,8 +272,8 @@ class RetrievalServiceIntegrationTest extends IsolatedIntegrationTest {
                 .param("section", section).param("headingPath", headingPath).param("content", content)
                 .param("hash", hash).param("created", "2026-08-31T00:00:00Z").update(chunkKey);
         long chunkId = chunkKey.getKey().longValue();
-        ftsRepository.upsertSource(new SourceSearchDocument(workspaceId, chunkId, documentId,
-                chunkNo, pageNo, content, section, headingPath, hash));
+        assertThat(sourceChunkIndexingService.reindexDocument(workspaceId, documentId).status())
+                .isEqualTo(SourceIndexSyncStatus.SYNCED);
         return new SourceFixture(documentId, chunkId);
     }
 

@@ -10,6 +10,10 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,8 +27,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class SearchApiIntegrationTest extends IsolatedIntegrationTest {
 
-    private static final String HASH = "abcdef0123456789".repeat(4);
-
     @Autowired
     private MockMvc mockMvc;
 
@@ -33,6 +35,9 @@ class SearchApiIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private SearchService searchService;
+
+    @Autowired
+    private SourceChunkIndexingService sourceChunkIndexingService;
 
     @Test
     void searchesWikiWithStableProvenanceAndTitleBoost() throws Exception {
@@ -224,6 +229,101 @@ class SearchApiIntegrationTest extends IsolatedIntegrationTest {
         }
     }
 
+    @Test
+    void rejectsWikiCandidatesWithAuthorityLedgerHashRevisionOrIdentityDrift() throws Exception {
+        long workspaceId = insertWorkspace("wiki-stale", "ACTIVE");
+        WikiFixture authorityDrift = insertWiki(workspaceId, "authority-drift", "Authority",
+                "authorityoldtoken", "CONCEPT", 1);
+        WikiFixture pending = insertWiki(workspaceId, "pending", "Pending",
+                "pendingtoken", "CONCEPT", 1);
+        WikiFixture drift = insertWiki(workspaceId, "drift", "Drift",
+                "drifttoken", "CONCEPT", 1);
+        WikiFixture missingLedger = insertWiki(workspaceId, "missing-ledger", "Missing",
+                "missingledgertoken", "CONCEPT", 1);
+        WikiFixture revision = insertWiki(workspaceId, "revision", "Revision",
+                "revisiontoken", "CONCEPT", 2);
+        WikiFixture ledgerHash = insertWiki(workspaceId, "ledger-hash", "Ledger hash",
+                "ledgerhashtoken", "CONCEPT", 1);
+        WikiFixture ftsHash = insertWiki(workspaceId, "fts-hash", "FTS hash",
+                "ftshashtoken", "CONCEPT", 1);
+        WikiFixture identity = insertWiki(workspaceId, "identity", "Identity",
+                "identitytoken", "CONCEPT", 1);
+        WikiFixture unpublished = insertWiki(workspaceId, "unpublished", "Unpublished",
+                "unpublishedtoken", "CONCEPT", 1);
+
+        db().sql("UPDATE knowledge_page SET content_hash = :hash, revision = 2 WHERE id = :id")
+                .param("hash", sha256("authoritative v2")).param("id", authorityDrift.pageId()).update();
+        db().sql("UPDATE knowledge_search_index_sync SET status = 'INDEX_PENDING' WHERE knowledge_page_id = :id")
+                .param("id", pending.pageId()).update();
+        db().sql("UPDATE knowledge_search_index_sync SET status = 'DRIFT' WHERE knowledge_page_id = :id")
+                .param("id", drift.pageId()).update();
+        db().sql("DELETE FROM knowledge_search_index_sync WHERE knowledge_page_id = :id")
+                .param("id", missingLedger.pageId()).update();
+        db().sql("UPDATE knowledge_search_index_sync SET indexed_revision = 1 WHERE knowledge_page_id = :id")
+                .param("id", revision.pageId()).update();
+        db().sql("UPDATE knowledge_search_index_sync SET indexed_content_hash = :hash WHERE knowledge_page_id = :id")
+                .param("hash", "0".repeat(64)).param("id", ledgerHash.pageId()).update();
+        db().sql("UPDATE knowledge_fts SET content_hash = :hash WHERE knowledge_id = :knowledgeId")
+                .param("hash", "1".repeat(64)).param("knowledgeId", ftsHash.knowledgeId()).update();
+        db().sql("DELETE FROM search_index_identity WHERE corpus = 'KNOWLEDGE' AND workspace_id = :workspace AND stable_id = :stableId")
+                .param("workspace", workspaceId).param("stableId", identity.knowledgeId()).update();
+        db().sql("UPDATE knowledge_page SET status = 'ARCHIVED' WHERE id = :id")
+                .param("id", unpublished.pageId()).update();
+
+        for (String token : List.of("authorityoldtoken", "pendingtoken", "drifttoken",
+                "missingledgertoken", "revisiontoken", "ledgerhashtoken", "ftshashtoken",
+                "identitytoken", "unpublishedtoken")) {
+            assertThat(searchService.search(token, "WIKI", null, null, 0, 20).data()).isEmpty();
+        }
+        mockMvc.perform(get("/api/v1/search").param("query", "authorityoldtoken")
+                        .param("corpus", "WIKI"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    void rejectsSourceCandidatesWithAuthorityEligibilityLedgerFingerprintOrIdentityDrift() {
+        long workspaceId = insertWorkspace("source-stale", "ACTIVE");
+        SourceFixture authorityDrift = insertSource(workspaceId, "authority.txt", 1, null,
+                null, null, "sourceauthorityoldtoken");
+        SourceFixture pending = insertSource(workspaceId, "pending.txt", 1, null,
+                null, null, "sourcependingtoken");
+        SourceFixture ineligible = insertSource(workspaceId, "ineligible.txt", 1, null,
+                null, null, "sourceineligibletoken");
+        SourceFixture fingerprint = insertSource(workspaceId, "fingerprint.txt", 1, null,
+                null, null, "sourcefingerprinttoken");
+        SourceFixture count = insertSource(workspaceId, "count.txt", 1, null,
+                null, null, "sourcecounttoken");
+        SourceFixture missingLedger = insertSource(workspaceId, "missing.txt", 1, null,
+                null, null, "sourcemissingtoken");
+        SourceFixture identity = insertSource(workspaceId, "identity.txt", 1, null,
+                null, null, "sourceidentitytoken");
+
+        String changed = "authoritative source v2";
+        db().sql("UPDATE source_chunk SET normalized_content = :content, content_hash = :hash WHERE id = :id")
+                .param("content", changed).param("hash", sha256(changed))
+                .param("id", authorityDrift.chunkId()).update();
+        db().sql("UPDATE source_search_index_sync SET status = 'INDEX_PENDING' WHERE document_id = :id")
+                .param("id", pending.documentId()).update();
+        db().sql("UPDATE document SET parse_status = 'FAILED' WHERE id = :id")
+                .param("id", ineligible.documentId()).update();
+        db().sql("UPDATE source_search_index_sync SET canonical_fingerprint = :fingerprint WHERE document_id = :id")
+                .param("fingerprint", "0".repeat(64)).param("id", fingerprint.documentId()).update();
+        db().sql("UPDATE source_search_index_sync SET eligible_chunk_count = 2, indexed_chunk_count = 2 WHERE document_id = :id")
+                .param("id", count.documentId()).update();
+        db().sql("DELETE FROM source_search_index_sync WHERE document_id = :id")
+                .param("id", missingLedger.documentId()).update();
+        db().sql("DELETE FROM search_index_identity WHERE corpus = 'SOURCE' AND workspace_id = :workspace AND stable_id = :stableId")
+                .param("workspace", workspaceId).param("stableId", Long.toString(identity.chunkId())).update();
+
+        for (String token : List.of("sourceauthorityoldtoken", "sourcependingtoken",
+                "sourceineligibletoken", "sourcefingerprinttoken", "sourcecounttoken",
+                "sourcemissingtoken", "sourceidentitytoken")) {
+            assertThat(searchService.search(token, "SOURCE", null, null, 0, 20).data()).isEmpty();
+        }
+    }
+
     private long insertWorkspace(String suffix, String status) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         db().sql("""
@@ -244,8 +344,10 @@ class SearchApiIntegrationTest extends IsolatedIntegrationTest {
         return keyHolder.getKey().longValue();
     }
 
-    private void insertWiki(long workspaceId, String knowledgeId, String title, String content,
-                            String pageType, int revision) {
+    private WikiFixture insertWiki(long workspaceId, String knowledgeId, String title, String content,
+                                   String pageType, int revision) {
+        String hash = sha256(content);
+        KeyHolder pageKey = new GeneratedKeyHolder();
         db().sql("""
                         INSERT INTO knowledge_page (workspace_id, knowledge_id, title, normalized_title,
                             type, markdown_path, status, content_hash, revision, created_at, updated_at,
@@ -260,12 +362,24 @@ class SearchApiIntegrationTest extends IsolatedIntegrationTest {
                 .param("normalizedTitle", title.toLowerCase())
                 .param("type", pageType)
                 .param("path", pageType.toLowerCase() + "s/" + knowledgeId + ".md")
-                .param("hash", HASH)
+                .param("hash", hash)
                 .param("revision", revision)
-                .update();
+                .update(pageKey);
+        long pageId = pageKey.getKey().longValue();
         repository.upsertKnowledge(new KnowledgeSearchDocument(workspaceId, knowledgeId, title,
                 title.toLowerCase(), content, pageType.toLowerCase() + "s/" + knowledgeId + ".md",
-                pageType, "PUBLISHED", HASH));
+                pageType, "PUBLISHED", hash));
+        db().sql("""
+                        INSERT INTO knowledge_search_index_sync
+                            (workspace_id, knowledge_page_id, knowledge_id, status, content_hash,
+                             indexed_content_hash, indexed_revision, failure_detail, updated_at)
+                        VALUES (:workspace, :pageId, :knowledgeId, 'SYNCED', :hash, :hash,
+                                :revision, NULL, '2026-08-30T00:00:00Z')
+                        """)
+                .param("workspace", workspaceId).param("pageId", pageId)
+                .param("knowledgeId", knowledgeId).param("hash", hash)
+                .param("revision", revision).update();
+        return new WikiFixture(pageId, knowledgeId);
     }
 
     private SourceFixture insertSource(long workspaceId, String fileName, int chunkNo,
@@ -274,14 +388,15 @@ class SearchApiIntegrationTest extends IsolatedIntegrationTest {
         KeyHolder documentKey = new GeneratedKeyHolder();
         db().sql("""
                         INSERT INTO document (workspace_id, file_name, original_file_name, extension,
-                            source_path, sha256, status, created_at, updated_at)
+                            source_path, sha256, status, parse_status, created_at, updated_at)
                         VALUES (:workspaceId, :fileName, :fileName, 'txt', :sourcePath, :hash,
-                            'PROCESSED', '2026-08-30T00:00:00Z', '2026-08-30T00:00:00Z')
+                            'PROCESSED', 'PROCESSED', '2026-08-30T00:00:00Z',
+                            '2026-08-30T00:00:00Z')
                         """)
                 .param("workspaceId", workspaceId)
                 .param("fileName", fileName)
                 .param("sourcePath", "archive/" + fileName)
-                .param("hash", HASH)
+                .param("hash", sha256(fileName))
                 .update(documentKey);
         long documentId = documentKey.getKey().longValue();
 
@@ -298,12 +413,24 @@ class SearchApiIntegrationTest extends IsolatedIntegrationTest {
                 .param("section", section)
                 .param("headingPath", headingPath)
                 .param("content", content)
-                .param("hash", HASH)
+                .param("hash", sha256(content))
                 .update(chunkKey);
         long chunkId = chunkKey.getKey().longValue();
-        repository.upsertSource(new SourceSearchDocument(workspaceId, chunkId, documentId,
-                chunkNo, pageNo, content, section, headingPath, HASH));
+        assertThat(sourceChunkIndexingService.reindexDocument(workspaceId, documentId).status())
+                .isEqualTo(SourceIndexSyncStatus.SYNCED);
         return new SourceFixture(documentId, chunkId);
+    }
+
+    private static String sha256(String content) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(content.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private record WikiFixture(long pageId, String knowledgeId) {
     }
 
     private record SourceFixture(long documentId, long chunkId) {
