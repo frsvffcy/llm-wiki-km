@@ -1,6 +1,7 @@
 package org.km.llmwiki.rag;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.search.SearchCandidate;
 import org.km.llmwiki.search.SearchCandidatePage;
@@ -44,6 +45,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Tag("unit")
 class RetrievalServiceTest {
 
     private static final long WORKSPACE_ID = 7L;

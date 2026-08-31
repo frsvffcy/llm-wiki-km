@@ -1,5 +1,6 @@
 package org.km.llmwiki.rag;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.search.FtsSearchIndexRepository;
@@ -29,6 +30,7 @@ import java.util.HexFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("integration")
 @SpringBootTest(properties = {
         "spring.main.web-application-type=none",
         "app.persistence.sqlite.path=target/test-data/retrieval-${random.uuid}/knowledge.db"

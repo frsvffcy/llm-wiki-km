@@ -2,6 +2,7 @@ package org.km.llmwiki.persistence;
 
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
@@ -17,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Tag("integration")
 @SpringBootTest(properties = {
         "app.persistence.sqlite.path=target/test-data/setting-${random.uuid}/knowledge.db"
 })

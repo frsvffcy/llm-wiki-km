@@ -1,6 +1,7 @@
 package org.km.llmwiki.persistence;
 
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.main.web-application-type=none",
         "app.persistence.sqlite.path=target/test-data/${random.uuid}/knowledge.db"
 })
+@Tag("integration")
 class FlywayMigrationIntegrationTest {
 
     @Autowired

@@ -2,6 +2,7 @@ package org.km.llmwiki.wiki;
 
 import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.workspace.WorkspaceRepository;
@@ -16,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@Tag("unit")
 class PublishedWikiContentReaderTest {
 
     private static final long WORKSPACE_ID = 7L;

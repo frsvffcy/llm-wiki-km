@@ -1,6 +1,7 @@
 package org.km.llmwiki.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.workspace.WorkspaceResponse;
@@ -16,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@Tag("unit")
 class DocumentAnalysisConfigurationLoaderTest {
 
     @TempDir

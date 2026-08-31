@@ -1,6 +1,7 @@
 package org.km.llmwiki.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -9,6 +10,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Tag("unit")
 class DocumentAnalysisPromptTemplateTest {
 
     private final DocumentAnalysisPromptTemplate template = new DocumentAnalysisPromptTemplate(new ObjectMapper());

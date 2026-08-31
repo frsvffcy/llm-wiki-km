@@ -22,6 +22,10 @@
         <sqlite-jdbc.version>3.50.3.0</sqlite-jdbc.version>
         <tika.version>3.2.3</tika.version>
         <pdfbox.version>3.0.5</pdfbox.version>
+        <!-- Empty by default: mvn test runs the complete regression suite. Profiles below
+             set these to JUnit 5 tags for intentionally narrower feedback loops. -->
+        <test.tags.include></test.tags.include>
+        <test.tags.exclude></test.tags.exclude>
     </properties>
 
     <dependencies>
@@ -145,6 +149,40 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.3</version>
+                <configuration>
+                    <groups>${test.tags.include}</groups>
+                    <excludedGroups>${test.tags.exclude}</excludedGroups>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>fast</id>
+            <properties>
+                <test.tags.include>unit,contract</test.tags.include>
+                <test.tags.exclude>integration</test.tags.exclude>
+            </properties>
+        </profile>
+        <profile>
+            <id>integration</id>
+            <properties>
+                <test.tags.include>integration</test.tags.include>
+                <test.tags.exclude></test.tags.exclude>
+            </properties>
+        </profile>
+        <profile>
+            <id>full</id>
+            <properties>
+                <!-- Deliberately no tag filter: this is the complete regression/build gate. -->
+                <test.tags.include></test.tags.include>
+                <test.tags.exclude></test.tags.exclude>
+            </properties>
+        </profile>
+    </profiles>
 </project>

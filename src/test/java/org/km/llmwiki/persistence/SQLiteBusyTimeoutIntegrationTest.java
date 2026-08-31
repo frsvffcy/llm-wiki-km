@@ -1,5 +1,6 @@
 package org.km.llmwiki.persistence;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,6 +14,7 @@ import java.sql.Statement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("integration")
 @SpringBootTest(properties = {
         "spring.main.web-application-type=none",
         "app.persistence.sqlite.path=target/test-data/busy-${random.uuid}/knowledge.db",

@@ -1,6 +1,7 @@
 package org.km.llmwiki.wiki;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.KnowledgeCandidateType;
 import org.km.llmwiki.ai.LlmProposalAction;
@@ -10,6 +11,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Tag("unit")
 class WikiDraftConverterTest {
 
     private final WikiDraftConverter converter = new WikiDraftConverter(
