@@ -104,6 +104,29 @@ public class FtsRebuildStateRepository {
                         FtsRebuildStatus.QUEUED.name(), FtsRebuildStatus.RUNNING.name())));
     }
 
+    public List<Long> findInProgressProcessingJobIds() {
+        return dsl.selectDistinct(SEARCH_INDEX_REBUILD_STATE.PROCESSING_JOB_ID)
+                .from(SEARCH_INDEX_REBUILD_STATE)
+                .where(SEARCH_INDEX_REBUILD_STATE.STATUS.in(
+                        FtsRebuildStatus.QUEUED.name(), FtsRebuildStatus.RUNNING.name()))
+                .orderBy(SEARCH_INDEX_REBUILD_STATE.PROCESSING_JOB_ID.asc())
+                .fetch(SEARCH_INDEX_REBUILD_STATE.PROCESSING_JOB_ID)
+                .stream().map(Integer::longValue).toList();
+    }
+
+    public int markInterrupted(String failureDetail) {
+        String now = now();
+        return dsl.update(SEARCH_INDEX_REBUILD_STATE)
+                .set(SEARCH_INDEX_REBUILD_STATE.STATUS, FtsRebuildStatus.FAILED.name())
+                .set(SEARCH_INDEX_REBUILD_STATE.FAILED_COUNT, 1)
+                .set(SEARCH_INDEX_REBUILD_STATE.FAILURE_DETAIL, bounded(failureDetail))
+                .set(SEARCH_INDEX_REBUILD_STATE.COMPLETED_AT, now)
+                .set(SEARCH_INDEX_REBUILD_STATE.UPDATED_AT, now)
+                .where(SEARCH_INDEX_REBUILD_STATE.STATUS.in(
+                        FtsRebuildStatus.QUEUED.name(), FtsRebuildStatus.RUNNING.name()))
+                .execute();
+    }
+
     public List<FtsRebuildState> findAll(long workspaceId) {
         return dsl.selectFrom(SEARCH_INDEX_REBUILD_STATE)
                 .where(SEARCH_INDEX_REBUILD_STATE.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))

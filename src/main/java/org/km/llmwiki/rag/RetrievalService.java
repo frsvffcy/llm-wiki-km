@@ -1,5 +1,6 @@
 package org.km.llmwiki.rag;
 
+import org.jooq.exception.DataAccessException;
 import org.km.llmwiki.search.SearchCandidate;
 import org.km.llmwiki.search.SearchCandidatePage;
 import org.km.llmwiki.search.SearchQuery;
@@ -11,6 +12,8 @@ import org.km.llmwiki.search.SourceSearchEligibilityPolicy;
 import org.km.llmwiki.search.SourceSearchFreshness;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
+import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
+import org.km.llmwiki.wiki.PublishedWikiValidationException;
 import org.km.llmwiki.wiki.StoredPublishedWiki;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
@@ -59,11 +62,25 @@ public class RetrievalService {
 
     public EvidenceBundle retrieve(RetrievalRequest request) {
         RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
-        WorkspaceResponse active = workspaceService.findActiveWithoutValidation()
-                .orElseThrow(NoActiveWorkspaceException::new);
-        SearchCandidatePage page = searchService.findCandidates(new SearchQuery(
-                request.query(), request.mode().searchCorpus(), null, null,
-                0, limits.candidateLimit()));
+        WorkspaceResponse active;
+        try {
+            active = workspaceService.findActiveWithoutValidation()
+                    .orElseThrow(NoActiveWorkspaceException::new);
+        } catch (DataAccessException infrastructureFailure) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.WORKSPACE_AUTHORITY,
+                    infrastructureFailure);
+        }
+        SearchCandidatePage page;
+        try {
+            page = searchService.findCandidates(new SearchQuery(
+                    request.query(), request.mode().searchCorpus(), null, null,
+                    0, limits.candidateLimit()));
+        } catch (DataAccessException infrastructureFailure) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.SEARCH_INDEX,
+                    infrastructureFailure);
+        }
         return assembleEvidence(request, active, page);
     }
 
@@ -129,15 +146,10 @@ public class RetrievalService {
         if (candidate.workspace() == null || candidate.workspace().id() != workspaceId) {
             return Optional.empty();
         }
-        try {
-            return switch (candidate.kind()) {
-                case WIKI -> revalidateWiki(candidate, workspaceId);
-                case SOURCE_CHUNK -> revalidateSource(
-                        candidate, workspaceId, sourceDocuments);
-            };
-        } catch (RuntimeException authorityFailure) {
-            return Optional.empty();
-        }
+        return switch (candidate.kind()) {
+            case WIKI -> revalidateWiki(candidate, workspaceId);
+            case SOURCE_CHUNK -> revalidateSource(candidate, workspaceId, sourceDocuments);
+        };
     }
 
     private Optional<AuthorityEvidence> revalidateWiki(SearchCandidate candidate, long workspaceId) {
@@ -145,14 +157,35 @@ public class RetrievalService {
                 || !candidate.stableId().equals(candidate.knowledgeId())) {
             return Optional.empty();
         }
-        return publishedWikiRepository
-                .findPublishedByKnowledgeId(workspaceId, candidate.stableId())
-                .filter(page -> candidate.indexedContentHash() != null
-                        && candidate.indexedContentHash().equals(page.contentHash()))
-                .filter(page -> candidate.revision() != null
-                        && candidate.revision() == page.revision())
-                .map(page -> wikiAuthority(page,
-                        publishedWikiContentReader.readSearchableContent(page)));
+        Optional<StoredPublishedWiki> stored;
+        try {
+            stored = publishedWikiRepository.findPublishedByKnowledgeId(
+                    workspaceId, candidate.stableId());
+        } catch (DataAccessException infrastructureFailure) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.WIKI_AUTHORITY,
+                    infrastructureFailure);
+        }
+        if (stored.isEmpty()) {
+            return Optional.empty();
+        }
+        StoredPublishedWiki page = stored.get();
+        if (candidate.indexedContentHash() == null
+                || !candidate.indexedContentHash().equals(page.contentHash())
+                || candidate.revision() == null
+                || candidate.revision() != page.revision()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(wikiAuthority(page,
+                    publishedWikiContentReader.readSearchableContent(page)));
+        } catch (PublishedWikiValidationException expectedDrift) {
+            return Optional.empty();
+        } catch (PublishedWikiUnavailableException infrastructureFailure) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.WIKI_AUTHORITY,
+                    infrastructureFailure);
+        }
     }
 
     private Optional<AuthorityEvidence> revalidateSource(
@@ -163,9 +196,15 @@ public class RetrievalService {
                 || !candidate.stableId().equals(candidate.sourceChunkId().toString())) {
             return Optional.empty();
         }
-        Optional<SourceSearchAuthorityDocument> document = documents.computeIfAbsent(
-                candidate.documentId(),
-                documentId -> sourceAuthorityRepository.findDocument(workspaceId, documentId));
+        Optional<SourceSearchAuthorityDocument> document;
+        try {
+            document = documents.computeIfAbsent(candidate.documentId(),
+                    documentId -> sourceAuthorityRepository.findDocument(workspaceId, documentId));
+        } catch (DataAccessException infrastructureFailure) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.SOURCE_AUTHORITY,
+                    infrastructureFailure);
+        }
         if (document.isEmpty()
                 || !SourceSearchEligibilityPolicy.documentEligible(document.get())) {
             return Optional.empty();

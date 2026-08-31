@@ -1,10 +1,12 @@
 package org.km.llmwiki.processing;
 
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.select;
@@ -131,6 +133,39 @@ public class ProcessingJobRepository {
                 .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.eq(Math.toIntExact(jobId)))
+                .execute();
+    }
+
+    public List<Long> findInterruptedIds(List<Long> linkedJobIds) {
+        Condition interrupted = PROCESSING_JOB.STATUS.in(
+                ProcessingJobStatus.QUEUED.name(), ProcessingJobStatus.RUNNING.name());
+        if (!linkedJobIds.isEmpty()) {
+            interrupted = interrupted.or(PROCESSING_JOB.ID.in(
+                    linkedJobIds.stream().map(Math::toIntExact).toList()));
+        }
+        return dsl.select(PROCESSING_JOB.ID)
+                .from(PROCESSING_JOB)
+                .where(PROCESSING_JOB.JOB_TYPE.eq(ProcessingJobType.FTS_REBUILD.name()))
+                .and(PROCESSING_JOB.STATUS.ne(ProcessingJobStatus.FAILED.name()))
+                .and(interrupted)
+                .orderBy(PROCESSING_JOB.ID.asc())
+                .fetch(PROCESSING_JOB.ID)
+                .stream().map(Integer::longValue).toList();
+    }
+
+    public int markInterrupted(List<Long> jobIds) {
+        if (jobIds.isEmpty()) {
+            return 0;
+        }
+        String now = now();
+        return dsl.update(PROCESSING_JOB)
+                .set(PROCESSING_JOB.STATUS, ProcessingJobStatus.FAILED.name())
+                .set(PROCESSING_JOB.FAILED_COUNT, 1)
+                .set(PROCESSING_JOB.FINISHED_AT, now)
+                .set(PROCESSING_JOB.UPDATED_AT, now)
+                .where(PROCESSING_JOB.ID.in(jobIds.stream().map(Math::toIntExact).toList()))
+                .and(PROCESSING_JOB.JOB_TYPE.eq(ProcessingJobType.FTS_REBUILD.name()))
+                .and(PROCESSING_JOB.STATUS.ne(ProcessingJobStatus.FAILED.name()))
                 .execute();
     }
 

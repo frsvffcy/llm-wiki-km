@@ -53,6 +53,9 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
     @Autowired
     private SearchService searchService;
 
+    @Autowired
+    private FtsRebuildStartupReconciler startupReconciler;
+
     @TempDir
     Path tempDirectory;
 
@@ -268,21 +271,103 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
-    void reportsInterruptedRunningRebuildAsDegradedInsteadOfHealthy() throws Exception {
+    void reconcilesInterruptedQueuedAndRunningRebuildsWithoutChangingKnowledgeData()
+            throws Exception {
         WorkspaceFixture workspace = insertWorkspace("interrupted", "ACTIVE");
-        long jobId = insertProcessingJob(workspace.id(), "RUNNING");
-        db().sql("""
-                INSERT INTO search_index_rebuild_state
-                    (workspace_id, corpus, status, processing_job_id, indexed_count, failed_count,
-                     started_at, updated_at)
-                VALUES (:workspace, 'WIKI', 'RUNNING', :job, 0, 0, :now, :now)
-                """).param("workspace", workspace.id()).param("job", jobId).param("now", NOW).update();
+        WikiFixture wiki = insertWiki(workspace, "wiki-interrupted", "Interrupted Wiki",
+                "preserved wiki projection", 5);
+        SourceFixture source = insertSource(workspace.id(), "interrupted.txt", "PROCESSED",
+                "preserved raw source", "preserved source projection");
+        Path archiveFile = Files.writeString(workspace.archive().resolve("keep.txt"),
+                "preserved archive bytes");
+        awaitJob(startRebuild("ALL"), "COMPLETED");
 
-        mockMvc.perform(get("/api/v1/search/index/health").param("corpus", "WIKI"))
+        List<String> projectionBefore = identitySnapshot(workspace.id());
+        String wikiFileBefore = Files.readString(wiki.file());
+        String wikiAuthorityBefore = canonicalWiki(wiki.pageId());
+        String sourceAuthorityBefore = canonicalSource(source.chunkId());
+        String archiveBefore = Files.readString(archiveFile);
+
+        long queuedJobId = insertProcessingJob(workspace.id(), "QUEUED", "queued");
+        long runningJobId = insertProcessingJob(workspace.id(), "RUNNING", "running");
+        persistInterruptedState(workspace.id(), "WIKI", "QUEUED", queuedJobId);
+        persistInterruptedState(workspace.id(), "SOURCE", "RUNNING", runningJobId);
+
+        FtsRebuildStartupReconciler.RecoveryResult first = startupReconciler.reconcile();
+
+        assertThat(first.rebuildStates()).isEqualTo(2);
+        assertThat(first.processingJobs()).isEqualTo(2);
+        assertThat(db().sql("""
+                SELECT corpus || ':' || status || ':' || failure_detail || ':' || failed_count
+                  FROM search_index_rebuild_state
+                 WHERE workspace_id = :workspace
+                 ORDER BY corpus
+                """).param("workspace", workspace.id()).query(String.class).list())
+                .containsExactly(
+                        "SOURCE:FAILED:Interrupted by application restart:1",
+                        "WIKI:FAILED:Interrupted by application restart:1");
+        assertThat(db().sql("""
+                SELECT id || ':' || status || ':' || failed_count || ':'
+                       || CASE WHEN finished_at IS NULL THEN 'OPEN' ELSE 'FINISHED' END
+                  FROM processing_job
+                 WHERE id IN (:queued, :running)
+                 ORDER BY id
+                """).param("queued", queuedJobId).param("running", runningJobId)
+                .query(String.class).list())
+                .containsExactly(
+                        queuedJobId + ":FAILED:1:FINISHED",
+                        runningJobId + ":FAILED:1:FINISHED");
+        assertThat(restartLogSnapshot(queuedJobId, runningJobId)).containsExactly(
+                queuedJobId + ":FTS_REBUILD:FAILED:Interrupted by application restart:"
+                        + "{\"reason\":\"APPLICATION_RESTART\"}",
+                runningJobId + ":FTS_REBUILD:FAILED:Interrupted by application restart:"
+                        + "{\"reason\":\"APPLICATION_RESTART\"}");
+
+        mockMvc.perform(get("/api/v1/search/index/health").param("corpus", "ALL"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("DEGRADED"))
-                .andExpect(jsonPath("$.data.summary.failed").value(1))
-                .andExpect(jsonPath("$.data.corpora[0].rebuildState.status").value("RUNNING"));
+                .andExpect(jsonPath("$.data.summary.failed").value(2));
+        assertThat(identitySnapshot(workspace.id())).isEqualTo(projectionBefore);
+        assertThat(ftsRepository.matchKnowledge(workspace.id(), "preserved wiki projection"))
+                .extracting(SearchIndexMatch::stableId).containsExactly("wiki-interrupted");
+        assertThat(ftsRepository.matchSource(workspace.id(), "preserved source projection"))
+                .extracting(SearchIndexMatch::stableId)
+                .containsExactly(Long.toString(source.chunkId()));
+        assertThat(Files.readString(wiki.file())).isEqualTo(wikiFileBefore);
+        assertThat(canonicalWiki(wiki.pageId())).isEqualTo(wikiAuthorityBefore);
+        assertThat(canonicalSource(source.chunkId())).isEqualTo(sourceAuthorityBefore);
+        assertThat(Files.readString(archiveFile)).isEqualTo(archiveBefore);
+
+        FtsRebuildStartupReconciler.RecoveryResult second = startupReconciler.reconcile();
+
+        assertThat(second.rebuildStates()).isZero();
+        assertThat(second.processingJobs()).isZero();
+        assertThat(restartLogSnapshot(queuedJobId, runningJobId)).hasSize(2);
+
+        awaitJob(startRebuild("ALL"), "COMPLETED");
+        assertHealth("ALL", "HEALTHY", 0, 0, 0);
+        assertThat(db().sql("""
+                SELECT corpus || ':' || status FROM search_index_rebuild_state
+                 WHERE workspace_id = :workspace ORDER BY corpus
+                """).param("workspace", workspace.id()).query(String.class).list())
+                .containsExactly("SOURCE:COMPLETED", "WIKI:COMPLETED");
+    }
+
+    @Test
+    void synchronizesTerminalFtsJobExplicitlyLinkedToInterruptedState() throws Exception {
+        WorkspaceFixture workspace = insertWorkspace("split-state", "ACTIVE");
+        long linkedJobId = insertProcessingJob(workspace.id(), "COMPLETED", "split-state");
+        insertInterruptedState(workspace.id(), "WIKI", "RUNNING", linkedJobId);
+
+        FtsRebuildStartupReconciler.RecoveryResult result = startupReconciler.reconcile();
+
+        assertThat(result.rebuildStates()).isOne();
+        assertThat(result.processingJobs()).isOne();
+        assertThat(db().sql("SELECT status FROM processing_job WHERE id = :id")
+                .param("id", linkedJobId).query(String.class).single()).isEqualTo("FAILED");
+        assertThat(db().sql("SELECT status FROM search_index_rebuild_state WHERE workspace_id = :id")
+                .param("id", workspace.id()).query(String.class).single()).isEqualTo("FAILED");
+        assertThat(restartLogSnapshot(linkedJobId, linkedJobId)).hasSize(1);
     }
 
     private String startRebuild(String corpus) throws Exception {
@@ -398,15 +483,54 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
         return new SourceFixture(documentId, chunk.getKey().longValue());
     }
 
-    private long insertProcessingJob(long workspaceId, String status) {
+    private long insertProcessingJob(long workspaceId, String status, String suffix) {
         KeyHolder key = new GeneratedKeyHolder();
         db().sql("""
                 INSERT INTO processing_job (workspace_id, job_id, job_type, status, total_count,
                     started_at, created_at, updated_at)
                 VALUES (:workspace, :externalId, 'FTS_REBUILD', :status, 1, :now, :now, :now)
-                """).param("workspace", workspaceId).param("externalId", "interrupted-job")
+                """).param("workspace", workspaceId)
+                .param("externalId", "interrupted-job-" + suffix)
                 .param("status", status).param("now", NOW).update(key);
         return key.getKey().longValue();
+    }
+
+    private void persistInterruptedState(long workspaceId, String corpus, String status,
+                                         long processingJobId) {
+        db().sql("""
+                UPDATE search_index_rebuild_state
+                   SET status = :status,
+                       processing_job_id = :job,
+                       indexed_count = 0,
+                       failed_count = 0,
+                       failure_detail = NULL,
+                       completed_at = NULL,
+                       updated_at = :now
+                 WHERE workspace_id = :workspace AND corpus = :corpus
+                """).param("status", status).param("job", processingJobId).param("now", NOW)
+                .param("workspace", workspaceId).param("corpus", corpus).update();
+    }
+
+    private void insertInterruptedState(long workspaceId, String corpus, String status,
+                                        long processingJobId) {
+        db().sql("""
+                INSERT INTO search_index_rebuild_state
+                    (workspace_id, corpus, status, processing_job_id, indexed_count,
+                     failed_count, updated_at)
+                VALUES (:workspace, :corpus, :status, :job, 0, 0, :now)
+                """).param("workspace", workspaceId).param("corpus", corpus)
+                .param("status", status).param("job", processingJobId).param("now", NOW).update();
+    }
+
+    private List<String> restartLogSnapshot(long queuedJobId, long runningJobId) {
+        return db().sql("""
+                SELECT job_id || ':' || step || ':' || status || ':' || message || ':'
+                       || metadata_json
+                  FROM processing_log
+                 WHERE job_id IN (:queued, :running)
+                 ORDER BY job_id, id
+                """).param("queued", queuedJobId).param("running", runningJobId)
+                .query(String.class).list();
     }
 
     private List<String> identitySnapshot(long workspaceId) {
@@ -440,6 +564,14 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
         return db().sql("""
                 SELECT content || '|' || normalized_content FROM source_chunk WHERE id = :id
                 """).param("id", chunkId).query(String.class).single();
+    }
+
+    private String canonicalWiki(long pageId) {
+        return db().sql("""
+                SELECT knowledge_id || '|' || title || '|' || markdown_path || '|'
+                       || content_hash || '|' || revision
+                  FROM knowledge_page WHERE id = :id
+                """).param("id", pageId).query(String.class).single();
     }
 
     private record WorkspaceFixture(long id, Path root, Path vault, Path archive) {
