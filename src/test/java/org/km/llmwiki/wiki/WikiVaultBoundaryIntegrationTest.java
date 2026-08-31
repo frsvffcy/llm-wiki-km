@@ -1,5 +1,6 @@
 package org.km.llmwiki.wiki;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *       in the target directory and the vault tree remains untouched.</li>
  * </ul>
  */
+@Tag("integration")
 class WikiVaultBoundaryIntegrationTest {
 
     private final WikiPathContract contract = new WikiPathContract();

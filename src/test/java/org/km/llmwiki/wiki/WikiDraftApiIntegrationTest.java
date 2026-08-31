@@ -1,5 +1,6 @@
 package org.km.llmwiki.wiki;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.ai.LlmProposalAction;
@@ -34,6 +35,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@Tag("integration")
 @SpringBootTest(properties = "app.persistence.sqlite.path=target/test-data/wiki-draft-api-${random.uuid}/knowledge.db")
 @AutoConfigureMockMvc
 class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {

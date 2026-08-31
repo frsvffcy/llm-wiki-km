@@ -1,5 +1,6 @@
 package org.km.llmwiki.wiki;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.LlmProposalAction;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
@@ -15,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Tag("integration")
 @SpringBootTest(properties = {
         "spring.main.web-application-type=none",
         "app.persistence.sqlite.path=target/test-data/proposals-${random.uuid}/knowledge.db"

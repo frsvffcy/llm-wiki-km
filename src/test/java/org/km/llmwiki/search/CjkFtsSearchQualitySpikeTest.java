@@ -1,5 +1,6 @@
 package org.km.llmwiki.search;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
@@ -30,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Executable evidence for Issue #124. These tests use the project's pinned Xerial driver directly;
  * they do not change the production FTS schema or canonical Wiki/Source data.
  */
+@Tag("contract")
 class CjkFtsSearchQualitySpikeTest {
 
     private static final int PERSONAL_WIKI_DOCUMENTS = 1_000;

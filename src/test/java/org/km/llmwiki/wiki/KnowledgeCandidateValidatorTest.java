@@ -1,5 +1,6 @@
 package org.km.llmwiki.wiki;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.KnowledgeCandidate;
 import org.km.llmwiki.ai.KnowledgeCandidateType;
@@ -12,6 +13,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Tag("unit")
 class KnowledgeCandidateValidatorTest {
 
     private final KnowledgeCandidateValidator validator = new KnowledgeCandidateValidator();

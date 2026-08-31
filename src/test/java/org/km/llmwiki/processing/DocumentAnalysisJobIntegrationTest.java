@@ -1,5 +1,6 @@
 package org.km.llmwiki.processing;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.km.llmwiki.ai.AnalysisEvidence;
@@ -48,6 +49,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@Tag("integration")
 @SpringBootTest(properties = {
         "app.persistence.sqlite.path=target/test-data/analysis-${random.uuid}/knowledge.db"
 })

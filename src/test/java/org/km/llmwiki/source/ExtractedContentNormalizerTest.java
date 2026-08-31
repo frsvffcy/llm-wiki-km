@@ -1,9 +1,11 @@
 package org.km.llmwiki.source;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("unit")
 class ExtractedContentNormalizerTest {
 
     @Test

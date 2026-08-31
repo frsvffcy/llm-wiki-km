@@ -2,6 +2,7 @@ package org.km.llmwiki.persistence;
 
 import org.km.llmwiki.LlmWikiKmApplication;
 import org.flywaydb.core.api.FlywayException;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 
@@ -10,6 +11,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+@Tag("integration")
 class FlywayMigrationFailureIntegrationTest {
 
     @Test
