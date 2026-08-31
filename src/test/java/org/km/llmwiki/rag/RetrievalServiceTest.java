@@ -17,12 +17,15 @@ import org.km.llmwiki.search.SourceSearchFreshness;
 import org.km.llmwiki.wiki.PageStatus;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
+import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
+import org.km.llmwiki.wiki.PublishedWikiValidationException;
 import org.km.llmwiki.wiki.StoredPublishedWiki;
 import org.km.llmwiki.wiki.WikiPageType;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.mockito.ArgumentCaptor;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -34,6 +37,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -144,7 +148,7 @@ class RetrievalServiceTest {
     void returnsBusinessInsufficientSignalWhenAuthorityOrWorkspaceRevalidationFails() {
         stubWiki("drift", "trusted");
         when(wikiContentReader.readSearchableContent(any()))
-                .thenThrow(new IllegalStateException("content_hash drift"));
+                .thenThrow(new PublishedWikiValidationException("content_hash drift"));
         SearchCandidate foreign = new SearchCandidate(SearchResultKind.WIKI, "foreign", 0.8,
                 "snippet", new SearchWorkspaceProvenance(99, "Foreign"), "foreign", "Foreign",
                 "CONCEPT", "vault/concepts/foreign.md", 1,
@@ -167,6 +171,84 @@ class RetrievalServiceTest {
         assertThat(bundle.insufficientEvidence()).isTrue();
         assertThat(bundle.rejectedCandidateCount()).isEqualTo(3);
         verify(wikiRepository, never()).findPublishedByKnowledgeId(WORKSPACE_ID, "foreign");
+    }
+
+    @Test
+    void returnsValidEvidenceWhenAnotherCandidateHasCanonicalWikiDrift() {
+        stubWiki("stale", "stale authority");
+        stubWiki("valid", "trusted authority");
+        when(wikiContentReader.readSearchableContent(
+                wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "stale").orElseThrow()))
+                .thenThrow(new PublishedWikiValidationException("frontmatter drift"));
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("stale", 0.9), wikiCandidate("valid", 0.8))));
+
+        EvidenceBundle bundle = retrievalService.retrieve(
+                RetrievalRequest.defaults("mixed", RetrievalMode.WIKI_ONLY));
+
+        assertThat(bundle.items()).extracting(EvidenceItem::stableId).containsExactly("valid");
+        assertThat(bundle.rejectedCandidateCount()).isOne();
+        assertThat(bundle.insufficientEvidence()).isFalse();
+    }
+
+    @Test
+    void propagatesDatabaseAuthorityFailureInsteadOfReturningInsufficientEvidence() {
+        stubSource(50L, 500L, "trusted source");
+        when(sourceRepository.findDocument(WORKSPACE_ID, 500L))
+                .thenThrow(new org.jooq.exception.DataAccessException("database unavailable"));
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                sourceCandidate(50L, 500L, 0.9))));
+
+        assertThatThrownBy(() -> retrievalService.retrieve(
+                RetrievalRequest.defaults("database", RetrievalMode.SOURCE_ONLY)))
+                .isInstanceOf(RetrievalUnavailableException.class)
+                .satisfies(failure -> assertThat(((RetrievalUnavailableException) failure)
+                        .dependency()).isEqualTo(
+                        RetrievalUnavailableException.Dependency.SOURCE_AUTHORITY));
+    }
+
+    @Test
+    void propagatesFilesystemAuthorityFailureInsteadOfReturningInsufficientEvidence() {
+        stubWiki("unreadable", "trusted wiki");
+        when(wikiContentReader.readSearchableContent(any()))
+                .thenThrow(new PublishedWikiUnavailableException(
+                        "Published Wiki Markdown could not be read",
+                        new IOException("permission denied")));
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("unreadable", 0.9))));
+
+        assertThatThrownBy(() -> retrievalService.retrieve(
+                RetrievalRequest.defaults("filesystem", RetrievalMode.WIKI_ONLY)))
+                .isInstanceOf(RetrievalUnavailableException.class)
+                .satisfies(failure -> assertThat(((RetrievalUnavailableException) failure)
+                        .dependency()).isEqualTo(
+                        RetrievalUnavailableException.Dependency.WIKI_AUTHORITY));
+    }
+
+    @Test
+    void propagatesSearchDatabaseFailureAsUnavailable() {
+        when(searchService.findCandidates(any()))
+                .thenThrow(new org.jooq.exception.DataAccessException("search database unavailable"));
+
+        assertThatThrownBy(() -> retrievalService.retrieve(
+                RetrievalRequest.defaults("search", RetrievalMode.HYBRID_FTS)))
+                .isInstanceOf(RetrievalUnavailableException.class)
+                .satisfies(failure -> assertThat(((RetrievalUnavailableException) failure)
+                        .dependency()).isEqualTo(
+                        RetrievalUnavailableException.Dependency.SEARCH_INDEX));
+    }
+
+    @Test
+    void propagatesWorkspaceDatabaseFailureAsUnavailable() {
+        when(workspaceService.findActiveWithoutValidation())
+                .thenThrow(new org.jooq.exception.DataAccessException("workspace unavailable"));
+
+        assertThatThrownBy(() -> retrievalService.retrieve(
+                RetrievalRequest.defaults("workspace", RetrievalMode.HYBRID_FTS)))
+                .isInstanceOf(RetrievalUnavailableException.class)
+                .satisfies(failure -> assertThat(((RetrievalUnavailableException) failure)
+                        .dependency()).isEqualTo(
+                        RetrievalUnavailableException.Dependency.WORKSPACE_AUTHORITY));
     }
 
     @Test

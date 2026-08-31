@@ -1,5 +1,6 @@
 package org.km.llmwiki.web;
 
+import org.km.llmwiki.rag.RetrievalUnavailableException;
 import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
 import org.km.llmwiki.source.DocumentNotFoundException;
@@ -97,6 +98,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoActiveWorkspaceException.class)
     public ResponseEntity<ApiError> handleNoActiveWorkspace(NoActiveWorkspaceException exception) {
         return respond(HttpStatus.NOT_FOUND, "NO_ACTIVE_WORKSPACE", exception.getMessage());
+    }
+
+    @ExceptionHandler(RetrievalUnavailableException.class)
+    public ResponseEntity<ApiError> handleRetrievalUnavailable(
+            RetrievalUnavailableException exception) {
+        return respond(HttpStatus.SERVICE_UNAVAILABLE, "RETRIEVAL_UNAVAILABLE",
+                exception.getMessage());
     }
 
     @ExceptionHandler({NoResourceFoundException.class, MethodArgumentTypeMismatchException.class})

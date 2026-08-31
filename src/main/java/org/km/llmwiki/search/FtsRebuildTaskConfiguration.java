@@ -10,7 +10,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 class FtsRebuildTaskConfiguration {
 
     @Bean("ftsRebuildTaskExecutor")
-    TaskExecutor ftsRebuildTaskExecutor() {
+    TaskExecutor ftsRebuildTaskExecutor(FtsRebuildStartupReconciler startupReconciler) {
+        startupReconciler.reconcile();
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(1);
         executor.setMaxPoolSize(1);
