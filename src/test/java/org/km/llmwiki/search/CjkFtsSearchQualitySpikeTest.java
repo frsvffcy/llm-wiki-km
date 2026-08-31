@@ -108,10 +108,10 @@ class CjkFtsSearchQualitySpikeTest {
 
     @Test
     void deterministicBigramProjectionSupportsShortCjkAndExactTechnicalTokens() throws SQLException {
-        assertThat(CjkBigramProjection.VERSION).isEqualTo("cjk-bigram-v1");
-        assertThat(CjkBigramProjection.transform("資料庫連線設定 SQLite/FTS5"))
+        assertThat(CjkBigramProjector.VERSION).isEqualTo("cjk-bigram-v1");
+        assertThat(CjkBigramProjector.transform("資料庫連線設定 SQLite/FTS5"))
                 .isEqualTo("資料 料庫 庫連 連線 線設 設定 sqlite fts5");
-        assertThat(CjkBigramProjection.transform("搜尋／索引／流程"))
+        assertThat(CjkBigramProjector.transform("搜尋／索引／流程"))
                 .isEqualTo("搜尋 索引 流程");
 
         try (Connection connection = indexedMemoryDatabase(Strategy.BIGRAM)) {
@@ -154,24 +154,26 @@ class CjkFtsSearchQualitySpikeTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("control characters");
 
-        String longCjkQuery = "這是一段超過既有詞數上限的繁體中文查詢用來驗證投影限制";
-        assertThatThrownBy(() -> FtsMatchQuery.literalExpression(
-                CjkBigramProjection.transform(longCjkQuery)))
+        // Make the budget boundary explicit: each repeated Han code point adds
+        // one overlapping bigram, so this always exceeds the projected-term
+        // limit without approaching the raw input limit.
+        String longCjkQuery = "甲".repeat(FtsMatchQuery.MAX_PROJECTED_TERMS + 2);
+        assertThatThrownBy(() -> FtsMatchQuery.literalExpression(longCjkQuery))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("more than 16 terms");
+                .hasMessageContaining("more than " + FtsMatchQuery.MAX_PROJECTED_TERMS + " terms");
     }
 
     @Test
     void titleWeightingRemainsAvailableForProjectedColumns() throws SQLException {
         try (Connection connection = openMemoryDatabase()) {
             createTable(connection, "rank_fts", "unicode61 remove_diacritics 2");
-            insert(connection, "rank_fts", "title-hit", CjkBigramProjection.transform("連線設定"),
-                    CjkBigramProjection.transform("普通內容"));
-            insert(connection, "rank_fts", "content-hit", CjkBigramProjection.transform("普通標題"),
-                    CjkBigramProjection.transform("這裡說明資料庫連線設定"));
+            insert(connection, "rank_fts", "title-hit", CjkBigramProjector.transform("連線設定"),
+                    CjkBigramProjector.transform("普通內容"));
+            insert(connection, "rank_fts", "content-hit", CjkBigramProjector.transform("普通標題"),
+                    CjkBigramProjector.transform("這裡說明資料庫連線設定"));
 
             String expression = FtsMatchQuery.literalExpression(
-                    CjkBigramProjection.transform("連線設定"));
+                    CjkBigramProjector.transform("連線設定"));
             try (PreparedStatement statement = connection.prepareStatement("""
                     SELECT id FROM rank_fts WHERE rank_fts MATCH ?
                     ORDER BY bm25(rank_fts, 0.0, 8.0, 1.0), id
@@ -475,7 +477,7 @@ class CjkFtsSearchQualitySpikeTest {
         BIGRAM("unicode61 remove_diacritics 2") {
             @Override
             String project(String value) {
-                return CjkBigramProjection.transform(value);
+                return CjkBigramProjector.transform(value);
             }
         };
 
@@ -492,62 +494,40 @@ class CjkFtsSearchQualitySpikeTest {
         abstract String project(String value);
 
         String expression(String query) {
-            return FtsMatchQuery.literalExpression(project(query));
+            // Production's FtsMatchQuery accepts raw text and applies the cjk-bigram-v1
+            // projection itself.  The baseline strategies intentionally keep their
+            // historical tokenizer semantics, so they must use a raw literal MATCH
+            // expression rather than feeding an already projected value back through
+            // the production query transformer.
+            return this == BIGRAM
+                    ? FtsMatchQuery.literalExpression(query)
+                    : rawLiteralExpression(project(query));
         }
     }
 
-    private static final class CjkBigramProjection {
-
-        private static final String VERSION = "cjk-bigram-v1";
-
-        private CjkBigramProjection() {
-        }
-
-        static String transform(String input) {
-            String normalized = Normalizer.normalize(input, Normalizer.Form.NFC);
-            List<String> tokens = new ArrayList<>();
-            StringBuilder current = new StringBuilder();
-            Character.UnicodeScript currentScript = null;
-            for (int codePoint : normalized.codePoints().toArray()) {
-                Character.UnicodeScript script = Character.UnicodeScript.of(codePoint);
-                boolean searchable = Character.isLetterOrDigit(codePoint);
-                Character.UnicodeScript group = script == Character.UnicodeScript.HAN
-                        ? Character.UnicodeScript.HAN : Character.UnicodeScript.LATIN;
-                if (!searchable) {
-                    flush(tokens, current, currentScript);
-                    currentScript = null;
-                } else {
-                    if (currentScript != null && currentScript != group) {
-                        flush(tokens, current, currentScript);
-                        currentScript = null;
-                    }
-                    current.appendCodePoint(codePoint);
-                    currentScript = group;
-                }
+    private static String rawLiteralExpression(String query) {
+        String normalized = Normalizer.normalize(query.strip(), Normalizer.Form.NFC);
+        List<String> terms = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        normalized.codePoints().forEach(codePoint -> {
+            int type = Character.getType(codePoint);
+            boolean searchable = Character.isLetterOrDigit(codePoint)
+                    || type == Character.NON_SPACING_MARK
+                    || type == Character.COMBINING_SPACING_MARK
+                    || type == Character.ENCLOSING_MARK;
+            if (searchable) {
+                current.appendCodePoint(codePoint);
+            } else if (!current.isEmpty()) {
+                terms.add(current.toString());
+                current.setLength(0);
             }
-            flush(tokens, current, currentScript);
-            return String.join(" ", tokens);
+        });
+        if (!current.isEmpty()) {
+            terms.add(current.toString());
         }
-
-        private static void flush(List<String> tokens, StringBuilder current,
-                                  Character.UnicodeScript script) {
-            if (current.isEmpty()) {
-                return;
-            }
-            if (script == Character.UnicodeScript.HAN) {
-                int[] codePoints = current.codePoints().toArray();
-                if (codePoints.length == 1) {
-                    tokens.add(new String(codePoints, 0, 1));
-                } else {
-                    for (int index = 0; index < codePoints.length - 1; index++) {
-                        tokens.add(new String(codePoints, index, 2));
-                    }
-                }
-            } else {
-                tokens.add(current.toString().toLowerCase(Locale.ROOT));
-            }
-            current.setLength(0);
-        }
+        return terms.stream()
+                .map(term -> '"' + term.replace("\"", "\"\"") + '"')
+                .collect(java.util.stream.Collectors.joining(" AND "));
     }
 
     private record FixtureDocument(String id, String title, String content) {

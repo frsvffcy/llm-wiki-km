@@ -144,11 +144,14 @@ public class FtsSearchIndexRepository {
     @Transactional(readOnly = true)
     public List<SearchIndexMatch> matchKnowledge(long workspaceId, String query) {
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        if (!hasCurrentProjectionContract(KNOWLEDGE)) {
+            return List.of();
+        }
         return dsl.fetch("""
                         SELECT knowledge_fts.workspace_id AS workspace_id,
                                knowledge_fts.knowledge_id AS stable_id,
-                               knowledge_fts.title AS title,
-                               knowledge_fts.content AS searchable_text,
+                               knowledge_fts.canonical_title AS title,
+                               knowledge_fts.canonical_content AS searchable_text,
                                knowledge_fts.markdown_path AS location,
                                knowledge_fts.page_type AS page_type,
                                knowledge_fts.content_hash AS content_hash,
@@ -162,8 +165,9 @@ public class FtsSearchIndexRepository {
                         WHERE knowledge_fts MATCH {0}
                           AND knowledge_fts.workspace_id = {1}
                           AND knowledge_fts.page_status = 'PUBLISHED'
+                          AND knowledge_fts.projection_version = {2}
                         ORDER BY rank ASC, identity.fts_rowid ASC
-                        """, expression, workspaceId)
+                        """, expression, workspaceId, CjkBigramProjector.VERSION)
                 .map(record -> new SearchIndexMatch(
                         KNOWLEDGE,
                         record.get("workspace_id", Long.class),
@@ -189,6 +193,9 @@ public class FtsSearchIndexRepository {
     @Transactional(readOnly = true)
     public List<SourceSearchEvidenceMatch> matchSourceEvidence(long workspaceId, String query) {
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        if (!hasCurrentProjectionContract(SOURCE)) {
+            return List.of();
+        }
         return dsl.fetch("""
                         SELECT source_fts.workspace_id AS workspace_id,
                                source_fts.source_chunk_id AS source_chunk_id,
@@ -208,8 +215,9 @@ public class FtsSearchIndexRepository {
                          AND identity.fts_rowid = source_fts.rowid
                         WHERE source_fts MATCH {0}
                           AND source_fts.workspace_id = {1}
+                          AND source_fts.projection_version = {2}
                         ORDER BY rank ASC, identity.fts_rowid ASC
-                        """, expression, workspaceId)
+                        """, expression, workspaceId, CjkBigramProjector.VERSION)
                 .map(record -> new SourceSearchEvidenceMatch(
                         Long.parseLong(record.get("source_chunk_id", String.class)),
                         record.get("workspace_id", Long.class),
@@ -232,10 +240,13 @@ public class FtsSearchIndexRepository {
                                knowledge_fts.title AS title,
                                knowledge_fts.content AS content,
                                knowledge_fts.normalized_title AS normalized_title,
+                               knowledge_fts.canonical_title AS canonical_title,
+                               knowledge_fts.canonical_content AS canonical_content,
                                knowledge_fts.markdown_path AS markdown_path,
                                knowledge_fts.page_type AS page_type,
                                knowledge_fts.page_status AS page_status,
-                               knowledge_fts.content_hash AS content_hash
+                               knowledge_fts.content_hash AS content_hash,
+                               knowledge_fts.projection_version AS projection_version
                           FROM knowledge_fts
                           LEFT JOIN search_index_identity identity
                             ON identity.corpus = 'KNOWLEDGE'
@@ -250,8 +261,10 @@ public class FtsSearchIndexRepository {
                         Boolean.TRUE.equals(record.get("identity_valid", Boolean.class)),
                         record.get("knowledge_id", String.class), record.get("title", String.class),
                         record.get("content", String.class), record.get("normalized_title", String.class),
+                        record.get("canonical_title", String.class), record.get("canonical_content", String.class),
                         record.get("markdown_path", String.class), record.get("page_type", String.class),
-                        record.get("page_status", String.class), record.get("content_hash", String.class)));
+                        record.get("page_status", String.class), record.get("content_hash", String.class),
+                        record.get("projection_version", String.class)));
     }
 
     @Transactional(readOnly = true)
@@ -263,7 +276,9 @@ public class FtsSearchIndexRepository {
                                source_fts.document_id AS document_id,
                                source_fts.chunk_no AS chunk_no,
                                source_fts.page_no AS page_no,
+                               source_fts.projected_content AS projected_content,
                                source_fts.normalized_content AS normalized_content,
+                               source_fts.projection_version AS projection_version,
                                source_fts.section AS section,
                                source_fts.heading_path AS heading_path,
                                source_fts.content_hash AS content_hash
@@ -283,7 +298,8 @@ public class FtsSearchIndexRepository {
                         record.get("document_id", Long.class), record.get("chunk_no", Integer.class),
                         record.get("page_no", Integer.class), record.get("normalized_content", String.class),
                         record.get("section", String.class), record.get("heading_path", String.class),
-                        record.get("content_hash", String.class)));
+                        record.get("content_hash", String.class), record.get("projected_content", String.class),
+                        record.get("projection_version", String.class)));
     }
 
     @Transactional(readOnly = true)
@@ -304,10 +320,44 @@ public class FtsSearchIndexRepository {
                 .get("total", Long.class);
     }
 
+    /** Returns the durable projection contract recorded by the database migration. */
+    @Transactional(readOnly = true)
+    String projectionContractVersion(String corpus) {
+        String controlledCorpus = switch (corpus) {
+            case KNOWLEDGE -> KNOWLEDGE;
+            case SOURCE -> SOURCE;
+            default -> throw new IllegalArgumentException("Unknown FTS corpus: " + corpus);
+        };
+        var record = dsl.fetchOne("""
+                        SELECT projection_version
+                          FROM search_index_contract
+                         WHERE corpus = {0}
+                        """, controlledCorpus);
+        return record == null ? null : record.get("projection_version", String.class);
+    }
+
+    private boolean hasCurrentProjectionContract(String corpus) {
+        var record = dsl.fetchOne("""
+                        SELECT projection_algorithm, projection_version
+                          FROM search_index_contract
+                         WHERE corpus = {0}
+                        """, corpus);
+        return record != null
+                && CjkBigramProjector.ALGORITHM.equals(record.get("projection_algorithm", String.class))
+                && CjkBigramProjector.VERSION.equals(record.get("projection_version", String.class));
+    }
+
+    boolean projectionContractMatches(String corpus) {
+        return hasCurrentProjectionContract(corpus);
+    }
+
     /** Counts authoritative Published Wiki matches for the workspace and controlled page-type filter. */
     @Transactional(readOnly = true)
     public long countWikiSearch(long workspaceId, String query, String pageType) {
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        if (!hasCurrentProjectionContract(KNOWLEDGE)) {
+            return 0;
+        }
         return dsl.fetchOne("""
                         SELECT COUNT(*) AS total
                           FROM knowledge_fts
@@ -328,12 +378,14 @@ public class FtsSearchIndexRepository {
                            AND sync.content_hash = page.content_hash
                            AND sync.indexed_content_hash = page.content_hash
                            AND sync.indexed_revision = page.revision
+                           AND sync.projection_version = {3}
                          WHERE knowledge_fts MATCH {0}
                            AND knowledge_fts.workspace_id = {1}
                            AND knowledge_fts.page_status = 'PUBLISHED'
+                           AND knowledge_fts.projection_version = {3}
                            AND knowledge_fts.content_hash = page.content_hash
                            AND ({2} IS NULL OR page.type = {2})
-                        """, expression, workspaceId, pageType)
+                        """, expression, workspaceId, pageType, CjkBigramProjector.VERSION)
                 .get("total", Long.class);
     }
 
@@ -345,6 +397,9 @@ public class FtsSearchIndexRepository {
     public List<WikiFtsSearchMatch> searchWiki(long workspaceId, String query,
                                                String pageType, int limit) {
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        if (!hasCurrentProjectionContract(KNOWLEDGE)) {
+            return List.of();
+        }
         return dsl.fetch("""
                         SELECT knowledge_fts.workspace_id AS workspace_id,
                                knowledge_fts.knowledge_id AS knowledge_id,
@@ -353,7 +408,8 @@ public class FtsSearchIndexRepository {
                                page.markdown_path AS markdown_path,
                                page.revision AS revision,
                                knowledge_fts.content_hash AS indexed_content_hash,
-                               snippet(knowledge_fts, -1, '<mark>', '</mark>', '…', 24) AS snippet,
+                               knowledge_fts.canonical_title AS canonical_title,
+                               knowledge_fts.canonical_content AS canonical_content,
                                bm25(knowledge_fts, 0.0, 0.0, 8.0, 1.0,
                                     0.0, 0.0, 0.0, 0.0, 0.0, 0.0) AS raw_rank
                           FROM knowledge_fts
@@ -374,14 +430,16 @@ public class FtsSearchIndexRepository {
                            AND sync.content_hash = page.content_hash
                            AND sync.indexed_content_hash = page.content_hash
                            AND sync.indexed_revision = page.revision
+                           AND sync.projection_version = {3}
                          WHERE knowledge_fts MATCH {0}
                            AND knowledge_fts.workspace_id = {1}
                            AND knowledge_fts.page_status = 'PUBLISHED'
+                           AND knowledge_fts.projection_version = {3}
                            AND knowledge_fts.content_hash = page.content_hash
                            AND ({2} IS NULL OR page.type = {2})
                          ORDER BY raw_rank ASC, knowledge_fts.knowledge_id ASC
-                         LIMIT {3}
-                        """, expression, workspaceId, pageType, limit)
+                         LIMIT {4}
+                        """, expression, workspaceId, pageType, CjkBigramProjector.VERSION, limit)
                 .map(record -> new WikiFtsSearchMatch(
                         record.get("workspace_id", Long.class),
                         record.get("knowledge_id", String.class),
@@ -390,7 +448,9 @@ public class FtsSearchIndexRepository {
                         record.get("markdown_path", String.class),
                         record.get("revision", Integer.class),
                         record.get("indexed_content_hash", String.class),
-                        record.get("snippet", String.class),
+                        SearchSnippet.canonical(canonicalSnippetText(
+                                record.get("canonical_title", String.class),
+                                record.get("canonical_content", String.class)), query),
                         record.get("raw_rank", Double.class)));
     }
 
@@ -398,6 +458,9 @@ public class FtsSearchIndexRepository {
     @Transactional(readOnly = true)
     public List<Long> findMatchedSourceDocumentIds(long workspaceId, String query, Long documentId) {
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        if (!hasCurrentProjectionContract(SOURCE)) {
+            return List.of();
+        }
         return dsl.fetch("""
                         SELECT DISTINCT CAST(source_fts.document_id AS INTEGER) AS document_id
                           FROM source_fts
@@ -414,9 +477,10 @@ public class FtsSearchIndexRepository {
                            AND chunk.document_id = document.id
                          WHERE source_fts MATCH {0}
                            AND source_fts.workspace_id = {1}
+                           AND source_fts.projection_version = {3}
                            AND ({2} IS NULL OR document.id = {2})
                          ORDER BY document_id
-                        """, expression, workspaceId, documentId)
+                        """, expression, workspaceId, documentId, CjkBigramProjector.VERSION)
                 .getValues("document_id", Long.class);
     }
 
@@ -428,6 +492,9 @@ public class FtsSearchIndexRepository {
             return 0;
         }
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        if (!hasCurrentProjectionContract(SOURCE)) {
+            return 0;
+        }
         return dsl.fetchOne("""
                         SELECT COUNT(*) AS total
                           FROM source_fts
@@ -448,8 +515,10 @@ public class FtsSearchIndexRepository {
                            AND sync.status = 'SYNCED'
                            AND sync.eligible_chunk_count = sync.indexed_chunk_count
                            AND sync.canonical_fingerprint = sync.indexed_fingerprint
+                           AND sync.projection_version = {4}
                          WHERE source_fts MATCH {0}
                            AND source_fts.workspace_id = {1}
+                           AND source_fts.projection_version = {4}
                            AND ({2} IS NULL OR document.id = {2})
                            AND {3}
                            AND document.parse_status = 'PROCESSED'
@@ -462,7 +531,7 @@ public class FtsSearchIndexRepository {
                            AND COALESCE(source_fts.section, '') = COALESCE(chunk.section, '')
                            AND COALESCE(source_fts.heading_path, '') = COALESCE(chunk.heading_path, '')
                         """, expression, workspaceId, documentId,
-                        DSL.field("document.id", Long.class).in(freshDocumentIds))
+                        DSL.field("document.id", Long.class).in(freshDocumentIds), CjkBigramProjector.VERSION)
                 .get("total", Long.class);
     }
 
@@ -475,6 +544,9 @@ public class FtsSearchIndexRepository {
             return List.of();
         }
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));
+        if (!hasCurrentProjectionContract(SOURCE)) {
+            return List.of();
+        }
         return dsl.fetch("""
                         SELECT source_fts.workspace_id AS workspace_id,
                                CAST(source_fts.source_chunk_id AS INTEGER) AS source_chunk_id,
@@ -487,7 +559,7 @@ public class FtsSearchIndexRepository {
                                source_fts.content_hash AS indexed_content_hash,
                                sync.indexed_fingerprint AS document_fingerprint,
                                sync.indexed_chunk_count AS eligible_chunk_count,
-                               snippet(source_fts, -1, '<mark>', '</mark>', '…', 24) AS snippet,
+                               source_fts.normalized_content AS canonical_content,
                                bm25(source_fts) AS raw_rank
                           FROM source_fts
                           JOIN search_index_identity identity
@@ -507,8 +579,10 @@ public class FtsSearchIndexRepository {
                            AND sync.status = 'SYNCED'
                            AND sync.eligible_chunk_count = sync.indexed_chunk_count
                            AND sync.canonical_fingerprint = sync.indexed_fingerprint
+                           AND sync.projection_version = {5}
                          WHERE source_fts MATCH {0}
                            AND source_fts.workspace_id = {1}
+                           AND source_fts.projection_version = {5}
                            AND ({2} IS NULL OR document.id = {2})
                            AND {4}
                            AND document.parse_status = 'PROCESSED'
@@ -523,7 +597,7 @@ public class FtsSearchIndexRepository {
                          ORDER BY raw_rank ASC, source_fts.source_chunk_id ASC
                          LIMIT {3}
                         """, expression, workspaceId, documentId, limit,
-                        DSL.field("document.id", Long.class).in(freshDocumentIds))
+                        DSL.field("document.id", Long.class).in(freshDocumentIds), CjkBigramProjector.VERSION)
                 .map(record -> new SourceFtsSearchMatch(
                         record.get("workspace_id", Long.class),
                         record.get("source_chunk_id", Long.class),
@@ -536,7 +610,7 @@ public class FtsSearchIndexRepository {
                         record.get("indexed_content_hash", String.class),
                         record.get("document_fingerprint", String.class),
                         record.get("eligible_chunk_count", Integer.class),
-                        record.get("snippet", String.class),
+                        SearchSnippet.canonical(record.get("canonical_content", String.class), query),
                         record.get("raw_rank", Double.class)));
     }
 
@@ -568,22 +642,27 @@ public class FtsSearchIndexRepository {
         dsl.execute("""
                         INSERT INTO knowledge_fts
                             (rowid, workspace_id, knowledge_id, title, content, normalized_title,
-                             markdown_path, page_type, page_status, content_hash)
-                        VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9})
-                        """, rowId, document.workspaceId(), document.knowledgeId(), document.title(),
-                document.content(), document.normalizedTitle(), document.markdownPath(), document.pageType(),
-                document.pageStatus(), document.contentHash());
+                             canonical_title, canonical_content, markdown_path, page_type, page_status,
+                             content_hash, projection_version)
+                        VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, {11}, {12})
+                        """, rowId, document.workspaceId(), document.knowledgeId(),
+                CjkBigramProjector.transform(document.title()),
+                CjkBigramProjector.transform(document.content()), document.normalizedTitle(),
+                document.title(), document.content(), document.markdownPath(), document.pageType(),
+                document.pageStatus(), document.contentHash(), CjkBigramProjector.VERSION);
     }
 
     private void insertSource(long rowId, SourceSearchDocument document) {
         dsl.execute("""
                         INSERT INTO source_fts
                             (rowid, workspace_id, source_chunk_id, document_id, chunk_no, page_no,
-                             normalized_content, section, heading_path, content_hash)
-                        VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9})
+                             projected_content, normalized_content, section, heading_path, content_hash,
+                             projection_version)
+                        VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, {11})
                         """, rowId, document.workspaceId(), document.stableId(), document.documentId(),
-                document.chunkNo(), document.pageNo(), document.normalizedContent(), document.section(),
-                document.headingPath(), document.contentHash());
+                document.chunkNo(), document.pageNo(), CjkBigramProjector.transform(document.normalizedContent()),
+                document.normalizedContent(), document.section(), document.headingPath(), document.contentHash(),
+                CjkBigramProjector.VERSION);
     }
 
     private void clearCorpus(String corpus, long workspaceId) {
@@ -626,6 +705,16 @@ public class FtsSearchIndexRepository {
 
     private static String normalizeQuery(String query) {
         return query == null ? null : Normalizer.normalize(query, Normalizer.Form.NFC);
+    }
+
+    private static String canonicalSnippetText(String title, String content) {
+        if (title == null || title.isEmpty()) {
+            return content == null ? "" : content;
+        }
+        if (content == null || content.isEmpty()) {
+            return title;
+        }
+        return title + "\n" + content;
     }
 
     private static void requireWorkspace(long expected, long actual, String corpus) {

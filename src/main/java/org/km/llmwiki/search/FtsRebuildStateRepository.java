@@ -30,12 +30,14 @@ public class FtsRebuildStateRepository {
                             SEARCH_INDEX_REBUILD_STATE.PROCESSING_JOB_ID,
                             SEARCH_INDEX_REBUILD_STATE.INDEXED_COUNT,
                             SEARCH_INDEX_REBUILD_STATE.FAILED_COUNT,
+                            SEARCH_INDEX_REBUILD_STATE.PROJECTION_VERSION,
                             SEARCH_INDEX_REBUILD_STATE.FAILURE_DETAIL,
                             SEARCH_INDEX_REBUILD_STATE.STARTED_AT,
                             SEARCH_INDEX_REBUILD_STATE.COMPLETED_AT,
                             SEARCH_INDEX_REBUILD_STATE.UPDATED_AT)
                     .values(Math.toIntExact(workspaceId), corpus.name(), FtsRebuildStatus.QUEUED.name(),
-                            Math.toIntExact(processingJobId), 0, 0, null, null, null, now)
+                            Math.toIntExact(processingJobId), 0, 0, CjkBigramProjector.VERSION,
+                            null, null, null, now)
                     .onConflict(SEARCH_INDEX_REBUILD_STATE.WORKSPACE_ID,
                             SEARCH_INDEX_REBUILD_STATE.CORPUS)
                     .doUpdate()
@@ -44,6 +46,7 @@ public class FtsRebuildStateRepository {
                             Math.toIntExact(processingJobId))
                     .set(SEARCH_INDEX_REBUILD_STATE.INDEXED_COUNT, 0)
                     .set(SEARCH_INDEX_REBUILD_STATE.FAILED_COUNT, 0)
+                    .set(SEARCH_INDEX_REBUILD_STATE.PROJECTION_VERSION, CjkBigramProjector.VERSION)
                     .set(SEARCH_INDEX_REBUILD_STATE.FAILURE_DETAIL, (String) null)
                     .set(SEARCH_INDEX_REBUILD_STATE.STARTED_AT, (String) null)
                     .set(SEARCH_INDEX_REBUILD_STATE.COMPLETED_AT, (String) null)
@@ -138,8 +141,8 @@ public class FtsRebuildStateRepository {
         return new FtsRebuildState(record.getWorkspaceId().longValue(),
                 SearchCorpus.valueOf(record.getCorpus()), FtsRebuildStatus.valueOf(record.getStatus()),
                 record.getProcessingJobId().longValue(), record.getIndexedCount(),
-                record.getFailedCount(), record.getFailureDetail(), record.getStartedAt(),
-                record.getCompletedAt(), record.getUpdatedAt());
+                record.getFailedCount(), record.getProjectionVersion(), record.getFailureDetail(),
+                record.getStartedAt(), record.getCompletedAt(), record.getUpdatedAt());
     }
 
     private static String bounded(String detail) {

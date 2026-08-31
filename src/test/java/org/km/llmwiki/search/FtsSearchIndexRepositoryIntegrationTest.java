@@ -62,7 +62,7 @@ class FtsSearchIndexRepositoryIntegrationTest extends IsolatedIntegrationTest {
                         "rebuildable", 1),
                 Map.of("corpus", "SOURCE",
                         "stableIdentity", "workspace_id + source_chunk_id",
-                        "indexedFields", "normalized_content",
+                        "indexedFields", "projected_content",
                         "tokenizer", "unicode61 remove_diacritics 2",
                         "unicode", "NFC supplied by source_chunk.normalized_content",
                         "sourceOfTruth", "source_chunk.normalized_content; raw content remains evidence-only",
