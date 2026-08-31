@@ -1,12 +1,9 @@
 package org.km.llmwiki;
 
-import org.junit.jupiter.api.Tag;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@Tag("integration")
-@SpringBootTest
-class LlmWikiKmApplicationTests {
+class LlmWikiKmApplicationTests extends IsolatedIntegrationTest {
 
     @Test
     void contextLoads() {

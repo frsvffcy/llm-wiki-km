@@ -1,10 +1,8 @@
 package org.km.llmwiki.workspace;
 
-import org.junit.jupiter.api.Tag;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -21,12 +19,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "app.persistence.sqlite.path=target/test-data/ws-tx-${random.uuid}/knowledge.db"
-})
-@AutoConfigureMockMvc
-class WorkspaceCreationTransactionIntegrationTest {
+class WorkspaceCreationTransactionIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;

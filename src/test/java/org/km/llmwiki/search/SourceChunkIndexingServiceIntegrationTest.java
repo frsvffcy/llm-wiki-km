@@ -1,10 +1,8 @@
 package org.km.llmwiki.search;
 
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 
@@ -16,11 +14,6 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "spring.main.web-application-type=none",
-        "app.persistence.sqlite.path=target/test-data/source-index-${random.uuid}/knowledge.db"
-})
 class SourceChunkIndexingServiceIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired

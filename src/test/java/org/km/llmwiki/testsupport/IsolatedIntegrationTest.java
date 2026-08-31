@@ -14,6 +14,7 @@ import java.util.List;
  * Resets all application tables before every test method so each test starts from an empty
  * database and does not depend on execution order or state created by other tests.
  */
+@SpringIntegrationTest
 public abstract class IsolatedIntegrationTest {
 
     @Autowired

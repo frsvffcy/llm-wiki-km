@@ -1,11 +1,9 @@
 package org.km.llmwiki.wiki;
 
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.LlmProposalAction;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 
@@ -16,11 +14,6 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "spring.main.web-application-type=none",
-        "app.persistence.sqlite.path=target/test-data/proposals-${random.uuid}/knowledge.db"
-})
 class KnowledgeProposalRepositoryIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
@@ -92,21 +85,26 @@ class KnowledgeProposalRepositoryIntegrationTest extends IsolatedIntegrationTest
     @Test
     void rollsBackProposalWhenEvidenceAssociationFailsAfterProposalInsert() {
         Fixture fixture = createFixture();
-        db().sql("""
-                        CREATE TRIGGER fail_second_proposal_evidence
-                        BEFORE INSERT ON knowledge_proposal_evidence
-                        WHEN NEW.source_chunk_id = %d
-                        BEGIN
-                            SELECT RAISE(ABORT, 'test evidence failure');
-                        END
-                        """.formatted(fixture.secondSourceChunkId())).update();
+        db().sql("DROP TRIGGER IF EXISTS fail_second_proposal_evidence").update();
+        try {
+            db().sql("""
+                            CREATE TRIGGER fail_second_proposal_evidence
+                            BEFORE INSERT ON knowledge_proposal_evidence
+                            WHEN NEW.source_chunk_id = %d
+                            BEGIN
+                                SELECT RAISE(ABORT, 'test evidence failure');
+                            END
+                            """.formatted(fixture.secondSourceChunkId())).update();
 
-        assertThatThrownBy(() -> repository.saveDraft(
-                draft(fixture, List.of(fixture.firstSourceChunkId(), fixture.secondSourceChunkId()))))
-                .isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> repository.saveDraft(
+                    draft(fixture, List.of(fixture.firstSourceChunkId(), fixture.secondSourceChunkId()))))
+                    .isInstanceOf(RuntimeException.class);
 
-        assertThat(count("knowledge_proposal")).isZero();
-        assertThat(count("knowledge_proposal_evidence")).isZero();
+            assertThat(count("knowledge_proposal")).isZero();
+            assertThat(count("knowledge_proposal_evidence")).isZero();
+        } finally {
+            db().sql("DROP TRIGGER IF EXISTS fail_second_proposal_evidence").update();
+        }
     }
 
     @Test

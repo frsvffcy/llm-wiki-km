@@ -1,12 +1,9 @@
 package org.km.llmwiki.source;
 
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockMultipartFile;
@@ -28,11 +25,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "app.persistence.sqlite.path=target/test-data/source-chunk-${random.uuid}/knowledge.db"
-})
-@AutoConfigureMockMvc
 @Import(SourceChunkIntegrationTest.MultiPageParserConfiguration.class)
 class SourceChunkIntegrationTest extends IsolatedIntegrationTest {
 

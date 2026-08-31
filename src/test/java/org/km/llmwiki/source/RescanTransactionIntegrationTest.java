@@ -1,13 +1,8 @@
 package org.km.llmwiki.source;
 
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Order;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -26,13 +21,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "app.persistence.sqlite.path=target/test-data/tx-${random.uuid}/knowledge.db"
-})
-@AutoConfigureMockMvc
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class RescanTransactionIntegrationTest {
+class RescanTransactionIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -49,7 +38,6 @@ class RescanTransactionIntegrationTest {
     private Path root;
 
     @Test
-    @Order(1)
     void failedVersionTransitionRollsBackSupersedeAndRetriesSuccessfully() throws Exception {
         root = createWorkspace();
         Path versioned = root.resolve("inbox").resolve("ver.txt");

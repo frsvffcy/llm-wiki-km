@@ -1,12 +1,10 @@
 package org.km.llmwiki.wiki;
 
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.KnowledgeCandidateType;
 import org.km.llmwiki.ai.LlmProposalAction;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 
@@ -15,11 +13,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "spring.main.web-application-type=none",
-        "app.persistence.sqlite.path=target/test-data/wiki-drafts-${random.uuid}/knowledge.db"
-})
 class WikiDraftServiceIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired

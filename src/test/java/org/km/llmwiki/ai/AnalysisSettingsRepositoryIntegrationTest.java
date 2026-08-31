@@ -1,17 +1,13 @@
 package org.km.llmwiki.ai;
 
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Tag("integration")
-@SpringBootTest(properties = "app.persistence.sqlite.path=target/test-data/analysis-settings-${random.uuid}/knowledge.db")
 class AnalysisSettingsRepositoryIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired

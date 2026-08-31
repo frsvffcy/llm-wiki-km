@@ -1,11 +1,10 @@
 package org.km.llmwiki.persistence;
 
 import org.km.llmwiki.config.SQLiteProperties;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -18,12 +17,7 @@ import java.sql.Statement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "spring.main.web-application-type=none",
-        "app.persistence.sqlite.path=target/test-data/${random.uuid}/knowledge.db"
-})
-class SQLiteConnectionIntegrationTest {
+class SQLiteConnectionIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private DataSource dataSource;
