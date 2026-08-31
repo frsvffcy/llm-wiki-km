@@ -19,6 +19,11 @@ public class ProcessingLogRepository {
 
     public void append(long jobId, Long jobItemId, Long documentId, ProcessingJobItemStatus status,
                        String message, String metadataJson) {
+        append(jobId, jobItemId, documentId, "ANALYZE", status.name(), message, metadataJson);
+    }
+
+    public void append(long jobId, Long jobItemId, Long documentId, String step, String status,
+                       String message, String metadataJson) {
         String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
         dsl.insertInto(PROCESSING_LOG)
                 .columns(
@@ -35,8 +40,8 @@ public class ProcessingLogRepository {
                         (int) jobId,
                         jobItemId == null ? null : jobItemId.intValue(),
                         documentId == null ? null : documentId.intValue(),
-                        "ANALYZE",
-                        status.name(),
+                        step,
+                        status,
                         message,
                         metadataJson,
                         now

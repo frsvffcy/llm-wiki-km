@@ -4,6 +4,7 @@ import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.List;
 
 import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PAGE;
 
@@ -31,6 +32,14 @@ public class PublishedWikiRepository {
                 .and(KNOWLEDGE_PAGE.KNOWLEDGE_ID.eq(knowledgeId))
                 .and(KNOWLEDGE_PAGE.STATUS.eq(PageStatus.PUBLISHED.name()))
                 .fetchOptional(this::map);
+    }
+
+    public List<StoredPublishedWiki> findAllPublished(long workspaceId) {
+        return dsl.selectFrom(KNOWLEDGE_PAGE)
+                .where(KNOWLEDGE_PAGE.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(KNOWLEDGE_PAGE.STATUS.eq(PageStatus.PUBLISHED.name()))
+                .orderBy(KNOWLEDGE_PAGE.KNOWLEDGE_ID.asc())
+                .fetch(this::map);
     }
 
     private StoredPublishedWiki map(org.km.llmwiki.persistence.jooq.generated.tables.records.KnowledgePageRecord record) {

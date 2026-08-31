@@ -30,11 +30,12 @@ public class WikiSearchIndexSyncRepository {
                         KNOWLEDGE_SEARCH_INDEX_SYNC.STATUS,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.CONTENT_HASH,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_CONTENT_HASH,
+                        KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_REVISION,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.FAILURE_DETAIL,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.UPDATED_AT)
                 .values(Math.toIntExact(page.workspaceId()), Math.toIntExact(page.id()), page.knowledgeId(),
                         WikiSearchIndexSyncStatus.SYNCED.name(), page.contentHash(), page.contentHash(),
-                        null, now)
+                        page.revision(), null, now)
                 .onConflict(KNOWLEDGE_SEARCH_INDEX_SYNC.WORKSPACE_ID,
                         KNOWLEDGE_SEARCH_INDEX_SYNC.KNOWLEDGE_PAGE_ID)
                 .doUpdate()
@@ -42,6 +43,7 @@ public class WikiSearchIndexSyncRepository {
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.STATUS, WikiSearchIndexSyncStatus.SYNCED.name())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.CONTENT_HASH, page.contentHash())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_CONTENT_HASH, page.contentHash())
+                .set(KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_REVISION, page.revision())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.FAILURE_DETAIL, (String) null)
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.UPDATED_AT, now)
                 .execute();
@@ -74,6 +76,7 @@ public class WikiSearchIndexSyncRepository {
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.KNOWLEDGE_ID, page.knowledgeId())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.STATUS, status.name())
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.CONTENT_HASH, page.contentHash())
+                .set(KNOWLEDGE_SEARCH_INDEX_SYNC.INDEXED_REVISION, (Integer) null)
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.FAILURE_DETAIL, safeDetail)
                 .set(KNOWLEDGE_SEARCH_INDEX_SYNC.UPDATED_AT, now)
                 .execute();
@@ -87,6 +90,19 @@ public class WikiSearchIndexSyncRepository {
                 .fetchOptional(this::map);
     }
 
+    public java.util.List<StoredWikiSearchIndexSync> findAll(long workspaceId) {
+        return dsl.selectFrom(KNOWLEDGE_SEARCH_INDEX_SYNC)
+                .where(KNOWLEDGE_SEARCH_INDEX_SYNC.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .orderBy(KNOWLEDGE_SEARCH_INDEX_SYNC.KNOWLEDGE_ID.asc())
+                .fetch(this::map);
+    }
+
+    public void clearWorkspace(long workspaceId) {
+        dsl.deleteFrom(KNOWLEDGE_SEARCH_INDEX_SYNC)
+                .where(KNOWLEDGE_SEARCH_INDEX_SYNC.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .execute();
+    }
+
     private StoredWikiSearchIndexSync require(long workspaceId, long knowledgePageId) {
         return find(workspaceId, knowledgePageId)
                 .orElseThrow(() -> new IllegalStateException("Wiki FTS sync ledger row was not persisted"));
@@ -96,7 +112,8 @@ public class WikiSearchIndexSyncRepository {
         return new StoredWikiSearchIndexSync(record.getWorkspaceId().longValue(),
                 record.getKnowledgePageId().longValue(), record.getKnowledgeId(),
                 WikiSearchIndexSyncStatus.valueOf(record.getStatus()), record.getContentHash(),
-                record.getIndexedContentHash(), record.getFailureDetail(), record.getUpdatedAt());
+                record.getIndexedContentHash(), record.getIndexedRevision(), record.getFailureDetail(),
+                record.getUpdatedAt());
     }
 
     private static String now() {

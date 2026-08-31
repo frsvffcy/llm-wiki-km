@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.Optional;
+import java.util.List;
 
 import static org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_SEARCH_INDEX_SYNC;
 
@@ -95,6 +96,19 @@ public class SourceSearchIndexSyncRepository {
                 .where(SOURCE_SEARCH_INDEX_SYNC.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
                 .and(SOURCE_SEARCH_INDEX_SYNC.DOCUMENT_ID.eq(Math.toIntExact(documentId)))
                 .fetchOptional(this::map);
+    }
+
+    public List<StoredSourceSearchIndexSync> findAll(long workspaceId) {
+        return dsl.selectFrom(SOURCE_SEARCH_INDEX_SYNC)
+                .where(SOURCE_SEARCH_INDEX_SYNC.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .orderBy(SOURCE_SEARCH_INDEX_SYNC.DOCUMENT_ID.asc())
+                .fetch(this::map);
+    }
+
+    public void clearWorkspace(long workspaceId) {
+        dsl.deleteFrom(SOURCE_SEARCH_INDEX_SYNC)
+                .where(SOURCE_SEARCH_INDEX_SYNC.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .execute();
     }
 
     private StoredSourceSearchIndexSync require(long workspaceId, long documentId) {

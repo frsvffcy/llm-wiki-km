@@ -65,4 +65,15 @@ public class SourceSearchAuthorityRepository {
                 .fetchOne(SOURCE_CHUNK.DOCUMENT_ID);
         return documentId == null ? Optional.empty() : findDocument(workspaceId, documentId.longValue());
     }
+
+    public List<SourceSearchAuthorityDocument> findAllDocuments(long workspaceId) {
+        return dsl.select(DOCUMENT.ID)
+                .from(DOCUMENT)
+                .where(DOCUMENT.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .orderBy(DOCUMENT.ID.asc())
+                .fetch(DOCUMENT.ID)
+                .stream()
+                .map(id -> findDocument(workspaceId, id.longValue()).orElseThrow())
+                .toList();
+    }
 }
