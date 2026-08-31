@@ -1,0 +1,16 @@
+# id	title	content
+natural-mixed	全文搜尋索引	這個系統使用SpringBoot與jOOQ建立全文搜尋索引
+sqlite-mixed	SQLite與FTS5	使用SQLite的FTS5建立全文搜尋
+connection	資料庫連線設定	請先完成資料庫連線設定再執行部署流程
+markdown	搜尋流程	## 搜尋流程\n- 建立索引（SQLite/FTS5）\n- 執行RAG與LLM檢索
+spring-spaced	Spring Boot整合	Spring Boot 與 jOOQ 的設定流程
+search-result	結果排序	搜尋結果需要排序與分頁
+index-rebuild	重建作業	索引重建流程必須可重現
+connection-pool	連線池	資料庫連線池設定使用固定上限
+separated-terms	故障排除	連線中斷，請調整設定流程
+latin-prefix-noise	備份格式	SQLiteBackup 與 FTS50 是不同的技術字串
+rag-llm	RAG與LLM	RAG/LLM檢索流程使用來源證據
+punctuation	Markdown技術筆記	### [SQLite]、(FTS5)、RAG；LLM！
+short-search	搜尋	這一頁只保留獨立短詞：搜尋。
+short-index	索引	這一頁只保留獨立短詞：索引。
+short-flow	流程	這一頁只保留獨立短詞：流程。
