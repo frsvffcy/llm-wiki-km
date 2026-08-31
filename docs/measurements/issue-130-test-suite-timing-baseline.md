@@ -168,6 +168,8 @@ mvn -Dtest=SQLiteBusyTimeoutIntegrationTest,InboxBoundaryConcurrencyIntegrationT
 
 結果：12 tests、0 failure、0 error、0 skipped，wall-clock 12.74 秒。此為一次合理範圍的 smoke rerun，不足以宣稱沒有 flaky test；沒有進行無限制重跑。這四個 class 仍應在未來 #131/#133 的分層 gate 保留。
 
+同一工作樹再執行一次完整 baseline script 做 repeatability check 時，三個完整命令仍全部通過 367 tests，但 wall-clock 分別為 `mvn test` 36.27 秒、`mvn clean test` 40.22 秒、`mvn clean package` 40.80 秒。第二次執行的 `LlmWikiKmApplicationTests` class time 為 13.02 秒（首次 baseline 為 2.156 秒），其餘慢測試排序大致一致。這表示本報告的首次數字是可重現的觀測樣本，不是固定 SLA；後續比較應在相同主機狀態下採至少 2–3 次的中位數，並持續追蹤 application-context startup 的 timing variance。此次差異沒有伴隨 test failure，不能單憑一次重跑判定為 flaky。
+
 ## Observed Bottlenecks
 
 1. 每次 `mvn test` 都執行 `generate-sources`；`jOOQ bootstrap → Flyway temporary DB → codegen → add-source` 約 4.75 秒。
