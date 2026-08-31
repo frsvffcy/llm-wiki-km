@@ -1,6 +1,5 @@
 package org.km.llmwiki.processing;
 
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.km.llmwiki.ai.AnalysisEvidence;
@@ -19,8 +18,6 @@ import org.km.llmwiki.source.DocumentParser;
 import org.km.llmwiki.source.ParsedDocument;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -49,11 +46,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "app.persistence.sqlite.path=target/test-data/analysis-${random.uuid}/knowledge.db"
-})
-@AutoConfigureMockMvc
 @Import({DocumentAnalysisJobIntegrationTest.FakeLlmConfiguration.class,
         DocumentAnalysisJobIntegrationTest.MultiPageParserConfiguration.class})
 class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {

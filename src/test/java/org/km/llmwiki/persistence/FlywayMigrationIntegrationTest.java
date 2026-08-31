@@ -1,10 +1,9 @@
 package org.km.llmwiki.persistence;
 
 import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.Tag;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -13,12 +12,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = {
-        "spring.main.web-application-type=none",
-        "app.persistence.sqlite.path=target/test-data/${random.uuid}/knowledge.db"
-})
-@Tag("integration")
-class FlywayMigrationIntegrationTest {
+class FlywayMigrationIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private Flyway flyway;

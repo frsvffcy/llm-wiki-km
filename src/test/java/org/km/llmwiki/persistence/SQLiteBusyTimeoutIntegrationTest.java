@@ -1,9 +1,9 @@
 package org.km.llmwiki.persistence;
 
-import org.junit.jupiter.api.Tag;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -14,13 +14,8 @@ import java.sql.Statement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "spring.main.web-application-type=none",
-        "app.persistence.sqlite.path=target/test-data/busy-${random.uuid}/knowledge.db",
-        "app.persistence.sqlite.busy-timeout=2000"
-})
-class SQLiteBusyTimeoutIntegrationTest {
+@TestPropertySource(properties = "app.persistence.sqlite.busy-timeout=2000")
+class SQLiteBusyTimeoutIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private DataSource dataSource;

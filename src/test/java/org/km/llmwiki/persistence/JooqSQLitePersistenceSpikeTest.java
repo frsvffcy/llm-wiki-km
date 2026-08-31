@@ -11,12 +11,11 @@ import org.jooq.meta.jaxb.Generator;
 import org.jooq.meta.jaxb.Jdbc;
 import org.jooq.meta.jaxb.Target;
 import org.km.llmwiki.config.SQLiteProperties;
+import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -34,14 +33,8 @@ import static org.jooq.impl.DSL.name;
 import static org.jooq.impl.DSL.table;
 import static org.jooq.impl.DSL.val;
 
-@Tag("integration")
-@SpringBootTest(properties = {
-        "spring.main.web-application-type=none",
-        "spring.jooq.sql-dialect=SQLITE",
-        "app.persistence.sqlite.path=target/test-data/jooq-spike-${random.uuid}/knowledge.db"
-})
 @Import(JooqSQLitePersistenceSpikeTest.TransactionTestConfiguration.class)
-class JooqSQLitePersistenceSpikeTest {
+class JooqSQLitePersistenceSpikeTest extends IsolatedIntegrationTest {
 
     private static final Table<Record> ITEM = table(name("jooq_spike_item"));
     private static final Field<Long> ITEM_ID = field(name("id"), Long.class);

@@ -2,7 +2,6 @@ package org.km.llmwiki.search;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
@@ -10,8 +9,6 @@ import org.km.llmwiki.wiki.WikiContentHash;
 import org.km.llmwiki.wiki.WikiPageType;
 import org.km.llmwiki.wiki.WikiPathContract;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -32,10 +29,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Tag("integration")
-@SpringBootTest(properties =
-        "app.persistence.sqlite.path=target/test-data/fts-rebuild-${random.uuid}/knowledge.db")
-@AutoConfigureMockMvc
 class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
 
     private static final String NOW = "2026-08-31T00:00:00Z";
