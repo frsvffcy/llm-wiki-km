@@ -25,7 +25,7 @@ class AnswerClientContractTest {
 
         assertThat(request.question()).isEqualTo("What is the architecture?");
         assertThat(request.context().references()).containsExactly(reference);
-        assertThat(request.options().maxOutputCharacters()).isEqualTo(4_000);
+        assertThat(request.options().maxOutputCodePoints()).isEqualTo(4_000);
         assertThat(result.providerMetadata()).isEqualTo(metadata);
         assertThat(result.usage()).contains(new AnswerUsageMetadata(12, 8, 20));
 

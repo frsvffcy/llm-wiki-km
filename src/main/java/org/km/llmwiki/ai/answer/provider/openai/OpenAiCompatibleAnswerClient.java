@@ -114,7 +114,8 @@ public final class OpenAiCompatibleAnswerClient implements AnswerClient {
         GroundedAnswerResponse validated;
         try {
             // STORY-603 owns acceptance of the provider's structured answer and citation ids.
-            validated = responseContract.parse(providerResponse.structuredContent(), request.context());
+            validated = responseContract.parse(providerResponse.structuredContent(), request.context(),
+                    request.options().maxOutputCodePoints());
         } catch (GroundedAnswerValidationException exception) {
             throw failure(AnswerFailureType.INVALID_PROVIDER_RESPONSE,
                     "structured answer response was rejected: " + exception.errorCode());
@@ -186,8 +187,7 @@ public final class OpenAiCompatibleAnswerClient implements AnswerClient {
                 "role", "user",
                 "content", prompt.content())));
         payload.put("response_format", Map.of("type", "json_object"));
-        payload.put("max_tokens", Math.min(properties.getMaxOutputTokens(),
-                options.maxOutputCharacters()));
+        payload.put("max_tokens", properties.getMaxOutputTokens());
         payload.put("temperature", properties.getTemperature());
         return payload;
     }

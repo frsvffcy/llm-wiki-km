@@ -218,8 +218,23 @@ class AskServiceTest {
         assertThat(captured).hasValueSatisfying(request -> {
             assertThat(request.context().usage().usedCodePoints()).isEqualTo(5);
             assertThat(request.context().usage().truncated()).isTrue();
-            assertThat(request.options().maxOutputCharacters()).isEqualTo(20);
+            assertThat(request.options().maxOutputCodePoints()).isEqualTo(20);
         });
+    }
+
+    @Test
+    void rejectsAnswerThatExceedsTheRequestScopedOutputBound() {
+        EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")));
+        AnswerClient provider = request -> new AnswerResult("a".repeat(21), List.of("E1"), false,
+                METADATA, Optional.empty());
+
+        AskResult result = new AskService(retrievalReturning(bundle), new AnswerContextAssembler(), provider)
+                .ask(new AskRequest("question", RetrievalMode.WIKI_ONLY, 8, 100,
+                        AnswerContextBudget.DEFAULT, new AnswerGenerationOptions(20)));
+
+        assertThat(result.status()).isEqualTo(AskStatus.FAILED);
+        assertThat(result.failure()).hasValueSatisfying(failure ->
+                assertThat(failure.type()).isEqualTo(AskFailureType.PROVIDER_INVALID_RESPONSE));
     }
 
     @Test

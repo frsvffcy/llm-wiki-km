@@ -77,7 +77,15 @@ public class AskService {
         if (generated == null) {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
-                            "answer provider returned no result"), execution, suppliedEvidence);
+                    "answer provider returned no result"), execution, suppliedEvidence);
+        }
+
+        if (generated.answerText().codePointCount(0, generated.answerText().length())
+                > request.generationOptions().maxOutputCodePoints()) {
+            return AskResultFactory.failure(
+                    new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
+                            "answer provider response exceeded the request output bound"),
+                    execution, suppliedEvidence);
         }
 
         try {

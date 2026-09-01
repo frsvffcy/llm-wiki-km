@@ -77,7 +77,8 @@ public final class AnswerContextAssembler {
             usedCodePoints += content.codePointCount(0, content.length());
             truncated |= item.contentTruncated() || itemTruncated;
 
-            if (usedCodePoints >= budget.maxTotalCodePoints() && hasFurtherUnique(bundle.items(), index + 1,
+            if (usedCodePoints >= requestedBudget.maxTotalCodePoints()
+                    && hasFurtherUnique(bundle.items(), index + 1,
                     normalizedIdentities)) {
                 truncated = true;
                 break;

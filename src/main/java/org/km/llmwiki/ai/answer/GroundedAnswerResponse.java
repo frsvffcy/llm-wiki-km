@@ -13,7 +13,7 @@ public record GroundedAnswerResponse(
         Optional<AnswerUsageMetadata> usage
 ) {
 
-    public static final int MAX_ANSWER_CODE_POINTS = AnswerGenerationOptions.MAX_ALLOWED_OUTPUT_CHARACTERS;
+    public static final int MAX_ANSWER_CODE_POINTS = AnswerGenerationOptions.MAX_ALLOWED_OUTPUT_CODE_POINTS;
     public static final int MAX_CITATION_ID_LENGTH = 32;
 
     public GroundedAnswerResponse {

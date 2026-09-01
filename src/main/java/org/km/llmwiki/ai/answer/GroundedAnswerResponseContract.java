@@ -27,7 +27,7 @@ public final class GroundedAnswerResponseContract {
         this.objectMapper = objectMapper;
     }
 
-    /** Parses structure and scalar bounds without silently accepting provider citations. */
+    /** Parses structure and global scalar bounds without silently accepting provider citations. */
     public GroundedAnswerResponse parse(String payload) {
         if (payload == null || payload.isBlank()) {
             throw invalid(GroundedAnswerValidationErrorCode.MALFORMED_JSON,
@@ -77,12 +77,28 @@ public final class GroundedAnswerResponseContract {
         }
     }
 
+    /** Parses structure and applies the request's application-owned output bound. */
+    public GroundedAnswerResponse parse(String payload, int maxOutputCodePoints) {
+        return enforceOutputBound(parse(payload), maxOutputCodePoints);
+    }
+
     /** Parses and then validates every citation against the application-owned supplied context. */
     public GroundedAnswerResponse parse(String payload, AnswerContext context) {
-        return validate(parse(payload), context);
+        return validate(parse(payload), context, GroundedAnswerResponse.MAX_ANSWER_CODE_POINTS);
+    }
+
+    /** Parses and validates citations plus the request's application-owned output bound. */
+    public GroundedAnswerResponse parse(String payload, AnswerContext context,
+                                        int maxOutputCodePoints) {
+        return validate(parse(payload), context, maxOutputCodePoints);
     }
 
     public GroundedAnswerResponse validate(GroundedAnswerResponse response, AnswerContext context) {
+        return validate(response, context, GroundedAnswerResponse.MAX_ANSWER_CODE_POINTS);
+    }
+
+    public GroundedAnswerResponse validate(GroundedAnswerResponse response, AnswerContext context,
+                                            int maxOutputCodePoints) {
         if (response == null) {
             throw invalid(GroundedAnswerValidationErrorCode.REQUIRED_FIELD_MISSING,
                     "provider response must not be null");
@@ -91,6 +107,7 @@ public final class GroundedAnswerResponseContract {
             throw invalid(GroundedAnswerValidationErrorCode.FIELD_TYPE_INVALID,
                     "answer context must not be null");
         }
+        enforceOutputBound(response, maxOutputCodePoints);
         if (response.insufficientEvidence() && !response.citedEvidenceIds().isEmpty()) {
             throw invalid(GroundedAnswerValidationErrorCode.INSUFFICIENT_EVIDENCE_CONFLICT,
                     "insufficientEvidence responses must not cite evidence");
@@ -109,6 +126,20 @@ public final class GroundedAnswerResponseContract {
             throw invalid(GroundedAnswerValidationErrorCode.UNKNOWN_CITATION_ID,
                     "provider response contains an unknown or malformed citation id");
         }
+    }
+
+    private static GroundedAnswerResponse enforceOutputBound(GroundedAnswerResponse response,
+                                                               int maxOutputCodePoints) {
+        if (maxOutputCodePoints < 1
+                || maxOutputCodePoints > GroundedAnswerResponse.MAX_ANSWER_CODE_POINTS) {
+            throw new IllegalArgumentException("maxOutputCodePoints is outside the application bound");
+        }
+        if (response.answerText().codePointCount(0, response.answerText().length())
+                > maxOutputCodePoints) {
+            throw invalid(GroundedAnswerValidationErrorCode.ANSWER_TEXT_INVALID,
+                    "answerText exceeds the request output bound");
+        }
+        return response;
     }
 
     private static List<String> citationIds(JsonNode root) {
