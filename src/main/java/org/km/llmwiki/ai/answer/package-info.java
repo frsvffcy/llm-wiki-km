@@ -3,8 +3,8 @@
  *
  * <p>This package owns only immutable request/result metadata, typed failure semantics, and
  * explicit offline test doubles, bounded evidence context/citation assembly, and the versioned
- * grounded-answer prompt/response contract. Real provider adapters, Ask orchestration, and
- * REST/UI surfaces remain later work.
+ * grounded-answer prompt/response contract. The first production transport is isolated in the
+ * OpenAI-compatible adapter boundary; Ask orchestration and REST/UI surfaces remain later work.
  * No provider SDK, persistence, filesystem, Search, or Retrieval implementation belongs here.
  */
 package org.km.llmwiki.ai.answer;
