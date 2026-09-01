@@ -7,8 +7,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.springframework.stereotype.Component;
 
 /** Converts one already-retrieved EvidenceBundle into bounded provider-neutral context. */
+@Component
 public final class AnswerContextAssembler {
 
     private final AnswerContextBudget budget;
@@ -22,8 +24,19 @@ public final class AnswerContextAssembler {
     }
 
     public AnswerContext assemble(EvidenceBundle bundle) {
+        return assemble(bundle, budget);
+    }
+
+    /**
+     * Assembles with a request-scoped budget while retaining this component as the default
+     * application wiring boundary.
+     */
+    public AnswerContext assemble(EvidenceBundle bundle, AnswerContextBudget requestedBudget) {
         if (bundle == null) {
             throw new IllegalArgumentException("evidence bundle must not be null");
+        }
+        if (requestedBudget == null) {
+            throw new IllegalArgumentException("context budget must not be null");
         }
         if (bundle.insufficientEvidence() || bundle.items().isEmpty()) {
             return AnswerContext.empty();
@@ -40,17 +53,17 @@ public final class AnswerContextAssembler {
             if (!normalizedIdentities.add(identity)) {
                 continue;
             }
-            if (blocks.size() >= budget.maxEvidenceItems()) {
+            if (blocks.size() >= requestedBudget.maxEvidenceItems()) {
                 truncated = true;
                 break;
             }
-            int remaining = budget.maxTotalCodePoints() - usedCodePoints;
+            int remaining = requestedBudget.maxTotalCodePoints() - usedCodePoints;
             if (remaining <= 0) {
                 truncated = true;
                 break;
             }
 
-            int itemLimit = Math.min(budget.maxCodePointsPerItem(), remaining);
+            int itemLimit = Math.min(requestedBudget.maxCodePointsPerItem(), remaining);
             int originalCodePoints = item.content().codePointCount(0, item.content().length());
             boolean itemTruncated = originalCodePoints > itemLimit;
             String content = truncate(item.content(), itemLimit);

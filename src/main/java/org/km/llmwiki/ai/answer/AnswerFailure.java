@@ -14,7 +14,7 @@ public record AnswerFailure(AnswerFailureType type, String diagnostic) {
     public static final int MAX_DIAGNOSTIC_LENGTH = 160;
 
     private static final Pattern SECRET_ASSIGNMENT = Pattern.compile(
-            "(?i)(api[-_ ]?key|authorization|token|secret|password)\\s*[:=]\\s*[^\\s,;]+"
+            "(?i)(api[-_ ]?key|authorization|token|secret|password)\\s*[:=]\\s*(?:bearer\\s+)?[^\\s,;]+"
     );
     private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)\\bbearer\\s+[^\\s,;]+");
     private static final Pattern SECRET_KEY = Pattern.compile("\\bsk-[A-Za-z0-9_-]{8,}\\b");
