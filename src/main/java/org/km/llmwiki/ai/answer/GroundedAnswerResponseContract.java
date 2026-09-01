@@ -99,6 +99,10 @@ public final class GroundedAnswerResponseContract {
             throw invalid(GroundedAnswerValidationErrorCode.INSUFFICIENT_EVIDENCE_CONFLICT,
                     "empty evidence context requires insufficientEvidence");
         }
+        if (!response.insufficientEvidence() && response.citedEvidenceIds().isEmpty()) {
+            throw invalid(GroundedAnswerValidationErrorCode.CITATION_INVALID,
+                    "non-insufficient answers must cite at least one evidence item");
+        }
         try {
             return response.withCitations(context.normalizeCitationIds(response.citedEvidenceIds()));
         } catch (CitationValidationException exception) {

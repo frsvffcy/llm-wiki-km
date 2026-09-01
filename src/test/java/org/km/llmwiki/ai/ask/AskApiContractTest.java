@@ -45,4 +45,14 @@ class AskApiContractTest {
         assertThat(response.citations().getFirst().provenance().path()).isNull();
         assertThat(response.citations().getFirst().provenance().title()).isEqualTo("Security");
     }
+
+    @Test
+    void answeredResultRequiresAtLeastOneCitation() {
+        assertThatThrownBy(() -> new AskResult(AskStatus.ANSWERED,
+                java.util.Optional.of("ungrounded answer"), java.util.List.of(),
+                java.util.List.of(), java.util.Optional.empty(), java.util.Optional.empty(),
+                java.util.Optional.empty(), new AskExecutionMetadata(1, 1, 8, false)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least one citation");
+    }
 }

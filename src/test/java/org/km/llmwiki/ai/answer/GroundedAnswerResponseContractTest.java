@@ -81,6 +81,15 @@ class GroundedAnswerResponseContractTest {
     }
 
     @Test
+    void rejectsNonInsufficientResponseWithoutCitations() {
+        assertThatThrownBy(() -> contract.parse(
+                payloadWithCitations(List.of(), false), context(1)))
+                .isInstanceOf(GroundedAnswerValidationException.class)
+                .extracting(error -> ((GroundedAnswerValidationException) error).errorCode())
+                .isEqualTo(GroundedAnswerValidationErrorCode.CITATION_INVALID);
+    }
+
+    @Test
     void requiresInsufficientEvidenceWhenTheSuppliedContextIsEmpty() {
         assertThatThrownBy(() -> contract.parse(
                 payloadWithCitations(List.of(), false), AnswerContext.empty()))

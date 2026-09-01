@@ -171,6 +171,34 @@ class AskServiceTest {
     }
 
     @Test
+    void emptyCitationGenerationIsAnInvalidGenerationFailure() {
+        EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")));
+        AnswerClient provider = request -> new AnswerResult("ungrounded", List.of(), false,
+                METADATA, Optional.empty());
+
+        AskResult result = new AskService(retrievalReturning(bundle), new AnswerContextAssembler(), provider)
+                .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
+
+        assertThat(result.status()).isEqualTo(AskStatus.FAILED);
+        assertThat(result.failure()).hasValueSatisfying(failure ->
+                assertThat(failure.type()).isEqualTo(AskFailureType.PROVIDER_INVALID_RESPONSE));
+    }
+
+    @Test
+    void unexpectedProviderRuntimeExceptionIsNotReclassifiedAsInvalidResponse() {
+        EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")));
+        IllegalStateException unexpected = new IllegalStateException("programming defect");
+        AnswerClient provider = request -> {
+            throw unexpected;
+        };
+
+        assertThatThrownBy(() -> new AskService(retrievalReturning(bundle),
+                new AnswerContextAssembler(), provider)
+                .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY)))
+                .isSameAs(unexpected);
+    }
+
+    @Test
     void contextBudgetIsAppliedBeforeProviderAndProducesAValidBoundedRequest() {
         EvidenceBundle bundle = bundle(List.of(
                 wiki("one", "One", "vault/one.md", "A😀BC"),

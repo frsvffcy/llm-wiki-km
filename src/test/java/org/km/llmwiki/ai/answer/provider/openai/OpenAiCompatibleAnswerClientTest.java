@@ -133,6 +133,11 @@ class OpenAiCompatibleAnswerClientTest {
                 response(200, envelope("provider-model", STRUCTURED_RESPONSE.replace("E1", "E9"),
                         null, null, null, null));
         assertInvalidResponse(unknownCitation);
+
+        OpenAiCompatibleHttpTransport emptyCitation = (uri, connect, read, key, body) ->
+                response(200, envelope("provider-model", STRUCTURED_RESPONSE.replace("[\"E1\"]", "[]"),
+                        null, null, null, null));
+        assertInvalidResponse(emptyCitation);
     }
 
     @Test
