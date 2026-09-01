@@ -37,6 +37,28 @@ java -jar target/llm-wiki-km-0.1.0.jar
 
 The application listens only on `127.0.0.1:8765` by default.
 
+## Ask UI
+
+Start the application with the command above, then open
+`http://127.0.0.1:8765/` in a browser. Enter a question, choose `Wiki 與來源文件`, `僅 Wiki`,
+or `僅來源文件`, and submit it. Each submission is an independent request; the browser does
+not keep question or answer history. Answers show the returned citation provenance only—no
+local files or provider endpoints are opened by the UI.
+
+The answer provider is disabled by default. For a production answer provider, configure the
+backend with environment variables such as the following placeholder values before startup:
+
+```text
+ANSWER_PROVIDER_ENABLED=true
+ANSWER_PROVIDER=openai-compatible
+ANSWER_PROVIDER_BASE_URL=https://provider.example/v1
+ANSWER_PROVIDER_MODEL=<model-name>
+OPENAI_API_KEY=<provider-secret>
+```
+
+When the provider is not configured, Ask displays a safe `尚未設定回答服務` error. Provider
+credentials are backend configuration only and are never entered into or sent from the browser.
+
 ## SQLite
 
 The application uses a **single canonical metadata database** (Global DB model). It stores local data in `data/knowledge.db` by default. Override the location with `KNOWLEDGE_DB_PATH` and the lock timeout with `SQLITE_BUSY_TIMEOUT_MS` (default: `5000`). Every connection enables foreign keys, WAL journal mode, a busy timeout, and `synchronous=NORMAL`.

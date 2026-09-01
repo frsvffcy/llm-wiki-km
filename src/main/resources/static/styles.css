@@ -1,0 +1,114 @@
+:root {
+  color-scheme: light;
+  --ink: #1f2933;
+  --muted: #66727f;
+  --line: #dce3e8;
+  --paper: #fbfcfc;
+  --panel: #ffffff;
+  --accent: #0f766e;
+  --accent-dark: #115e59;
+  --accent-soft: #e7f5f2;
+  --warning: #9a6700;
+  --warning-soft: #fff6db;
+  --danger: #b42318;
+  --danger-soft: #fff0ee;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  color: var(--ink);
+  background: #f1f4f3;
+}
+
+.app-shell {
+  width: min(920px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 56px 0 80px;
+}
+
+.page-header { margin-bottom: 28px; }
+.eyebrow, .state-label {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+h1, h2, h3, p { margin-top: 0; }
+h1 { margin-bottom: 12px; font-size: clamp(2rem, 5vw, 3.5rem); letter-spacing: -0.04em; }
+h2 { margin-bottom: 0; font-size: 1.25rem; }
+h3 { margin-bottom: 0; font-size: 0.9rem; }
+.intro { margin-bottom: 0; color: var(--muted); font-size: 1.05rem; }
+
+.panel {
+  margin-top: 18px;
+  padding: clamp(22px, 4vw, 36px);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(40, 59, 60, 0.05);
+}
+
+.section-heading, .answer-heading, .citation-heading, .form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.section-heading { margin-bottom: 24px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 6px var(--accent-soft); }
+
+label { display: block; margin-bottom: 8px; font-size: 0.85rem; font-weight: 700; }
+textarea, select {
+  width: 100%;
+  border: 1px solid #cbd5da;
+  border-radius: 10px;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+}
+textarea { display: block; resize: vertical; min-height: 130px; padding: 14px 15px; line-height: 1.6; }
+select { padding: 11px 12px; }
+textarea:focus, select:focus, button:focus-visible { outline: 3px solid rgba(15, 118, 110, 0.22); outline-offset: 2px; border-color: var(--accent); }
+.form-row { align-items: end; margin-top: 18px; }
+.field-group { width: min(280px, 100%); }
+button { border: 0; border-radius: 10px; padding: 12px 20px; color: #fff; background: var(--accent); font: inherit; font-weight: 750; cursor: pointer; }
+button:hover { background: var(--accent-dark); }
+button:disabled { cursor: wait; opacity: 0.62; }
+.form-hint { min-height: 1.35em; margin: 12px 0 0; color: var(--danger); font-size: 0.88rem; }
+
+.result-panel { min-height: 300px; }
+.empty-state { display: grid; min-height: 220px; place-content: center; justify-items: center; color: var(--muted); text-align: center; }
+.empty-mark { display: block; margin-bottom: 12px; color: var(--accent); font-size: 2rem; }
+.result-state { padding: 20px; border-radius: 12px; }
+.result-state h2 { margin-bottom: 10px; }
+.result-state p:last-child { margin-bottom: 0; color: var(--muted); line-height: 1.6; }
+.error-state { border: 1px solid #f1c7c2; background: var(--danger-soft); }
+.error-state .state-label { color: var(--danger); }
+.insufficient-state { border: 1px solid #f2dd9e; background: var(--warning-soft); }
+.insufficient-state .state-label { color: var(--warning); }
+.answer-heading { align-items: start; }
+.answer-badge { padding: 6px 10px; border-radius: 999px; color: var(--accent-dark); background: var(--accent-soft); font-size: 0.78rem; font-weight: 750; }
+.answer-text { margin: 24px 0 26px; white-space: pre-wrap; line-height: 1.75; }
+.provider-metadata { margin: -8px 0 26px; color: var(--muted); font-size: 0.82rem; }
+.citation-heading { margin-bottom: 12px; }
+.citation-count { color: var(--muted); font-size: 0.8rem; }
+.citation-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; counter-reset: citations; }
+.citation-item { display: grid; grid-template-columns: 30px 1fr; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.citation-number { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; color: var(--accent-dark); background: var(--accent-soft); font-size: 0.78rem; font-weight: 800; }
+.citation-kind { margin: 0 0 4px; color: var(--accent); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.citation-title { margin: 0 0 6px; font-weight: 750; }
+.citation-meta { margin: 0; color: var(--muted); font-size: 0.84rem; line-height: 1.55; }
+
+@media (max-width: 600px) {
+  .app-shell { padding-top: 32px; }
+  .form-row { align-items: stretch; flex-direction: column; }
+  .field-group { width: 100%; }
+  button { width: 100%; }
+}
