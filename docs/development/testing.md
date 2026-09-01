@@ -24,8 +24,43 @@ mvn clean verify -Pfull # all tests plus clean package/build-integrity checks
 The `full` profile deliberately applies no include or exclude filter. This guarantees that adding
 a new tagged test cannot accidentally remove it from the final gate. `fast` is feedback only; it
 may be skipped while investigating an unrelated build failure, but the affected contract or
-integration tests must run before a feature is declared ready. `clean verify -Pfull` is mandatory
-before PR readiness and cannot be replaced by `-DskipTests`.
+integration tests must run before a feature is declared ready.
+
+## Local verification by change type
+
+The local final gate depends on whether the change can affect product, test, build, or CI
+behavior:
+
+### General code, Test Architecture, and build changes
+
+For production code, test code or Test Architecture, migration/persistence, generated sources,
+Maven/package behavior, or CI changes, PR Ready requires both commands:
+
+```bash
+mvn clean verify -Pfull
+git diff --check
+```
+
+Do not replace this final gate with `-DskipTests`, `mvn compile`, `mvn clean package`, or a
+fast-only profile. The full command is the clean regression and build-integrity check, even when
+earlier coding feedback used a narrower profile.
+
+### Docs-only or AGENTS-only changes
+
+When a change is limited to documentation and/or `AGENTS.md`, and does not affect production
+behavior, test behavior or Test Architecture, migration/persistence, generated sources, Maven or
+package behavior, or CI workflow behavior, a reasonable docs-only verification is sufficient. It
+must include at least:
+
+```bash
+git diff --check
+```
+
+Review the complete diff as well, and state in the PR body that the local full gate was not run
+because the change is docs-only and does not affect those behaviors. This exception changes only
+the local verification expectation: the PR CI `Full regression and build integrity` job must still
+succeed before merge. It must not be extended to Test Architecture, build, package, or CI
+behavior changes.
 
 The fast profile is not a substitute for the jOOQ/Flyway clean-build gate. Changes to migrations,
 persistence wiring, generated sources, packaging, or build plugins require the full command even
