@@ -128,7 +128,8 @@ public final class OpenAiCompatibleAnswerClient implements AnswerClient {
             throw failure(AnswerFailureType.INVALID_PROVIDER_RESPONSE,
                     "answer provider response did not contain valid model metadata");
         }
-        return new AnswerResult(validated.answerText(), metadata, providerResponse.usage());
+        return new AnswerResult(validated.answerText(), validated.citedEvidenceIds(),
+                validated.insufficientEvidence(), metadata, providerResponse.usage());
     }
 
     private void validateConfiguration() {
