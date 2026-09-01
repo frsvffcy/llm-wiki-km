@@ -24,8 +24,8 @@ public record AskRequest(
             throw new IllegalArgumentException("question must not be blank");
         }
         question = question.strip();
-        if (question.length() > MAX_QUESTION_CHARACTERS) {
-            throw new IllegalArgumentException("question must not exceed 4000 characters");
+        if (question.codePointCount(0, question.length()) > MAX_QUESTION_CHARACTERS) {
+            throw new IllegalArgumentException("question must not exceed 4000 Unicode code points");
         }
         if (retrievalMode == null) {
             throw new IllegalArgumentException("retrievalMode is required");
