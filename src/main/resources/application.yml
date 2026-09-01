@@ -12,6 +12,17 @@ spring:
     sql-dialect: SQLITE
 
 app:
+  ai:
+    answer:
+      enabled: ${ANSWER_PROVIDER_ENABLED:false}
+      provider: ${ANSWER_PROVIDER:openai-compatible}
+      base-url: ${ANSWER_PROVIDER_BASE_URL:https://api.openai.com/v1}
+      model: ${ANSWER_PROVIDER_MODEL:}
+      api-key: ${OPENAI_API_KEY:}
+      connect-timeout: ${ANSWER_PROVIDER_CONNECT_TIMEOUT:2s}
+      read-timeout: ${ANSWER_PROVIDER_READ_TIMEOUT:15s}
+      max-output-tokens: ${ANSWER_PROVIDER_MAX_OUTPUT_TOKENS:4000}
+      temperature: ${ANSWER_PROVIDER_TEMPERATURE:0.0}
   extraction:
     scanned-pdf:
       minimum-text-characters: ${EXTRACTION_SCANNED_PDF_MINIMUM_TEXT_CHARACTERS:50}
