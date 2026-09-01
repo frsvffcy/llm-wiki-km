@@ -1,5 +1,7 @@
 package org.km.llmwiki.web;
 
+import org.km.llmwiki.ai.ask.AskApiException;
+import org.km.llmwiki.ai.ask.AskFailureType;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
 import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
@@ -107,6 +109,33 @@ public class GlobalExceptionHandler {
                 exception.getMessage());
     }
 
+    @ExceptionHandler(AskApiException.class)
+    public ResponseEntity<ApiError> handleAskFailure(AskApiException exception) {
+        AskFailureType type = exception.failureType();
+        HttpStatus status = switch (type) {
+            case LOCAL_VALIDATION -> HttpStatus.BAD_REQUEST;
+            case PROVIDER_INVALID_RESPONSE -> HttpStatus.BAD_GATEWAY;
+            case RETRIEVAL_UNAVAILABLE,
+                    PROVIDER_CONFIGURATION_UNAVAILABLE,
+                    PROVIDER_AUTHENTICATION_OR_AUTHORIZATION,
+                    PROVIDER_RATE_LIMIT_OR_QUOTA,
+                    PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE,
+                    PROVIDER_SERVER_FAILURE -> HttpStatus.SERVICE_UNAVAILABLE;
+        };
+        String message = switch (type) {
+            case RETRIEVAL_UNAVAILABLE -> "Retrieval service is unavailable";
+            case PROVIDER_CONFIGURATION_UNAVAILABLE -> "Answer provider is not configured";
+            case PROVIDER_AUTHENTICATION_OR_AUTHORIZATION ->
+                    "Answer provider authentication failed";
+            case PROVIDER_RATE_LIMIT_OR_QUOTA -> "Answer provider is rate limited";
+            case PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE -> "Answer provider is unavailable";
+            case PROVIDER_SERVER_FAILURE -> "Answer provider failed";
+            case PROVIDER_INVALID_RESPONSE -> "Answer provider returned an invalid response";
+            case LOCAL_VALIDATION -> "Ask request was rejected";
+        };
+        return respond(status, type.publicCode(), message);
+    }
+
     @ExceptionHandler({NoResourceFoundException.class, MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiError> handleNotFound(Exception exception) {
         return respond(HttpStatus.NOT_FOUND, "NOT_FOUND", "Resource not found");
@@ -114,7 +143,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ApiError> handleIllegalState(IllegalStateException exception) {
-        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", exception.getMessage());
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error");
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiError> handleUnexpected(Exception exception) {
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error");
     }
 
     private static ResponseEntity<ApiError> respond(HttpStatus status, String code, String message) {

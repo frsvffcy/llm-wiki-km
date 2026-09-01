@@ -15,8 +15,8 @@ public record AnswerRequest(
         if (options == null) {
             throw new IllegalArgumentException("options must not be null");
         }
-        if (question.length() > 4_000) {
-            throw new IllegalArgumentException("question must not exceed 4000 characters");
+        if (question.codePointCount(0, question.length()) > 4_000) {
+            throw new IllegalArgumentException("question must not exceed 4000 Unicode code points");
         }
     }
 
