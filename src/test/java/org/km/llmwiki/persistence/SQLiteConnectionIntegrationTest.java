@@ -2,6 +2,7 @@ package org.km.llmwiki.persistence;
 
 import org.km.llmwiki.config.SQLiteProperties;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +34,11 @@ class SQLiteConnectionIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private SQLiteProperties properties;
+
+    @AfterEach
+    void dropTransactionProbeTable() {
+        jdbcClient.sql("DROP TABLE IF EXISTS story002_transaction_probe").update();
+    }
 
     @BeforeEach
     void createTransactionProbeTable() {

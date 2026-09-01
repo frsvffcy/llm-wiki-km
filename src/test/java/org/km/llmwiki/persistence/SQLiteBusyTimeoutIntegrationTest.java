@@ -1,6 +1,7 @@
 package org.km.llmwiki.persistence;
 
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
@@ -19,6 +20,14 @@ class SQLiteBusyTimeoutIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private DataSource dataSource;
+
+    @AfterEach
+    void dropProbeTable() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP TABLE IF EXISTS busy_probe");
+        }
+    }
 
     @Test
     void secondWriterWaitsForConfiguredBusyTimeoutUnderRealLockContention() throws SQLException {

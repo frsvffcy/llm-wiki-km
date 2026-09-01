@@ -195,3 +195,22 @@ mvn -Dtest=SQLiteBusyTimeoutIntegrationTest,InboxBoundaryConcurrencyIntegrationT
 - Surefire class time 不等於端到端 wall-clock；它不含完整 Maven startup、codegen、fork overhead。
 - Context startup 計數來自 log，沒有宣稱精確 cache hit/miss；要精準化應在 #132 增加受控的 Spring TestExecutionListener。
 - 最終腳本執行的 `mvn test`、`mvn clean test`、`mvn clean package` 均為 367 passed；targeted timing-sensitive rerun 亦為 12 passed。
+
+## Issue #139 Follow-up Measurement（2026-09-01）
+
+在最新 `main`（`61bcdd9`，已包含 #130～#133 與 AGENTS.md 測試策略）之後，重新執行 tier smoke 與 full gate。此次工作環境實際使用 Java 23.0.1；原始 #130 baseline 使用 Java 21，因此下列數字是可重現的觀測比較，不是嚴格的同環境效能 SLA。
+
+| Command | Tests | Wall clock | Result |
+|---|---:|---:|---|
+| `mvn test -Pfast` | 180 | 7.62 s | 0 failure/error/skipped |
+| `mvn test -Pintegration` | 195 | 24.08 s | 0 failure/error/skipped |
+| `mvn test`（warm） | 375 | 23.96 s | 0 failure/error/skipped |
+| `mvn clean verify -Pfull` | 375 | 29.33 s | 0 failure/error/skipped，BUILD SUCCESS |
+
+`fast` 的 180 tests 加上 `integration` 的 195 tests，恰好覆蓋 full 的 375 tests；本次 `TestTierCoverageGuard` 的 unclassified executable tests 為 0，full-only whitelist 為空。fast log 沒有 Spring Boot startup、`Started ... using Java` 或 `Spring test context observed` marker，符合 fast 不啟動不必要 Spring context 的 smoke evidence。
+
+### Spring context observed evidence
+
+由既有 `ContextCacheMetricsListener` 取得的 warm/full log 統計一致：觀察到 23 個 Spring test classes，其中 21 個 reused、2 個首次使用；最後一筆累計為 `cacheHits=2577`、`cacheMisses=8`、`cacheSize=8`。這是 Spring TestContext cache 的觀測值，不把 cache hits 直接換算成測試時間收益，也不宣稱所有 startup variance 已消除。
+
+相較 #130 的 warm `mvn test` 25.83 s，本次 warm run 為 23.96 s；相較 #130 的 `mvn clean package` 28.45 s，本次完整 `mvn clean verify -Pfull` 為 29.33 s。由於 Java 版本、測試 inventory（367 → 375）及 full command 不完全相同，這些差異僅作 baseline reference，不作 SLA 或單一變更歸因。
