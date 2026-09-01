@@ -12,6 +12,7 @@ import org.jooq.meta.jaxb.Jdbc;
 import org.jooq.meta.jaxb.Target;
 import org.km.llmwiki.config.SQLiteProperties;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +53,12 @@ class JooqSQLitePersistenceSpikeTest extends IsolatedIntegrationTest {
 
     @Autowired
     private SQLiteProperties sqliteProperties;
+
+    @AfterEach
+    void dropSpikeTables() {
+        dsl.execute("DROP TABLE IF EXISTS jooq_spike_fts");
+        dsl.execute("DROP TABLE IF EXISTS jooq_spike_item");
+    }
 
     @BeforeEach
     void resetSpikeTables() {

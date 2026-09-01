@@ -6,9 +6,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Resets all application tables before every test method so each test starts from an empty
@@ -31,15 +34,21 @@ public abstract class IsolatedIntegrationTest {
     void resetApplicationTables() throws SQLException {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
+            DatabaseCleanupPolicy.assertComplete(connection);
             statement.execute("PRAGMA foreign_keys = OFF");
-            for (String table : TABLE_DELETE_ORDER) {
-                statement.executeUpdate("DELETE FROM " + table);
+            try {
+                for (String table : DatabaseCleanupPolicy.TABLE_DELETE_ORDER) {
+                    statement.executeUpdate("DELETE FROM " + table);
+                }
+            } finally {
+                statement.execute("PRAGMA foreign_keys = ON");
             }
-            statement.execute("PRAGMA foreign_keys = ON");
         }
     }
 
-    private static final List<String> TABLE_DELETE_ORDER = List.of(
+    static final class DatabaseCleanupPolicy {
+
+        private static final List<String> TABLE_DELETE_ORDER = List.of(
             "knowledge_fts",
             "source_fts",
             "search_index_identity",
@@ -61,7 +70,54 @@ public abstract class IsolatedIntegrationTest {
             "source_chunk",
             "document_extracted_content",
             "document",
+            "setting_duplicate_backup",
             "setting",
             "workspace"
-    );
+        );
+
+        /** Migration-owned metadata is immutable test configuration, not per-test state. */
+        private static final Set<String> RETAINED_APPLICATION_TABLES = Set.of("search_index_contract");
+
+        private static final Set<String> SYSTEM_TABLES = Set.of("flyway_schema_history", "sqlite_sequence");
+
+        private DatabaseCleanupPolicy() {
+        }
+
+        static void assertComplete(Connection connection) throws SQLException {
+            Set<String> schemaTables = schemaTables(connection);
+            Set<String> missingCleanup = new HashSet<>(TABLE_DELETE_ORDER);
+            missingCleanup.removeAll(schemaTables);
+            Set<String> uncoveredApplication = uncoveredApplicationTables(schemaTables);
+            if (!missingCleanup.isEmpty() || !uncoveredApplication.isEmpty()) {
+                throw new IllegalStateException("SQLite cleanup policy is out of date: missing cleanup tables="
+                        + missingCleanup + ", uncovered application tables=" + uncoveredApplication);
+            }
+        }
+
+        static Set<String> uncoveredApplicationTables(Set<String> schemaTables) {
+            Set<String> covered = new HashSet<>(TABLE_DELETE_ORDER);
+            covered.addAll(RETAINED_APPLICATION_TABLES);
+            return schemaTables.stream()
+                    .filter(table -> !covered.contains(table))
+                    .filter(table -> !SYSTEM_TABLES.contains(table))
+                    .filter(table -> !isFtsInternalTable(table))
+                    .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
+        }
+
+        private static Set<String> schemaTables(Connection connection) throws SQLException {
+            Set<String> tables = new HashSet<>();
+            try (Statement statement = connection.createStatement();
+                 ResultSet result = statement.executeQuery(
+                         "SELECT name FROM sqlite_master WHERE type = 'table'")) {
+                while (result.next()) {
+                    tables.add(result.getString(1));
+                }
+            }
+            return tables;
+        }
+
+        private static boolean isFtsInternalTable(String table) {
+            return table.startsWith("knowledge_fts_") || table.startsWith("source_fts_");
+        }
+    }
 }
