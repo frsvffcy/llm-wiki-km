@@ -218,10 +218,21 @@ public interface LlmClient {
   gh auth status                 # 環境有 gh 時
   git ls-remote origin HEAD      # 需要確認 remote access 時
   ```
-  先確認 working tree、remote protocol、remote access 與 GitHub authentication，再開始變更。
+  先確認 working tree、repository／`.git` 可寫能力、remote protocol、remote access、GitHub authentication，
+  以及 ChatGPT/Codex 執行環境的 approval／permission mode，再開始變更；approval／permission mode
+  也是 Git capability preflight 的一部分。
 * **Local Git operations** 一律優先使用 CLI：`git status`、`git add`、`git commit`、`git branch`、`git switch`。
 * **Remote operations** 優先使用 CLI：`git fetch`、`git pull`、`git push`；PR 優先使用 `gh pr create`、`gh pr view`、`gh pr checks`。
-* CLI 遇到 authentication 或 permission failure 時，禁止無聲切換 browser、UI 或 connector 來完成 commit、push、PR。必須保留並回報原始錯誤，先檢查 remote protocol、credential、`gh auth status`、HTTPS credential helper 或 SSH agent，再決定是否需要 fallback。
+* **Git capability failure-layer 診斷**：Git／`gh` 操作失敗時，必須保留原始錯誤，先辨識 failure layer，再決定修復方式；至少依序檢查：
+  1. repository／`.git` write capability
+  2. remote protocol
+  3. credential／`gh auth`／SSH agent
+  4. network／DNS
+  5. ChatGPT/Codex approval／permission mode
+* 若 Git／`gh` 操作被 approval policy、permission review、安全核准或 platform permission 阻擋，
+  不得直接誤判為 credential、network 或 filesystem failure；應先依上述順序辨識實際 failure layer。
+* CLI 遇到 authentication、permission 或 approval failure 時，禁止無聲切換 browser、UI 或 connector 來完成 commit、push、PR。
+  若確實需要 fallback，必須先明確說明 CLI 受阻原因與選擇 fallback 的理由。
 * commit 是 local Git 操作，不得依賴 Browser 或 GitHub UI。
 * HTTPS remote 優先使用執行環境可取得的 credential helper；SSH remote 必須確認執行環境可取得 SSH key／agent。不得假設 Work/Codex 一定繼承 macOS Keychain 或 `ssh-agent`。
 * Browser/UI 只在使用者明確要求，或 CLI capability 確實不可用且已清楚說明原因後使用；UI 的 waiting state 不得讓流程無限停住。
