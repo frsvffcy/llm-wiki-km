@@ -9,17 +9,25 @@ A local-first personal knowledge base built with Java 21 and Spring Boot.
 
 ## Build and test
 
+Choose the command by purpose:
+
+```text
+Coding feedback      mvn test -Pfast
+Full regression      mvn test
+Integration          mvn test -Pintegration
+Final PR/build gate  mvn clean verify -Pfull
+```
+
+For a package/build smoke check, use the following command; it is not the final PR gate. The full
+developer test-tier guidance is in
+[docs/development/testing.md](docs/development/testing.md).
+
 ```bash
-mvn clean test
 mvn clean package
 ```
 
-For the developer test tiers and when each profile is appropriate, see
-[docs/development/testing.md](docs/development/testing.md). In brief, `mvn test` runs the full
-regression suite; use `mvn test -Pfast` for unit/contract feedback, `mvn test -Pintegration` for
-Spring/SQLite/filesystem/REST/FTS coverage, and `mvn clean verify -Pfull` as the final PR and build
-integrity gate. Pull requests targeting `main` also run the three-stage GitHub Actions workflow
-documented in [docs/development/testing.md](docs/development/testing.md).
+Pull requests targeting `main` also run the three-stage GitHub Actions workflow documented in
+[docs/development/testing.md](docs/development/testing.md).
 
 ## Run
 
