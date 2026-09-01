@@ -6,6 +6,7 @@ import org.km.llmwiki.ai.answer.AnswerContext;
 import org.km.llmwiki.ai.answer.AnswerContextAssembler;
 import org.km.llmwiki.ai.answer.AnswerResult;
 import org.km.llmwiki.ai.answer.AnswerFailureType;
+import org.km.llmwiki.ai.answer.CitationValidationException;
 import org.km.llmwiki.rag.EvidenceBundle;
 import org.km.llmwiki.rag.RetrievalService;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
@@ -80,12 +81,16 @@ public class AskService {
         }
 
         try {
+            if (!generated.insufficientEvidence() && generated.citedEvidenceIds().isEmpty()) {
+                throw new CitationValidationException(
+                        "non-insufficient answers must cite at least one evidence item");
+            }
             List<AskCitation> citations = mapCitations(context, generated.citedEvidenceIds());
             if (generated.insufficientEvidence()) {
                 return AskResultFactory.insufficient(suppliedEvidence, execution);
             }
             return AskResultFactory.answered(generated, citations, suppliedEvidence, execution);
-        } catch (RuntimeException invalidGeneration) {
+        } catch (CitationValidationException invalidGeneration) {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                             "answer provider response failed citation validation"),

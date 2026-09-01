@@ -32,8 +32,10 @@ public record AskResult(
         failure = failure == null ? Optional.empty() : failure;
         executionMetadata = Objects.requireNonNull(executionMetadata,
                 "executionMetadata must not be null");
-        if (status == AskStatus.ANSWERED && (answerText.isEmpty() || failure.isPresent())) {
-            throw new IllegalArgumentException("answered results require an answer and no failure");
+        if (status == AskStatus.ANSWERED
+                && (answerText.isEmpty() || citations.isEmpty() || failure.isPresent())) {
+            throw new IllegalArgumentException(
+                    "answered results require an answer, at least one citation, and no failure");
         }
         if (status == AskStatus.INSUFFICIENT_EVIDENCE
                 && (answerText.isPresent() || !citations.isEmpty() || failure.isPresent())) {
