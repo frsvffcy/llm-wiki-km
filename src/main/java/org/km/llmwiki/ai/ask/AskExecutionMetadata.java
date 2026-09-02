@@ -1,6 +1,6 @@
 package org.km.llmwiki.ai.ask;
 
-/** Bounded, non-content execution metadata retained for observability and later API mapping. */
+/** Bounded, non-content execution metadata exposed for observability and Ask API mapping. */
 public record AskExecutionMetadata(
         int retrievedEvidenceItems,
         int contextEvidenceItems,

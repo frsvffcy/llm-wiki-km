@@ -1,6 +1,6 @@
 package org.km.llmwiki.rag;
 
-/** Controlled defaults and hard ceilings for future LLM context assembly. */
+/** Controlled defaults and hard ceilings for bounded Answer context assembly. */
 final class RetrievalBudgetPolicy {
 
     static final int DEFAULT_MAX_ITEMS = 8;

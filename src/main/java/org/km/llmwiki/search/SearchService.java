@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/** Shared application boundary used by REST now and Retrieval orchestration in a later Story. */
+/** Shared application boundary used by REST search and Retrieval orchestration. */
 @Service
 public class SearchService {
 

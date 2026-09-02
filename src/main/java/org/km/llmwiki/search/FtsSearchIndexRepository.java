@@ -140,7 +140,7 @@ public class FtsSearchIndexRepository {
         documents.forEach(this::upsertSource);
     }
 
-    /** Repository-level MATCH primitive; REST search and snippets belong to a later Story. */
+    /** Repository-level MATCH primitive for FTS-backed search and evidence retrieval. */
     @Transactional(readOnly = true)
     public List<SearchIndexMatch> matchKnowledge(long workspaceId, String query) {
         String expression = FtsMatchQuery.literalExpression(normalizeQuery(query));

@@ -1,6 +1,6 @@
 package org.km.llmwiki.ai.answer;
 
-/** Stable failure categories for later orchestration and API mapping. */
+/** Stable failure categories used by Ask orchestration and API mapping. */
 public enum AnswerFailureType {
     CONFIGURATION_UNAVAILABLE_OR_DISABLED(false, "ANSWER_PROVIDER_NOT_CONFIGURED"),
     AUTHENTICATION_OR_AUTHORIZATION(false, "ANSWER_PROVIDER_AUTHENTICATION_FAILED"),
