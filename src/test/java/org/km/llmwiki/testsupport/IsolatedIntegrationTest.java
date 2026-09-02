@@ -50,6 +50,7 @@ public abstract class IsolatedIntegrationTest {
 
         private static final List<String> TABLE_DELETE_ORDER = List.of(
             "embedding_projection",
+            "embedding_projection_readiness",
             "knowledge_fts",
             "source_fts",
             "search_index_identity",

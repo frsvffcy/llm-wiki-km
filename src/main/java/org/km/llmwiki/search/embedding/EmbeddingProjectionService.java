@@ -7,6 +7,7 @@ import org.km.llmwiki.ai.embedding.EmbeddingResult;
 import org.km.llmwiki.ai.embedding.EmbeddingVector;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
 import org.km.llmwiki.search.SourceSearchFreshness;
+import org.km.llmwiki.search.SearchCorpus;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.springframework.stereotype.Service;
@@ -95,35 +96,95 @@ public class EmbeddingProjectionService {
     /** Clears only this workspace's derived rows and rebuilds from current Wiki/Source authority. */
     public EmbeddingProjectionRebuildResult rebuildWorkspace(long workspaceId) {
         projectionRepository.clearWorkspace(workspaceId);
-        int attempted = 0;
-        int fresh = 0;
-        int failed = 0;
-        int ineligible = 0;
+        return rebuildContents(workspaceId, true, true);
+    }
 
-        for (var page : publishedWikiRepository.findAllPublished(workspaceId)) {
-            attempted++;
-            var result = projectWiki(workspaceId, page.id());
-            if (result.status() == EmbeddingProjectionOperationStatus.FRESH) {
-                fresh++;
-            } else if (result.status() == EmbeddingProjectionOperationStatus.FAILED) {
-                failed++;
-            }
+    /** Rebuilds one corpus without disturbing the other corpus' projection rows. */
+    public EmbeddingProjectionRebuildResult rebuildCorpus(long workspaceId, SearchCorpus corpus) {
+        if (corpus == null || corpus == SearchCorpus.ALL) {
+            return rebuildWorkspace(workspaceId);
         }
-        for (var document : sourceAuthorityRepository.findAllDocuments(workspaceId)) {
-            for (var chunk : SourceSearchFreshness.eligibleDocuments(document)) {
+        EmbeddingEvidenceKind kind = corpus == SearchCorpus.WIKI
+                ? EmbeddingEvidenceKind.WIKI : EmbeddingEvidenceKind.SOURCE_CHUNK;
+        projectionRepository.clearCorpus(workspaceId, kind);
+        return rebuildContents(workspaceId, corpus == SearchCorpus.WIKI, corpus == SearchCorpus.SOURCE);
+    }
+
+    private EmbeddingProjectionRebuildResult rebuildContents(long workspaceId, boolean wiki, boolean source) {
+        int attempted = 0, fresh = 0, failed = 0, ineligible = 0;
+
+        if (wiki) {
+            for (var page : publishedWikiRepository.findAllPublished(workspaceId)) {
                 attempted++;
-                var result = generateAndStore(workspaceId, EmbeddingEvidenceKind.SOURCE_CHUNK,
-                        Long.toString(chunk.sourceChunkId()), chunk.contentHash(), chunk.normalizedContent());
+                var result = projectWiki(workspaceId, page.id());
                 if (result.status() == EmbeddingProjectionOperationStatus.FRESH) {
                     fresh++;
-                } else {
+                } else if (result.status() == EmbeddingProjectionOperationStatus.FAILED) {
                     failed++;
                 }
             }
-            ineligible += document.chunks().size() - SourceSearchFreshness.eligibleDocuments(document).size();
+        }
+        if (source) {
+            for (var document : sourceAuthorityRepository.findAllDocuments(workspaceId)) {
+                for (var chunk : SourceSearchFreshness.eligibleDocuments(document)) {
+                    attempted++;
+                    var result = generateAndStore(workspaceId, EmbeddingEvidenceKind.SOURCE_CHUNK,
+                            Long.toString(chunk.sourceChunkId()), chunk.contentHash(), chunk.normalizedContent());
+                    if (result.status() == EmbeddingProjectionOperationStatus.FRESH) {
+                        fresh++;
+                    } else {
+                        failed++;
+                    }
+                }
+                ineligible += document.chunks().size() - SourceSearchFreshness.eligibleDocuments(document).size();
+            }
         }
         return new EmbeddingProjectionRebuildResult(workspaceId, attempted, fresh, failed, ineligible);
     }
+
+    /** Returns eligible chunk identities for one authoritative source document. */
+    public java.util.List<Long> sourceChunks(long workspaceId, long documentId) {
+        return sourceAuthorityRepository.findAllDocuments(workspaceId).stream()
+                .filter(document -> document.documentId() == documentId)
+                .flatMap(document -> SourceSearchFreshness.eligibleDocuments(document).stream())
+                .map(chunk -> chunk.sourceChunkId()).toList();
+    }
+
+    /** Removes source projections whose canonical chunk was deleted, superseded, or ineligible. */
+    public int removeOrphanedSourceProjections(long workspaceId) {
+        int removed = 0;
+        for (var projection : projectionRepository.findAll(workspaceId)) {
+            if (projection.evidenceKind() != EmbeddingEvidenceKind.SOURCE_CHUNK) continue;
+            try {
+                long chunkId = Long.parseLong(projection.stableId());
+                var authority = sourceAuthorityRepository.findDocumentByChunk(workspaceId, chunkId);
+                boolean eligible = authority.isPresent() && SourceSearchFreshness.eligibleDocuments(authority.get())
+                        .stream().anyMatch(chunk -> chunk.sourceChunkId() == chunkId);
+                if (!eligible) {
+                    projectionRepository.delete(workspaceId, EmbeddingEvidenceKind.SOURCE_CHUNK, projection.stableId());
+                    removed++;
+                }
+            } catch (NumberFormatException malformed) {
+                projectionRepository.delete(workspaceId, EmbeddingEvidenceKind.SOURCE_CHUNK, projection.stableId());
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    public void clearWorkspace(long workspaceId) {
+        projectionRepository.clearWorkspace(workspaceId);
+    }
+
+    public ProjectionMetadata projectionMetadata(long workspaceId, EmbeddingEvidenceKind kind) {
+        return projectionRepository.findAll(workspaceId).stream()
+                .filter(row -> row.evidenceKind() == kind && row.status() == EmbeddingProjectionStatus.FRESH)
+                .findFirst()
+                .map(row -> new ProjectionMetadata(row.embeddingProvider(), row.embeddingModel(), row.dimension()))
+                .orElse(new ProjectionMetadata(null, null, null));
+    }
+
+    public record ProjectionMetadata(String provider, String model, Integer dimension) {}
 
     public boolean isFresh(long workspaceId, EmbeddingEvidenceKind kind, String stableId,
                            EmbeddingProjectionIdentity expected) {

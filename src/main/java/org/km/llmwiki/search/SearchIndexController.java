@@ -9,6 +9,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionJobService;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadiness;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessRepository;
+import org.km.llmwiki.workspace.NoActiveWorkspaceException;
+import org.km.llmwiki.workspace.WorkspaceService;
 
 @RestController
 @RequestMapping("/api/v1/search/index")
@@ -16,10 +21,19 @@ public class SearchIndexController {
 
     private final FtsRebuildService rebuildService;
     private final SearchHealthService healthService;
+    private final EmbeddingProjectionJobService embeddingJobs;
+    private final EmbeddingProjectionReadinessRepository embeddingReadiness;
+    private final WorkspaceService workspaceService;
 
-    public SearchIndexController(FtsRebuildService rebuildService, SearchHealthService healthService) {
+    public SearchIndexController(FtsRebuildService rebuildService, SearchHealthService healthService,
+                                 EmbeddingProjectionJobService embeddingJobs,
+                                 EmbeddingProjectionReadinessRepository embeddingReadiness,
+                                 WorkspaceService workspaceService) {
         this.rebuildService = rebuildService;
         this.healthService = healthService;
+        this.embeddingJobs = embeddingJobs;
+        this.embeddingReadiness = embeddingReadiness;
+        this.workspaceService = workspaceService;
     }
 
     @PostMapping("/rebuild")
@@ -32,5 +46,18 @@ public class SearchIndexController {
     @GetMapping("/health")
     public ApiResponse<SearchHealthResult> health(@RequestParam(required = false) String corpus) {
         return new ApiResponse<>(healthService.check(corpus));
+    }
+
+    @PostMapping("/embedding/rebuild")
+    public ResponseEntity<ApiResponse<EmbeddingProjectionJobService.EmbeddingProjectionJobCreatedResponse>> embeddingRebuild(
+            @RequestParam(required = false) String corpus) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new ApiResponse<>(
+                embeddingJobs.startRebuild(SearchCorpus.from(corpus))));
+    }
+
+    @GetMapping("/embedding/readiness")
+    public ApiResponse<java.util.List<EmbeddingProjectionReadiness>> embeddingReadiness() {
+        long workspaceId = workspaceService.findActiveWithoutValidation().orElseThrow(NoActiveWorkspaceException::new).id();
+        return new ApiResponse<>(embeddingReadiness.findAll(workspaceId));
     }
 }

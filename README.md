@@ -94,6 +94,47 @@ OPENAI_API_KEY=<provider-secret>
 When the provider is not configured, Ask displays a safe `尚未設定回答服務` error. Provider
 credentials are backend configuration only and are never entered into or sent from the browser.
 
+## Semantic projection operations
+
+Semantic retrieval is backed by a rebuildable embedding projection. A successful Wiki publish and
+eligible Source extraction/index update enqueue an asynchronous `EMBEDDING_REBUILD` processing job;
+the Browser request never waits for provider calls. Canonical Markdown, archive/vault metadata, and
+normalized Source content remain the authority. Projection rows can therefore be deleted and rebuilt
+without changing canonical data.
+
+Configure the embedding/vector boundary only on the backend (never in Browser requests):
+
+```text
+EMBEDDING_PROVIDER_ENABLED=false
+EMBEDDING_PROVIDER=openai-compatible
+EMBEDDING_PROVIDER_BASE_URL=https://provider.example/v1
+EMBEDDING_PROVIDER_MODEL=<model-name>
+EMBEDDING_PROVIDER_API_KEY=<provider-secret>
+EMBEDDING_PROVIDER_DIMENSION=1536
+VECTOR_CAPABILITY_ENABLED=false
+VECTOR_EXTENSION_PATH=/absolute/path/to/vec0.dylib
+```
+
+For an existing workspace, start an asynchronous initial/full rebuild (all corpora, or one corpus)
+and inspect its state:
+
+```bash
+curl -X POST 'http://127.0.0.1:8765/api/v1/search/index/embedding/rebuild?corpus=ALL'
+curl 'http://127.0.0.1:8765/api/v1/search/index/embedding/readiness'
+```
+
+Readiness is persisted per workspace and corpus. `NOT_BUILT`/`QUEUED`/`REBUILDING` mean that a
+projection is not available yet; `PARTIAL`, `FAILED`, and `STALE` are explicit degraded states
+requiring a rebuild. Only `READY` permits semantic retrieval. A `READY` projection with zero
+semantic candidates is a legitimate no-match. `SEMANTIC_WIKI` and `SEMANTIC_SOURCE` fail closed
+with typed projection-readiness semantics when not ready; `HYBRID_VECTOR` may use lexical fallback,
+but its response diagnostics mark that fallback as degraded. Provider/model/dimension or projection
+contract changes mark existing readiness `STALE` before another rebuild.
+
+If the process stops during a rebuild, startup recovery marks the interrupted processing job and
+linked readiness rows `FAILED`; rerun the rebuild endpoint to recover. The endpoint returns a job
+acceptance response and is safe to call from local administration scripts.
+
 ## SQLite
 
 The application uses a **single canonical metadata database** (Global DB model). It stores local data in `data/knowledge.db` by default. Override the location with `KNOWLEDGE_DB_PATH` and the lock timeout with `SQLITE_BUSY_TIMEOUT_MS` (default: `5000`). Every connection enables foreign keys, WAL journal mode, a busy timeout, and `synchronous=NORMAL`.

@@ -130,6 +130,14 @@ public class EmbeddingProjectionRepository {
     }
 
     @Transactional
+    public void clearCorpus(long workspaceId, EmbeddingEvidenceKind kind) {
+        dsl.deleteFrom(EMBEDDING_PROJECTION)
+                .where(EMBEDDING_PROJECTION.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(EMBEDDING_PROJECTION.EVIDENCE_KIND.eq(kind.name()))
+                .execute();
+    }
+
+    @Transactional
     public void delete(long workspaceId, EmbeddingEvidenceKind kind, String stableId) {
         dsl.deleteFrom(EMBEDDING_PROJECTION)
                 .where(EMBEDDING_PROJECTION.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))

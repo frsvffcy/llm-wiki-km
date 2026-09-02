@@ -2,6 +2,7 @@ package org.km.llmwiki.source;
 
 import org.km.llmwiki.web.PageResponse;
 import org.km.llmwiki.search.SourceChunkIndexingService;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionJobService;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
@@ -35,6 +36,7 @@ public class ExtractedContentService {
     private final SourceChunker sourceChunker;
     private final SourceChunkRepository sourceChunkRepository;
     private final SourceChunkIndexingService sourceChunkIndexingService;
+    private final EmbeddingProjectionJobService embeddingProjectionJobService;
 
     public ExtractedContentService(WorkspaceService workspaceService, DocumentRepository documentRepository,
                                    DocumentParserRegistry parserRegistry,
@@ -43,7 +45,8 @@ public class ExtractedContentService {
                                    ScannedPdfDetector scannedPdfDetector,
                                    SourceChunker sourceChunker,
                                    SourceChunkRepository sourceChunkRepository,
-                                   SourceChunkIndexingService sourceChunkIndexingService) {
+                                   SourceChunkIndexingService sourceChunkIndexingService,
+                                   EmbeddingProjectionJobService embeddingProjectionJobService) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
         this.parserRegistry = parserRegistry;
@@ -53,6 +56,7 @@ public class ExtractedContentService {
         this.sourceChunker = sourceChunker;
         this.sourceChunkRepository = sourceChunkRepository;
         this.sourceChunkIndexingService = sourceChunkIndexingService;
+        this.embeddingProjectionJobService = embeddingProjectionJobService;
     }
 
     @Transactional(noRollbackFor = DocumentExtractionException.class)
@@ -162,6 +166,11 @@ public class ExtractedContentService {
             sourceChunkIndexingService.synchronizeDocument(workspaceId, documentId);
         } catch (RuntimeException ignored) {
             // Canonical Source Chunk commit must never be rewritten as an extraction failure.
+        }
+        try {
+            embeddingProjectionJobService.enqueueSourceDocument(workspaceId, documentId);
+        } catch (RuntimeException ignored) {
+            // Projection scheduling is rebuildable and must not rewrite canonical extraction state.
         }
     }
 
