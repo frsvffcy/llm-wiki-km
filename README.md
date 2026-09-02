@@ -37,6 +37,16 @@ java -jar target/llm-wiki-km-0.1.0.jar
 
 The application listens only on `127.0.0.1:8765` by default.
 
+## Current architecture
+
+Phase 1 currently includes SQLite FTS5, FTS-backed Retrieval, Evidence Assembly, the
+provider-neutral Answer contract, grounded prompt/response validation, the first production
+provider adapter, stateless Ask orchestration, the Ask REST API, and the Browser Ask UI. Ask and
+Answer are an ephemeral MVP: each request is independent and cannot directly write to `vault/`,
+`archive/`, or canonical knowledge state. Any future “Save Answer to Knowledge” action must return
+to the Proposal → Draft → Human Review → Publish workflow. Embedding/vector/hybrid retrieval
+remains Phase 2, and Neo4j/GraphRAG remains Phase 3.
+
 ## Ask UI
 
 Start the application with the command above, then open

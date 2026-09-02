@@ -120,6 +120,22 @@ changing test tags or Maven configuration.
 | FTS rebuild / health / restart recovery | `search.FtsRebuildHealthIntegrationTest` | rebuild、missing/stale/orphan、partial failure、queued/running recovery 與 health state |
 | CJK search quality | `search.CjkFtsSearchQualitySpikeTest`、`search.CjkBigramProjectorTest` | CJK 短詞／bigram、技術 token、literal query 與可重現 recall/precision evidence |
 
+### Sprint 6 Ask/Answer canonical ownership
+
+Sprint 6 的 Ask/Answer 是 stateless、ephemeral response surface；以下 suites 負責其跨 Story
+invariants。這些測試只驗證 grounded response、citation、provider transport、orchestration
+與 presentation contract，不代表 Answer 已進入持久知識變更流程；任何 Save Answer to
+Knowledge capability 仍須回到 Proposal → Draft → Human Review → Publish。
+
+| Invariant | Canonical owner | 驗證重點 |
+| --- | --- | --- |
+| Grounded prompt / response contract | `ai.answer.GroundedAnswerPromptContractTest`、`ai.answer.GroundedAnswerResponseContractTest` | versioned prompt shape、escaped/untrusted evidence boundary、grounded answer 與 citation validation |
+| Evidence-to-context / citation identity | `ai.answer.AnswerContextAssemblerTest` | bounded context、evidence identity、citation mapping 與 evidence ordering |
+| Provider transport / failure taxonomy | `ai.answer.provider.openai.OpenAiCompatibleAnswerClientTest`、`ai.answer.provider.openai.OpenAiCompatibleAnswerClientHttpIntegrationTest`、`ai.answer.AnswerFailureTest` | request transport、response mapping、timeout/HTTP/parse failure 與 typed failure semantics |
+| Ask orchestration / insufficient evidence / provider failure mapping | `ai.ask.AskServiceTest` | retrieval-to-answer orchestration、insufficient evidence、provider failure 與 stateless result mapping |
+| Ask REST request / response / error contract | `ai.ask.AskApiContractTest`、`ai.ask.AskApiIntegrationTest` | request validation、`ApiResponse` shape、error mapping、HTTP boundary 與 provider-disabled behavior |
+| Browser Ask UI rendering / stateless / security behavior | `src/test/js/ask-ui.test.mjs` | citation rendering、independent submissions、safe error display，以及 browser 不接觸 provider credential 或 local files |
+
 這些 suite 是 ownership map，不表示每個 Story 都要重跑全部 suite；依 changed surface 執行 affected owner，PR Ready 再由 full gate 做完整 regression。
 
 ## 自動化 tier 與 cleanup guard
