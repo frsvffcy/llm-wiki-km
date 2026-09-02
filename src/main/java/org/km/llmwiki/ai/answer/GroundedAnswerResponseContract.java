@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.StreamSupport;
 
@@ -17,9 +16,7 @@ public final class GroundedAnswerResponseContract {
 
     public static final int MAX_PROVIDER_RESPONSE_CODE_POINTS = 120_000;
     private static final Set<String> RESPONSE_FIELDS = Set.of(
-            "answerText", "citedEvidenceIds", "insufficientEvidence", "metadata", "usage");
-    private static final Set<String> METADATA_FIELDS = Set.of("provider", "model");
-    private static final Set<String> USAGE_FIELDS = Set.of("inputTokens", "outputTokens", "totalTokens");
+            "answerText", "citedEvidenceIds", "insufficientEvidence");
 
     private final ObjectMapper objectMapper;
 
@@ -63,9 +60,7 @@ public final class GroundedAnswerResponseContract {
                 throw invalid(GroundedAnswerValidationErrorCode.INSUFFICIENT_EVIDENCE_CONFLICT,
                         "insufficientEvidence responses must not cite evidence");
             }
-            AnswerProviderMetadata metadata = metadata(root);
-            Optional<AnswerUsageMetadata> usage = usage(root);
-            return new GroundedAnswerResponse(answerText, citations, insufficient, metadata, usage);
+            return new GroundedAnswerResponse(answerText, citations, insufficient);
         } catch (JsonProcessingException exception) {
             throw invalid(GroundedAnswerValidationErrorCode.MALFORMED_JSON,
                     "provider response is not valid JSON");
@@ -159,56 +154,6 @@ public final class GroundedAnswerResponseContract {
                 })
                 .toList();
         return citations;
-    }
-
-    private static AnswerProviderMetadata metadata(JsonNode root) {
-        JsonNode value = required(root, "metadata");
-        if (!value.isObject()) {
-            throw invalid(GroundedAnswerValidationErrorCode.METADATA_INVALID,
-                    "metadata must be an object");
-        }
-        rejectUnknownFields(value, METADATA_FIELDS, "metadata");
-        try {
-            return new AnswerProviderMetadata(requiredText(value, "provider",
-                    GroundedAnswerValidationErrorCode.METADATA_INVALID),
-                    requiredText(value, "model", GroundedAnswerValidationErrorCode.METADATA_INVALID));
-        } catch (IllegalArgumentException exception) {
-            throw invalid(GroundedAnswerValidationErrorCode.METADATA_INVALID,
-                    "metadata fields are invalid");
-        }
-    }
-
-    private static Optional<AnswerUsageMetadata> usage(JsonNode root) {
-        JsonNode value = root.get("usage");
-        if (value == null || value.isNull()) {
-            return Optional.empty();
-        }
-        if (!value.isObject()) {
-            throw invalid(GroundedAnswerValidationErrorCode.USAGE_INVALID,
-                    "usage must be an object");
-        }
-        rejectUnknownFields(value, USAGE_FIELDS, "usage");
-        Integer input = optionalNonNegativeInt(value, "inputTokens");
-        Integer output = optionalNonNegativeInt(value, "outputTokens");
-        Integer total = optionalNonNegativeInt(value, "totalTokens");
-        try {
-            return Optional.of(new AnswerUsageMetadata(input, output, total));
-        } catch (IllegalArgumentException exception) {
-            throw invalid(GroundedAnswerValidationErrorCode.USAGE_INVALID,
-                    "usage must contain at least one non-negative counter");
-        }
-    }
-
-    private static Integer optionalNonNegativeInt(JsonNode parent, String field) {
-        JsonNode value = parent.get(field);
-        if (value == null || value.isNull()) {
-            return null;
-        }
-        if (!value.isIntegralNumber() || !value.canConvertToInt() || value.asInt() < 0) {
-            throw invalid(GroundedAnswerValidationErrorCode.USAGE_INVALID,
-                    "usage counters must be non-negative integers");
-        }
-        return value.asInt();
     }
 
     private static String requiredText(JsonNode parent, String field,

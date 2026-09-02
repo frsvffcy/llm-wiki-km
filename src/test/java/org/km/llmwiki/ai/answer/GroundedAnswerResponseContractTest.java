@@ -21,18 +21,27 @@ class GroundedAnswerResponseContractTest {
                 {
                   "answerText": "Local-first means the vault remains authoritative.",
                   "citedEvidenceIds": ["E2", "E1", "E2"],
-                  "insufficientEvidence": false,
-                  "metadata": {"provider": "stub", "model": "offline-model"},
-                  "usage": {"inputTokens": 20, "outputTokens": 12, "totalTokens": 32}
+                  "insufficientEvidence": false
                 }
                 """, context(2));
 
         assertThat(response.answerText()).contains("authoritative");
         assertThat(response.citedEvidenceIds()).containsExactly("E2", "E1");
         assertThat(response.insufficientEvidence()).isFalse();
-        assertThat(response.providerMetadata())
-                .isEqualTo(new AnswerProviderMetadata("stub", "offline-model"));
-        assertThat(response.usage()).contains(new AnswerUsageMetadata(20, 12, 32));
+    }
+
+    @Test
+    void rejectsModelGeneratedProviderMetadataAndUsageAsUnsupportedFields() {
+        assertThatThrownBy(() -> contract.parse(
+                "{" + basePayload() + ",\"metadata\":{\"provider\":\"forged\",\"model\":\"forged\"}}"))
+                .isInstanceOf(GroundedAnswerValidationException.class)
+                .extracting(error -> ((GroundedAnswerValidationException) error).errorCode())
+                .isEqualTo(GroundedAnswerValidationErrorCode.FIELD_TYPE_INVALID);
+        assertThatThrownBy(() -> contract.parse(
+                "{" + basePayload() + ",\"usage\":{\"totalTokens\":999}}"))
+                .isInstanceOf(GroundedAnswerValidationException.class)
+                .extracting(error -> ((GroundedAnswerValidationException) error).errorCode())
+                .isEqualTo(GroundedAnswerValidationErrorCode.FIELD_TYPE_INVALID);
     }
 
     @Test
@@ -43,7 +52,7 @@ class GroundedAnswerResponseContractTest {
                 .isEqualTo(GroundedAnswerValidationErrorCode.MALFORMED_JSON);
         assertThatThrownBy(() -> contract.parse(
                 "{\"answerText\":\"answer\",\"citedEvidenceIds\":[],"
-                        + "\"insufficientEvidence\":true,\"metadata\":{\"provider\":\"p\",\"model\":\"m\"}} trailing"))
+                        + "\"insufficientEvidence\":true} trailing"))
                 .isInstanceOf(GroundedAnswerValidationException.class)
                 .extracting(error -> ((GroundedAnswerValidationException) error).errorCode())
                 .isEqualTo(GroundedAnswerValidationErrorCode.MALFORMED_JSON);
@@ -53,7 +62,7 @@ class GroundedAnswerResponseContractTest {
                 .isEqualTo(GroundedAnswerValidationErrorCode.REQUIRED_FIELD_MISSING);
         assertThatThrownBy(() -> contract.parse("""
                 {"answerText": "answer", "citedEvidenceIds": {},
-                 "insufficientEvidence": false, "metadata": {"provider":"p","model":"m"}}
+                 "insufficientEvidence": false}
                 """))
                 .isInstanceOf(GroundedAnswerValidationException.class)
                 .extracting(error -> ((GroundedAnswerValidationException) error).errorCode())
@@ -73,7 +82,7 @@ class GroundedAnswerResponseContractTest {
         GroundedAnswerResponse insufficient = contract.parse(
                 """
                 {"answerText":"There is not enough evidence.","citedEvidenceIds":[],
-                "insufficientEvidence":true,"metadata":{"provider":"stub","model":"m"}}
+                "insufficientEvidence":true}
                 """,
                 context(1));
         assertThat(insufficient.insufficientEvidence()).isTrue();
@@ -102,8 +111,7 @@ class GroundedAnswerResponseContractTest {
     void boundsDiagnosticsAndDoesNotEchoSensitiveOrCompleteProviderData() {
         String secret = "sk-live-1234567890abcdef";
         String payload = "{" + "\"answerText\":\"answer\",\"citedEvidenceIds\":[],"
-                + "\"insufficientEvidence\":false,\"metadata\":{\"provider\":\"p\","
-                + "\"model\":\"m\"},\"unexpected\":\"authorization: Bearer " + secret
+                + "\"insufficientEvidence\":false,\"unexpected\":\"authorization: Bearer " + secret
                 + " " + "evidence-content-".repeat(40) + "\"}";
 
         assertThatThrownBy(() -> contract.parse(payload))
@@ -124,22 +132,21 @@ class GroundedAnswerResponseContractTest {
     }
 
     @Test
-    void rejectsOversizedAnswerAndInvalidUsage() {
+    void rejectsOversizedAnswerAndLegacyUsageField() {
         String oversized = "a".repeat(GroundedAnswerResponse.MAX_ANSWER_CODE_POINTS + 1);
         assertThatThrownBy(() -> contract.parse("""
-                {"answerText":"%s","citedEvidenceIds":[],"insufficientEvidence":true,
-                 "metadata":{"provider":"p","model":"m"}}
+                {"answerText":"%s","citedEvidenceIds":[],"insufficientEvidence":true}
                 """.formatted(oversized)))
                 .isInstanceOf(GroundedAnswerValidationException.class)
                 .extracting(error -> ((GroundedAnswerValidationException) error).errorCode())
                 .isEqualTo(GroundedAnswerValidationErrorCode.ANSWER_TEXT_INVALID);
         assertThatThrownBy(() -> contract.parse("""
                 {"answerText":"answer","citedEvidenceIds":[],"insufficientEvidence":true,
-                 "metadata":{"provider":"p","model":"m"},"usage":{"totalTokens":-1}}
+                 "usage":{"totalTokens":-1}}
                 """))
                 .isInstanceOf(GroundedAnswerValidationException.class)
                 .extracting(error -> ((GroundedAnswerValidationException) error).errorCode())
-                .isEqualTo(GroundedAnswerValidationErrorCode.USAGE_INVALID);
+                .isEqualTo(GroundedAnswerValidationErrorCode.FIELD_TYPE_INVALID);
     }
 
     @Test
@@ -166,8 +173,7 @@ class GroundedAnswerResponseContractTest {
 
     private static String payloadWithAnswer(String answer, String citationId, boolean insufficient) {
         return "{\"answerText\":\"" + answer + "\",\"citedEvidenceIds\":[\""
-                + citationId + "\"],\"insufficientEvidence\":" + insufficient
-                + ",\"metadata\":{\"provider\":\"p\",\"model\":\"m\"}}";
+                + citationId + "\"],\"insufficientEvidence\":" + insufficient + "}";
     }
 
     private static String payloadWithCitations(List<String> citationIds, boolean insufficient) {
@@ -176,7 +182,12 @@ class GroundedAnswerResponseContractTest {
                 .collect(java.util.stream.Collectors.joining(","));
         return """
                 {"answerText":"answer","citedEvidenceIds":[%s],
-                "insufficientEvidence":%s,"metadata":{"provider":"p","model":"m"}}
+                "insufficientEvidence":%s}
                 """.formatted(citations, insufficient);
+    }
+
+    private static String basePayload() {
+        return "\"answerText\":\"answer\",\"citedEvidenceIds\":[\"E1\"],"
+                + "\"insufficientEvidence\":false";
     }
 }

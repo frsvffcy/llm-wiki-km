@@ -20,8 +20,8 @@ class GroundedAnswerPromptContractTest {
 
         GroundedAnswerPrompt prompt = contract.render(request);
 
-        assertThat(prompt.identifier()).isEqualTo("grounded-answer@v1");
-        assertThat(prompt.version()).isEqualTo("v1");
+        assertThat(prompt.identifier()).isEqualTo("grounded-answer@v2");
+        assertThat(prompt.version()).isEqualTo("v2");
         assertThat(prompt.contentHash()).hasSize(64);
         assertThat(prompt.renderedPrompt())
                 .contains("APPLICATION_INSTRUCTIONS_BEGIN")
@@ -30,6 +30,10 @@ class GroundedAnswerPromptContractTest {
                 .contains("USER_QUESTION_JSON=\"What is security?\"")
                 .contains("EVIDENCE_DATA_UNTRUSTED_JSON=")
                 .contains("RESPONSE_SCHEMA_BEGIN")
+                .contains("GROUNDED_ANSWER_PROMPT_V2")
+                .contains("\"insufficientEvidence\":false}")
+                .doesNotContain("metadata")
+                .doesNotContain("usage")
                 .doesNotContain("hash-security");
     }
 

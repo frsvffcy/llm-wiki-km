@@ -47,6 +47,14 @@ Answer are an ephemeral MVP: each request is independent and cannot directly wri
 to the Proposal → Draft → Human Review → Publish workflow. Embedding/vector/hybrid retrieval
 remains Phase 2, and Neo4j/GraphRAG remains Phase 3.
 
+The grounded model contract is `grounded-answer@v2`. Model output contains only answer text,
+application-issued citation ids, and the insufficient-evidence flag; provider/model identity is
+created by the provider adapter from the HTTP envelope or configured model. Optional usage is read
+only from the provider transport envelope. Unknown structured fields, including legacy model
+`metadata` or `usage`, are rejected. This internal v1-to-v2 change has no runtime v1 compatibility
+parser because responses are not persisted and there is one production caller. The decision and
+boundary are recorded in [ADR 0002](docs/adr/0002-grounded-answer-contract-v2.md).
+
 ## Ask UI
 
 Start the application with the command above, then open

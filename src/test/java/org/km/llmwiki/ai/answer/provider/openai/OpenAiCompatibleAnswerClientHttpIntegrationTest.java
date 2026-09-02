@@ -52,7 +52,7 @@ class OpenAiCompatibleAnswerClientHttpIntegrationTest {
 
         assertThat(requestPath).isEqualTo("/v1/chat/completions");
         assertThat(authorization).isEqualTo("Bearer local-fixture-credential");
-        assertThat(requestBody).contains("GROUNDED_ANSWER_PROMPT_V1")
+        assertThat(requestBody).contains("GROUNDED_ANSWER_PROMPT_V2")
                 .doesNotContain("local-fixture-credential");
     }
 
@@ -63,7 +63,7 @@ class OpenAiCompatibleAnswerClientHttpIntegrationTest {
         String response = "{\"id\":\"local-request\",\"model\":\"local-model\","
                 + "\"choices\":[{\"message\":{\"content\":"
                 + quote("{\"answerText\":\"Local fake answer.\",\"citedEvidenceIds\":[\"E1\"],"
-                + "\"insufficientEvidence\":false,\"metadata\":{\"provider\":\"p\",\"model\":\"m\"}}")
+                + "\"insufficientEvidence\":false}")
                 + "}}]}";
         byte[] body = response.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");

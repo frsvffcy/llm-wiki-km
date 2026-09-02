@@ -13,7 +13,7 @@ import java.security.NoSuchAlgorithmException;
  */
 public final class GroundedAnswerPromptContract {
 
-    public static final String VERSION = "v1";
+    public static final String VERSION = "v2";
     public static final String IDENTIFIER = "grounded-answer@" + VERSION;
     public static final int MAX_PROMPT_CODE_POINTS = 64_000;
 
@@ -33,7 +33,7 @@ public final class GroundedAnswerPromptContract {
         }
 
         String contextData = AnswerContextSerializer.serialize(request.question(), request.context());
-        String prompt = "GROUNDED_ANSWER_PROMPT_V1\n"
+        String prompt = "GROUNDED_ANSWER_PROMPT_V2\n"
                 + "APPLICATION_INSTRUCTIONS_BEGIN\n"
                 + APPLICATION_INSTRUCTIONS
                 + "APPLICATION_INSTRUCTIONS_END\n"
@@ -42,8 +42,7 @@ public final class GroundedAnswerPromptContract {
                 + "REQUEST_DATA_END\n"
                 + "RESPONSE_SCHEMA_BEGIN\n"
                 + "{\"answerText\":\"string\",\"citedEvidenceIds\":[\"E1\"],"
-                + "\"insufficientEvidence\":false,\"metadata\":{\"provider\":\"string\","
-                + "\"model\":\"string\"}}\n"
+                + "\"insufficientEvidence\":false}\n"
                 + "RESPONSE_SCHEMA_END\n";
         if (prompt.codePointCount(0, prompt.length()) > MAX_PROMPT_CODE_POINTS) {
             throw new IllegalArgumentException("grounded answer prompt exceeds the bounded size");
