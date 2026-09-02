@@ -49,6 +49,7 @@ public abstract class IsolatedIntegrationTest {
     static final class DatabaseCleanupPolicy {
 
         private static final List<String> TABLE_DELETE_ORDER = List.of(
+            "embedding_projection",
             "knowledge_fts",
             "source_fts",
             "search_index_identity",
