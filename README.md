@@ -45,8 +45,22 @@ provider-neutral Answer contract, grounded prompt/response validation, the first
 provider adapter, stateless Ask orchestration, the Ask REST API, and the Browser Ask UI. Ask and
 Answer are an ephemeral MVP: each request is independent and cannot directly write to `vault/`,
 `archive/`, or canonical knowledge state. Any future “Save Answer to Knowledge” action must return
-to the Proposal → Draft → Human Review → Publish workflow. Embedding/vector/hybrid retrieval
-remains Phase 2, and Neo4j/GraphRAG remains Phase 3.
+to the Proposal → Draft → Human Review → Publish workflow. Sprint 7 now establishes a disabled-by-
+default, provider-neutral vector capability boundary and a reproducible sqlite-vec feasibility
+smoke; it does not add production vector search, embedding, vector persistence, or lexical/vector
+hybrid retrieval. `HYBRID_FTS` remains the existing Wiki + Source FTS5 corpus. Neo4j/GraphRAG remains
+Phase 3.
+
+The capability decision, platform matrix, fallback semantics, and dependencies for #183–#185 are
+recorded in [ADR 0003](docs/adr/0003-vector-capability-and-sqlite-vec-feasibility.md). Native
+extension path/loading details stay behind the SQLite adapter and are not exposed to Browser,
+REST, or Ask. The pinned JDBC smoke can be run with Java 21 after extracting the official
+sqlite-vec v0.1.9 loadable artifact:
+
+```bash
+JAVA_HOME="$(/usr/libexec/java_home -v 21)" PATH="$JAVA_HOME/bin:$PATH" \
+  scripts/sqlite-vec-jdbc-smoke.sh /absolute/path/to/vec0.dylib
+```
 
 The grounded model contract is `grounded-answer@v2`. Model output contains only answer text,
 application-issued citation ids, and the insufficient-evidence flag; provider/model identity is
