@@ -35,6 +35,7 @@ class FlywayMigrationIntegrationTest extends IsolatedIntegrationTest {
         assertThat(tableExists("knowledge_proposal_evidence")).isTrue();
         assertThat(tableExists("search_index_rebuild_state")).isTrue();
         assertThat(tableExists("embedding_projection")).isTrue();
+        assertThat(tableExists("embedding_projection_readiness")).isTrue();
         assertThat(tableExists("flyway_schema_history")).isTrue();
     }
 

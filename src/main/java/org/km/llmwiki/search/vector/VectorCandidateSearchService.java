@@ -23,6 +23,8 @@ import org.km.llmwiki.search.embedding.EmbeddingProjectionIdentity;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionRepository;
 import org.km.llmwiki.search.embedding.EmbeddingVectorCodec;
 import org.km.llmwiki.search.embedding.StoredEmbeddingProjection;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessRepository;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessStatus;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.springframework.stereotype.Service;
 
@@ -54,17 +56,30 @@ public class VectorCandidateSearchService {
     private final PublishedWikiRepository publishedWikiRepository;
     private final SourceSearchAuthorityRepository sourceAuthorityRepository;
     private final VectorSimilaritySearch similaritySearch;
+    private final EmbeddingProjectionReadinessRepository readinessRepository;
 
     public VectorCandidateSearchService(EmbeddingClient embeddingClient,
                                         EmbeddingProjectionRepository projectionRepository,
                                         PublishedWikiRepository publishedWikiRepository,
                                         SourceSearchAuthorityRepository sourceAuthorityRepository,
                                         VectorSimilaritySearch similaritySearch) {
+        this(embeddingClient, projectionRepository, publishedWikiRepository, sourceAuthorityRepository,
+                similaritySearch, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public VectorCandidateSearchService(EmbeddingClient embeddingClient,
+                                        EmbeddingProjectionRepository projectionRepository,
+                                        PublishedWikiRepository publishedWikiRepository,
+                                        SourceSearchAuthorityRepository sourceAuthorityRepository,
+                                        VectorSimilaritySearch similaritySearch,
+                                        EmbeddingProjectionReadinessRepository readinessRepository) {
         this.embeddingClient = embeddingClient;
         this.projectionRepository = projectionRepository;
         this.publishedWikiRepository = publishedWikiRepository;
         this.sourceAuthorityRepository = sourceAuthorityRepository;
         this.similaritySearch = similaritySearch;
+        this.readinessRepository = readinessRepository;
     }
 
     public SearchCandidatePage findCandidates(VectorCandidateSearchQuery query,
@@ -74,8 +89,10 @@ public class VectorCandidateSearchService {
         }
         EmbeddingInput input = new EmbeddingInput(Normalizer.normalize(
                 query.query().strip(), Normalizer.Form.NFC));
+        ensureProjectionReady(query.corpus(), activeWorkspace.id());
         EmbeddingResult result = embed(input);
         EmbeddingVector queryVector = validateSingleResult(result, input);
+        ensureProjectionMetadata(query.corpus(), activeWorkspace.id(), result, queryVector.values().size());
 
         List<StoredEmbeddingProjection> projections;
         try {
@@ -158,6 +175,43 @@ public class VectorCandidateSearchService {
             candidates = new ArrayList<>(candidates.subList(0, query.limit()));
         }
         return new SearchCandidatePage(List.copyOf(candidates), 0, query.limit(), searchable.size());
+    }
+
+    private void ensureProjectionReady(SearchCorpus corpus, long workspaceId) {
+        if (readinessRepository == null) return;
+        for (EmbeddingEvidenceKind kind : kinds(corpus)) {
+            var state = readinessRepository.find(workspaceId, kind);
+            if (state.isEmpty() || state.get().status() != EmbeddingProjectionReadinessStatus.READY) {
+                String status = state.map(value -> value.status().name()).orElse("NOT_BUILT");
+                throw unavailable(VectorCandidateSearchUnavailableException.Dependency.PROJECTION_READINESS,
+                        new IllegalStateException("Embedding projection is not ready: " + kind.name() + "/" + status));
+            }
+        }
+    }
+
+    private void ensureProjectionMetadata(SearchCorpus corpus, long workspaceId,
+                                          EmbeddingResult result, int dimension) {
+        if (readinessRepository == null) return;
+        for (EmbeddingEvidenceKind kind : kinds(corpus)) {
+            var state = readinessRepository.find(workspaceId, kind).orElse(null);
+            if (state == null || state.status() != EmbeddingProjectionReadinessStatus.READY) continue;
+            boolean mismatch = state.provider() != null && !state.provider().equals(result.providerMetadata().provider())
+                    || state.model() != null && !state.model().equals(result.providerMetadata().model())
+                    || state.dimension() != null && state.dimension() != dimension
+                    || state.projectionVersion() != null
+                    && !EmbeddingProjectionContract.VERSION.equals(state.projectionVersion());
+            if (mismatch) {
+                readinessRepository.markStale(workspaceId, kind, "Embedding provider/model/dimension changed; rebuild required");
+                throw unavailable(VectorCandidateSearchUnavailableException.Dependency.PROJECTION_READINESS,
+                        new IllegalStateException("Embedding projection is stale: " + kind.name()));
+            }
+        }
+    }
+
+    private static List<EmbeddingEvidenceKind> kinds(SearchCorpus corpus) {
+        return corpus == SearchCorpus.WIKI ? List.of(EmbeddingEvidenceKind.WIKI)
+                : corpus == SearchCorpus.SOURCE ? List.of(EmbeddingEvidenceKind.SOURCE_CHUNK)
+                : List.of(EmbeddingEvidenceKind.WIKI, EmbeddingEvidenceKind.SOURCE_CHUNK);
     }
 
     private EmbeddingResult embed(EmbeddingInput input) {

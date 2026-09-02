@@ -7,7 +7,8 @@ public final class VectorCandidateSearchUnavailableException extends RuntimeExce
         EMBEDDING_PROVIDER,
         VECTOR_CAPABILITY,
         VECTOR_REPOSITORY,
-        CONTENT_AUTHORITY
+        CONTENT_AUTHORITY,
+        PROJECTION_READINESS
     }
 
     private final Dependency dependency;
