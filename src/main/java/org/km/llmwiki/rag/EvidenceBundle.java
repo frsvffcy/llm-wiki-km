@@ -2,7 +2,10 @@ package org.km.llmwiki.rag;
 
 import java.util.List;
 
-/** Business result consumed by a future Ask layer; it never contains a generated answer. */
+/**
+ * Authoritative retrieval result consumed by Answer context assembly and Ask orchestration; it
+ * never contains a generated answer.
+ */
 public record EvidenceBundle(
         String query,
         RetrievalMode mode,
