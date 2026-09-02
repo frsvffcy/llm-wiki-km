@@ -5,7 +5,7 @@
 >
 > 1. `archive/` 與 `vault/` 才是長期 Source of Truth；LLM 永遠不得修改原始文件。
 > 2. SQLite 是可重建的索引與控制層，不是知識本身。
-> 3. 所有 LLM 產出必須經過 Proposal → Draft → Human Review → Publish 流程。
+> 3. LLM governance 分為兩條邊界：會改變持久知識的產出必須經過 Proposal → Draft → Human Review → Publish；stateless Ask/Answer 則是經過 grounded/citation validation 的 ephemeral response，不得直接寫入 canonical knowledge。
 > 4. 所有外部依賴（LLM Provider、Embedding、Vector、Graph）都必須保持可替換、可重建。
 
 ## 0. 語言與溝通規範
@@ -39,7 +39,7 @@
   * **建置工具**：Maven 3.9+（單一 `pom.xml`，不拆 multi-module）
   * **版本控管**：Git
 * **階段邊界與防護欄（Phase Gate）**：
-  * **Phase 1 / Sprint 5+ 可有**：Foundation、Inbox/Archive、Tika Extraction、Job Engine、LLM Proposal/Review、Wiki Publish、SQLite FTS5、FTS-backed Retrieval、Evidence Assembly；provider-neutral Ask/Answer orchestration 與 citation/evidence handling 僅在 roadmap 與實際契約明確納入時列入範圍。既有 Retrieval 與 Evidence Assembly 是維護中的產品 surface；不得把尚未存在的功能描述成已實作。
+  * **Phase 1 / current Sprint 6**：Foundation、Inbox/Archive、Tika Extraction、Job Engine、LLM Proposal/Review、Wiki Publish、SQLite FTS5、FTS-backed Retrieval、Evidence Assembly、provider-neutral Answer contract、grounded prompt/response validation、第一個 production provider adapter、stateless Ask orchestration、Ask REST API 與 Browser Ask UI。這些 Ask/Answer surface 是目前已完成的 ephemeral MVP，不直接寫入 `vault/`、`archive/` 或改變 canonical knowledge state；持久知識變更仍遵守 Proposal → Draft → Human Review → Publish。既有 Retrieval 與 Evidence Assembly 是維護中的產品 surface；不得把已實作功能描述成 later work。
   * **Phase 2**：Embedding、Vector Search、sqlite-vec、semantic rerank，以及 lexical + vector Hybrid RAG。這些技術在獲得相應 roadmap／scope 核准前，不得提前導入。
   * **Phase 3**：Neo4j projection 與 GraphRAG。
   * **禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/sqlite-vec/semantic rerank/Neo4j/GraphRAG 技術，不得阻擋既有的 FTS-backed Retrieval、Evidence Assembly 或其必要修正。不得因架構願景而新增不存在的 milestone 或 Issue 作為規範依據。
@@ -125,6 +125,9 @@
   * LLM / Embedding / Vector / Graph 存取必須透過自訂 interface（如 `DocumentParser`、`LlmClient`、`EmbeddingClient`、`KnowledgeVectorRepository`），核心服務不得直接 import OpenAI/Gemini/Ollama 等 provider 實作。Provider 由 configuration 切換。
   * LLM 只負責語意理解與 structured output（JSON），Java 負責 validation、workflow、transaction、filesystem。LLM 的 JSON 輸出驗證失敗即標記 FAILED，不得寫入 vault。
   * 分類（taxonomy）與關係（ontology relation type）由既有清單控制，LLM 只能從中選擇或提出 `suggest_new_category` 交由人工確認。
+  * **LLM governance boundary**：任何會成為持久知識、修改 `vault/`、改變 canonical knowledge state，或建立／更新 durable Wiki content 的產出，必須走 Proposal → Draft → Human Review → Publish。Ephemeral Stateless Ask 只允許 Grounded validation → Citation validation → Browser，不能直接寫入 `vault/` 或 `archive/`；未來若提供 Save Answer to Knowledge，必須重新進入 proposal/review/publish workflow。
+  * **Provider/model metadata authority**：provider/model metadata 的 authoritative source 必須是 adapter、transport 或 configured model；model-generated metadata 一律視為不可信，不能作為治理或產品狀態的權威來源。這是目前的 governance/debt 原則，不要求本 Issue 修改 runtime schema。
+  * **Prompt boundary note**：目前以 escaped JSON、untrusted evidence 與 citation validation 建立安全邊界；未來 provider 能力允許時，可再考慮分離 system/developer role 與 user/evidence。此 note 不擴張為本 Issue 的 runtime change。
 
 ## 4. 程式碼風格範例 (Code Style Conventions)
 > 💡 遵守「範例勝過文字說明」原則。
