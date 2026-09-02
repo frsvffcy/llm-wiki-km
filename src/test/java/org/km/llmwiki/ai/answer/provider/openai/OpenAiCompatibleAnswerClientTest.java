@@ -15,8 +15,11 @@ import org.km.llmwiki.ai.answer.AnswerRequest;
 import org.km.llmwiki.ai.answer.AnswerResult;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.net.URI;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -147,8 +150,62 @@ class OpenAiCompatibleAnswerClientTest {
         assertThatThrownBy(() -> client(transport).generate(request()))
                 .isInstanceOf(AnswerClientException.class)
                 .satisfies(thrown -> assertThat(((AnswerClientException) thrown).failureType())
-                        .isEqualTo(AnswerFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE));
+                        .isEqualTo(AnswerFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE))
+                .hasMessageContaining("answer provider network request failed")
+                .hasMessageNotContaining(fakeCredential());
         assertThat(calls).hasValue(1);
+    }
+
+    @Test
+    void mapsJdkNetworkFailureSubclassesToNetworkUnavailable() {
+        List<IOException> expectedTransportFailures = List.of(
+                new ConnectException("connection failed"),
+                new HttpTimeoutException("request timed out"));
+
+        for (IOException expectedTransportFailure : expectedTransportFailures) {
+            OpenAiCompatibleHttpTransport transport = (uri, connect, read, key, body) -> {
+                throw expectedTransportFailure;
+            };
+
+            assertThatThrownBy(() -> client(transport).generate(request()))
+                    .isInstanceOf(AnswerClientException.class)
+                    .extracting(thrown -> ((AnswerClientException) thrown).failureType())
+                    .isEqualTo(AnswerFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE);
+        }
+    }
+
+    @Test
+    void restoresInterruptFlagAndMapsInterruptedTransportFailure() {
+        Thread.interrupted();
+        OpenAiCompatibleHttpTransport transport = (uri, connect, read, key, body) -> {
+            throw new InterruptedException("transport interrupted");
+        };
+
+        try {
+            assertThatThrownBy(() -> client(transport).generate(request()))
+                    .isInstanceOf(AnswerClientException.class)
+                    .satisfies(thrown -> {
+                        AnswerClientException exception = (AnswerClientException) thrown;
+                        assertThat(exception.failureType())
+                                .isEqualTo(AnswerFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE);
+                        assertThat(exception.getMessage())
+                                .contains("answer provider request was interrupted");
+                    });
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    void propagatesUnexpectedTransportRuntimeExceptionWithoutReclassifyingIt() {
+        IllegalStateException unexpected = new IllegalStateException("transport programming defect");
+        OpenAiCompatibleHttpTransport transport = (uri, connect, read, key, body) -> {
+            throw unexpected;
+        };
+
+        assertThatThrownBy(() -> client(transport).generate(request()))
+                .isSameAs(unexpected);
     }
 
     @Test
