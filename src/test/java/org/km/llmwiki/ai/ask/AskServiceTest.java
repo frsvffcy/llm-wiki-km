@@ -21,6 +21,8 @@ import org.km.llmwiki.rag.EvidenceWorkspace;
 import org.km.llmwiki.rag.RetrievalMode;
 import org.km.llmwiki.rag.RetrievalService;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
+import org.km.llmwiki.rag.RetrievalDiagnostics;
+import org.km.llmwiki.rag.RetrievalStrategy;
 
 import java.util.List;
 import java.util.Optional;
@@ -128,6 +130,45 @@ class AskServiceTest {
             assertThat(failure.retrievalDependency()).contains(
                     RetrievalUnavailableException.Dependency.SEARCH_INDEX);
         });
+    }
+
+    @Test
+    void vectorUnavailableIsTypedAndNeverConvertedToInsufficientEvidence() {
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenThrow(new RetrievalUnavailableException(
+                RetrievalUnavailableException.Dependency.VECTOR_SEARCH,
+                new IllegalStateException("vector unavailable")));
+        AtomicInteger calls = new AtomicInteger();
+        AnswerClient provider = request -> {
+            calls.incrementAndGet();
+            throw new AssertionError("provider must not be called");
+        };
+
+        AskResult result = new AskService(retrieval, new AnswerContextAssembler(), provider)
+                .ask(AskRequest.defaults("question", RetrievalMode.SEMANTIC_WIKI));
+
+        assertThat(result.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.type()).isEqualTo(AskFailureType.RETRIEVAL_VECTOR_UNAVAILABLE);
+            assertThat(failure.retrievalDependency()).contains(
+                    RetrievalUnavailableException.Dependency.VECTOR_SEARCH);
+        });
+        assertThat(result.insufficientEvidence()).isFalse();
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void hybridDiagnosticsAreCarriedToAskResult() {
+        EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")),
+                RetrievalDiagnostics.degradedHybrid("vector unavailable"));
+        AskResult result = new AskService(retrievalReturning(bundle), new AnswerContextAssembler(),
+                StubAnswerClient.returning(new AnswerResult("grounded", List.of("E1"), false,
+                        METADATA, Optional.empty())))
+                .ask(AskRequest.defaults("question", RetrievalMode.HYBRID_VECTOR));
+
+        assertThat(result.successful()).isTrue();
+        assertThat(result.retrievalDiagnostics().strategy()).isEqualTo(RetrievalStrategy.HYBRID);
+        assertThat(result.retrievalDiagnostics().degradedFallback()).isTrue();
+        assertThat(result.retrievalDiagnostics().vectorUnavailable()).isTrue();
     }
 
     @ParameterizedTest
@@ -267,11 +308,15 @@ class AskServiceTest {
     }
 
     private static EvidenceBundle bundle(List<EvidenceItem> items) {
+        return bundle(items, RetrievalDiagnostics.lexical());
+    }
+
+    private static EvidenceBundle bundle(List<EvidenceItem> items, RetrievalDiagnostics diagnostics) {
         int characters = items.stream().mapToInt(item ->
                 item.content().codePointCount(0, item.content().length())).sum();
         return new EvidenceBundle("question", RetrievalMode.HYBRID_FTS, WORKSPACE, items,
                 new EvidenceBudget(8, 100_000, items.size(), characters, (characters + 3) / 4,
-                        false), items.size(), 0, items.isEmpty());
+                        false), items.size(), 0, items.isEmpty(), diagnostics);
     }
 
     private static EvidenceItem wiki(String id, String title, String path, String content) {

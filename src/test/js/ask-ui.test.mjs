@@ -5,7 +5,8 @@ import {
   createAskController,
   errorMessage,
   renderAskResponse,
-  validateQuestion
+  validateQuestion,
+  RETRIEVAL_MODES
 } from "../../main/resources/static/ask-ui.js";
 
 class FakeElement {
@@ -120,6 +121,35 @@ test("maps typed errors to safe user-facing messages", () => {
   assert.deepEqual(errorMessage({ code: "ANSWER_PROVIDER_UNAVAILABLE", message: "secret" }).title,
     "回答服務暫時無法使用");
   assert.equal(errorMessage({ code: "UNKNOWN" }).title, "無法取得回答");
+  assert.deepEqual(errorMessage({ code: "RETRIEVAL_VECTOR_UNAVAILABLE" }), {
+    title: "語意搜尋暫時無法使用",
+    message: "目前無法使用語意搜尋能力，請稍後再試或改用全文搜尋。"
+  });
+});
+
+test("exposes additive semantic modes without redefining HYBRID_FTS", () => {
+  assert.deepEqual(RETRIEVAL_MODES.map(mode => mode.value), [
+    "HYBRID_FTS", "WIKI_ONLY", "SOURCE_ONLY",
+    "SEMANTIC_WIKI", "SEMANTIC_SOURCE", "HYBRID_VECTOR"
+  ]);
+  assert.match(RETRIEVAL_MODES[0].label, /全文搜尋/);
+});
+
+test("renders a safe degraded hybrid notice without exposing diagnostics", () => {
+  const elements = uiElements();
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED", answer: "grounded", citations: [
+      { evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } }
+    ],
+    retrievalMetadata: {
+      strategy: "HYBRID", lexicalSignalUsed: true, vectorSignalUsed: false,
+      degradedFallback: true, vectorUnavailable: true,
+      vectorUnavailableReason: "native sqlite-vec path / secret"
+    }
+  } }, documentRef);
+  assert.equal(elements.metadata.hidden, false);
+  assert.match(elements.metadata.textContent, /全文搜尋結果/);
+  assert.doesNotMatch(elements.metadata.textContent, /sqlite|secret|native/);
 });
 
 test("prevents double submit while the independent request is in flight", async () => {
@@ -145,6 +175,21 @@ test("prevents double submit while the independent request is in flight", async 
   await first;
   await second;
   assert.equal(elements.submit.disabled, false);
+});
+
+test("sends the selected semantic retrieval mode", async () => {
+  const elements = uiElements();
+  elements.question.value = "Explain embeddings";
+  elements.retrievalMode.value = "HYBRID_VECTOR";
+  let requestBody;
+  const controller = createAskController(elements, async (url, options) => {
+    requestBody = JSON.parse(options.body);
+    return { ok: true, async json() {
+      return { data: { status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true, citations: [] } };
+    } };
+  }, documentRef);
+  await controller.submit(event());
+  assert.equal(requestBody.retrievalMode, "HYBRID_VECTOR");
 });
 
 test("does not add persistence or unsafe HTML APIs to the UI module", async () => {

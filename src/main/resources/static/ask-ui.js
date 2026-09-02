@@ -1,7 +1,10 @@
 const RETRIEVAL_MODES = Object.freeze([
-  { value: "HYBRID_FTS", label: "Wiki 與來源文件" },
+  { value: "HYBRID_FTS", label: "Wiki 與來源文件（全文搜尋）" },
   { value: "WIKI_ONLY", label: "僅 Wiki" },
-  { value: "SOURCE_ONLY", label: "僅來源文件" }
+  { value: "SOURCE_ONLY", label: "僅來源文件" },
+  { value: "SEMANTIC_WIKI", label: "Wiki 語意搜尋" },
+  { value: "SEMANTIC_SOURCE", label: "來源文件語意搜尋" },
+  { value: "HYBRID_VECTOR", label: "Wiki 與來源文件（語意混合）" }
 ]);
 
 const ERROR_MESSAGES = Object.freeze({
@@ -9,6 +12,7 @@ const ERROR_MESSAGES = Object.freeze({
   ANSWER_REQUEST_REJECTED: ["問題格式不正確", "請確認問題內容後再試一次。"],
   NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在本機應用程式中建立或開啟 active workspace。"],
   RETRIEVAL_UNAVAILABLE: ["搜尋服務暫時無法使用", "目前無法取得已索引的知識內容，請稍後再試。"],
+  RETRIEVAL_VECTOR_UNAVAILABLE: ["語意搜尋暫時無法使用", "目前無法使用語意搜尋能力，請稍後再試或改用全文搜尋。"],
   ANSWER_PROVIDER_NOT_CONFIGURED: ["尚未設定回答服務", "請由管理者設定 answer provider 後再試。"],
   ANSWER_PROVIDER_AUTHENTICATION_FAILED: ["回答服務驗證失敗", "回答服務目前無法驗證請求，請聯絡管理者。"],
   ANSWER_PROVIDER_RATE_LIMITED: ["回答服務目前忙碌", "已達回答服務的使用限制，請稍後再試。"],
@@ -120,9 +124,17 @@ export function renderAskResponse(elements, payload, documentRef = document) {
   });
 
   const provider = data.providerMetadata;
+  const retrieval = data.retrievalMetadata;
+  const metadataParts = [];
   if (provider && (provider.provider || provider.model)) {
+    metadataParts.push(`回答服務：${text(provider.provider)}${provider.model ? ` · ${text(provider.model)}` : ""}`);
+  }
+  if (retrieval && retrieval.degradedFallback === true) {
+    metadataParts.push("搜尋提示：語意搜尋暫時不可用，已改用全文搜尋結果");
+  }
+  if (metadataParts.length > 0) {
     elements.metadata.hidden = false;
-    elements.metadata.textContent = `回答服務：${text(provider.provider)}${provider.model ? ` · ${text(provider.model)}` : ""}`;
+    elements.metadata.textContent = metadataParts.join(" · ");
   }
 }
 

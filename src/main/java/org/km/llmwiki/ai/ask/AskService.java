@@ -10,6 +10,7 @@ import org.km.llmwiki.ai.answer.CitationValidationException;
 import org.km.llmwiki.rag.EvidenceBundle;
 import org.km.llmwiki.rag.RetrievalService;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
+import org.km.llmwiki.rag.RetrievalDiagnostics;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -48,10 +49,11 @@ public class AskService {
             evidence = retrievalService.retrieve(request.retrievalRequest());
         } catch (RetrievalUnavailableException exception) {
             return AskResultFactory.failure(
-                    new AskFailure(AskFailureType.RETRIEVAL_UNAVAILABLE,
+                    new AskFailure(retrievalFailureType(exception),
                             "retrieval dependency is unavailable",
                             Optional.of(exception.dependency())),
-                    new AskExecutionMetadata(0, 0, 0, false));
+                    new AskExecutionMetadata(0, 0, 0, false),
+                    List.of(), RetrievalDiagnostics.lexical());
         }
 
         AnswerContext context = contextAssembler.assemble(evidence, request.contextBudget());
@@ -62,7 +64,8 @@ public class AskService {
                 .map(AskCitation::from).toList();
 
         if (evidence.insufficientEvidence() || context.blocks().isEmpty()) {
-            return AskResultFactory.insufficient(suppliedEvidence, execution);
+            return AskResultFactory.insufficient(suppliedEvidence, execution,
+                    evidence.diagnostics());
         }
 
         AnswerResult generated;
@@ -71,13 +74,14 @@ public class AskService {
                     request.question(), context, request.generationOptions()));
         } catch (AnswerClientException exception) {
             return AskResultFactory.failure(
-                    failureFor(exception), execution, suppliedEvidence);
+                    failureFor(exception), execution, suppliedEvidence, evidence.diagnostics());
         }
 
         if (generated == null) {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
-                    "answer provider returned no result"), execution, suppliedEvidence);
+                    "answer provider returned no result"), execution, suppliedEvidence,
+                    evidence.diagnostics());
         }
 
         if (generated.answerText().codePointCount(0, generated.answerText().length())
@@ -85,7 +89,7 @@ public class AskService {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                             "answer provider response exceeded the request output bound"),
-                    execution, suppliedEvidence);
+                    execution, suppliedEvidence, evidence.diagnostics());
         }
 
         try {
@@ -95,15 +99,23 @@ public class AskService {
             }
             List<AskCitation> citations = mapCitations(context, generated.citedEvidenceIds());
             if (generated.insufficientEvidence()) {
-                return AskResultFactory.insufficient(suppliedEvidence, execution);
+                return AskResultFactory.insufficient(suppliedEvidence, execution,
+                        evidence.diagnostics());
             }
-            return AskResultFactory.answered(generated, citations, suppliedEvidence, execution);
+            return AskResultFactory.answered(generated, citations, suppliedEvidence, execution,
+                    evidence.diagnostics());
         } catch (CitationValidationException invalidGeneration) {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                             "answer provider response failed citation validation"),
-                    execution, suppliedEvidence);
+                    execution, suppliedEvidence, evidence.diagnostics());
         }
+    }
+
+    private static AskFailureType retrievalFailureType(RetrievalUnavailableException exception) {
+        return exception.dependency() == RetrievalUnavailableException.Dependency.VECTOR_SEARCH
+                ? AskFailureType.RETRIEVAL_VECTOR_UNAVAILABLE
+                : AskFailureType.RETRIEVAL_UNAVAILABLE;
     }
 
     private static List<AskCitation> mapCitations(AnswerContext context, List<String> citationIds) {
@@ -136,16 +148,19 @@ public class AskService {
     /** Small factory keeps the result invariants centralized and constructors readable. */
     private static final class AskResultFactory {
         private static AskResult answered(AnswerResult generated, List<AskCitation> citations,
-                                           List<AskCitation> supplied, AskExecutionMetadata execution) {
+                                           List<AskCitation> supplied, AskExecutionMetadata execution,
+                                           RetrievalDiagnostics diagnostics) {
             return new AskResult(AskStatus.ANSWERED, Optional.of(generated.answerText()), citations,
                     supplied, Optional.of(generated.providerMetadata()), generated.usage(),
-                    Optional.empty(), execution);
+                    Optional.empty(), execution, diagnostics);
         }
 
         private static AskResult insufficient(List<AskCitation> supplied,
-                                              AskExecutionMetadata execution) {
+                                              AskExecutionMetadata execution,
+                                              RetrievalDiagnostics diagnostics) {
             return new AskResult(AskStatus.INSUFFICIENT_EVIDENCE, Optional.empty(), List.of(),
-                    supplied, Optional.empty(), Optional.empty(), Optional.empty(), execution);
+                    supplied, Optional.empty(), Optional.empty(), Optional.empty(), execution,
+                    diagnostics);
         }
 
         private static AskResult failure(AskFailure failure, AskExecutionMetadata execution) {
@@ -153,9 +168,16 @@ public class AskService {
         }
 
         private static AskResult failure(AskFailure failure, AskExecutionMetadata execution,
-                                         List<AskCitation> supplied) {
+                                         List<AskCitation> supplied,
+                                         RetrievalDiagnostics diagnostics) {
             return new AskResult(AskStatus.FAILED, Optional.empty(), List.of(), supplied,
-                    Optional.empty(), Optional.empty(), Optional.of(failure), execution);
+                    Optional.empty(), Optional.empty(), Optional.of(failure), execution,
+                    diagnostics);
+        }
+
+        private static AskResult failure(AskFailure failure, AskExecutionMetadata execution,
+                                         List<AskCitation> supplied) {
+            return failure(failure, execution, supplied, RetrievalDiagnostics.lexical());
         }
     }
 }

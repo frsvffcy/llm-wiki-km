@@ -164,10 +164,22 @@ usage 與 typed failure taxonomy。`OpenAiCompatibleEmbeddingClientHttpIntegrati
 localhost deterministic fixture 驗證 `/embeddings` transport 與 credential boundary；不使用真實
 provider/network/key。
 
-後續 #184 可依賴 `EmbeddingRequest`/`EmbeddingResult` 的 identity、vector dimension、values、
-provider/model metadata 與 optional usage；不得依賴 OpenAI-compatible JSON、transport 或
-credential。Embedding Story 不建立 schema、sqlite-vec table、KNN query、hybrid fusion、Ask、
-REST 或 Browser mode。
+`EmbeddingRequest`/`EmbeddingResult` 的 identity、vector dimension、values、provider/model
+metadata 與 optional usage 僅供 provider-neutral vector candidate boundary 使用；不得依賴
+OpenAI-compatible JSON、transport 或 credential。Embedding contract 不把 raw vectors 變成
+Ask、REST 或 Browser 公開資料。
+
+### Sprint 7 Ask semantic/hybrid canonical ownership
+
+Ask 沿用 `RetrievalRequest`、`RetrievalStrategy`、`RetrievalDiagnostics` 與既有
+authority revalidation → `EvidenceBundle` → `AnswerContextAssembler` → `grounded-answer@v2`
+流程。`WIKI_ONLY`、`SOURCE_ONLY`、`HYBRID_FTS` 維持原語意；新增 `SEMANTIC_WIKI`、
+`SEMANTIC_SOURCE`、`HYBRID_VECTOR` 只透過既有 `retrievalMode` enum 擴充 request shape。
+`HYBRID_VECTOR` 的 lexical fallback 以安全 retrieval metadata 標示 degraded；semantic vector
+unavailable 回傳 `RETRIEVAL_VECTOR_UNAVAILABLE`/503，與 `INSUFFICIENT_EVIDENCE`/200 分離。
+REST/Browser 僅顯示 strategy 與 signal 狀態，不顯示 raw score、embedding、native path 或
+provider credential。Browser contract suite 目前包含 11 個測試，並持續驗證 selector、citation、
+typed error、degraded notice、double-submit 與 stateless/safe DOM invariants。
 
 這些 suite 是 ownership map，不表示每個 Story 都要重跑全部 suite；依 changed surface 執行 affected owner，PR Ready 再由 full gate 做完整 regression。
 
