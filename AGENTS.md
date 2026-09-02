@@ -39,7 +39,7 @@
   * **建置工具**：Maven 3.9+（單一 `pom.xml`，不拆 multi-module）
   * **版本控管**：Git
 * **階段邊界與防護欄（Phase Gate）**：
-  * **Phase 1 / current Sprint 6**：Foundation、Inbox/Archive、Tika Extraction、Job Engine、LLM Proposal/Review、Wiki Publish、SQLite FTS5、FTS-backed Retrieval、Evidence Assembly、provider-neutral Answer contract、grounded prompt/response validation、第一個 production provider adapter、stateless Ask orchestration、Ask REST API 與 Browser Ask UI。這些 Ask/Answer surface 是目前已完成的 ephemeral MVP，不直接寫入 `vault/`、`archive/` 或改變 canonical knowledge state；持久知識變更仍遵守 Proposal → Draft → Human Review → Publish。既有 Retrieval 與 Evidence Assembly 是維護中的產品 surface；不得把已實作功能描述成 later work。
+  * **Phase 1 / baseline completed through Sprint 6**：Foundation、Inbox/Archive、Tika Extraction、Job Engine、LLM Proposal/Review、Wiki Publish、SQLite FTS5、FTS-backed Retrieval、Evidence Assembly、provider-neutral Answer contract、grounded prompt/response validation、第一個 production provider adapter、stateless Ask orchestration、Ask REST API 與 Browser Ask UI。這些 Ask/Answer surface 是目前已完成的 ephemeral MVP，不直接寫入 `vault/`、`archive/` 或改變 canonical knowledge state；持久知識變更仍遵守 Proposal → Draft → Human Review → Publish。既有 Retrieval 與 Evidence Assembly 是維護中的產品 surface；不得把已實作功能描述成 later work。
   * **Phase 2**：Embedding、Vector Search、sqlite-vec、semantic rerank，以及 lexical + vector Hybrid RAG。這些技術在獲得相應 roadmap／scope 核准前，不得提前導入。
   * **Phase 3**：Neo4j projection 與 GraphRAG。
   * **禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/sqlite-vec/semantic rerank/Neo4j/GraphRAG 技術，不得阻擋既有的 FTS-backed Retrieval、Evidence Assembly 或其必要修正。不得因架構願景而新增不存在的 milestone 或 Issue 作為規範依據。
