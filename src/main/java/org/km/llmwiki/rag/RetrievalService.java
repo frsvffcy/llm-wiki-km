@@ -10,6 +10,9 @@ import org.km.llmwiki.search.SourceSearchAuthorityDocument;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
 import org.km.llmwiki.search.SourceSearchEligibilityPolicy;
 import org.km.llmwiki.search.SourceSearchFreshness;
+import org.km.llmwiki.search.vector.VectorCandidateSearchQuery;
+import org.km.llmwiki.search.vector.VectorCandidateSearchService;
+import org.km.llmwiki.search.vector.VectorCandidateSearchUnavailableException;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
@@ -47,17 +50,30 @@ public class RetrievalService {
     private final PublishedWikiRepository publishedWikiRepository;
     private final PublishedWikiContentReader publishedWikiContentReader;
     private final SourceSearchAuthorityRepository sourceAuthorityRepository;
+    private final VectorCandidateSearchService vectorCandidateSearchService;
 
     public RetrievalService(WorkspaceService workspaceService,
                             SearchService searchService,
                             PublishedWikiRepository publishedWikiRepository,
                             PublishedWikiContentReader publishedWikiContentReader,
                             SourceSearchAuthorityRepository sourceAuthorityRepository) {
+        this(workspaceService, searchService, publishedWikiRepository, publishedWikiContentReader,
+                sourceAuthorityRepository, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RetrievalService(WorkspaceService workspaceService,
+                            SearchService searchService,
+                            PublishedWikiRepository publishedWikiRepository,
+                            PublishedWikiContentReader publishedWikiContentReader,
+                            SourceSearchAuthorityRepository sourceAuthorityRepository,
+                            VectorCandidateSearchService vectorCandidateSearchService) {
         this.workspaceService = workspaceService;
         this.searchService = searchService;
         this.publishedWikiRepository = publishedWikiRepository;
         this.publishedWikiContentReader = publishedWikiContentReader;
         this.sourceAuthorityRepository = sourceAuthorityRepository;
+        this.vectorCandidateSearchService = vectorCandidateSearchService;
     }
 
     public EvidenceBundle retrieve(RetrievalRequest request) {
@@ -82,6 +98,42 @@ public class RetrievalService {
                     infrastructureFailure);
         }
         return assembleEvidence(request, active, page);
+    }
+
+    /**
+     * Semantic candidate retrieval entry point. Vector search only supplies candidates; evidence
+     * is assembled through the same authority revalidation path as FTS retrieval.
+     */
+    public EvidenceBundle retrieveSemantic(RetrievalRequest request) {
+        if (vectorCandidateSearchService == null) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.VECTOR_SEARCH,
+                    new IllegalStateException("Vector candidate search is not configured"));
+        }
+        RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
+        WorkspaceResponse active = activeWorkspace();
+        SearchCandidatePage page;
+        try {
+            page = vectorCandidateSearchService.findCandidates(
+                    new VectorCandidateSearchQuery(request.query(), request.mode().searchCorpus(),
+                            limits.candidateLimit()),
+                    new org.km.llmwiki.search.SearchWorkspaceProvenance(active.id(), active.name()));
+        } catch (VectorCandidateSearchUnavailableException unavailable) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.VECTOR_SEARCH, unavailable);
+        }
+        return assembleEvidence(request, active, page);
+    }
+
+    private WorkspaceResponse activeWorkspace() {
+        try {
+            return workspaceService.findActiveWithoutValidation()
+                    .orElseThrow(NoActiveWorkspaceException::new);
+        } catch (DataAccessException infrastructureFailure) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.WORKSPACE_AUTHORITY,
+                    infrastructureFailure);
+        }
     }
 
     /** Testable boundary that also makes the Search-to-authority revalidation race explicit. */
