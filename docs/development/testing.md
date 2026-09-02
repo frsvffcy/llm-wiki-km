@@ -26,7 +26,8 @@ The Browser Ask UI contract suite runs directly with the Node.js built-in test r
 not require npm dependencies, a frontend build, a browser automation server, provider credentials,
 or network access. The PR workflow pins its runtime to Node.js 22 LTS and runs this suite in the
 `Fast unit and contract tests` job before the Maven fast tier. A failure in either command fails
-that job; the three Maven profiles retain their existing responsibilities.
+that job; the three Maven profiles retain their existing responsibilities. The `PR Gate` job
+aggregates the Fast, Integration, and Full job results and fails unless all three succeed.
 
 The `full` profile deliberately applies no include or exclude filter. This guarantees that adding
 a new tagged test cannot accidentally remove it from the final gate. `fast` is feedback only; it
@@ -65,8 +66,8 @@ git diff --check
 
 Review the complete diff as well, and state in the PR body that the local full gate was not run
 because the change is docs-only and does not affect those behaviors. This exception changes only
-the local verification expectation: the PR CI `Full regression and build integrity` job must still
-succeed before merge. It must not be extended to Test Architecture, build, package, or CI
+the local verification expectation: the PR CI `PR Gate` job must still succeed before merge. It
+must not be extended to Test Architecture, build, package, or CI
 behavior changes.
 
 The fast profile is not a substitute for the jOOQ/Flyway clean-build gate. Changes to migrations,
@@ -75,15 +76,20 @@ when the coding loop is otherwise limited to unit and contract tests.
 
 ## PR CI and merge gate
 
-Every pull request targeting `main` runs `.github/workflows/pr-ci.yml` with three visible jobs:
+Every pull request targeting `main` runs `.github/workflows/pr-ci.yml` with three evidence jobs and
+one aggregate merge gate:
 
 | CI job | Command | Purpose |
 | --- | --- | --- |
 | Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
 | Full regression and build integrity | `mvn --batch-mode clean verify -Pfull` | Clean Flyway/jOOQ source generation, all tests, compilation, verification, and package |
+| PR Gate | Requires all three jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
 
-The full/build-integrity job is the independent PR safety gate. Its `clean` phase removes generated
+The three evidence jobs retain independent coverage, while `PR Gate` is the stable aggregate PR
+safety gate. It uses the workflow `needs` results and succeeds only when Fast, Integration, and
+Full all report `success`; an upstream failure, cancellation, or skip cannot produce a green gate.
+The full/build-integrity job's `clean` phase removes generated
 build output before Maven runs `generate-sources`; the jOOQ generator then applies all published
 Flyway migrations to a fresh temporary SQLite database and the generated sources are compiled into
 the package. Maven dependency caching only reuses downloaded dependencies and does not replace this
@@ -95,10 +101,13 @@ Issue #130 measured the local warm `mvn test` at about 25.83 seconds and `mvn cl
 is recorded from the completed workflow run and compared with those baselines in the PR. These
 figures are observations rather than an SLA because runner load and dependency-cache state vary.
 
-Repository administrators should mark the `Full regression and build integrity` job as a required
-status check in branch protection for `main` after the workflow has completed its first run. If the
-repository does not expose branch-protection administration to the contributor, this manual step is
-the remaining configuration needed to make the check merge-blocking.
+Repository administrators should mark the stable `PR Gate` job as the required status check in
+branch protection for `main` after the workflow has completed its first run. The upstream Fast,
+Integration, and Full jobs remain required evidence through the aggregate gate; do not remove the
+Browser Ask UI command from the Fast job or reduce any existing coverage. If branch protection or
+rulesets cannot be read or changed by the current contributor because of repository permissions or
+the repository plan, do not claim that `PR Gate` is enforced: until an administrator configures it,
+manually confirm that `PR Gate`, Fast, Integration, and Full are all `SUCCESS` before merging.
 
 ## Tag/profile smoke checks
 

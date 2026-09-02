@@ -361,9 +361,9 @@ public interface LlmClient {
 * main 尚未由 repository setting 強制 required check 前，local final full gate 仍保留，不得宣告本機 full 可以完全取消。
 
 ### 8.8 CI、Branch Protection 與 Merge Safety
-* PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 Fast unit and contract tests、Integration tests 與 `Full regression and build integrity` 三個 job。
-* `Full regression and build integrity` 是 merge safety gate；其 command 是 `mvn --batch-mode clean verify -Pfull`，並包含 `git diff --check`。
-* branch protection 的 required check 是 repository setting，不由 AGENTS.md 宣告。若 main 尚未實際強制該 check，工程師仍須人工確認 CI full job 成功後才可合併；本規範不得寫成 required check 已強制。當前若無法從 contributor 權限讀取設定，也只能採此保守判定。
+* PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 Fast unit and contract tests、Integration tests、`Full regression and build integrity` 三個 evidence jobs，以及依賴三者的 `PR Gate` aggregate job。
+* `PR Gate` 是穩定的 merge safety gate；只有 Fast、Integration、Full 三者均回報 `success` 才能成功。任一 upstream job `failure`、`cancelled` 或 `skipped` 都不得讓 `PR Gate` 綠燈；Full job 仍執行 `mvn --batch-mode clean verify -Pfull` 並包含 `git diff --check`。
+* 未來 branch protection / rulesets 優先將穩定的 `PR Gate` 設為 `main` 的 required check，並保留三個 upstream jobs 的 coverage。branch protection 是 repository setting，不由 AGENTS.md 宣告；若 main 尚未實際強制 `PR Gate`，工程師仍須人工確認 `PR Gate`、Fast、Integration、Full 全部成功後才可合併。本規範不得寫成 required check 已強制；若 contributor 無法讀取或設定 repository protection，也只能採此保守判定並記錄權限／plan 限制。
 * CI 失敗時，必須修正或明確記錄 blocker；不能用本機成功取代 CI 結果，也不能因 local full pass 而忽略未完成的 repository protection 設定。
 
 ### 8.9 量測與 Java 版本規範

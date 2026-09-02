@@ -83,3 +83,29 @@ jobs:
             target/failsafe-reports/
             target/*.jar
           if-no-files-found: ignore
+
+  pr-gate:
+    name: PR Gate
+    if: ${{ always() }}
+    needs:
+      - fast-tests
+      - integration-tests
+      - full-build-integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required CI jobs succeeded
+        if: ${{ needs.fast-tests.result == 'success' && needs.integration-tests.result == 'success' && needs.full-build-integrity.result == 'success' }}
+        run: echo "Fast, Integration, and Full CI jobs all succeeded."
+      - name: Reject incomplete required CI jobs
+        if: ${{ needs.fast-tests.result != 'success' || needs.integration-tests.result != 'success' || needs.full-build-integrity.result != 'success' }}
+        env:
+          FAST_RESULT: ${{ needs.fast-tests.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+          FULL_RESULT: ${{ needs.full-build-integrity.result }}
+        run: |
+          echo "Fast unit and contract tests: ${FAST_RESULT}"
+          echo "Integration tests: ${INTEGRATION_RESULT}"
+          echo "Full regression and build integrity: ${FULL_RESULT}"
+          echo "PR Gate requires every upstream CI job to succeed."
+          exit 1
