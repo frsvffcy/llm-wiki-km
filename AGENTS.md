@@ -45,7 +45,7 @@
   * **禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/sqlite-vec/semantic rerank/Neo4j/GraphRAG 技術，不得阻擋既有的 FTS-backed Retrieval、Evidence Assembly 或其必要修正。不得因架構願景而新增不存在的 milestone 或 Issue 作為規範依據。
 
 ## 2. 核心執行指令 (Build & Test Commands)
-> 測試選擇採風險導向：coding loop 預設 targeted-test-first；`mvn test` 是完整 regression 的安全預設；PR Ready 的 build-integrity safety gate 是 `mvn clean verify -Pfull`。`-DskipTests` 只能作 preliminary verification，不得作為 final gate。
+> 測試選擇採風險導向：coding loop 預設 targeted-test-first；Browser Ask UI / Vanilla JS contract tests 使用 Node.js 內建 test runner；`mvn test` 是完整 regression 的安全預設；PR Ready 的 build-integrity safety gate 是 `mvn clean verify -Pfull`。`-DskipTests` 只能作 preliminary verification，不得作為 final gate。
 * **完整 regression 預設**：
   ```bash
   mvn test
@@ -55,6 +55,11 @@
   mvn test -Pfast
   ```
   執行 `unit` + `contract`，排除 `integration`。
+* **Browser Ask UI / Vanilla JS contract tests**：
+  ```bash
+  node --test src/test/js/ask-ui.test.mjs
+  ```
+  執行 Browser Ask UI contract regression suite，直接使用 Node.js 內建 test runner；不需要 npm、`package.json`、前端 framework 或額外 build toolchain。此 suite 是 Maven `fast`、`integration`、`full` 之外的補充，不取代任何 Maven tier。
 * **Integration tier**：
   ```bash
   mvn test -Pintegration
@@ -74,13 +79,13 @@
   # 啟動於 http://127.0.0.1:8765（僅綁定 localhost）
   curl http://127.0.0.1:8765/api/v1/system/status
   ```
-* **Coding loop**：先依 changed surface 執行受影響的 class／suite；純 Java 變更可使用 targeted unit/contract tests，或使用 `mvn test -Pfast` 取得 unit + contract feedback。`mvn compile` 只代表 compilation smoke check，不代表測試或 final gate。
+* **Coding loop**：先依 changed surface 執行受影響的 class／suite；Browser Ask UI / Vanilla JS 變更執行 `node --test src/test/js/ask-ui.test.mjs`；純 Java 變更可使用 targeted unit/contract tests，或使用 `mvn test -Pfast` 取得 unit + contract feedback。Node suite 不取代 Maven `fast`、`integration` 或 `full`；`mvn compile` 只代表 compilation smoke check，不代表測試或 final gate。
 * **Feature Ready**：至少執行受影響的 contract／integration suite；需要 Spring、SQLite、Flyway、jOOQ、REST、transaction、filesystem 或 FTS 時，必須涵蓋對應 integration tests。
 * **PR Ready / Final**：除 `mvn clean verify -Pfull` 外，執行 `git diff --check`。`-Pfull` 會依目前 `pom.xml` 的 generate-sources lifecycle 重新產生 jOOQ sources；不需在 AGENTS 中維護另一套手動 codegen 流程。`mvn clean package` 可作中途 package smoke check，但不得取代此 final gate。
 
 ## 3. 架構與設計約束 (Architecture Constraints)
 * **目錄結構**：
-  * 所有的程式必須放在 `src/main/java/org/km/llmwiki/` 底下，測試放 `src/test/java/`。
+  * Java production code 必須放在 `src/main/java/org/km/llmwiki/` 底下；Java tests 放在 `src/test/java/`。Browser Ask UI / Vanilla JS contract tests 使用既有的 `src/test/js/`，不套用 Java test path 規範。
   * Package 分層必須遵循既有骨架與設計文件的模組規劃：
     ```
     org.km.llmwiki
@@ -315,6 +320,7 @@ public interface LlmClient {
 * 每次 Issue 開始先列出 affected test surface；coding loop 預設 targeted-test-first，不得因每個小修改而反覆執行 full regression。
 * 先依 changed surface 判斷 affected scope，再選擇測試：
   * pure logic、projector、policy、validator、mapper、comparator、budget、fingerprint、snippet helper、value-object rules：targeted `unit`／`contract`。
+  * Browser Ask UI／Vanilla JS contract：`node --test src/test/js/ask-ui.test.mjs`；這是 Browser Ask UI contract regression suite，不取代 Maven `fast`／`integration`／`full`。
   * REST、API shape、service wiring：受影響的 contract 與 REST integration suite。
   * persistence、transaction、Flyway、jOOQ、migration、generated sources：受影響 integration tests，並在 final 執行 clean full gate。
   * filesystem、workspace boundary：受影響 filesystem/workspace integration suite。
@@ -326,7 +332,7 @@ public interface LlmClient {
 ### 8.2 Development Verification、Feature Ready 與 Final Verification
 * **Development Verification**：targeted tests、`mvn test -Pfast`、及依風險選定的 affected contract/integration tests；這是 coding feedback，不是 merge authorization。
 * **Feature Ready**：至少通過 affected integration/contract suite，並在 Issue/PR body 記錄實際 command 與結果。
-* **Final / PR Ready**：要求 `mvn clean verify -Pfull` 及 `git diff --check`；PR targeting `main` 還必須等待 PR CI 的 full job 成功。PR Ready 不得只靠 fast tests。
+* **Final / PR Ready**：要求 `mvn clean verify -Pfull` 及 `git diff --check`；PR targeting `main` 還必須等待 PR CI 的 `PR Gate` 成功，並確認 Fast、Integration、Full 三個 evidence jobs 均成功。PR Ready 不得只靠 fast tests。
 * `mvn test`、`mvn compile`、`mvn clean package` 及 `mvn clean install -DskipTests` 各有局部用途；`mvn test` 雖是完整測試預設，仍不取代 `clean verify -Pfull` 的 final build-integrity 語意。`-DskipTests` 永遠只能是 preliminary。
 * 純邏輯修改期間可以不反覆跑 `mvn test`／`mvn clean verify -Pfull`。未修改 migration、persistence、generated sources 或 build tooling 時，中途可以跳過 clean Flyway/jOOQ/package gate；documentation、ADR、test-only spike 亦可中途跳過 full package，但完成前仍須依 scope 做必要驗證。
 * 只有 docs/AGENTS-only 且不改變 production、test、build 或 CI behavior 的變更，才可在 PR body 說明理由後採 docs-only verification 而不跑 full tests；這是明確的文件變更例外，不得套用於 Test Architecture 或 build behavior 變更。
