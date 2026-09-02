@@ -31,7 +31,7 @@ class OpenAiCompatibleAnswerClientTest {
 
     private static final String STRUCTURED_RESPONSE = """
             {"answerText":"The answer is grounded.","citedEvidenceIds":["E1"],
-             "insufficientEvidence":false,"metadata":{"provider":"model-output","model":"model-output"}}
+             "insufficientEvidence":false}
             """;
 
     @Test
@@ -62,9 +62,23 @@ class OpenAiCompatibleAnswerClientTest {
         assertThat(requestBody).hasValueSatisfying(body -> {
             assertThat(body).contains("\"model\":\"configured-model\"")
                     .contains("\"max_tokens\":4000")
-                    .contains("GROUNDED_ANSWER_PROMPT_V1")
+                    .contains("GROUNDED_ANSWER_PROMPT_V2")
                     .doesNotContain(fakeCredential());
         });
+    }
+
+    @Test
+    void rejectsForgedModelMetadataWithoutLettingItReachTheAnswerResult() {
+        String forged = "{\"answerText\":\"The answer is grounded.\","
+                + "\"citedEvidenceIds\":[\"E1\"],\"insufficientEvidence\":false,"
+                + "\"metadata\":{\"provider\":\"forged-provider\",\"model\":\"forged-model\"}}";
+        OpenAiCompatibleHttpTransport transport = (uri, connect, read, key, body) ->
+                response(200, envelope("authoritative-model", forged, null, null, null, null));
+
+        assertThatThrownBy(() -> client(transport).generate(request()))
+                .isInstanceOf(AnswerClientException.class)
+                .extracting(thrown -> ((AnswerClientException) thrown).failureType())
+                .isEqualTo(AnswerFailureType.INVALID_PROVIDER_RESPONSE);
     }
 
     @Test
@@ -333,7 +347,7 @@ class OpenAiCompatibleAnswerClientTest {
     private static String structuredResponse(String answerText) {
         return "{\"answerText\":" + quote(answerText)
                 + ",\"citedEvidenceIds\":[\"E1\"],\"insufficientEvidence\":false"
-                + ",\"metadata\":{\"provider\":\"model-output\",\"model\":\"model-output\"}}";
+                + "}";
     }
 
     private static String quote(String value) {

@@ -2,15 +2,12 @@ package org.km.llmwiki.ai.answer;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /** Provider-neutral structured response before or after citation validation. */
 public record GroundedAnswerResponse(
         String answerText,
         List<String> citedEvidenceIds,
-        boolean insufficientEvidence,
-        AnswerProviderMetadata providerMetadata,
-        Optional<AnswerUsageMetadata> usage
+        boolean insufficientEvidence
 ) {
 
     public static final int MAX_ANSWER_CODE_POINTS = AnswerGenerationOptions.MAX_ALLOWED_OUTPUT_CODE_POINTS;
@@ -30,19 +27,10 @@ public record GroundedAnswerResponse(
             throw new IllegalArgumentException("citedEvidenceIds contains an invalid id");
         }
         citedEvidenceIds = List.copyOf(citedEvidenceIds);
-        providerMetadata = Objects.requireNonNull(providerMetadata,
-                "providerMetadata must not be null");
-        usage = usage == null ? Optional.empty() : usage;
-    }
-
-    public GroundedAnswerResponse(String answerText, List<String> citedEvidenceIds,
-                                  boolean insufficientEvidence, AnswerProviderMetadata providerMetadata) {
-        this(answerText, citedEvidenceIds, insufficientEvidence, providerMetadata, Optional.empty());
     }
 
     /** Returns a response with application-normalized citation order and duplicates removed. */
     public GroundedAnswerResponse withCitations(List<String> normalizedCitationIds) {
-        return new GroundedAnswerResponse(answerText, normalizedCitationIds, insufficientEvidence,
-                providerMetadata, usage);
+        return new GroundedAnswerResponse(answerText, normalizedCitationIds, insufficientEvidence);
     }
 }
