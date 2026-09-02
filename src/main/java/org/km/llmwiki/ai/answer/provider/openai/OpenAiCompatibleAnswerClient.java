@@ -17,6 +17,7 @@ import org.km.llmwiki.ai.answer.GroundedAnswerResponse;
 import org.km.llmwiki.ai.answer.GroundedAnswerResponseContract;
 import org.km.llmwiki.ai.answer.GroundedAnswerValidationException;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
@@ -93,7 +94,7 @@ public final class OpenAiCompatibleAnswerClient implements AnswerClient {
             Thread.currentThread().interrupt();
             throw failure(AnswerFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE,
                     "answer provider request was interrupted");
-        } catch (java.io.IOException | RuntimeException exception) {
+        } catch (IOException exception) {
             throw failure(AnswerFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE,
                     "answer provider network request failed");
         }
