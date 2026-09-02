@@ -26,8 +26,9 @@ developer test-tier guidance is in
 mvn clean package
 ```
 
-Pull requests targeting `main` also run the three-stage GitHub Actions workflow documented in
-[docs/development/testing.md](docs/development/testing.md).
+Pull requests targeting `main` also run the GitHub Actions workflow documented in
+[docs/development/testing.md](docs/development/testing.md): three evidence jobs (Fast, Integration,
+and Full) plus one aggregate `PR Gate` merge-safety job.
 
 ## Run
 

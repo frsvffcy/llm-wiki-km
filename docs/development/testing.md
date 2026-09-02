@@ -111,11 +111,12 @@ manually confirm that `PR Gate`, Fast, Integration, and Full are all `SUCCESS` b
 
 ## Tag/profile smoke checks
 
-The frontend command must report all seven Ask UI tests passing. Profile selection is verified by
-running each Maven command and inspecting the Surefire summary. The fast run must report zero
-skipped integration classes; the integration run must execute the integration-tagged classes; and
-the full run must execute the union of both sets. Keep these checks in the PR description when
-changing test tags or Maven configuration.
+The frontend command must report the complete Browser Ask UI contract suite passing. When recording
+smoke evidence, report the actual test count from `src/test/js/ask-ui.test.mjs` rather than relying
+on a hard-coded count. Profile selection is verified by running each Maven command and inspecting
+the Surefire summary. The fast run must report zero skipped integration classes; the integration run
+must execute the integration-tagged classes; and the full run must execute the union of both sets.
+Keep these checks in the PR description when changing test tags or Maven configuration.
 
 ## Canonical 契約測試擁有權
 
