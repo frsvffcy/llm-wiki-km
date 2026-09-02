@@ -13,6 +13,15 @@ spring:
 
 app:
   ai:
+    embedding:
+      enabled: ${EMBEDDING_PROVIDER_ENABLED:false}
+      provider: ${EMBEDDING_PROVIDER:openai-compatible}
+      base-url: ${EMBEDDING_PROVIDER_BASE_URL:https://api.openai.com/v1}
+      model: ${EMBEDDING_PROVIDER_MODEL:}
+      api-key: ${EMBEDDING_PROVIDER_API_KEY:}
+      connect-timeout: ${EMBEDDING_PROVIDER_CONNECT_TIMEOUT:2s}
+      read-timeout: ${EMBEDDING_PROVIDER_READ_TIMEOUT:15s}
+      dimension: ${EMBEDDING_PROVIDER_DIMENSION:0}
     answer:
       enabled: ${ANSWER_PROVIDER_ENABLED:false}
       provider: ${ANSWER_PROVIDER:openai-compatible}

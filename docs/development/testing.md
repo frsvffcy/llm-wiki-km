@@ -154,6 +154,21 @@ Knowledge capability 仍須回到 Proposal → Draft → Human Review → Publis
 | Ask REST request / response / error contract | `ai.ask.AskApiContractTest`、`ai.ask.AskApiIntegrationTest` | request validation、`ApiResponse` shape、error mapping、HTTP boundary 與 provider-disabled behavior |
 | Browser Ask UI rendering / stateless / security behavior | `src/test/js/ask-ui.test.mjs` | citation rendering、independent submissions、safe error display，以及 browser 不接觸 provider credential 或 local files |
 
+### Sprint 7 Embedding canonical ownership
+
+Embedding 是獨立於 Answer 的 provider-neutral boundary。`ai.embedding.EmbeddingContractTest`、
+`ai.embedding.EmbeddingFailureTest` 與
+`ai.embedding.provider.openai.OpenAiCompatibleEmbeddingClientTest` 負責 input identity、bounded
+single/batch contract、finite/dimension/cardinality/order validation、authoritative metadata、
+usage 與 typed failure taxonomy。`OpenAiCompatibleEmbeddingClientHttpIntegrationTest` 使用
+localhost deterministic fixture 驗證 `/embeddings` transport 與 credential boundary；不使用真實
+provider/network/key。
+
+後續 #184 可依賴 `EmbeddingRequest`/`EmbeddingResult` 的 identity、vector dimension、values、
+provider/model metadata 與 optional usage；不得依賴 OpenAI-compatible JSON、transport 或
+credential。Embedding Story 不建立 schema、sqlite-vec table、KNN query、hybrid fusion、Ask、
+REST 或 Browser mode。
+
 這些 suite 是 ownership map，不表示每個 Story 都要重跑全部 suite；依 changed surface 執行 affected owner，PR Ready 再由 full gate 做完整 regression。
 
 ## 自動化 tier 與 cleanup guard
