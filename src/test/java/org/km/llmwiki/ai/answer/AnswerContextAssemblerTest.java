@@ -2,6 +2,8 @@ package org.km.llmwiki.ai.answer;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.km.llmwiki.rag.EvidenceBudget;
 import org.km.llmwiki.rag.EvidenceBundle;
 import org.km.llmwiki.rag.EvidenceItem;
@@ -69,6 +71,33 @@ class AnswerContextAssemblerTest {
             assertThat(block.content().codePointCount(0, block.content().length())).isLessThanOrEqualTo(3);
         });
         assertThat(context.usage()).isEqualTo(new AnswerContextUsage(2, 5, true));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"3, 3, true", "16000, 16000, true", "16001, 16001, false"})
+    void requestScopedTotalBudgetControlsAllTruncationAndUsage(int totalBudget, int expectedUsed,
+                                                                boolean expectedTruncated) {
+        String content = "a".repeat(16_001);
+        AnswerContext context = new AnswerContextAssembler().assemble(
+                bundle(List.of(wiki("large", "Large", "vault/large.md", 1, content))),
+                new AnswerContextBudget(8, totalBudget, totalBudget));
+
+        assertThat(context.usage()).isEqualTo(
+                new AnswerContextUsage(1, expectedUsed, expectedTruncated));
+        assertThat(context.blocks().get(0).content().codePointCount(0,
+                context.blocks().get(0).content().length())).isEqualTo(expectedUsed);
+    }
+
+    @Test
+    void requestScopedBudgetLargerThanDefaultIsNotPreTruncatedByComponentDefault() {
+        String content = "a".repeat(16_001);
+
+        AnswerContext context = new AnswerContextAssembler().assemble(
+                bundle(List.of(wiki("large", "Large", "vault/large.md", 1, content))),
+                new AnswerContextBudget(8, 20_000, 20_000));
+
+        assertThat(context.blocks().get(0).content()).hasSize(16_001);
+        assertThat(context.usage()).isEqualTo(new AnswerContextUsage(1, 16_001, false));
     }
 
     @Test

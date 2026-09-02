@@ -13,13 +13,13 @@ public record AnswerResult(
         Optional<AnswerUsageMetadata> usage
 ) {
 
-    private static final int MAX_ANSWER_CHARACTERS = 100_000;
+    private static final int MAX_ANSWER_CODE_POINTS = AnswerGenerationOptions.MAX_ALLOWED_OUTPUT_CODE_POINTS;
 
     public AnswerResult {
         if (answerText == null || answerText.isBlank()) {
             throw new IllegalArgumentException("answerText must not be blank");
         }
-        if (answerText.length() > MAX_ANSWER_CHARACTERS) {
+        if (answerText.codePointCount(0, answerText.length()) > MAX_ANSWER_CODE_POINTS) {
             throw new IllegalArgumentException("answerText exceeds the bounded result size");
         }
         if (citedEvidenceIds == null || citedEvidenceIds.stream().anyMatch(Objects::isNull)) {

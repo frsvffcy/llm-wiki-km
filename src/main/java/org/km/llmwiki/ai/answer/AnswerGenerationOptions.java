@@ -1,19 +1,19 @@
 package org.km.llmwiki.ai.answer;
 
-/** Minimum provider-neutral generation control; provider-specific knobs belong in adapters. */
-public record AnswerGenerationOptions(int maxOutputCharacters) {
+/** Application-owned output bound; provider-specific token knobs belong in adapters. */
+public record AnswerGenerationOptions(int maxOutputCodePoints) {
 
-    public static final int DEFAULT_MAX_OUTPUT_CHARACTERS = 4_000;
-    public static final int MAX_ALLOWED_OUTPUT_CHARACTERS = 16_000;
+    public static final int DEFAULT_MAX_OUTPUT_CODE_POINTS = 4_000;
+    public static final int MAX_ALLOWED_OUTPUT_CODE_POINTS = 16_000;
 
     public AnswerGenerationOptions {
-        if (maxOutputCharacters < 1 || maxOutputCharacters > MAX_ALLOWED_OUTPUT_CHARACTERS) {
-            throw new IllegalArgumentException("maxOutputCharacters must be between 1 and "
-                    + MAX_ALLOWED_OUTPUT_CHARACTERS);
+        if (maxOutputCodePoints < 1 || maxOutputCodePoints > MAX_ALLOWED_OUTPUT_CODE_POINTS) {
+            throw new IllegalArgumentException("maxOutputCodePoints must be between 1 and "
+                    + MAX_ALLOWED_OUTPUT_CODE_POINTS);
         }
     }
 
     public static AnswerGenerationOptions defaults() {
-        return new AnswerGenerationOptions(DEFAULT_MAX_OUTPUT_CHARACTERS);
+        return new AnswerGenerationOptions(DEFAULT_MAX_OUTPUT_CODE_POINTS);
     }
 }

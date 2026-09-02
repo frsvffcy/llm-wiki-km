@@ -142,6 +142,18 @@ class GroundedAnswerResponseContractTest {
                 .isEqualTo(GroundedAnswerValidationErrorCode.USAGE_INVALID);
     }
 
+    @Test
+    void enforcesRequestScopedOutputBoundUsingUnicodeCodePoints() {
+        String answer = "答😀答😀";
+
+        assertThatThrownBy(() -> contract.parse(payloadWithAnswer(answer, "E1", false), context(1), 3))
+                .isInstanceOf(GroundedAnswerValidationException.class)
+                .extracting(error -> ((GroundedAnswerValidationException) error).errorCode())
+                .isEqualTo(GroundedAnswerValidationErrorCode.ANSWER_TEXT_INVALID);
+        assertThat(contract.parse(payloadWithAnswer(answer, "E1", false), context(1), 4)
+                .answerText()).isEqualTo(answer);
+    }
+
     private static AnswerContext context(int count) {
         return AnswerContext.fromReferences(java.util.stream.IntStream.rangeClosed(1, count)
                 .mapToObj(index -> new AnswerContextReference("WIKI:page-" + index, "hash-" + index))
@@ -150,6 +162,12 @@ class GroundedAnswerResponseContractTest {
 
     private static String payload(String citationId, boolean insufficient) {
         return payloadWithCitations(List.of(citationId), insufficient);
+    }
+
+    private static String payloadWithAnswer(String answer, String citationId, boolean insufficient) {
+        return "{\"answerText\":\"" + answer + "\",\"citedEvidenceIds\":[\""
+                + citationId + "\"],\"insufficientEvidence\":" + insufficient
+                + ",\"metadata\":{\"provider\":\"p\",\"model\":\"m\"}}";
     }
 
     private static String payloadWithCitations(List<String> citationIds, boolean insufficient) {

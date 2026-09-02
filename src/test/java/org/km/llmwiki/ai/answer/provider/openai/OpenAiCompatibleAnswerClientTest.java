@@ -65,6 +65,39 @@ class OpenAiCompatibleAnswerClientTest {
     }
 
     @Test
+    void keepsProviderTokenLimitIndependentFromApplicationCodePointBound() {
+        OpenAiCompatibleAnswerProperties properties = properties();
+        properties.setMaxOutputTokens(16_000);
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        OpenAiCompatibleHttpTransport transport = (uri, connect, read, key, body) -> {
+            requestBody.set(body);
+            return response(200, envelope("provider-model", STRUCTURED_RESPONSE,
+                    null, null, null, null));
+        };
+        OpenAiCompatibleAnswerClient client = new OpenAiCompatibleAnswerClient(properties, transport,
+                new ObjectMapper(), new org.km.llmwiki.ai.answer.GroundedAnswerPromptContract(),
+                new org.km.llmwiki.ai.answer.GroundedAnswerResponseContract(new ObjectMapper()));
+
+        client.generate(request(new AnswerGenerationOptions(100)));
+
+        assertThat(requestBody).hasValueSatisfying(body -> assertThat(body)
+                .contains("\"max_tokens\":16000"));
+    }
+
+    @Test
+    void rejectsProviderAnswerThatExceedsTheRequestScopedApplicationBound() {
+        String oversizedAnswer = "答😀".repeat(51);
+        OpenAiCompatibleHttpTransport transport = (uri, connect, read, key, body) ->
+                response(200, envelope("provider-model", structuredResponse(oversizedAnswer),
+                        null, null, null, null));
+
+        assertThatThrownBy(() -> client(transport).generate(request(new AnswerGenerationOptions(100))))
+                .isInstanceOf(AnswerClientException.class)
+                .extracting(thrown -> ((AnswerClientException) thrown).failureType())
+                .isEqualTo(AnswerFailureType.INVALID_PROVIDER_RESPONSE);
+    }
+
+    @Test
     void fallsBackToConfiguredModelAndOptionalUsageWhenEnvelopeOmitsMetadata() {
         OpenAiCompatibleHttpTransport transport = (uri, connect, read, key, body) ->
                 response(200, envelope(null, STRUCTURED_RESPONSE, null, null, null, null));
@@ -216,9 +249,13 @@ class OpenAiCompatibleAnswerClientTest {
     }
 
     private static AnswerRequest request() {
+        return request(AnswerGenerationOptions.defaults());
+    }
+
+    private static AnswerRequest request(AnswerGenerationOptions options) {
         return new AnswerRequest("What is the answer?", AnswerContext.fromReferences(
                 java.util.List.of(new AnswerContextReference("WIKI:answer", "hash-answer"))),
-                AnswerGenerationOptions.defaults());
+                options);
     }
 
     private static OpenAiCompatibleHttpResponse response(int status, String body) {
@@ -234,6 +271,12 @@ class OpenAiCompatibleAnswerClientTest {
                         + output + ",\"total_tokens\":" + total + "}";
         return "{\"choices\":[{\"message\":{\"content\":"
                 + quote(content) + "}}]" + modelField + idField + usage + "}";
+    }
+
+    private static String structuredResponse(String answerText) {
+        return "{\"answerText\":" + quote(answerText)
+                + ",\"citedEvidenceIds\":[\"E1\"],\"insufficientEvidence\":false"
+                + ",\"metadata\":{\"provider\":\"model-output\",\"model\":\"model-output\"}}";
     }
 
     private static String quote(String value) {
