@@ -32,6 +32,14 @@ public record SearchCandidate(
         String embeddingProjectionVersion
 ) {
 
+    public SearchCandidate withScore(double newScore) {
+        return new SearchCandidate(kind, stableId, newScore, snippet, workspace, knowledgeId,
+                title, pageType, path, revision, indexedContentHash, sourceDocumentFingerprint,
+                sourceEligibleChunkCount, sourceChunkId, documentId, documentName, chunkNo,
+                pageNo, section, headingPath, embeddingProvider, embeddingModel,
+                embeddingDimension, embeddingProjectionVersion);
+    }
+
     /** Keeps the established FTS candidate construction surface unchanged. */
     public SearchCandidate(SearchResultKind kind, String stableId, double score, String snippet,
                            SearchWorkspaceProvenance workspace, String knowledgeId, String title,
