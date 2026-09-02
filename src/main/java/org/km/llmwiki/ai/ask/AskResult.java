@@ -2,6 +2,7 @@ package org.km.llmwiki.ai.ask;
 
 import org.km.llmwiki.ai.answer.AnswerProviderMetadata;
 import org.km.llmwiki.ai.answer.AnswerUsageMetadata;
+import org.km.llmwiki.rag.RetrievalDiagnostics;
 
 import java.util.List;
 import java.util.Objects;
@@ -16,8 +17,18 @@ public record AskResult(
         Optional<AnswerProviderMetadata> providerMetadata,
         Optional<AnswerUsageMetadata> usage,
         Optional<AskFailure> failure,
-        AskExecutionMetadata executionMetadata
+        AskExecutionMetadata executionMetadata,
+        RetrievalDiagnostics retrievalDiagnostics
 ) {
+
+    public AskResult(AskStatus status, Optional<String> answerText, List<AskCitation> citations,
+                     List<AskCitation> suppliedEvidence,
+                     Optional<AnswerProviderMetadata> providerMetadata,
+                     Optional<AnswerUsageMetadata> usage, Optional<AskFailure> failure,
+                     AskExecutionMetadata executionMetadata) {
+        this(status, answerText, citations, suppliedEvidence, providerMetadata, usage, failure,
+                executionMetadata, RetrievalDiagnostics.lexical());
+    }
 
     public AskResult {
         status = Objects.requireNonNull(status, "status must not be null");
@@ -32,6 +43,8 @@ public record AskResult(
         failure = failure == null ? Optional.empty() : failure;
         executionMetadata = Objects.requireNonNull(executionMetadata,
                 "executionMetadata must not be null");
+        retrievalDiagnostics = Objects.requireNonNull(retrievalDiagnostics,
+                "retrievalDiagnostics must not be null");
         if (status == AskStatus.ANSWERED
                 && (answerText.isEmpty() || citations.isEmpty() || failure.isPresent())) {
             throw new IllegalArgumentException(

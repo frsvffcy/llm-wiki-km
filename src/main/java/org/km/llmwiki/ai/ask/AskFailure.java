@@ -19,12 +19,12 @@ public record AskFailure(
         diagnostic = sanitize(diagnostic);
         retrievalDependency = retrievalDependency == null
                 ? Optional.empty() : retrievalDependency;
-        if (type == AskFailureType.RETRIEVAL_UNAVAILABLE
+        if (isRetrievalFailure(type)
                 && retrievalDependency.isEmpty()) {
             throw new IllegalArgumentException(
                     "retrieval unavailable failures require a dependency");
         }
-        if (type != AskFailureType.RETRIEVAL_UNAVAILABLE
+        if (!isRetrievalFailure(type)
                 && retrievalDependency.isPresent()) {
             throw new IllegalArgumentException(
                     "provider failures must not contain a retrieval dependency");
@@ -33,6 +33,11 @@ public record AskFailure(
 
     public AskFailure(AskFailureType type, String diagnostic) {
         this(type, diagnostic, Optional.empty());
+    }
+
+    private static boolean isRetrievalFailure(AskFailureType type) {
+        return type == AskFailureType.RETRIEVAL_UNAVAILABLE
+                || type == AskFailureType.RETRIEVAL_VECTOR_UNAVAILABLE;
     }
 
     private static String sanitize(String value) {

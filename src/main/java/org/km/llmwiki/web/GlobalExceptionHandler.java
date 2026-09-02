@@ -116,6 +116,7 @@ public class GlobalExceptionHandler {
             case LOCAL_VALIDATION -> HttpStatus.BAD_REQUEST;
             case PROVIDER_INVALID_RESPONSE -> HttpStatus.BAD_GATEWAY;
             case RETRIEVAL_UNAVAILABLE,
+                    RETRIEVAL_VECTOR_UNAVAILABLE,
                     PROVIDER_CONFIGURATION_UNAVAILABLE,
                     PROVIDER_AUTHENTICATION_OR_AUTHORIZATION,
                     PROVIDER_RATE_LIMIT_OR_QUOTA,
@@ -124,6 +125,7 @@ public class GlobalExceptionHandler {
         };
         String message = switch (type) {
             case RETRIEVAL_UNAVAILABLE -> "Retrieval service is unavailable";
+            case RETRIEVAL_VECTOR_UNAVAILABLE -> "Semantic retrieval is unavailable";
             case PROVIDER_CONFIGURATION_UNAVAILABLE -> "Answer provider is not configured";
             case PROVIDER_AUTHENTICATION_OR_AUTHORIZATION ->
                     "Answer provider authentication failed";

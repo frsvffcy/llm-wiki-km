@@ -34,9 +34,12 @@
           <div class="field-group">
             <label for="retrieval-mode">搜尋範圍</label>
             <select id="retrieval-mode" name="retrievalMode">
-              <option value="HYBRID_FTS">Wiki 與來源文件</option>
+              <option value="HYBRID_FTS">Wiki 與來源文件（全文搜尋）</option>
               <option value="WIKI_ONLY">僅 Wiki</option>
               <option value="SOURCE_ONLY">僅來源文件</option>
+              <option value="SEMANTIC_WIKI">Wiki 語意搜尋</option>
+              <option value="SEMANTIC_SOURCE">來源文件語意搜尋</option>
+              <option value="HYBRID_VECTOR">Wiki 與來源文件（語意混合）</option>
             </select>
           </div>
           <button id="ask-submit" type="submit">取得回答</button>

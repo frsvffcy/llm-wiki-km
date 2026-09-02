@@ -79,6 +79,8 @@ class AskApiIntegrationTest {
                         .value("design.pdf"))
                 .andExpect(jsonPath("$.data.citations[1].provenance.pageNo").value(8))
                 .andExpect(jsonPath("$.data.citations[0].contentHash").doesNotExist())
+                .andExpect(jsonPath("$.data.retrievalMetadata.strategy").value("LEXICAL"))
+                .andExpect(jsonPath("$.data.retrievalMetadata.vectorSignalUsed").value(false))
                 .andExpect(content().string(not(containsString("hash-wiki"))))
                 .andExpect(content().string(not(containsString("raw prompt"))));
 
@@ -161,6 +163,19 @@ class AskApiIntegrationTest {
                 .andExpect(content().string(not(containsString("raw prompt"))));
     }
 
+    @Test
+    void mapsVectorUnavailableAsDistinctServiceUnavailableCode() throws Exception {
+        when(askService.ask(any())).thenReturn(failed(AskFailureType.RETRIEVAL_VECTOR_UNAVAILABLE,
+                "native vector path / secret"));
+
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("{\"question\":\"question\",\"retrievalMode\":\"SEMANTIC_WIKI\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("RETRIEVAL_VECTOR_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.message").value("Semantic retrieval is unavailable"))
+                .andExpect(content().string(not(containsString("native vector"))));
+    }
+
     @ParameterizedTest
     @EnumSource(value = AskFailureType.class, names = {
             "PROVIDER_CONFIGURATION_UNAVAILABLE",
@@ -197,6 +212,7 @@ class AskApiIntegrationTest {
 
     private static AskResult failed(AskFailureType type, String diagnostic) {
         AskFailure failure = type == AskFailureType.RETRIEVAL_UNAVAILABLE
+                || type == AskFailureType.RETRIEVAL_VECTOR_UNAVAILABLE
                 ? new AskFailure(type, diagnostic,
                 Optional.of(org.km.llmwiki.rag.RetrievalUnavailableException.Dependency.SEARCH_INDEX))
                 : new AskFailure(type, diagnostic);

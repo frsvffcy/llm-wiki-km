@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import org.km.llmwiki.ai.answer.AnswerContextProvenance;
 import org.km.llmwiki.ai.answer.AnswerProviderMetadata;
 import org.km.llmwiki.rag.EvidenceKind;
+import org.km.llmwiki.rag.RetrievalDiagnostics;
 
 import java.util.List;
 
@@ -15,8 +16,16 @@ public record AskApiResponse(
         boolean insufficientEvidence,
         List<Citation> citations,
         ProviderMetadata providerMetadata,
-        ExecutionMetadata executionMetadata
+        ExecutionMetadata executionMetadata,
+        RetrievalMetadata retrievalMetadata
 ) {
+
+    public AskApiResponse(AskStatus status, String answer, boolean insufficientEvidence,
+                          List<Citation> citations, ProviderMetadata providerMetadata,
+                          ExecutionMetadata executionMetadata) {
+        this(status, answer, insufficientEvidence, citations, providerMetadata,
+                executionMetadata, null);
+    }
 
     public AskApiResponse {
         citations = citations == null ? List.of() : List.copyOf(citations);
@@ -29,7 +38,8 @@ public record AskApiResponse(
                 result.insufficientEvidence(),
                 result.citations().stream().map(Citation::from).toList(),
                 result.providerMetadata().map(ProviderMetadata::from).orElse(null),
-                ExecutionMetadata.from(result.executionMetadata()));
+                ExecutionMetadata.from(result.executionMetadata()),
+                RetrievalMetadata.from(result.retrievalDiagnostics()));
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -102,6 +112,23 @@ public record AskApiResponse(
             return new ExecutionMetadata(metadata.retrievedEvidenceItems(),
                     metadata.contextEvidenceItems(), metadata.contextCodePoints(),
                     metadata.contextTruncated());
+        }
+    }
+
+    /** Safe retrieval signal summary; excludes scores, reasons, vectors, and provider details. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record RetrievalMetadata(
+            String strategy,
+            boolean lexicalSignalUsed,
+            boolean vectorSignalUsed,
+            boolean degradedFallback,
+            boolean vectorUnavailable
+    ) {
+        static RetrievalMetadata from(RetrievalDiagnostics diagnostics) {
+            if (diagnostics == null) return null;
+            return new RetrievalMetadata(diagnostics.strategy().name(),
+                    diagnostics.lexicalSignalUsed(), diagnostics.vectorSignalUsed(),
+                    diagnostics.degradedFallback(), diagnostics.vectorUnavailable());
         }
     }
 }
