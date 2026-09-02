@@ -73,6 +73,16 @@ jobs:
         run: git diff --check "$BASE_SHA...$HEAD_SHA"
       - name: Run clean full regression, Flyway, jOOQ and package gate
         run: mvn --batch-mode clean verify -Pfull
+      - name: Run pinned sqlite-vec JDBC smoke on Linux
+        run: |
+          curl --fail --location --silent --show-error \
+            --output sqlite-vec-linux.tgz \
+            https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-loadable-linux-x86_64.tar.gz
+          echo "b959baa1d8dc88861b1edb337b8587178cdcb12d60b4998f9d10b6a82052d5d7  sqlite-vec-linux.tgz" | sha256sum --check
+          mkdir -p target/sqlite-vec-linux
+          tar --extract --gzip --file sqlite-vec-linux.tgz --directory target/sqlite-vec-linux
+          chmod +x scripts/sqlite-vec-jdbc-smoke.sh
+          scripts/sqlite-vec-jdbc-smoke.sh target/sqlite-vec-linux/vec0.so
       - name: Upload Surefire reports and package artifacts
         if: always()
         uses: actions/upload-artifact@v4

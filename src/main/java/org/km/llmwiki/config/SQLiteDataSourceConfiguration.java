@@ -15,11 +15,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(SQLiteProperties.class)
+@EnableConfigurationProperties({SQLiteProperties.class, VectorCapabilityProperties.class})
 public class SQLiteDataSourceConfiguration {
 
     @Bean
-    DataSource dataSource(SQLiteProperties properties) {
+    DataSource dataSource(SQLiteProperties properties, VectorCapabilityProperties vectorProperties) {
         Path databasePath = properties.getPath().toAbsolutePath().normalize();
         createParentDirectory(databasePath);
 
@@ -28,6 +28,7 @@ public class SQLiteDataSourceConfiguration {
         config.setJournalMode(SQLiteConfig.JournalMode.WAL);
         config.setBusyTimeout(properties.getBusyTimeout());
         config.setSynchronous(SQLiteConfig.SynchronousMode.NORMAL);
+        config.enableLoadExtension(vectorProperties.isEnabled());
 
         SQLiteDataSource dataSource = new SQLiteDataSource(config);
         dataSource.setUrl("jdbc:sqlite:" + databasePath);

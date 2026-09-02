@@ -33,6 +33,11 @@ app:
     sqlite:
       path: ${KNOWLEDGE_DB_PATH:data/knowledge.db}
       busy-timeout: ${SQLITE_BUSY_TIMEOUT_MS:5000}
+  search:
+    vector:
+      enabled: ${VECTOR_CAPABILITY_ENABLED:false}
+      extension-path: ${VECTOR_EXTENSION_PATH:}
+      required-extension-version: ${VECTOR_EXTENSION_VERSION:v0.1.9}
 
 server:
   address: 127.0.0.1

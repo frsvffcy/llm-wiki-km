@@ -96,6 +96,14 @@ the package. Maven dependency caching only reuses downloaded dependencies and do
 clean-build semantics. The job also runs `git diff --check` and uploads Surefire/package artifacts
 when available so a failure can be diagnosed by stage.
 
+The Full job also runs the pinned sqlite-vec JDBC smoke after the clean verification. It downloads
+the official v0.1.9 Linux x86_64 loadable archive, verifies its SHA-256, and checks Java 21 plus the
+project's pinned Xerial driver, extension loading, `vec0`, and a 3-dimensional nearest-neighbour
+query. This is capability evidence only; it does not enable the application capability or create
+vector persistence. The local macOS Apple Silicon variant uses the same source with the official
+macOS aarch64 archive. See [ADR 0003](../adr/0003-vector-capability-and-sqlite-vec-feasibility.md)
+for the platform matrix and exact checksums.
+
 Issue #130 measured the local warm `mvn test` at about 25.83 seconds and `mvn clean package` at about
 28.45 seconds. The CI workflow keeps the full gate separate from the fast local loop; CI wall-clock
 is recorded from the completed workflow run and compared with those baselines in the PR. These
