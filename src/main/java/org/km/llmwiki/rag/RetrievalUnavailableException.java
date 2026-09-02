@@ -6,6 +6,7 @@ public class RetrievalUnavailableException extends RuntimeException {
     public enum Dependency {
         WORKSPACE_AUTHORITY,
         SEARCH_INDEX,
+        VECTOR_SEARCH,
         WIKI_AUTHORITY,
         SOURCE_AUTHORITY
     }
