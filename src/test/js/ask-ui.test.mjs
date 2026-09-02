@@ -79,17 +79,37 @@ test("renders insufficient evidence separately from an answer", () => {
   assert.equal(elements.metadata.hidden, true);
 });
 
-test("clears stale metadata and rejects malformed successful payloads safely", () => {
+test("clears stale metadata and preserves it for a valid successful payload", () => {
   const elements = uiElements();
   elements.metadata.hidden = false;
-  renderAskResponse(elements, { data: { status: "ANSWERED", answer: "fresh", citations: [],
-    providerMetadata: { provider: "stub", model: "offline" } } }, documentRef);
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED",
+    answer: "fresh",
+    citations: [{ evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Architecture" } }],
+    providerMetadata: { provider: "stub", model: "offline" }
+  } }, documentRef);
   assert.equal(elements.metadata.hidden, false);
+});
 
-  renderAskResponse(elements, { data: { status: "ANSWERED", citations: [] } }, documentRef);
-  assert.equal(elements.error.hidden, false);
-  assert.equal(elements.answer.hidden, true);
-  assert.equal(elements.metadata.hidden, true);
+test("rejects malformed ANSWERED payloads safely", () => {
+  const elements = uiElements();
+  elements.metadata.hidden = false;
+  const malformedPayloads = [
+    { status: "ANSWERED", answer: "fresh" },
+    { status: "ANSWERED", answer: "fresh", citations: null },
+    { status: "ANSWERED", answer: "fresh", citations: {} },
+    { status: "ANSWERED", answer: "fresh", citations: [] },
+    { status: "ANSWERED", answer: "   ", citations: [{}] }
+  ];
+
+  for (const data of malformedPayloads) {
+    renderAskResponse(elements, { data }, documentRef);
+    assert.equal(elements.error.hidden, false);
+    assert.equal(elements.answer.hidden, true);
+    assert.equal(elements.citations.children.length, 0);
+    assert.equal(elements.citationCount.textContent, "");
+    assert.equal(elements.metadata.hidden, true);
+  }
 });
 
 test("maps typed errors to safe user-facing messages", () => {

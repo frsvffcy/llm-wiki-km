@@ -69,6 +69,14 @@ function appendTextElement(documentRef, parent, tag, className, value) {
   return node;
 }
 
+function isValidAnsweredPayload(data) {
+  return data.status === "ANSWERED"
+    && typeof data.answer === "string"
+    && data.answer.trim().length > 0
+    && Array.isArray(data.citations)
+    && data.citations.length >= 1;
+}
+
 export function renderAskResponse(elements, payload, documentRef = document) {
   const data = payload && payload.data ? payload.data : {};
   elements.empty.hidden = true;
@@ -85,14 +93,14 @@ export function renderAskResponse(elements, payload, documentRef = document) {
     return;
   }
 
-  if (data.status !== "ANSWERED" || typeof data.answer !== "string") {
+  if (!isValidAnsweredPayload(data)) {
     showError(elements, undefined);
     return;
   }
 
   elements.answer.hidden = false;
   elements.answerText.textContent = data.answer;
-  const citations = Array.isArray(data.citations) ? data.citations : [];
+  const citations = data.citations;
   elements.citationCount.textContent = `${citations.length} 筆`;
 
   citations.forEach((citation, index) => {
