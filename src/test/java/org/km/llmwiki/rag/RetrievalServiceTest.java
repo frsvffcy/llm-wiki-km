@@ -15,6 +15,9 @@ import org.km.llmwiki.search.SourceSearchAuthorityChunk;
 import org.km.llmwiki.search.SourceSearchAuthorityDocument;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
 import org.km.llmwiki.search.SourceSearchFreshness;
+import org.km.llmwiki.search.vector.VectorCandidateSearchQuery;
+import org.km.llmwiki.search.vector.VectorCandidateSearchService;
+import org.km.llmwiki.search.vector.VectorCandidateSearchUnavailableException;
 import org.km.llmwiki.wiki.PageStatus;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
@@ -280,6 +283,96 @@ class RetrievalServiceTest {
         assertThat(bundle.rejectedCandidateCount()).isEqualTo(2);
         assertThat(bundle.insufficientEvidence()).isTrue();
         verify(wikiContentReader, never()).readSearchableContent(changedWiki);
+    }
+
+    @Test
+    void hybridFusesLexicalAndVectorCandidatesAndKeepsDiagnostics() {
+        stubWiki("lexical", "lexical authority");
+        stubWiki("semantic", "semantic authority");
+        VectorCandidateSearchService vector = mock(VectorCandidateSearchService.class);
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("lexical", 10.0))));
+        when(vector.findCandidates(any(VectorCandidateSearchQuery.class), any()))
+                .thenReturn(page(List.of(wikiCandidate("semantic", 0.1))));
+        retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
+                wikiContentReader, sourceRepository, vector);
+
+        EvidenceBundle bundle = retrievalService.retrieve(RetrievalRequest.of(
+                "hybrid", RetrievalMode.WIKI_ONLY, RetrievalStrategy.HYBRID, 8, 100));
+
+        assertThat(bundle.items()).extracting(EvidenceItem::stableId)
+                .containsExactly("lexical", "semantic");
+        assertThat(bundle.diagnostics().strategy()).isEqualTo(RetrievalStrategy.HYBRID);
+        assertThat(bundle.diagnostics().lexicalSignalUsed()).isTrue();
+        assertThat(bundle.diagnostics().vectorSignalUsed()).isTrue();
+        assertThat(bundle.diagnostics().degradedFallback()).isFalse();
+    }
+
+    @Test
+    void hybridMarksVectorUnavailableAsExplicitDegradedLexicalFallback() {
+        stubWiki("lexical", "lexical authority");
+        VectorCandidateSearchService vector = mock(VectorCandidateSearchService.class);
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("lexical", 1.0))));
+        when(vector.findCandidates(any(VectorCandidateSearchQuery.class), any()))
+                .thenThrow(new VectorCandidateSearchUnavailableException(
+                        VectorCandidateSearchUnavailableException.Dependency.VECTOR_REPOSITORY,
+                        new IllegalStateException("extension unavailable")));
+        retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
+                wikiContentReader, sourceRepository, vector);
+
+        EvidenceBundle bundle = retrievalService.retrieve(RetrievalRequest.of(
+                "fallback", RetrievalMode.WIKI_ONLY, RetrievalStrategy.HYBRID, 8, 100));
+
+        assertThat(bundle.items()).extracting(EvidenceItem::stableId).containsExactly("lexical");
+        assertThat(bundle.diagnostics().degradedFallback()).isTrue();
+        assertThat(bundle.diagnostics().vectorUnavailable()).isTrue();
+        assertThat(bundle.diagnostics().vectorSignalUsed()).isFalse();
+        assertThat(bundle.diagnostics().vectorUnavailableReason()).contains("Vector candidate");
+    }
+
+    @Test
+    void semanticStrategyFailsClosedWhenVectorIsUnavailable() {
+        VectorCandidateSearchService vector = mock(VectorCandidateSearchService.class);
+        when(vector.findCandidates(any(VectorCandidateSearchQuery.class), any()))
+                .thenThrow(new VectorCandidateSearchUnavailableException(
+                        VectorCandidateSearchUnavailableException.Dependency.VECTOR_CAPABILITY,
+                        new IllegalStateException("disabled")));
+        retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
+                wikiContentReader, sourceRepository, vector);
+
+        assertThatThrownBy(() -> retrievalService.retrieve(RetrievalRequest.of(
+                "semantic", RetrievalMode.WIKI_ONLY, RetrievalStrategy.SEMANTIC, 8, 100)))
+                .isInstanceOf(RetrievalUnavailableException.class)
+                .satisfies(failure -> assertThat(((RetrievalUnavailableException) failure)
+                        .dependency()).isEqualTo(RetrievalUnavailableException.Dependency.VECTOR_SEARCH));
+        verify(searchService, never()).findCandidates(any());
+    }
+
+    @Test
+    void revalidatesAuthorityAfterHybridFusionAndRejectsDriftedCandidate() {
+        stubWiki("drifted", "old content");
+        SearchCandidate lexical = wikiCandidate("drifted", 10.0);
+        SearchCandidate vectorCandidate = wikiCandidate("drifted", 0.9);
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(lexical)));
+        VectorCandidateSearchService vector = mock(VectorCandidateSearchService.class);
+        when(vector.findCandidates(any(VectorCandidateSearchQuery.class), any()))
+                .thenReturn(page(List.of(vectorCandidate)));
+        StoredPublishedWiki changed = new StoredPublishedWiki(99, WORKSPACE_ID, "drifted",
+                "Title drifted", "title drifted", WikiPageType.CONCEPT,
+                "vault/concepts/drifted.md", PageStatus.PUBLISHED, sha256("new content"), 2,
+                "2026-08-31T00:00:00Z", "2026-08-31T00:01:00Z");
+        when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "drifted"))
+                .thenReturn(Optional.of(changed));
+        retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
+                wikiContentReader, sourceRepository, vector);
+
+        EvidenceBundle bundle = retrievalService.retrieve(RetrievalRequest.of(
+                "race", RetrievalMode.WIKI_ONLY, RetrievalStrategy.HYBRID, 8, 100));
+
+        assertThat(bundle.items()).isEmpty();
+        assertThat(bundle.rejectedCandidateCount()).isOne();
+        assertThat(bundle.insufficientEvidence()).isTrue();
     }
 
     private void stubWiki(String knowledgeId, String content) {

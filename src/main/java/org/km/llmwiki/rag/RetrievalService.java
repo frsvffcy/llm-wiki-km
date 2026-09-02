@@ -33,7 +33,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Application-level Retrieval contract: FTS finds candidates, authority reads build evidence.
+ * Application-level Retrieval contract: providers find candidates, authority reads build evidence.
  *
  * <p>The service has no dependency on controllers, REST DTOs, prompts, or LLM providers.
  */
@@ -51,6 +51,7 @@ public class RetrievalService {
     private final PublishedWikiContentReader publishedWikiContentReader;
     private final SourceSearchAuthorityRepository sourceAuthorityRepository;
     private final VectorCandidateSearchService vectorCandidateSearchService;
+    private final FusionRanker fusionRanker;
 
     public RetrievalService(WorkspaceService workspaceService,
                             SearchService searchService,
@@ -58,7 +59,17 @@ public class RetrievalService {
                             PublishedWikiContentReader publishedWikiContentReader,
                             SourceSearchAuthorityRepository sourceAuthorityRepository) {
         this(workspaceService, searchService, publishedWikiRepository, publishedWikiContentReader,
-                sourceAuthorityRepository, null);
+                sourceAuthorityRepository, null, new ReciprocalRankFusion());
+    }
+
+    public RetrievalService(WorkspaceService workspaceService,
+                            SearchService searchService,
+                            PublishedWikiRepository publishedWikiRepository,
+                            PublishedWikiContentReader publishedWikiContentReader,
+                            SourceSearchAuthorityRepository sourceAuthorityRepository,
+                            VectorCandidateSearchService vectorCandidateSearchService) {
+        this(workspaceService, searchService, publishedWikiRepository, publishedWikiContentReader,
+                sourceAuthorityRepository, vectorCandidateSearchService, new ReciprocalRankFusion());
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -67,16 +78,29 @@ public class RetrievalService {
                             PublishedWikiRepository publishedWikiRepository,
                             PublishedWikiContentReader publishedWikiContentReader,
                             SourceSearchAuthorityRepository sourceAuthorityRepository,
-                            VectorCandidateSearchService vectorCandidateSearchService) {
+                            VectorCandidateSearchService vectorCandidateSearchService,
+                            FusionRanker fusionRanker) {
         this.workspaceService = workspaceService;
         this.searchService = searchService;
         this.publishedWikiRepository = publishedWikiRepository;
         this.publishedWikiContentReader = publishedWikiContentReader;
         this.sourceAuthorityRepository = sourceAuthorityRepository;
         this.vectorCandidateSearchService = vectorCandidateSearchService;
+        this.fusionRanker = fusionRanker == null ? new ReciprocalRankFusion() : fusionRanker;
     }
 
     public EvidenceBundle retrieve(RetrievalRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("retrieval request must not be null");
+        }
+        return switch (request.strategy()) {
+            case LEXICAL -> retrieveLexical(request);
+            case SEMANTIC -> retrieveSemantic(request);
+            case HYBRID -> retrieveHybrid(request);
+        };
+    }
+
+    private EvidenceBundle retrieveLexical(RetrievalRequest request) {
         RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
         WorkspaceResponse active;
         try {
@@ -90,14 +114,14 @@ public class RetrievalService {
         SearchCandidatePage page;
         try {
             page = searchService.findCandidates(new SearchQuery(
-                    request.query(), request.mode().searchCorpus(), null, null,
+                    request.query(), request.corpus(), null, null,
                     0, limits.candidateLimit()));
         } catch (DataAccessException infrastructureFailure) {
             throw new RetrievalUnavailableException(
                     RetrievalUnavailableException.Dependency.SEARCH_INDEX,
                     infrastructureFailure);
         }
-        return assembleEvidence(request, active, page);
+        return assembleEvidence(request, active, page, RetrievalDiagnostics.lexical());
     }
 
     /**
@@ -115,14 +139,51 @@ public class RetrievalService {
         SearchCandidatePage page;
         try {
             page = vectorCandidateSearchService.findCandidates(
-                    new VectorCandidateSearchQuery(request.query(), request.mode().searchCorpus(),
+                            new VectorCandidateSearchQuery(request.query(), request.corpus(),
                             limits.candidateLimit()),
                     new org.km.llmwiki.search.SearchWorkspaceProvenance(active.id(), active.name()));
         } catch (VectorCandidateSearchUnavailableException unavailable) {
             throw new RetrievalUnavailableException(
                     RetrievalUnavailableException.Dependency.VECTOR_SEARCH, unavailable);
         }
-        return assembleEvidence(request, active, page);
+        return assembleEvidence(request, active, page, RetrievalDiagnostics.semantic());
+    }
+
+    private EvidenceBundle retrieveHybrid(RetrievalRequest request) {
+        RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
+        WorkspaceResponse active = activeWorkspace();
+        SearchCandidatePage lexical = findLexicalCandidates(request, limits);
+        if (vectorCandidateSearchService == null) {
+            return assembleEvidence(request, active, lexical,
+                    RetrievalDiagnostics.degradedHybrid("vector candidate search is not configured"));
+        }
+        try {
+            SearchCandidatePage vector = vectorCandidateSearchService.findCandidates(
+                    new VectorCandidateSearchQuery(request.query(), request.corpus(),
+                            limits.candidateLimit()),
+                    new org.km.llmwiki.search.SearchWorkspaceProvenance(active.id(), active.name()));
+            List<SearchCandidate> fused = fusionRanker.fuse(lexical.items(), vector.items(),
+                    limits.candidateLimit());
+            SearchCandidatePage fusedPage = new SearchCandidatePage(fused, 0,
+                    limits.candidateLimit(), fused.size());
+            return assembleEvidence(request, active, fusedPage, RetrievalDiagnostics.hybrid());
+        } catch (VectorCandidateSearchUnavailableException unavailable) {
+            return assembleEvidence(request, active, lexical,
+                    RetrievalDiagnostics.degradedHybrid(unavailable.getMessage()));
+        }
+    }
+
+    private SearchCandidatePage findLexicalCandidates(RetrievalRequest request,
+                                                       RetrievalBudgetPolicy.ResolvedBudget limits) {
+        try {
+            return searchService.findCandidates(new SearchQuery(
+                    request.query(), request.corpus(), null, null,
+                    0, limits.candidateLimit()));
+        } catch (DataAccessException infrastructureFailure) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.SEARCH_INDEX,
+                    infrastructureFailure);
+        }
     }
 
     private WorkspaceResponse activeWorkspace() {
@@ -139,6 +200,16 @@ public class RetrievalService {
     /** Testable boundary that also makes the Search-to-authority revalidation race explicit. */
     EvidenceBundle assembleEvidence(RetrievalRequest request, WorkspaceResponse active,
                                     SearchCandidatePage page) {
+        RetrievalDiagnostics diagnostics = switch (request.strategy()) {
+            case LEXICAL -> RetrievalDiagnostics.lexical();
+            case SEMANTIC -> RetrievalDiagnostics.semantic();
+            case HYBRID -> RetrievalDiagnostics.hybrid();
+        };
+        return assembleEvidence(request, active, page, diagnostics);
+    }
+
+    EvidenceBundle assembleEvidence(RetrievalRequest request, WorkspaceResponse active,
+                                    SearchCandidatePage page, RetrievalDiagnostics diagnostics) {
         RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
         EvidenceWorkspace workspace = new EvidenceWorkspace(active.id(), active.name());
         List<SearchCandidate> ordered = page.items().stream().sorted(CANDIDATE_ORDER).toList();
@@ -188,7 +259,7 @@ public class RetrievalService {
         EvidenceBudget budget = new EvidenceBudget(limits.maxItems(), limits.maxCharacters(),
                 evidence.size(), usedCharacters, (usedCharacters + 3) / 4, budgetTruncated);
         return new EvidenceBundle(request.query().strip(), request.mode(), workspace, evidence,
-                budget, ordered.size(), rejected, evidence.isEmpty());
+                budget, ordered.size(), rejected, evidence.isEmpty(), diagnostics);
     }
 
     private Optional<AuthorityEvidence> revalidate(
