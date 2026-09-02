@@ -26,6 +26,12 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run Browser Ask UI contract tests
+        run: node --test src/test/js/ask-ui.test.mjs
       - name: Run fast test tier
         run: mvn --batch-mode test -Pfast
 

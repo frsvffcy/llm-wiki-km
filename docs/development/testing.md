@@ -16,10 +16,17 @@ test-class boundary so a test cannot silently move tiers because its class name 
 as a fast-only run. The explicit profiles are:
 
 ```text
+node --test src/test/js/ask-ui.test.mjs # Browser Ask UI contract regression suite
 mvn test -Pfast         # unit + contract; no Spring context tests
 mvn test -Pintegration  # integration-tagged tests
 mvn clean verify -Pfull # all tests plus clean package/build-integrity checks
 ```
+
+The Browser Ask UI contract suite runs directly with the Node.js built-in test runner. It does
+not require npm dependencies, a frontend build, a browser automation server, provider credentials,
+or network access. The PR workflow pins its runtime to Node.js 22 LTS and runs this suite in the
+`Fast unit and contract tests` job before the Maven fast tier. A failure in either command fails
+that job; the three Maven profiles retain their existing responsibilities.
 
 The `full` profile deliberately applies no include or exclude filter. This guarantees that adding
 a new tagged test cannot accidentally remove it from the final gate. `fast` is feedback only; it
@@ -72,7 +79,7 @@ Every pull request targeting `main` runs `.github/workflows/pr-ci.yml` with thre
 
 | CI job | Command | Purpose |
 | --- | --- | --- |
-| Fast unit and contract tests | `mvn --batch-mode test -Pfast` | Quick feedback for pure Java and contract coverage |
+| Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
 | Full regression and build integrity | `mvn --batch-mode clean verify -Pfull` | Clean Flyway/jOOQ source generation, all tests, compilation, verification, and package |
 
@@ -95,10 +102,11 @@ the remaining configuration needed to make the check merge-blocking.
 
 ## Tag/profile smoke checks
 
-Profile selection is verified by running each command and inspecting the Surefire summary. The
-fast run must report zero skipped integration classes; the integration run must execute the
-integration-tagged classes; and the full run must execute the union of both sets. Keep these
-checks in the PR description when changing test tags or Maven configuration.
+The frontend command must report all seven Ask UI tests passing. Profile selection is verified by
+running each Maven command and inspecting the Surefire summary. The fast run must report zero
+skipped integration classes; the integration run must execute the integration-tagged classes; and
+the full run must execute the union of both sets. Keep these checks in the PR description when
+changing test tags or Maven configuration.
 
 ## Canonical 契約測試擁有權
 
