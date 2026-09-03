@@ -10,6 +10,7 @@ import org.km.llmwiki.processing.ProcessingJobStatus;
 import org.km.llmwiki.processing.ProcessingJobType;
 import org.km.llmwiki.processing.ProcessingLogRepository;
 import org.km.llmwiki.search.SearchCorpus;
+import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.transaction.support.TransactionCallback;
@@ -20,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 
@@ -61,7 +63,7 @@ class EmbeddingProjectionJobServiceTest {
         transactionTemplate = mock(TransactionTemplate.class);
         submitted = new ArrayList<>();
 
-        when(jobs.create(eq(WORKSPACE_ID), anyString(), eq(ProcessingJobType.EMBEDDING_REBUILD), eq(1)))
+        when(jobs.create(eq(WORKSPACE_ID), anyString(), eq(ProcessingJobType.EMBEDDING_REBUILD), eq(1), anyString()))
                 .thenReturn(JOB);
         when(transactionTemplate.execute(any())).thenAnswer(invocation ->
                 ((TransactionCallback<?>) invocation.getArgument(0)).doInTransaction(null));
@@ -95,6 +97,8 @@ class EmbeddingProjectionJobServiceTest {
         service.enqueueWiki(WORKSPACE_ID, 101L);
 
         verify(readiness).markQueued(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.WIKI, 1);
+        verify(jobs).create(eq(WORKSPACE_ID), anyString(), eq(ProcessingJobType.EMBEDDING_REBUILD), eq(1),
+                eq(EmbeddingRebuildOperationMetadataCodec.encode(SearchCorpus.WIKI)));
         assertThat(submitted).isEmpty();
         TransactionSynchronizationManager.getSynchronizations().getFirst()
                 .afterCompletion(TransactionSynchronization.STATUS_COMMITTED);
@@ -109,6 +113,20 @@ class EmbeddingProjectionJobServiceTest {
         verify(jobs).markCompleted(JOB.id(), 1, 1, 1, 0, 0);
         verify(logs).append(JOB.id(), null, null, "EMBEDDING_REBUILD", "SUCCEEDED",
                 "Incremental projection completed", "{}");
+    }
+
+    @Test
+    void fullRebuildCapturesAllCorpusMetadataBeforeDispatch() {
+        service = service(command -> submitted.add(command));
+        when(workspaceService.findActiveWithoutValidation()).thenReturn(Optional.of(
+                new WorkspaceResponse(WORKSPACE_ID, "active", "", "", "", "", "", "", "ACTIVE", "", "")));
+
+        var response = service.startRebuild(SearchCorpus.ALL);
+
+        assertThat(response.corpus()).isEqualTo(SearchCorpus.ALL);
+        verify(jobs).create(eq(WORKSPACE_ID), anyString(), eq(ProcessingJobType.EMBEDDING_REBUILD), eq(1),
+                eq(EmbeddingRebuildOperationMetadataCodec.encode(SearchCorpus.ALL)));
+        assertThat(submitted).hasSize(1);
     }
 
     @Test
@@ -161,6 +179,8 @@ class EmbeddingProjectionJobServiceTest {
         service.enqueueSourceDocument(WORKSPACE_ID, 202L);
         submitted.getFirst().run();
 
+        verify(jobs).create(eq(WORKSPACE_ID), anyString(), eq(ProcessingJobType.EMBEDDING_REBUILD), eq(1),
+                eq(EmbeddingRebuildOperationMetadataCodec.encode(SearchCorpus.SOURCE)));
         verify(readiness).markCompleted(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.SOURCE_CHUNK,
                 1, 1, 0, "provider", "model", 2, false);
         verify(jobs).markCompleted(JOB.id(), 4, 4, 1, 0, 3);

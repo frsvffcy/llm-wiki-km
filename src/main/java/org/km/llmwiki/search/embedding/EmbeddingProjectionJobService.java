@@ -78,7 +78,8 @@ public class EmbeddingProjectionJobService {
         List<EmbeddingEvidenceKind> kinds = kinds(corpus);
         Launch launch = tx.execute(status -> {
             ProcessingJob job = jobs.create(workspaceId, UUID.randomUUID().toString(),
-                    ProcessingJobType.EMBEDDING_REBUILD, 1);
+                    ProcessingJobType.EMBEDDING_REBUILD, 1,
+                    EmbeddingRebuildOperationMetadataCodec.encode(corpus));
             for (EmbeddingEvidenceKind kind : kinds) readiness.markQueued(workspaceId, job.id(), kind, 0);
             return new Launch(workspaceId, corpus, job);
         });
@@ -95,7 +96,9 @@ public class EmbeddingProjectionJobService {
                     "Canonical content changed; embedding projection repair is pending");
             launch = tx.execute(status -> {
                 ProcessingJob job = jobs.create(workspaceId, UUID.randomUUID().toString(),
-                        ProcessingJobType.EMBEDDING_REBUILD, 1);
+                        ProcessingJobType.EMBEDDING_REBUILD, 1,
+                        EmbeddingRebuildOperationMetadataCodec.encode(
+                                kind == EmbeddingEvidenceKind.WIKI ? SearchCorpus.WIKI : SearchCorpus.SOURCE));
                 readiness.markQueued(workspaceId, job.id(), kind, 1);
                 return new Launch(workspaceId,
                         kind == EmbeddingEvidenceKind.WIKI ? SearchCorpus.WIKI : SearchCorpus.SOURCE, job);

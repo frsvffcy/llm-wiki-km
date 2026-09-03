@@ -232,6 +232,25 @@ failure 顯示成 READY + zero-match。#211 的 immutable job corpus metadata �
 
 這些 suite 是 ownership map，不表示每個 Story 都要重跑全部 suite；依 changed surface 執行 affected owner，PR Ready 再由 full gate 做完整 regression。
 
+### Issue #211 Processing Job metadata 與 readiness 分離
+
+`processing_job.operation_metadata_json` 是 generic、nullable 的 immutable operation history
+欄位。`EMBEDDING_REBUILD` 建立時由 embedding-owned codec 寫入 bounded canonical
+`embedding-rebuild-operation-v1` JSON，只允許 `schema` 與 `corpus`（`WIKI`、`SOURCE`、`ALL`）。
+Job query 只從這份建立時 metadata 讀取 corpus；不得使用
+`embedding_projection_readiness.processing_job_id` 反推歷史 operation scope。
+
+Readiness 仍是每個 workspace/corpus 的 current serving state 與 current linked job，不是
+歷史表。後續 rebuild 或 incremental job 改變 current link 時，舊 job response 必須維持原本
+的 metadata。既有 legacy job 沒有 metadata，或 metadata 缺欄位、格式錯誤、超過上限、含
+未知欄位或不在 allowlist 的值時，測試應驗證 deterministic unknown semantics：API 省略
+`corpus`（domain value 為 `null`），且絕不從 readiness 猜測。
+
+此範圍的 affected evidence 至少包括 `EmbeddingProjectionJobQueryIntegrationTest` 的歷史
+immutability、ALL/WIKI/SOURCE、workspace isolation、unrelated job、legacy metadata 與
+failure sanitization cases，以及 `EmbeddingProjectionJobServiceTest` 的建立時 metadata
+assertions、`EmbeddingRebuildOperationMetadataCodecTest` 的 bounded/allowlist validation。
+
 ## 自動化 tier 與 cleanup guard
 
 `testsupport.TestTierCoverageGuard` 掃描已編譯的 `target/test-classes`，以 JUnit `@Testable` 與 executable method 判定測試，不依賴檔名 regex。它解析 direct、composed、inherited 及 enclosing-class annotations，因此 `@SpringIntegrationTest`、nested test 與共用 base class 都會取得正確 tier；abstract、interface、annotation、enum 與非 executable support class 會排除。每個 executable test class 必須有 `unit`、`contract` 或 `integration` 至少一層；full-only 例外必須同時加入 explicit whitelist、理由與本文件說明，目前 whitelist 為空。
