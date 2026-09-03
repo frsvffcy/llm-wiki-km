@@ -74,6 +74,23 @@ The fast profile is not a substitute for the jOOQ/Flyway clean-build gate. Chang
 persistence wiring, generated sources, packaging, or build plugins require the full command even
 when the coding loop is otherwise limited to unit and contract tests.
 
+## Bounded vector scalability evidence
+
+For storage-level vector KNN changes, scalability evidence must be deterministic and inspectable. A
+test double, instrumentation hook, or query contract assertion must prove that application-side
+vector decode and canonical authority revalidation are bounded by the configured over-fetch and
+refill caps (currently `min(200, 5 * requestedLimit)` with at most five refill rounds), rather than
+growing with the total number of projections in the workspace. The production adapter contract must
+also show that distance calculation, ordering, `LIMIT` and `OFFSET` remain inside the storage/native
+boundary and that unrelated workspace/corpus/provider/model/dimension/version/freshness rows are
+filtered before they can reach the application.
+
+Wall-clock benchmarks may be recorded as supplemental observations, but a timing threshold is not
+acceptable as the sole acceptance criterion because runner load, native extension loading and cache
+state vary. A result count below the requested limit is valid when authority revalidation rejects
+stale, ineligible or drifted rows; it must never be filled by an unbounded workspace scan or by
+treating projection data as canonical authority.
+
 ## PR CI and merge gate
 
 Every pull request targeting `main` runs `.github/workflows/pr-ci.yml` with three evidence jobs and
