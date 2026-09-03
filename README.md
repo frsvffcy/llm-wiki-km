@@ -50,7 +50,10 @@ semantic and lexical/vector hybrid retrieval surface through additive Ask modes.
 the Wiki + Source FTS5 corpus; `SEMANTIC_WIKI`, `SEMANTIC_SOURCE`, and `HYBRID_VECTOR` select the
 semantic strategies defined by the retrieval contract. `HYBRID_VECTOR` may report a safe degraded
 lexical fallback when vector search is unavailable, while `SEMANTIC_*` fails closed with a typed
-unavailable response. Neo4j/GraphRAG remains Phase 3.
+unavailable response. These modes describe available retrieval contracts, not semantic corpus
+readiness: semantic serving additionally requires backend capability configuration, a `READY`
+embedding projection for the requested workspace and corpus, and query-time metadata, freshness,
+and authority validation. Neo4j/GraphRAG remains Phase 3.
 
 The capability decision, platform matrix, fallback semantics, and dependencies for #183–#185 are
 recorded in [ADR 0003](docs/adr/0003-vector-capability-and-sqlite-vec-feasibility.md). Native
@@ -102,6 +105,16 @@ the Browser request never waits for provider calls. Canonical Markdown, archive/
 normalized Source content remain the authority. Projection rows can therefore be deleted and rebuilt
 without changing canonical data.
 
+There are three separate operational checks:
+
+1. **Capability** — the backend embedding provider and, for vector candidate search, the configured
+   vector capability must be available. These settings are not accepted from Browser requests.
+2. **Projection** — the active workspace has independent `WIKI` and `SOURCE` readiness rows. A
+   rebuild is queued and processed asynchronously; only `READY` is a semantic serving state.
+3. **Query** — the request's provider/model/dimension and projection contract must match, and each
+   candidate is revalidated against current workspace-scoped authority and freshness before it can
+   become evidence.
+
 Configure the embedding/vector boundary only on the backend (never in Browser requests):
 
 ```text
@@ -115,21 +128,22 @@ VECTOR_CAPABILITY_ENABLED=false
 VECTOR_EXTENSION_PATH=/absolute/path/to/vec0.dylib
 ```
 
-For an existing workspace, start an asynchronous initial/full rebuild (all corpora, or one corpus)
-and inspect its state:
+For an existing workspace, start an asynchronous initial/full rebuild for `ALL`, `WIKI`, or `SOURCE`,
+then inspect the active workspace's per-corpus state:
 
 ```bash
 curl -X POST 'http://127.0.0.1:8765/api/v1/search/index/embedding/rebuild?corpus=ALL'
 curl 'http://127.0.0.1:8765/api/v1/search/index/embedding/readiness'
 ```
 
-Readiness is persisted per workspace and corpus. `NOT_BUILT`/`QUEUED`/`REBUILDING` mean that a
-projection is not available yet; `PARTIAL`, `FAILED`, and `STALE` are explicit degraded states
-requiring a rebuild. Only `READY` permits semantic retrieval. A `READY` projection with zero
-semantic candidates is a legitimate no-match. `SEMANTIC_WIKI` and `SEMANTIC_SOURCE` fail closed
-with typed projection-readiness semantics when not ready; `HYBRID_VECTOR` may use lexical fallback,
-but its response diagnostics mark that fallback as degraded. Provider/model/dimension or projection
-contract changes mark existing readiness `STALE` before another rebuild.
+Readiness is persisted per workspace and corpus, and the endpoint reports corpus keys `WIKI` and
+`SOURCE`. `NOT_BUILT`/`QUEUED`/`REBUILDING` mean that a projection is not available yet; `PARTIAL`,
+`FAILED`, and `STALE` are explicit degraded states requiring a rebuild. Only `READY` permits the
+corresponding semantic signal. A `READY` projection with zero semantic candidates is a legitimate
+no-match. `SEMANTIC_WIKI` and `SEMANTIC_SOURCE` fail closed with typed projection-readiness
+semantics when not ready; `HYBRID_VECTOR` may use lexical fallback, but its response diagnostics
+mark that fallback as degraded. Provider/model/dimension or projection contract changes mark
+existing readiness `STALE` before another rebuild.
 
 If the process stops during a rebuild, startup recovery marks the interrupted processing job and
 linked readiness rows `FAILED`; rerun the rebuild endpoint to recover. The endpoint returns a job
