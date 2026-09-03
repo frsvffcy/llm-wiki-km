@@ -101,9 +101,12 @@ credentials are backend configuration only and are never entered into or sent fr
 
 Semantic retrieval is backed by a rebuildable embedding projection. A successful Wiki publish and
 eligible Source extraction/index update enqueue an asynchronous `EMBEDDING_REBUILD` processing job;
-the Browser request never waits for provider calls. Canonical Markdown, archive/vault metadata, and
-normalized Source content remain the authority. Projection rows can therefore be deleted and rebuilt
-without changing canonical data.
+the Browser request never waits for provider calls. Immediately before incremental enqueue, the
+affected corpus is persisted as `STALE`, so a transaction-create, durable-enqueue, or dispatch
+failure cannot leave a false `READY` state. The canonical mutation is never rolled back; the
+readiness row's bounded diagnostic tells an operator that rebuild/repair is pending. Canonical
+Markdown, archive/vault metadata, and normalized Source content remain the authority. Projection
+rows can therefore be deleted and rebuilt without changing canonical data.
 
 There are three separate operational checks:
 
@@ -180,9 +183,31 @@ semantics when not ready; `HYBRID_VECTOR` may use lexical fallback, but its resp
 mark that fallback as degraded. Provider/model/dimension or projection contract changes mark
 existing readiness `STALE` before another rebuild.
 
+Incremental readiness uses a persisted `incremental_prior_ready` invariant. It records whether the
+corpus was serving-ready before the queued mutation, while the externally visible state remains
+non-ready during `STALE`/`QUEUED`/`REBUILDING`:
+
+| Before incremental operation | Operation result | Final readiness |
+| --- | --- | --- |
+| `READY` | all projection attempts and cleanup succeed | `READY` |
+| `NOT_BUILT`, `PARTIAL`, `FAILED`, or `STALE` | one or more projection attempts succeed without a true failure | remains non-ready (`PARTIAL`) |
+| any state | provider, authority, or dispatch failure | `PARTIAL`/`FAILED`, fail closed |
+| any state | canonical commit succeeds but durable enqueue cannot be established | `STALE`, repair required |
+
+The incremental job counters distinguish `attempted`, `fresh/success`, `failed`, `removed`, and
+`skipped` internally. Normal orphan, deleted, superseded, or ineligible projection cleanup is
+`removed`, not `failed`; the existing Processing Job API exposes cleanup through its compatible
+`skippedCount` contract. The completed job total is `attempted + removed + skipped`, processed is
+the same total, and true `failedCount` is bounded by attempted/expected work. A successful
+incremental operation recomputes readiness counts from current workspace authority and projection
+rows, rather than presenting a one-item operation count as the corpus total.
+
 If the process stops during a rebuild, startup recovery marks the interrupted processing job and
 linked readiness rows `FAILED`; rerun the rebuild endpoint to recover. The endpoint returns a job
 acceptance response and is safe to call from local administration scripts.
+
+This lifecycle change does not alter the separate immutable job-corpus metadata concern tracked by
+Issue #211; that issue remains independent.
 
 ## SQLite
 

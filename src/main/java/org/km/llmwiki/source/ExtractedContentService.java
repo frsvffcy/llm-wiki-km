@@ -6,6 +6,8 @@ import org.km.llmwiki.search.embedding.EmbeddingProjectionJobService;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -23,6 +25,8 @@ import java.util.List;
 
 @Service
 public class ExtractedContentService {
+
+    private static final Logger log = LoggerFactory.getLogger(ExtractedContentService.class);
 
     static final int PREVIEW_CHUNK_SIZE = 2_000;
     private static final int MAX_PAGE_SIZE = 200;
@@ -169,8 +173,10 @@ public class ExtractedContentService {
         }
         try {
             embeddingProjectionJobService.enqueueSourceDocument(workspaceId, documentId);
-        } catch (RuntimeException ignored) {
-            // Projection scheduling is rebuildable and must not rewrite canonical extraction state.
+        } catch (RuntimeException schedulingFailure) {
+            log.warn("Embedding projection scheduling failed after canonical Source extraction; "
+                            + "repair state should be STALE (workspaceId={}, documentId={}, failureType={})",
+                    workspaceId, documentId, schedulingFailure.getClass().getSimpleName());
         }
     }
 

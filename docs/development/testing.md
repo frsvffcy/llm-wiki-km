@@ -213,6 +213,23 @@ workspace isolation、failed row 與 schema boundary；
 wiring；若修改其 orchestration，必須補充或更新受影響的 integration/contract evidence，不得
 以 service/repository unit coverage 推定 REST 或 startup 行為已被覆蓋。
 
+Issue #210 的 lifecycle evidence 必須明確覆蓋以下 transition：prior `READY` 在 Wiki
+incremental 成功、Source add/update 成功，以及 orphan/superseded/ineligible cleanup 成功後
+仍為 `READY`；prior `PARTIAL`、`FAILED`、`STALE` 或 `NOT_BUILT` 不得因單筆 incremental
+success 提升為 `READY`；provider/authority failure 必須保持 fail-closed；canonical mutation
+commit 後若 transaction create、durable enqueue 或 dispatch 失敗，readiness 必須留下
+`STALE`/repair-needed persisted state。`incremental_prior_ready` 只作為 completion invariant，
+不可由 readiness API 暴露成 serving-ready。
+
+Incremental operation counters 的測試要區分 `attempted`、`fresh/success`、`failed`、`removed`
+與 `skipped`。正常 cleanup 不得增加 `failedCount`，且完成時必須驗證 `failedCount <=
+expectedCount`、`processedCount == totalCount`；既有 Processing Job API 沒有另行公開
+`removedCount`，因此 cleanup 以相容的 `skippedCount` 表達。Job query 的
+`PARTIAL_FAILURE` 只可由真正 failed items 觸發。Semantic-only 在 readiness 非 `READY` 時必須
+fail closed；`HYBRID_VECTOR` 只能沿用既有 degraded lexical fallback，不能把 scheduling
+failure 顯示成 READY + zero-match。#211 的 immutable job corpus metadata 不屬於本組測試與修正
+範圍。
+
 這些 suite 是 ownership map，不表示每個 Story 都要重跑全部 suite；依 changed surface 執行 affected owner，PR Ready 再由 full gate 做完整 regression。
 
 ## 自動化 tier 與 cleanup guard

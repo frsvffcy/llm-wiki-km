@@ -184,7 +184,29 @@ public class EmbeddingProjectionService {
                 .orElse(new ProjectionMetadata(null, null, null));
     }
 
+    /**
+     * Recomputes corpus counters from current authority and projection rows after an incremental
+     * operation. A one-item job must not pretend that its attempted count is the corpus total.
+     */
+    public ProjectionCounts projectionCounts(long workspaceId, EmbeddingEvidenceKind kind) {
+        int expected = switch (kind) {
+            case WIKI -> publishedWikiRepository.findAllPublished(workspaceId).size();
+            case SOURCE_CHUNK -> sourceAuthorityRepository.findAllDocuments(workspaceId).stream()
+                    .mapToInt(document -> SourceSearchFreshness.eligibleDocuments(document).size()).sum();
+        };
+        int indexed = 0;
+        int failed = 0;
+        for (var projection : projectionRepository.findAll(workspaceId)) {
+            if (projection.evidenceKind() != kind) continue;
+            if (projection.status() == EmbeddingProjectionStatus.FRESH) indexed++;
+            if (projection.status() == EmbeddingProjectionStatus.FAILED) failed++;
+        }
+        return new ProjectionCounts(indexed, expected, Math.min(failed, expected));
+    }
+
     public record ProjectionMetadata(String provider, String model, Integer dimension) {}
+
+    public record ProjectionCounts(int indexed, int expected, int failed) {}
 
     public boolean isFresh(long workspaceId, EmbeddingEvidenceKind kind, String stableId,
                            EmbeddingProjectionIdentity expected) {
