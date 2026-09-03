@@ -40,7 +40,7 @@
   * **版本控管**：Git
 * **階段邊界與防護欄（Phase Gate）**：
   * **Phase 1 / baseline completed through Sprint 6**：Foundation、Inbox/Archive、Tika Extraction、Job Engine、LLM Proposal/Review、Wiki Publish、SQLite FTS5、FTS-backed Retrieval、Evidence Assembly、provider-neutral Answer contract、grounded prompt/response validation、第一個 production provider adapter、stateless Ask orchestration、Ask REST API 與 Browser Ask UI。這些 Ask/Answer surface 是目前已完成的 ephemeral MVP，不直接寫入 `vault/`、`archive/` 或改變 canonical knowledge state；持久知識變更仍遵守 Proposal → Draft → Human Review → Publish。
-  * **Phase 2 / current through Sprint 7**：Embedding、Vector Candidate Search、semantic retrieval 與 lexical + vector Hybrid RAG 已建立 provider-neutral contract，並由 Ask 的 `SEMANTIC_WIKI`、`SEMANTIC_SOURCE`、`HYBRID_VECTOR` additive modes 安全接入；`HYBRID_FTS` 仍是 Wiki + Source FTS-only。Vector unavailable 與 hybrid degraded fallback 維持 typed/diagnostic semantics，不得繞過 authority revalidation 或 grounded Answer contract。
+  * **Phase 2 / current through Sprint 7**：Embedding、Vector Candidate Search、semantic retrieval 與 lexical + vector Hybrid RAG 已建立 provider-neutral contract，並由 Ask 的 `SEMANTIC_WIKI`、`SEMANTIC_SOURCE`、`HYBRID_VECTOR` additive modes 安全接入；`HYBRID_FTS` 仍是 Wiki + Source FTS-only。Phase 2 的可操作性必須區分三層：backend embedding/vector capability 是否已配置、每個 workspace／corpus 的 embedding projection 是否 `READY`，以及 query-time 的 metadata／freshness／authority revalidation 是否通過；mode 存在不代表 semantic corpus 已 ready。可透過 `POST /api/v1/search/index/embedding/rebuild?corpus=ALL|WIKI|SOURCE` 非同步建立或重建 projection，並以 `GET /api/v1/search/index/embedding/readiness` 查看 `WIKI`／`SOURCE` readiness。Vector unavailable 與 hybrid degraded fallback 維持 typed/diagnostic semantics，不得繞過 authority revalidation 或 grounded Answer contract。
   * **Phase 3**：Neo4j projection 與 GraphRAG。
   * **禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/sqlite-vec/semantic rerank/Neo4j/GraphRAG 技術，不得阻擋既有的 FTS-backed Retrieval、Evidence Assembly 或其必要修正。不得因架構願景而新增不存在的 milestone 或 Issue 作為規範依據。
 
@@ -352,7 +352,7 @@ public interface LlmClient {
 
 ### 8.5 Canonical Contract Test Ownership
 * 若 architecture invariant 已有 canonical suite，後續 Story 原則上擴充或回歸既有 suite，不重複建立等價 integration scenario。Issue AC 很長不代表要重新證明所有 invariant；只重跑 affected canonical suites，再執行 final full regression。
-* Canonical ownership 以 `docs/development/testing.md` 的最新 tracked 定義為準。本節只維持 invariant 類別的 scope map：workspace isolation、FTS serving freshness／projection version、Retrieval failure semantics、FTS rebuild／health／restart recovery、CJK search quality；exact suite/class owner 不在 AGENTS 重複維護，以免與 testing docs 漂移。
+* Canonical ownership 以 `docs/development/testing.md` 的最新 tracked 定義為準。本節只維持 invariant 類別的 scope map：workspace isolation、FTS serving freshness／projection version、embedding projection lifecycle／readiness、Retrieval failure semantics、FTS rebuild／health／restart recovery、CJK search quality；exact suite/class owner 不在 AGENTS 重複維護，以免與 testing docs 漂移。
 
 ### 8.6 Test Tier Completeness Rule
 * 每一個 executable test class 必須至少屬於 `unit`、`contract`、`integration` 其中一層；禁止 silent unclassified test。Class-level tag、composed annotation 與 inherited integration annotation 均算有效分類。

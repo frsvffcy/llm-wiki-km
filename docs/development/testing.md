@@ -134,6 +134,7 @@ Keep these checks in the PR description when changing test tags or Maven configu
 | --- | --- | --- |
 | Workspace isolation | `workspace.WorkspaceApiIntegrationTest`、`workspace.WorkspaceOpenIntegrationTest` | active workspace、目錄邊界、可修復目錄與既有資料保留 |
 | FTS serving freshness / projection version | `search.FtsSearchIndexRepositoryIntegrationTest`、`search.SourceChunkIndexingServiceIntegrationTest`、`search.SearchApiIntegrationTest` | canonical hash／revision／eligibility、workspace scope、provenance 與 projection version |
+| Embedding projection lifecycle / readiness | `search.embedding.EmbeddingProjectionServiceTest`、`search.embedding.EmbeddingProjectionRepositoryIntegrationTest`、`search.embedding.EmbeddingProjectionReadinessRepositoryIntegrationTest` | authority-derived projection、workspace isolation、freshness、partial/ready/stale/failed 狀態與 interrupted recovery |
 | Retrieval failure semantics | `rag.RetrievalServiceIntegrationTest`、`rag.RetrievalServiceTest` | authority drift、workspace scope 與 fail-closed evidence assembly |
 | FTS rebuild / health / restart recovery | `search.FtsRebuildHealthIntegrationTest` | rebuild、missing/stale/orphan、partial failure、queued/running recovery 與 health state |
 | CJK search quality | `search.CjkFtsSearchQualitySpikeTest`、`search.CjkBigramProjectorTest` | CJK 短詞／bigram、技術 token、literal query 與可重現 recall/precision evidence |
@@ -178,8 +179,22 @@ authority revalidation → `EvidenceBundle` → `AnswerContextAssembler` → `gr
 `HYBRID_VECTOR` 的 lexical fallback 以安全 retrieval metadata 標示 degraded；semantic vector
 unavailable 回傳 `RETRIEVAL_VECTOR_UNAVAILABLE`/503，與 `INSUFFICIENT_EVIDENCE`/200 分離。
 REST/Browser 僅顯示 strategy 與 signal 狀態，不顯示 raw score、embedding、native path 或
-provider credential。Browser contract suite 目前包含 11 個測試，並持續驗證 selector、citation、
-typed error、degraded notice、double-submit 與 stateless/safe DOM invariants。
+provider credential。Browser contract suite 持續驗證 selector、citation、typed error、degraded
+notice、double-submit 與 stateless/safe DOM invariants；PR 與 smoke evidence 必須回報當次實際
+執行的測試數，不得維護固定數字。
+
+### Sprint 7 Embedding Projection lifecycle/readiness ownership
+
+`search.embedding.EmbeddingProjectionServiceTest` 驗證從 authoritative Wiki／Source content
+建立 projection、內容變更 freshness 與 provider failure；
+`search.embedding.EmbeddingProjectionRepositoryIntegrationTest` 驗證 projection persistence、
+workspace isolation、failed row 與 schema boundary；
+`search.embedding.EmbeddingProjectionReadinessRepositoryIntegrationTest` 驗證
+`QUEUED` → `REBUILDING` → `PARTIAL`／`READY`、`STALE` 與 linked interrupted recovery。
+`EmbeddingProjectionJobService` 的非同步 enqueue/rebuild 入口與
+`EmbeddingProjectionStartupReconciler` 的啟動復原是這些 readiness invariants 的 production
+wiring；若修改其 orchestration，必須補充或更新受影響的 integration/contract evidence，不得
+以 service/repository unit coverage 推定 REST 或 startup 行為已被覆蓋。
 
 這些 suite 是 ownership map，不表示每個 Story 都要重跑全部 suite；依 changed surface 執行 affected owner，PR Ready 再由 full gate 做完整 regression。
 
