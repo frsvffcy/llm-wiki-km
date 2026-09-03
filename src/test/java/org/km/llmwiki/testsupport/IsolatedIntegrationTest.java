@@ -1,8 +1,10 @@
 package org.km.llmwiki.testsupport;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -12,6 +14,9 @@ import java.sql.Statement;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Resets all application tables before every test method so each test starts from an empty
@@ -26,12 +31,17 @@ public abstract class IsolatedIntegrationTest {
     @Autowired
     private JdbcClient jdbcClient;
 
+    @Autowired
+    @Qualifier("embeddingProjectionTaskExecutor")
+    private ThreadPoolTaskExecutor embeddingProjectionTaskExecutor;
+
     protected final JdbcClient db() {
         return jdbcClient;
     }
 
     @BeforeEach
     void resetApplicationTables() throws SQLException {
+        awaitEmbeddingProjectionTasks();
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
             DatabaseCleanupPolicy.assertComplete(connection);
@@ -43,6 +53,22 @@ public abstract class IsolatedIntegrationTest {
             } finally {
                 statement.execute("PRAGMA foreign_keys = ON");
             }
+        }
+    }
+
+    /**
+     * The shared SQLite database cannot be reset while an asynchronous embedding job still
+     * owns references to the rows being deleted. A FIFO barrier drains all jobs submitted by
+     * the preceding test without adding a timing assumption to the isolation contract.
+     */
+    private void awaitEmbeddingProjectionTasks() {
+        try {
+            embeddingProjectionTaskExecutor.submit(() -> { }).get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while draining embedding projection tasks", interrupted);
+        } catch (ExecutionException | TimeoutException failure) {
+            throw new IllegalStateException("Embedding projection tasks did not drain before database reset", failure);
         }
     }
 

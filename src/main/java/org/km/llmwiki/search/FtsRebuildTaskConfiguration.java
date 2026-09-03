@@ -31,7 +31,7 @@ class FtsRebuildTaskConfiguration {
      * wiki/source indexing or its repair loop.
      */
     @Bean("embeddingProjectionTaskExecutor")
-    TaskExecutor embeddingProjectionTaskExecutor() {
+    ThreadPoolTaskExecutor embeddingProjectionTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(1);
         executor.setMaxPoolSize(1);
