@@ -332,6 +332,23 @@ class RetrievalServiceTest {
     }
 
     @Test
+    void hybridPropagatesUnexpectedVectorRuntimeDefect() {
+        stubWiki("lexical", "lexical authority");
+        IllegalStateException defect = new IllegalStateException("programming defect");
+        VectorCandidateSearchService vector = mock(VectorCandidateSearchService.class);
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("lexical", 1.0))));
+        when(vector.findCandidates(any(VectorCandidateSearchQuery.class), any()))
+                .thenThrow(defect);
+        retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
+                wikiContentReader, sourceRepository, vector);
+
+        assertThatThrownBy(() -> retrievalService.retrieve(RetrievalRequest.of(
+                "defect", RetrievalMode.WIKI_ONLY, RetrievalStrategy.HYBRID, 8, 100)))
+                .isSameAs(defect);
+    }
+
+    @Test
     void semanticStrategyFailsClosedWhenVectorIsUnavailable() {
         VectorCandidateSearchService vector = mock(VectorCandidateSearchService.class);
         when(vector.findCandidates(any(VectorCandidateSearchQuery.class), any()))

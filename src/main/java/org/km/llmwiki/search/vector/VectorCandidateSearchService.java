@@ -106,8 +106,7 @@ public class VectorCandidateSearchService {
         Map<Long, Optional<SourceSearchAuthorityDocument>> sourceDocuments = new HashMap<>();
         for (StoredEmbeddingProjection projection : projections) {
             if (projection == null) {
-                throw unavailable(VectorCandidateSearchUnavailableException.Dependency.VECTOR_REPOSITORY,
-                        new IllegalStateException("Embedding projection repository returned a null row"));
+                throw new IllegalStateException("Embedding projection repository returned a null row");
             }
             if (!includes(query.corpus(), projection.evidenceKind())) {
                 continue;
@@ -147,7 +146,7 @@ public class VectorCandidateSearchService {
             }
         } catch (VectorCandidateSearchUnavailableException unavailable) {
             throw unavailable;
-        } catch (RuntimeException failure) {
+        } catch (DataAccessException failure) {
             throw unavailable(VectorCandidateSearchUnavailableException.Dependency.VECTOR_REPOSITORY,
                     failure);
         }
@@ -156,17 +155,14 @@ public class VectorCandidateSearchService {
         Set<String> matchedIdentities = new HashSet<>();
         for (VectorSimilarityMatch match : matches) {
             if (match == null) {
-                throw unavailable(VectorCandidateSearchUnavailableException.Dependency.VECTOR_REPOSITORY,
-                        new IllegalStateException("Vector adapter returned a null match"));
+                throw new IllegalStateException("Vector adapter returned a null match");
             }
             if (!matchedIdentities.add(match.identity())) {
-                throw unavailable(VectorCandidateSearchUnavailableException.Dependency.VECTOR_REPOSITORY,
-                        new IllegalStateException("Vector adapter returned duplicate candidate identity"));
+                throw new IllegalStateException("Vector adapter returned duplicate candidate identity");
             }
             CandidateVector candidate = searchable.get(match.identity());
             if (candidate == null) {
-                throw unavailable(VectorCandidateSearchUnavailableException.Dependency.VECTOR_REPOSITORY,
-                        new IllegalStateException("Vector adapter returned an unknown candidate identity"));
+                throw new IllegalStateException("Vector adapter returned an unknown candidate identity");
             }
             candidates.add(withScore(candidate.candidate(), match.similarity()));
         }
