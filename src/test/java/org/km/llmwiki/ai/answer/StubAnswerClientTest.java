@@ -3,6 +3,9 @@ package org.km.llmwiki.ai.answer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -12,7 +15,9 @@ class StubAnswerClientTest {
     @Test
     void returnsTheSameDeterministicResultForRepeatedRequests() {
         AnswerResult expected = new AnswerResult("deterministic answer",
-                new AnswerProviderMetadata("stub", "offline-test-model"));
+                List.of("E1"), false,
+                new AnswerProviderMetadata("stub", "offline-test-model"),
+                Optional.empty());
         StubAnswerClient client = StubAnswerClient.returning(expected);
 
         assertThat(client.generate(request())).isSameAs(expected);

@@ -93,10 +93,6 @@ public class AskService {
         }
 
         try {
-            if (!generated.insufficientEvidence() && generated.citedEvidenceIds().isEmpty()) {
-                throw new CitationValidationException(
-                        "non-insufficient answers must cite at least one evidence item");
-            }
             List<AskCitation> citations = mapCitations(context, generated.citedEvidenceIds());
             if (generated.insufficientEvidence()) {
                 return AskResultFactory.insufficient(suppliedEvidence, execution,
