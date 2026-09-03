@@ -5,6 +5,8 @@ import org.km.llmwiki.search.PublishedWikiIndexingService;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionJobService;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,6 +15,8 @@ import java.util.concurrent.locks.ReentrantLock;
 /** Dispatches the explicit publish endpoint without broadening either action-specific service. */
 @Service
 public class WikiPublishService {
+
+    private static final Logger log = LoggerFactory.getLogger(WikiPublishService.class);
 
     private final WorkspaceService workspaceService;
     private final WikiDraftRepository draftRepository;
@@ -62,7 +66,9 @@ public class WikiPublishService {
             try {
                 embeddingProjectionJobService.enqueueWiki(workspaceId, publishedPageId);
             } catch (RuntimeException schedulingFailure) {
-                // Projection scheduling is rebuildable; a completed canonical publish remains successful.
+                log.warn("Embedding projection scheduling failed after canonical Wiki publish; "
+                                + "repair state should be STALE (workspaceId={}, pageId={}, failureType={})",
+                        workspaceId, publishedPageId, schedulingFailure.getClass().getSimpleName());
             }
             StoredWikiPublishOperation operation = publicationRepository.findByDraft(workspaceId, draftId)
                     .orElseThrow(() -> new WikiPublishException(WikiPublishException.Reason.RECONCILIATION_REQUIRED,

@@ -4,6 +4,8 @@ import org.km.llmwiki.processing.*;
 import org.km.llmwiki.search.SearchCorpus;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,7 @@ import java.util.UUID;
 /** Non-blocking production entry point for incremental and full embedding projection work. */
 @Service
 public class EmbeddingProjectionJobService {
+    private static final Logger log = LoggerFactory.getLogger(EmbeddingProjectionJobService.class);
     private static final String FAILURE_DISPATCH_REJECTED = "DISPATCH_REJECTED";
     private static final String FAILURE_PRE_RUN_INTERRUPTED = "PRE_RUN_INTERRUPTED";
     private static final String FAILURE_REBUILD = "REBUILD_FAILED";
@@ -45,9 +48,11 @@ public class EmbeddingProjectionJobService {
         enqueueIncremental(workspaceId, EmbeddingEvidenceKind.WIKI,
                 () -> {
                     var result = projectionService.projectWiki(workspaceId, knowledgePageId);
-                    int fresh = result.status() == EmbeddingProjectionOperationStatus.FRESH ? 1 : 0;
-                    int failed = result.status() == EmbeddingProjectionOperationStatus.FRESH ? 0 : 1;
-                    return new EmbeddingProjectionBatchResult(fresh, 1, failed);
+                    return switch (result.status()) {
+                        case FRESH -> new EmbeddingProjectionBatchResult(1, 1, 0, 0, 0);
+                        case FAILED -> new EmbeddingProjectionBatchResult(0, 1, 1, 0, 0);
+                        case NOT_FOUND, INELIGIBLE -> new EmbeddingProjectionBatchResult(0, 0, 0, 0, 1);
+                    };
                 });
     }
     public void enqueueSourceDocument(long workspaceId, long documentId) {
@@ -55,12 +60,17 @@ public class EmbeddingProjectionJobService {
                 () -> {
                     int removed = projectionService.removeOrphanedSourceProjections(workspaceId);
                     var authority = projectionService.sourceChunks(workspaceId, documentId);
-                    int failed = 0, fresh = 0;
+                    int failed = 0, fresh = 0, skipped = 0;
                     for (long chunkId : authority) {
                         var result = projectionService.projectSourceChunk(workspaceId, chunkId);
-                        if (result.status() == EmbeddingProjectionOperationStatus.FRESH) fresh++; else failed++;
+                        switch (result.status()) {
+                            case FRESH -> fresh++;
+                            case FAILED -> failed++;
+                            case NOT_FOUND, INELIGIBLE -> skipped++;
+                        }
                     }
-                    return new EmbeddingProjectionBatchResult(fresh, authority.size(), failed + removed);
+                    int attempted = fresh + failed;
+                    return new EmbeddingProjectionBatchResult(fresh, attempted, failed, removed, skipped);
                 });
     }
     public EmbeddingProjectionJobCreatedResponse startRebuild(SearchCorpus corpus) {
@@ -79,14 +89,31 @@ public class EmbeddingProjectionJobService {
 
     private void enqueueIncremental(long workspaceId, EmbeddingEvidenceKind kind,
                                     java.util.function.Supplier<EmbeddingProjectionBatchResult> work) {
-        Launch launch = tx.execute(status -> {
-            ProcessingJob job = jobs.create(workspaceId, UUID.randomUUID().toString(),
-                    ProcessingJobType.EMBEDDING_REBUILD, 1);
-            readiness.markQueued(workspaceId, job.id(), kind, 1);
-            return new Launch(workspaceId,
-                    kind == EmbeddingEvidenceKind.WIKI ? SearchCorpus.WIKI : SearchCorpus.SOURCE, job);
-        });
-        if (launch == null) return;
+        Launch launch;
+        try {
+            readiness.markSchedulingStale(workspaceId, kind,
+                    "Canonical content changed; embedding projection repair is pending");
+            launch = tx.execute(status -> {
+                ProcessingJob job = jobs.create(workspaceId, UUID.randomUUID().toString(),
+                        ProcessingJobType.EMBEDDING_REBUILD, 1);
+                readiness.markQueued(workspaceId, job.id(), kind, 1);
+                return new Launch(workspaceId,
+                        kind == EmbeddingEvidenceKind.WIKI ? SearchCorpus.WIKI : SearchCorpus.SOURCE, job);
+            });
+            if (launch == null) {
+                throw new IllegalStateException("Could not create embedding incremental job");
+            }
+        } catch (RuntimeException failure) {
+            try {
+                readiness.markSchedulingStale(workspaceId, kind,
+                        "Embedding projection enqueue failed; repair required ("
+                                + failure.getClass().getSimpleName() + ")");
+            } catch (RuntimeException ignored) {
+                log.warn("Could not persist embedding scheduling failure state; workspaceId={}, corpus={}, failureType={}",
+                        workspaceId, kind, failure.getClass().getSimpleName());
+            }
+            throw failure;
+        }
         schedule(launch, () -> runIncremental(launch, kind, work));
     }
 
@@ -121,8 +148,10 @@ public class EmbeddingProjectionJobService {
                             result.fresh(), result.attempted(), result.failed(), metadata.provider(),
                             metadata.model(), metadata.dimension(), true);
                 }
-                jobs.markCompleted(launch.job().id(), completedExpected, completedFresh,
-                        completedFailed, completedIneligible);
+                int completedTotal = completedExpected + completedIneligible;
+                int completedProcessed = completedFresh + completedFailed + completedIneligible;
+                jobs.markCompleted(launch.job().id(), completedTotal, completedProcessed,
+                        completedFresh, completedFailed, completedIneligible);
                 logs.append(launch.job().id(), null, null, "EMBEDDING_REBUILD", "SUCCEEDED",
                         "Embedding projection rebuild completed", "{}");
             });
@@ -140,10 +169,14 @@ public class EmbeddingProjectionJobService {
             });
             EmbeddingProjectionBatchResult result = work.get();
             var metadata = projectionService.projectionMetadata(launch.workspaceId(), kind);
+            var counts = projectionService.projectionCounts(launch.workspaceId(), kind);
             tx.executeWithoutResult(status -> {
-                readiness.markCompleted(launch.workspaceId(), launch.job().id(), kind, result.fresh(), result.expected(),
-                        result.failed(), metadata.provider(), metadata.model(), metadata.dimension(), false);
-                jobs.markCompleted(launch.job().id(), result.expected(), result.fresh(), result.failed(), 0);
+                readiness.markCompleted(launch.workspaceId(), launch.job().id(), kind, counts.indexed(), counts.expected(),
+                        Math.max(result.failed(), counts.failed()), metadata.provider(), metadata.model(), metadata.dimension(), false);
+                int completedTotal = result.attempted() + result.removed() + result.skipped();
+                int completedProcessed = result.fresh() + result.failed() + result.removed() + result.skipped();
+                jobs.markCompleted(launch.job().id(), completedTotal, completedProcessed,
+                        result.fresh(), result.failed(), result.removed() + result.skipped());
                 logs.append(launch.job().id(), null, null, "EMBEDDING_REBUILD", "SUCCEEDED",
                         "Incremental projection completed", "{}");
             });
@@ -190,7 +223,10 @@ public class EmbeddingProjectionJobService {
     private void recordFailure(Launch launch, List<EmbeddingEvidenceKind> kinds,
                                String reason, RuntimeException failure,
                                int processed, int succeeded, int failed) {
-        String detail = reason + ": " + safeMessage(failure);
+        // Exception messages can contain provider bodies, SQL, local paths, or stack details.
+        // The operator-facing readiness surface gets the allow-listed reason and exception type
+        // only; the raw exception remains server-side in the normal application log boundary.
+        String detail = reason + ": " + failure.getClass().getSimpleName();
         tx.executeWithoutResult(status -> {
             for (EmbeddingEvidenceKind kind : kinds) {
                 readiness.markFailed(launch.workspaceId(), launch.job().id(), kind, detail);
@@ -211,11 +247,7 @@ public class EmbeddingProjectionJobService {
     private record Launch(long workspaceId, SearchCorpus corpus, ProcessingJob job) {}
     private record RebuildOutcome(EmbeddingEvidenceKind kind, EmbeddingProjectionRebuildResult result,
                                   EmbeddingProjectionService.ProjectionMetadata metadata) {}
-    private record EmbeddingProjectionBatchResult(int fresh, int expected, int failed) {}
+    private record EmbeddingProjectionBatchResult(int fresh, int attempted, int failed, int removed, int skipped) {}
     public record EmbeddingProjectionJobCreatedResponse(String jobId, String status, long workspaceId, SearchCorpus corpus) {}
 
-    private static String safeMessage(RuntimeException failure) {
-        String message = failure.getMessage();
-        return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
-    }
 }

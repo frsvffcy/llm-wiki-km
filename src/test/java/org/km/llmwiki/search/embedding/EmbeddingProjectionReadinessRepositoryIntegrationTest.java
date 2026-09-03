@@ -42,6 +42,112 @@ class EmbeddingProjectionReadinessRepositoryIntegrationTest extends IsolatedInte
     }
 
     @Test
+    void preservesPriorReadyOnlyForSuccessfulIncrementalCompletion() {
+        long workspace = insertWorkspace();
+        long fullJob = jobs.create(workspace, "embedding-full", ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, fullJob, EmbeddingEvidenceKind.WIKI, 1);
+        repository.markCompleted(workspace, fullJob, EmbeddingEvidenceKind.WIKI, 1, 1, 0,
+                "provider", "model", 2, true);
+
+        long incrementalJob = jobs.create(workspace, "embedding-incremental-ready",
+                ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, incrementalJob, EmbeddingEvidenceKind.WIKI, 1);
+        repository.markRunning(workspace, incrementalJob, EmbeddingEvidenceKind.WIKI);
+        repository.markCompleted(workspace, incrementalJob, EmbeddingEvidenceKind.WIKI, 1, 1, 0,
+                "provider", "model", 2, false);
+        assertThat(repository.find(workspace, EmbeddingEvidenceKind.WIKI).orElseThrow().status())
+                .isEqualTo(EmbeddingProjectionReadinessStatus.READY);
+
+        long staleJob = jobs.create(workspace, "embedding-incremental-stale",
+                ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markStale(workspace, EmbeddingEvidenceKind.WIKI, "canonical changed");
+        repository.markQueued(workspace, staleJob, EmbeddingEvidenceKind.WIKI, 1);
+        repository.markCompleted(workspace, staleJob, EmbeddingEvidenceKind.WIKI, 1, 1, 0,
+                "provider", "model", 2, false);
+        assertThat(repository.find(workspace, EmbeddingEvidenceKind.WIKI).orElseThrow().status())
+                .isEqualTo(EmbeddingProjectionReadinessStatus.PARTIAL);
+
+        long failedJob = jobs.create(workspace, "embedding-incremental-failed",
+                ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, failedJob, EmbeddingEvidenceKind.WIKI, 1);
+        repository.markFailed(workspace, failedJob, EmbeddingEvidenceKind.WIKI, "provider failure");
+        long recoveryJob = jobs.create(workspace, "embedding-recovery",
+                ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, recoveryJob, EmbeddingEvidenceKind.WIKI, 1);
+        repository.markCompleted(workspace, recoveryJob, EmbeddingEvidenceKind.WIKI, 1, 1, 0,
+                "provider", "model", 2, false);
+        assertThat(repository.find(workspace, EmbeddingEvidenceKind.WIKI).orElseThrow().status())
+                .isEqualTo(EmbeddingProjectionReadinessStatus.PARTIAL);
+    }
+
+    @Test
+    void preservesPriorReadyForSourceIncrementalCompletion() {
+        long workspace = insertWorkspace();
+        long fullJob = jobs.create(workspace, "embedding-source-full", ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, fullJob, EmbeddingEvidenceKind.SOURCE_CHUNK, 2);
+        repository.markCompleted(workspace, fullJob, EmbeddingEvidenceKind.SOURCE_CHUNK, 2, 2, 0,
+                "provider", "model", 2, true);
+
+        long incrementalJob = jobs.create(workspace, "embedding-source-incremental",
+                ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, incrementalJob, EmbeddingEvidenceKind.SOURCE_CHUNK, 1);
+        repository.markRunning(workspace, incrementalJob, EmbeddingEvidenceKind.SOURCE_CHUNK);
+        repository.markCompleted(workspace, incrementalJob, EmbeddingEvidenceKind.SOURCE_CHUNK, 2, 2, 0,
+                "provider", "model", 2, false);
+
+        assertThat(repository.find(workspace, EmbeddingEvidenceKind.SOURCE_CHUNK).orElseThrow().status())
+                .isEqualTo(EmbeddingProjectionReadinessStatus.READY);
+    }
+
+    @Test
+    void schedulingInvalidationIsPersistedEvenWhenNoJobCanBeCreated() {
+        long workspace = insertWorkspace();
+        repository.markSchedulingStale(workspace, EmbeddingEvidenceKind.SOURCE_CHUNK,
+                "enqueue unavailable");
+
+        EmbeddingProjectionReadiness state = repository.find(workspace, EmbeddingEvidenceKind.SOURCE_CHUNK)
+                .orElseThrow();
+        assertThat(state.status()).isEqualTo(EmbeddingProjectionReadinessStatus.STALE);
+        assertThat(state.processingJobId()).isNull();
+        assertThat(state.failureDetail()).isEqualTo("enqueue unavailable");
+        assertThat(state.failedCount()).isZero();
+    }
+
+    @Test
+    void failedSchedulingRetryCannotReuseAnOldReadyInvariant() {
+        long workspace = insertWorkspace();
+        long fullJob = jobs.create(workspace, "embedding-full-before-scheduling-failure",
+                ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, fullJob, EmbeddingEvidenceKind.WIKI, 1);
+        repository.markCompleted(workspace, fullJob, EmbeddingEvidenceKind.WIKI, 1, 1, 0,
+                "provider", "model", 2, true);
+
+        repository.markSchedulingStale(workspace, EmbeddingEvidenceKind.WIKI, "canonical changed");
+        repository.markSchedulingStale(workspace, EmbeddingEvidenceKind.WIKI, "enqueue unavailable");
+
+        long retryJob = jobs.create(workspace, "embedding-retry-after-scheduling-failure",
+                ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, retryJob, EmbeddingEvidenceKind.WIKI, 1);
+        repository.markCompleted(workspace, retryJob, EmbeddingEvidenceKind.WIKI, 1, 1, 0,
+                "provider", "model", 2, false);
+
+        assertThat(repository.find(workspace, EmbeddingEvidenceKind.WIKI).orElseThrow().status())
+                .isEqualTo(EmbeddingProjectionReadinessStatus.PARTIAL);
+    }
+
+    @Test
+    void failureAccountingNeverExceedsExpectedCount() {
+        long workspace = insertWorkspace();
+        long job = jobs.create(workspace, "embedding-zero-expected", ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        repository.markQueued(workspace, job, EmbeddingEvidenceKind.WIKI, 0);
+        repository.markFailed(workspace, job, EmbeddingEvidenceKind.WIKI, "dispatch rejected");
+
+        EmbeddingProjectionReadiness state = repository.find(workspace, EmbeddingEvidenceKind.WIKI).orElseThrow();
+        assertThat(state.failedCount()).isLessThanOrEqualTo(state.expectedCount());
+        assertThat(state.failedCount()).isZero();
+    }
+
+    @Test
     void interruptedRecoveryOnlyMarksLinkedEmbeddingJobs() {
         long workspace = insertWorkspace();
         long embeddingJob = jobs.create(workspace, "embedding-interrupted", ProcessingJobType.EMBEDDING_REBUILD, 1).id();

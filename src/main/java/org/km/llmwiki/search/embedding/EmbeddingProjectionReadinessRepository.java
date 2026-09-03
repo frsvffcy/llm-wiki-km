@@ -2,6 +2,8 @@ package org.km.llmwiki.search.embedding;
 
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -10,6 +12,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 import static org.km.llmwiki.persistence.jooq.generated.Tables.EMBEDDING_PROJECTION_READINESS;
+import static org.jooq.impl.DSL.when;
 
 @Repository
 public class EmbeddingProjectionReadinessRepository {
@@ -18,6 +21,11 @@ public class EmbeddingProjectionReadinessRepository {
     );
     private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)\\bbearer\\s+[^\\s,;]+");
     private static final Pattern SECRET_KEY = Pattern.compile("\\bsk-[A-Za-z0-9_-]{8,}\\b");
+    private static final Pattern UNSAFE_DIAGNOSTIC = Pattern.compile(
+            "(?is)(?:raw\\s+response|provider\\s+response|stack\\s*trace|\\b(?:select|insert|update|delete|pragma|create|alter|drop)\\b|"
+                    + "(?:^|[\\s(])[/\\\\][^\\s,;)]*|\\b[\\w$]+Exception\\b|\\.(?:dylib|so|dll)\\b)");
+    private static final String GENERIC_FAILURE_DETAIL =
+            "Embedding rebuild failed; inspect the job status for a safe failure code";
     private final DSLContext dsl;
     public EmbeddingProjectionReadinessRepository(DSLContext dsl) { this.dsl = dsl; }
 
@@ -45,11 +53,14 @@ public class EmbeddingProjectionReadinessRepository {
                 .toList();
     }
     public void markQueued(long workspaceId, long jobId, EmbeddingEvidenceKind corpus, int expected) {
-        var previous = find(workspaceId, corpus).orElse(null);
-        int indexed = previous == null ? 0 : previous.indexedCount();
-        int expectedTotal = previous == null ? expected : Math.max(previous.expectedCount(), expected);
+        var previous = findRecord(workspaceId, corpus).orElse(null);
+        int indexed = previous == null ? 0 : previous.getIndexedCount();
+        int expectedTotal = previous == null ? expected : Math.max(previous.getExpectedCount(), expected);
+        indexed = Math.min(Math.max(0, indexed), Math.max(0, expectedTotal));
+        int priorReady = previous != null && (previous.getStatus().equals(EmbeddingProjectionReadinessStatus.READY.name())
+                || previous.getIncrementalPriorReady() != null && previous.getIncrementalPriorReady() == 1) ? 1 : 0;
         upsert(workspaceId, corpus, EmbeddingProjectionReadinessStatus.QUEUED, jobId, indexed, expectedTotal, 0,
-                null, null, null, EmbeddingProjectionContract.VERSION, null, null, null);
+                null, null, null, EmbeddingProjectionContract.VERSION, null, null, null, priorReady);
     }
     public void markRunning(long workspaceId, long jobId, EmbeddingEvidenceKind corpus) {
         dsl.update(EMBEDDING_PROJECTION_READINESS)
@@ -67,21 +78,26 @@ public class EmbeddingProjectionReadinessRepository {
     public void markCompleted(long workspaceId, long jobId, EmbeddingEvidenceKind corpus,
                               int indexed, int expected, int failed, String provider, String model, Integer dimension,
                               boolean fullRebuild) {
-        var previous = find(workspaceId, corpus).orElse(null);
-        var status = failed > 0 ? EmbeddingProjectionReadinessStatus.PARTIAL
-                : (fullRebuild ? EmbeddingProjectionReadinessStatus.READY : incrementalStatus(workspaceId, corpus));
-        int persistedIndexed = fullRebuild || previous == null ? indexed : previous.indexedCount();
-        int persistedExpected = fullRebuild || previous == null ? expected : Math.max(previous.expectedCount(), expected);
+        var previousRecord = findRecord(workspaceId, corpus).orElse(null);
+        boolean priorReady = previousRecord != null && previousRecord.getIncrementalPriorReady() != null
+                && previousRecord.getIncrementalPriorReady() == 1;
+        int persistedExpected = Math.max(0, expected);
+        int persistedFailed = Math.min(Math.max(0, failed), persistedExpected);
+        var status = persistedFailed > 0 ? EmbeddingProjectionReadinessStatus.PARTIAL
+                : (fullRebuild ? EmbeddingProjectionReadinessStatus.READY
+                : priorReady ? EmbeddingProjectionReadinessStatus.READY : EmbeddingProjectionReadinessStatus.PARTIAL);
+        int persistedIndexed = Math.min(Math.max(0, indexed), persistedExpected);
         dsl.update(EMBEDDING_PROJECTION_READINESS)
                 .set(EMBEDDING_PROJECTION_READINESS.STATUS, status.name())
                 .set(EMBEDDING_PROJECTION_READINESS.INDEXED_COUNT, persistedIndexed)
                 .set(EMBEDDING_PROJECTION_READINESS.EXPECTED_COUNT, persistedExpected)
-                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT, failed)
+                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT, persistedFailed)
                 .set(EMBEDDING_PROJECTION_READINESS.EMBEDDING_PROVIDER, provider)
                 .set(EMBEDDING_PROJECTION_READINESS.EMBEDDING_MODEL, model)
                 .set(EMBEDDING_PROJECTION_READINESS.DIMENSION, dimension)
                 .set(EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL, (String) null)
                 .set(EMBEDDING_PROJECTION_READINESS.PROJECTION_VERSION, EmbeddingProjectionContract.VERSION)
+                .set(EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY, 0)
                 .set(EMBEDDING_PROJECTION_READINESS.COMPLETED_AT, now())
                 .set(EMBEDDING_PROJECTION_READINESS.UPDATED_AT, now())
                 .where(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
@@ -89,15 +105,12 @@ public class EmbeddingProjectionReadinessRepository {
                 .and(EMBEDDING_PROJECTION_READINESS.PROCESSING_JOB_ID.eq(Math.toIntExact(jobId))).execute();
     }
 
-    private EmbeddingProjectionReadinessStatus incrementalStatus(long workspaceId, EmbeddingEvidenceKind corpus) {
-        return find(workspaceId, corpus).map(value -> value.status() == EmbeddingProjectionReadinessStatus.READY
-                ? EmbeddingProjectionReadinessStatus.READY : EmbeddingProjectionReadinessStatus.PARTIAL)
-                .orElse(EmbeddingProjectionReadinessStatus.PARTIAL);
-    }
     public void markFailed(long workspaceId, long jobId, EmbeddingEvidenceKind corpus, String detail) {
         dsl.update(EMBEDDING_PROJECTION_READINESS)
                 .set(EMBEDDING_PROJECTION_READINESS.STATUS, EmbeddingProjectionReadinessStatus.FAILED.name())
-                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT, 1)
+                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT,
+                        when(EMBEDDING_PROJECTION_READINESS.EXPECTED_COUNT.gt(0), 1).otherwise(0))
+                .set(EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY, 0)
                 .set(EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL, bounded(detail))
                 .set(EMBEDDING_PROJECTION_READINESS.COMPLETED_AT, now())
                 .set(EMBEDDING_PROJECTION_READINESS.UPDATED_AT, now())
@@ -108,7 +121,9 @@ public class EmbeddingProjectionReadinessRepository {
     public int markInterrupted(String detail) {
         return dsl.update(EMBEDDING_PROJECTION_READINESS)
                 .set(EMBEDDING_PROJECTION_READINESS.STATUS, EmbeddingProjectionReadinessStatus.FAILED.name())
-                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT, 1)
+                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT,
+                        when(EMBEDDING_PROJECTION_READINESS.EXPECTED_COUNT.gt(0), 1).otherwise(0))
+                .set(EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY, 0)
                 .set(EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL, bounded(detail))
                 .set(EMBEDDING_PROJECTION_READINESS.COMPLETED_AT, now())
                 .set(EMBEDDING_PROJECTION_READINESS.UPDATED_AT, now())
@@ -119,7 +134,9 @@ public class EmbeddingProjectionReadinessRepository {
         if (jobIds.isEmpty()) return 0;
         return dsl.update(EMBEDDING_PROJECTION_READINESS)
                 .set(EMBEDDING_PROJECTION_READINESS.STATUS, EmbeddingProjectionReadinessStatus.FAILED.name())
-                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT, 1)
+                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT,
+                        when(EMBEDDING_PROJECTION_READINESS.EXPECTED_COUNT.gt(0), 1).otherwise(0))
+                .set(EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY, 0)
                 .set(EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL, bounded(detail))
                 .set(EMBEDDING_PROJECTION_READINESS.COMPLETED_AT, now())
                 .set(EMBEDDING_PROJECTION_READINESS.UPDATED_AT, now())
@@ -130,6 +147,7 @@ public class EmbeddingProjectionReadinessRepository {
     public int markStale(long workspaceId, EmbeddingEvidenceKind corpus, String detail) {
         return dsl.update(EMBEDDING_PROJECTION_READINESS)
                 .set(EMBEDDING_PROJECTION_READINESS.STATUS, EmbeddingProjectionReadinessStatus.STALE.name())
+                .set(EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY, 0)
                 .set(EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL, bounded(detail))
                 .set(EMBEDDING_PROJECTION_READINESS.UPDATED_AT, now())
                 .where(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
@@ -137,18 +155,62 @@ public class EmbeddingProjectionReadinessRepository {
                 .and(EMBEDDING_PROJECTION_READINESS.STATUS.eq(EmbeddingProjectionReadinessStatus.READY.name()))
                 .execute();
     }
+
+    /**
+     * Invalidates serving readiness after canonical content has committed and before an
+     * incremental job is created. The separate transaction makes a failed enqueue fail closed.
+     * A prior READY state is retained only as an internal completion invariant for the next
+     * incremental job; it is never exposed by the readiness API.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markSchedulingStale(long workspaceId, EmbeddingEvidenceKind corpus, String detail) {
+        var previous = findRecord(workspaceId, corpus).orElse(null);
+        int priorReady = previous != null
+                && previous.getStatus().equals(EmbeddingProjectionReadinessStatus.READY.name()) ? 1 : 0;
+        String timestamp = now();
+        if (previous == null) {
+            dsl.insertInto(EMBEDDING_PROJECTION_READINESS)
+                    .columns(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID,
+                            EMBEDDING_PROJECTION_READINESS.CORPUS,
+                            EMBEDDING_PROJECTION_READINESS.STATUS,
+                            EMBEDDING_PROJECTION_READINESS.INDEXED_COUNT,
+                            EMBEDDING_PROJECTION_READINESS.EXPECTED_COUNT,
+                            EMBEDDING_PROJECTION_READINESS.FAILED_COUNT,
+                            EMBEDDING_PROJECTION_READINESS.PROJECTION_VERSION,
+                            EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL,
+                            EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY,
+                            EMBEDDING_PROJECTION_READINESS.UPDATED_AT)
+                    .values(Math.toIntExact(workspaceId), corpus.storageValue(),
+                            EmbeddingProjectionReadinessStatus.STALE.name(), 0, 0, 0,
+                            EmbeddingProjectionContract.VERSION, bounded(detail), priorReady, timestamp)
+                    .execute();
+            return;
+        }
+        dsl.update(EMBEDDING_PROJECTION_READINESS)
+                .set(EMBEDDING_PROJECTION_READINESS.STATUS, EmbeddingProjectionReadinessStatus.STALE.name())
+                .set(EMBEDDING_PROJECTION_READINESS.PROCESSING_JOB_ID, (Integer) null)
+                .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT, 0)
+                .set(EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL, bounded(detail))
+                .set(EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY, priorReady)
+                .set(EMBEDDING_PROJECTION_READINESS.UPDATED_AT, timestamp)
+                .where(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(EMBEDDING_PROJECTION_READINESS.CORPUS.eq(corpus.storageValue()))
+                .execute();
+    }
     private void upsert(long workspaceId, EmbeddingEvidenceKind corpus, EmbeddingProjectionReadinessStatus status,
                         long jobId, int indexed, int expected, int failed, String provider, String model,
-                        Integer dimension, String version, String detail, String started, String completed) {
+                        Integer dimension, String version, String detail, String started, String completed,
+                        int priorReady) {
         String t = now();
         dsl.insertInto(EMBEDDING_PROJECTION_READINESS)
                 .columns(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID, EMBEDDING_PROJECTION_READINESS.CORPUS,
                         EMBEDDING_PROJECTION_READINESS.STATUS, EMBEDDING_PROJECTION_READINESS.PROCESSING_JOB_ID,
                         EMBEDDING_PROJECTION_READINESS.INDEXED_COUNT, EMBEDDING_PROJECTION_READINESS.EXPECTED_COUNT,
                         EMBEDDING_PROJECTION_READINESS.FAILED_COUNT, EMBEDDING_PROJECTION_READINESS.PROJECTION_VERSION,
+                        EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY,
                         EMBEDDING_PROJECTION_READINESS.UPDATED_AT)
                 .values(Math.toIntExact(workspaceId), corpus.storageValue(), status.name(), Math.toIntExact(jobId), indexed,
-                        expected, failed, version, t)
+                        expected, failed, version, priorReady, t)
                 .onConflict(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID, EMBEDDING_PROJECTION_READINESS.CORPUS)
                 .doUpdate().set(EMBEDDING_PROJECTION_READINESS.STATUS, status.name())
                 .set(EMBEDDING_PROJECTION_READINESS.PROCESSING_JOB_ID, Math.toIntExact(jobId))
@@ -156,10 +218,18 @@ public class EmbeddingProjectionReadinessRepository {
                 .set(EMBEDDING_PROJECTION_READINESS.EXPECTED_COUNT, expected)
                 .set(EMBEDDING_PROJECTION_READINESS.FAILED_COUNT, failed)
                 .set(EMBEDDING_PROJECTION_READINESS.PROJECTION_VERSION, version)
+                .set(EMBEDDING_PROJECTION_READINESS.INCREMENTAL_PRIOR_READY, priorReady)
                 .set(EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL, (String) null)
                 .set(EMBEDDING_PROJECTION_READINESS.STARTED_AT, (String) null)
                 .set(EMBEDDING_PROJECTION_READINESS.COMPLETED_AT, (String) null)
                 .set(EMBEDDING_PROJECTION_READINESS.UPDATED_AT, t).execute();
+    }
+    private Optional<org.km.llmwiki.persistence.jooq.generated.tables.records.EmbeddingProjectionReadinessRecord>
+    findRecord(long workspaceId, EmbeddingEvidenceKind corpus) {
+        return dsl.selectFrom(EMBEDDING_PROJECTION_READINESS)
+                .where(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(EMBEDDING_PROJECTION_READINESS.CORPUS.eq(corpus.storageValue()))
+                .fetchOptional();
     }
     private EmbeddingProjectionReadiness map(org.km.llmwiki.persistence.jooq.generated.tables.records.EmbeddingProjectionReadinessRecord r) {
         return new EmbeddingProjectionReadiness(r.getWorkspaceId().longValue(), EmbeddingEvidenceKind.fromStorageValue(r.getCorpus()),
@@ -174,6 +244,9 @@ public class EmbeddingProjectionReadinessRepository {
         d = SECRET_ASSIGNMENT.matcher(d).replaceAll("$1=[REDACTED]");
         d = BEARER_TOKEN.matcher(d).replaceAll("Bearer [REDACTED]");
         d = SECRET_KEY.matcher(d).replaceAll("[REDACTED]");
+        if (UNSAFE_DIAGNOSTIC.matcher(d).find()) {
+            return GENERIC_FAILURE_DETAIL;
+        }
         return d.substring(0, Math.min(160, d.length()));
     }
 }

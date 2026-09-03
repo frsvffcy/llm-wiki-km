@@ -123,13 +123,29 @@ public class ProcessingJobRepository {
 
     public void markCompleted(long jobId, int processedCount, int successCount,
                               int failedCount, int skippedCount) {
+        markCompleted(jobId, processedCount, processedCount, successCount, failedCount, skippedCount);
+    }
+
+    /**
+     * Completes a job while allowing callers that discover their item count during execution
+     * to publish the final total. This keeps operation counters internally consistent for
+     * incremental jobs without changing the existing callers' contract.
+     */
+    public void markCompleted(long jobId, int totalCount, int processedCount, int successCount,
+                              int failedCount, int skippedCount) {
         String now = now();
+        int boundedTotal = Math.max(0, totalCount);
+        int boundedProcessed = Math.min(Math.max(0, processedCount), boundedTotal);
+        int boundedSuccess = Math.min(Math.max(0, successCount), boundedProcessed);
+        int boundedFailed = Math.min(Math.max(0, failedCount), boundedTotal);
+        int boundedSkipped = Math.min(Math.max(0, skippedCount), boundedTotal);
         dsl.update(PROCESSING_JOB)
                 .set(PROCESSING_JOB.STATUS, ProcessingJobStatus.COMPLETED.name())
-                .set(PROCESSING_JOB.PROCESSED_COUNT, processedCount)
-                .set(PROCESSING_JOB.SUCCESS_COUNT, successCount)
-                .set(PROCESSING_JOB.FAILED_COUNT, failedCount)
-                .set(PROCESSING_JOB.SKIPPED_COUNT, skippedCount)
+                .set(PROCESSING_JOB.TOTAL_COUNT, boundedTotal)
+                .set(PROCESSING_JOB.PROCESSED_COUNT, boundedProcessed)
+                .set(PROCESSING_JOB.SUCCESS_COUNT, boundedSuccess)
+                .set(PROCESSING_JOB.FAILED_COUNT, boundedFailed)
+                .set(PROCESSING_JOB.SKIPPED_COUNT, boundedSkipped)
                 .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.eq(Math.toIntExact(jobId)))
@@ -139,11 +155,19 @@ public class ProcessingJobRepository {
     public void markFailed(long jobId, int processedCount, int successCount,
                            int failedCount, String failureDetail) {
         String now = now();
+        Integer total = dsl.select(PROCESSING_JOB.TOTAL_COUNT)
+                .from(PROCESSING_JOB)
+                .where(PROCESSING_JOB.ID.eq(Math.toIntExact(jobId)))
+                .fetchOne(PROCESSING_JOB.TOTAL_COUNT);
+        int boundedTotal = total == null ? 0 : Math.max(0, total);
+        int boundedProcessed = Math.min(Math.max(0, processedCount), boundedTotal);
+        int boundedSuccess = Math.min(Math.max(0, successCount), boundedProcessed);
+        int boundedFailed = Math.min(Math.max(0, failedCount), boundedTotal);
         dsl.update(PROCESSING_JOB)
                 .set(PROCESSING_JOB.STATUS, ProcessingJobStatus.FAILED.name())
-                .set(PROCESSING_JOB.PROCESSED_COUNT, processedCount)
-                .set(PROCESSING_JOB.SUCCESS_COUNT, successCount)
-                .set(PROCESSING_JOB.FAILED_COUNT, failedCount)
+                .set(PROCESSING_JOB.PROCESSED_COUNT, boundedProcessed)
+                .set(PROCESSING_JOB.SUCCESS_COUNT, boundedSuccess)
+                .set(PROCESSING_JOB.FAILED_COUNT, boundedFailed)
                 .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.eq(Math.toIntExact(jobId)))
@@ -181,7 +205,8 @@ public class ProcessingJobRepository {
         String now = now();
         return dsl.update(PROCESSING_JOB)
                 .set(PROCESSING_JOB.STATUS, ProcessingJobStatus.FAILED.name())
-                .set(PROCESSING_JOB.FAILED_COUNT, 1)
+                .set(PROCESSING_JOB.FAILED_COUNT,
+                        org.jooq.impl.DSL.when(PROCESSING_JOB.TOTAL_COUNT.gt(0), 1).otherwise(0))
                 .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.in(jobIds.stream().map(Math::toIntExact).toList()))
@@ -194,7 +219,9 @@ public class ProcessingJobRepository {
         if (jobIds.isEmpty()) return 0;
         String now = now();
         return dsl.update(PROCESSING_JOB).set(PROCESSING_JOB.STATUS, ProcessingJobStatus.FAILED.name())
-                .set(PROCESSING_JOB.FAILED_COUNT, 1).set(PROCESSING_JOB.FINISHED_AT, now)
+                .set(PROCESSING_JOB.FAILED_COUNT,
+                        org.jooq.impl.DSL.when(PROCESSING_JOB.TOTAL_COUNT.gt(0), 1).otherwise(0))
+                .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.in(jobIds.stream().map(Math::toIntExact).toList()))
                 .and(PROCESSING_JOB.JOB_TYPE.eq(ProcessingJobType.EMBEDDING_REBUILD.name()))
