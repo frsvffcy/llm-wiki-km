@@ -50,22 +50,24 @@ public class EmbeddingProjectionRepository {
         }
         // Keep the persistence boundary from accepting a row that would be labelled FRESH but
         // cannot be decoded by the same provider-neutral representation used by freshness checks.
-        EmbeddingVectorCodec.decode(identity.canonicalContentHash(), vectorBlob, identity.dimension());
+        var vector = EmbeddingVectorCodec.decode(identity.canonicalContentHash(), vectorBlob,
+                identity.dimension());
+        byte[] searchBlob = EmbeddingVectorCodec.encodeFloat32(vector);
         String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
         dsl.execute("""
                 INSERT INTO embedding_projection (
                     workspace_id, evidence_kind, stable_id, canonical_content_hash,
                     embedding_provider, embedding_model, dimension, projection_version,
-                    vector_encoding, vector_blob, generation_status, generation_attempt,
+                    vector_encoding, vector_blob, vector_search_blob, generation_status, generation_attempt,
                     generated_at, last_attempt_at, failure_type, failure_detail,
                     created_at, updated_at
-                ) VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, 'FRESH',
+                ) VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, 'FRESH',
                           COALESCE((SELECT generation_attempt + 1 FROM embedding_projection
                                     WHERE workspace_id = {0} AND evidence_kind = {1} AND stable_id = {2}), 1),
-                          {10}, {11}, NULL, NULL,
+                          {11}, {12}, NULL, NULL,
                           COALESCE((SELECT created_at FROM embedding_projection
-                                    WHERE workspace_id = {0} AND evidence_kind = {1} AND stable_id = {2}), {10}),
-                          {11})
+                                    WHERE workspace_id = {0} AND evidence_kind = {1} AND stable_id = {2}), {11}),
+                          {12})
                 ON CONFLICT (workspace_id, evidence_kind, stable_id) DO UPDATE SET
                     canonical_content_hash = excluded.canonical_content_hash,
                     embedding_provider = excluded.embedding_provider,
@@ -74,6 +76,7 @@ public class EmbeddingProjectionRepository {
                     projection_version = excluded.projection_version,
                     vector_encoding = excluded.vector_encoding,
                     vector_blob = excluded.vector_blob,
+                    vector_search_blob = excluded.vector_search_blob,
                     generation_status = excluded.generation_status,
                     generation_attempt = excluded.generation_attempt,
                     generated_at = excluded.generated_at,
@@ -84,7 +87,7 @@ public class EmbeddingProjectionRepository {
                 """, identity.workspaceId(), identity.evidenceKind().name(), identity.stableId(),
                 identity.canonicalContentHash(), identity.embeddingProvider(), identity.embeddingModel(),
                 identity.dimension(), identity.projectionVersion(), EmbeddingProjectionContract.VECTOR_ENCODING,
-                vectorBlob, generatedAt, now);
+                vectorBlob, searchBlob, generatedAt, now);
     }
 
     @Transactional
@@ -111,6 +114,7 @@ public class EmbeddingProjectionRepository {
                     dimension = NULL,
                     vector_encoding = NULL,
                     vector_blob = NULL,
+                    vector_search_blob = NULL,
                     generation_status = excluded.generation_status,
                     generation_attempt = excluded.generation_attempt,
                     generated_at = NULL,

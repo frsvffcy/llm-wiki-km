@@ -20,6 +20,20 @@ public final class EmbeddingVectorCodec {
         return buffer.array();
     }
 
+    /** Encodes the same values in sqlite-vec's supported FLOAT32 little-endian representation. */
+    public static byte[] encodeFloat32(EmbeddingVector vector) {
+        ByteBuffer buffer = ByteBuffer.allocate(Math.multiplyExact(vector.values().size(), Float.BYTES))
+                .order(ByteOrder.LITTLE_ENDIAN);
+        for (double value : vector.values()) {
+            float converted = (float) value;
+            if (!Float.isFinite(converted)) {
+                throw new IllegalArgumentException("Embedding value cannot be represented as FLOAT32");
+            }
+            buffer.putFloat(converted);
+        }
+        return buffer.array();
+    }
+
     public static EmbeddingVector decode(String inputIdentity, byte[] encoded, int dimension) {
         if (encoded == null || dimension <= 0 || encoded.length != Math.multiplyExact(dimension, Double.BYTES)) {
             throw new IllegalArgumentException("Encoded embedding vector has an invalid dimension");

@@ -43,6 +43,7 @@ class EmbeddingProjectionRepositoryIntegrationTest extends IsolatedIntegrationTe
                     assertThat(row.generatedAt()).isEqualTo("2026-09-02T00:00:00Z");
                     assertThat(row.generationAttempt()).isEqualTo(1);
                 });
+        assertThat(searchBlob(firstWorkspace)).hasSize(2 * Float.BYTES);
         assertThat(repository.find(secondWorkspace, EmbeddingEvidenceKind.WIKI, "same-page"))
                 .get()
                 .extracting(StoredEmbeddingProjection::workspaceId,
@@ -68,6 +69,7 @@ class EmbeddingProjectionRepositoryIntegrationTest extends IsolatedIntegrationTe
         assertThat(row.embeddingModel()).isNull();
         assertThat(row.dimension()).isNull();
         assertThat(row.vectorEncoding()).isNull();
+        assertThat(searchBlob(workspaceId)).isNull();
         assertThat(row.generatedAt()).isNull();
         assertThat(row.failureType()).isEqualTo("TIMEOUT_OR_NETWORK_UNAVAILABLE");
         assertThat(row.failureDetail()).isEqualTo("upstream timeout");
@@ -101,6 +103,7 @@ class EmbeddingProjectionRepositoryIntegrationTest extends IsolatedIntegrationTe
                 "canonical_content_hash", "embedding_provider", "embedding_model", "dimension",
                 "projection_version", "vector_blob", "generation_status", "generation_attempt",
                 "generated_at", "last_attempt_at", "failure_type", "failure_detail");
+        assertThat(columns).contains("vector_search_blob");
         assertThat(columns).noneMatch(column -> column.contains("credential")
                 || column.contains("secret") || column.contains("raw_response"));
     }
@@ -128,6 +131,19 @@ class EmbeddingProjectionRepositoryIntegrationTest extends IsolatedIntegrationTe
         return EmbeddingVectorCodec.encode(new org.km.llmwiki.ai.embedding.EmbeddingVector(
                 org.km.llmwiki.ai.embedding.EmbeddingInput.identityFor("projection input"),
                 List.of(first, second)));
+    }
+
+    private byte[] searchBlob(long workspaceId) {
+        return jdbcClient.sql("""
+                        SELECT vector_search_blob
+                        FROM embedding_projection
+                        WHERE workspace_id = :workspace AND evidence_kind = 'WIKI'
+                            AND stable_id = 'same-page'
+                        """)
+                .param("workspace", workspaceId)
+                .query((rs, rowNum) -> rs.getBytes("vector_search_blob"))
+                .optional()
+                .orElse(null);
     }
 
     private long insertWorkspace(String suffix) {
