@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 
 import static org.km.llmwiki.persistence.jooq.generated.Tables.PROCESSING_LOG;
 
@@ -47,5 +48,17 @@ public class ProcessingLogRepository {
                         now
                 )
                 .execute();
+    }
+
+    /** Returns only the metadata envelope; callers must apply an allow-list before exposing it. */
+    public Optional<String> findLatestEmbeddingFailureMetadata(long jobId) {
+        return dsl.select(PROCESSING_LOG.METADATA_JSON)
+                .from(PROCESSING_LOG)
+                .where(PROCESSING_LOG.JOB_ID.eq(Math.toIntExact(jobId)))
+                .and(PROCESSING_LOG.STEP.eq("EMBEDDING_REBUILD"))
+                .and(PROCESSING_LOG.STATUS.eq("FAILED"))
+                .orderBy(PROCESSING_LOG.CREATED_AT.desc(), PROCESSING_LOG.ID.desc())
+                .limit(1)
+                .fetchOptional(PROCESSING_LOG.METADATA_JSON);
     }
 }
