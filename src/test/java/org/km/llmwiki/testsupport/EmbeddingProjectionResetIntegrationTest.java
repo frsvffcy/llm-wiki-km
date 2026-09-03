@@ -52,7 +52,7 @@ class EmbeddingProjectionResetIntegrationTest extends IsolatedIntegrationTest {
             } finally {
                 finished.countDown();
             }
-        }).when(projectionService).projectWiki(anyLong(), anyLong());
+        }).when(projectionService).projectWiki(anyLong(), anyLong(), anyLong());
 
         embeddingJobs.enqueueWiki(workspaceId, 1L);
         assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();

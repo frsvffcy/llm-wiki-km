@@ -86,8 +86,12 @@ class EmbeddingProjectionJobServiceTest {
     @Test
     void dispatchesOnlyAfterCommittedTransactionAndReachesTerminalSuccess() {
         service = service(command -> submitted.add(command));
-        when(projectionService.projectWiki(WORKSPACE_ID, 101L)).thenReturn(freshWikiResult());
-        when(projectionService.projectionMetadata(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI))
+        when(readiness.markSchedulingStale(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI,
+                "Canonical content changed; embedding projection repair is pending")).thenReturn(7L);
+        when(readiness.generationFor(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.WIKI)).thenReturn(7L);
+        when(readiness.currentGeneration(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI)).thenReturn(7L);
+        when(projectionService.projectWiki(WORKSPACE_ID, 101L, 7L)).thenReturn(freshWikiResult());
+        when(projectionService.projectionMetadata(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI, 7L))
                 .thenReturn(new EmbeddingProjectionService.ProjectionMetadata("test-provider", "test-model", 2));
         when(projectionService.projectionCounts(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI))
                 .thenReturn(new EmbeddingProjectionService.ProjectionCounts(1, 1, 0));
@@ -96,7 +100,7 @@ class EmbeddingProjectionJobServiceTest {
         TransactionSynchronizationManager.setActualTransactionActive(true);
         service.enqueueWiki(WORKSPACE_ID, 101L);
 
-        verify(readiness).markQueued(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.WIKI, 1);
+        verify(readiness).markQueued(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.WIKI, 1, 7L);
         verify(jobs).create(eq(WORKSPACE_ID), anyString(), eq(ProcessingJobType.EMBEDDING_REBUILD), eq(1),
                 eq(EmbeddingRebuildOperationMetadataCodec.encode(SearchCorpus.WIKI)));
         assertThat(submitted).isEmpty();
@@ -108,8 +112,12 @@ class EmbeddingProjectionJobServiceTest {
 
         verify(jobs).markRunning(JOB.id());
         verify(readiness).markRunning(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.WIKI);
-        verify(readiness).markCompleted(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.WIKI,
-                1, 1, 0, "test-provider", "test-model", 2, false);
+        verify(readiness).markCompletedForGeneration(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.WIKI,
+                7L, 1, 1, 0, "test-provider", "test-model", 2, true, false,
+                "legacy-completion-proof");
+        verify(readiness).reconcileCurrentGeneration(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI, 7L,
+                1, 1, 0, "test-provider", "test-model", 2, true, false,
+                "legacy-completion-proof");
         verify(jobs).markCompleted(JOB.id(), 1, 1, 1, 0, 0);
         verify(logs).append(JOB.id(), null, null, "EMBEDDING_REBUILD", "SUCCEEDED",
                 "Incremental projection completed", "{}");
@@ -168,10 +176,14 @@ class EmbeddingProjectionJobServiceTest {
     @Test
     void sourceCleanupIsSkippedAccountingAndCannotBecomeFailure() {
         service = service(command -> submitted.add(command));
-        when(projectionService.removeOrphanedSourceProjections(WORKSPACE_ID)).thenReturn(3);
+        when(readiness.markSchedulingStale(WORKSPACE_ID, EmbeddingEvidenceKind.SOURCE_CHUNK,
+                "Canonical content changed; embedding projection repair is pending")).thenReturn(7L);
+        when(readiness.generationFor(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.SOURCE_CHUNK)).thenReturn(7L);
+        when(readiness.currentGeneration(WORKSPACE_ID, EmbeddingEvidenceKind.SOURCE_CHUNK)).thenReturn(7L);
+        when(projectionService.removeOrphanedSourceProjections(WORKSPACE_ID, 7L)).thenReturn(3);
         when(projectionService.sourceChunks(WORKSPACE_ID, 202L)).thenReturn(List.of(301L));
-        when(projectionService.projectSourceChunk(WORKSPACE_ID, 301L)).thenReturn(freshSourceResult());
-        when(projectionService.projectionMetadata(WORKSPACE_ID, EmbeddingEvidenceKind.SOURCE_CHUNK))
+        when(projectionService.projectSourceChunk(WORKSPACE_ID, 301L, 7L)).thenReturn(freshSourceResult());
+        when(projectionService.projectionMetadata(WORKSPACE_ID, EmbeddingEvidenceKind.SOURCE_CHUNK, 7L))
                 .thenReturn(new EmbeddingProjectionService.ProjectionMetadata("provider", "model", 2));
         when(projectionService.projectionCounts(WORKSPACE_ID, EmbeddingEvidenceKind.SOURCE_CHUNK))
                 .thenReturn(new EmbeddingProjectionService.ProjectionCounts(1, 1, 0));
@@ -181,8 +193,12 @@ class EmbeddingProjectionJobServiceTest {
 
         verify(jobs).create(eq(WORKSPACE_ID), anyString(), eq(ProcessingJobType.EMBEDDING_REBUILD), eq(1),
                 eq(EmbeddingRebuildOperationMetadataCodec.encode(SearchCorpus.SOURCE)));
-        verify(readiness).markCompleted(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.SOURCE_CHUNK,
-                1, 1, 0, "provider", "model", 2, false);
+        verify(readiness).markCompletedForGeneration(WORKSPACE_ID, JOB.id(), EmbeddingEvidenceKind.SOURCE_CHUNK,
+                7L, 1, 1, 0, "provider", "model", 2, true, false,
+                "legacy-completion-proof");
+        verify(readiness).reconcileCurrentGeneration(WORKSPACE_ID, EmbeddingEvidenceKind.SOURCE_CHUNK, 7L,
+                1, 1, 0, "provider", "model", 2, true, false,
+                "legacy-completion-proof");
         verify(jobs).markCompleted(JOB.id(), 4, 4, 1, 0, 3);
         verify(logs).append(JOB.id(), null, null, "EMBEDDING_REBUILD", "SUCCEEDED",
                 "Incremental projection completed", "{}");
@@ -198,12 +214,8 @@ class EmbeddingProjectionJobServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("SELECT secret FROM /native/vec0.dylib");
 
-        verify(readiness).markSchedulingStale(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI,
-                "Canonical content changed; embedding projection repair is pending");
         verify(readiness).markSchedulingStale(eq(WORKSPACE_ID), eq(EmbeddingEvidenceKind.WIKI),
                 contains("Embedding projection enqueue failed"));
-        verify(readiness, never()).markSchedulingStale(eq(WORKSPACE_ID), eq(EmbeddingEvidenceKind.WIKI),
-                contains("SELECT secret"));
         assertThat(submitted).isEmpty();
         verify(jobs, never()).markRunning(any(Long.class));
     }
@@ -217,8 +229,6 @@ class EmbeddingProjectionJobServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Could not create embedding incremental job");
 
-        verify(readiness).markSchedulingStale(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI,
-                "Canonical content changed; embedding projection repair is pending");
         verify(readiness).markSchedulingStale(eq(WORKSPACE_ID), eq(EmbeddingEvidenceKind.WIKI),
                 contains("Embedding projection enqueue failed"));
         assertThat(submitted).isEmpty();

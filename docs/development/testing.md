@@ -213,13 +213,35 @@ workspace isolation、failed row 與 schema boundary；
 wiring；若修改其 orchestration，必須補充或更新受影響的 integration/contract evidence，不得
 以 service/repository unit coverage 推定 REST 或 startup 行為已被覆蓋。
 
+Issue #214 的 generation-aware lifecycle evidence 由 V25--V27 提供：V25 的
+`embedding_projection_operation` 是每個 workspace/corpus/processing-job 的 immutable
+generation ledger；V26 持久化 `target_generation`、`applied_generation` 與
+`projection_snapshot_token`；V27 將每個 projection row 綁定至 `projection_generation`。
+`READY` 必須同時滿足 target operation 已完成、effective generations 沒有 queued/running/
+latest failure、`applied_generation == target_generation`、authority 與 projection stable-ID
+集合相等、內容 hash 相等、所有 row 都是合法同一 projection identity，且 snapshot token
+存在。這些條件是 persisted proof，不以目前 executor 的單執行緒順序作 correctness 前提。
+
+測試必須覆蓋：同 corpus 連續兩個 queued incrementals 完成後回到 `READY`；較舊 completion
+在較新 generation pending 時不得恢復 `READY`；較舊 failure 不得覆寫較新完整 proof，而
+最新 effective failure 必須 fail closed；full→incremental 與 incremental→full overlap；
+provider/model/dimension/projection-version drift 與 mixed metadata（不依賴 row ordering）；
+legacy generation-zero row 不得成為新 proof；empty-corpus full rebuild 可 deterministic
+`READY`；workspace isolation；以及 restart 時多個 queued/running generations 的
+`EmbeddingProjectionStartupReconciler` recovery。Full operation 在 persisted generation boundary
+上 supersede earlier operations，later incrementals 再以 current authority/projection proof
+驗證；因此 completion/failure race 的結果由 generation/operation state 決定，不由 thread timing
+決定。`target_generation` 與 `projection_snapshot_token` 也必須穩定地保留給 #215 的 query
+snapshot/revalidation boundary；#215 的 TOCTOU contract 不在本 Issue 實作。
+
 Issue #210 的 lifecycle evidence 必須明確覆蓋以下 transition：prior `READY` 在 Wiki
 incremental 成功、Source add/update 成功，以及 orphan/superseded/ineligible cleanup 成功後
 仍為 `READY`；prior `PARTIAL`、`FAILED`、`STALE` 或 `NOT_BUILT` 不得因單筆 incremental
 success 提升為 `READY`；provider/authority failure 必須保持 fail-closed；canonical mutation
 commit 後若 transaction create、durable enqueue 或 dispatch 失敗，readiness 必須留下
-`STALE`/repair-needed persisted state。`incremental_prior_ready` 只作為 completion invariant，
-不可由 readiness API 暴露成 serving-ready。
+`STALE`/repair-needed persisted state。`incremental_prior_ready` 只保留作為 legacy schema／
+相容欄位，不能作為 completion authority 或由 readiness API 暴露成 serving-ready；generation
+ledger 與 set-based proof 才是目前 invariant。
 
 Incremental operation counters 的測試要區分 `attempted`、`fresh/success`、`failed`、`removed`
 與 `skipped`。正常 cleanup 不得增加 `failedCount`，且完成時必須驗證 `failedCount <=

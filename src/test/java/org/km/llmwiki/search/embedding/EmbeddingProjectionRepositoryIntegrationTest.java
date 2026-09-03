@@ -121,6 +121,29 @@ class EmbeddingProjectionRepositoryIntegrationTest extends IsolatedIntegrationTe
         assertThat(repository.findAll(secondWorkspace)).hasSize(1);
     }
 
+    @Test
+    void compatibilityClearCorpusRemovesRowsFromEveryGeneration() {
+        long workspaceId = insertWorkspace("compatibility-clear");
+
+        repository.upsertFresh(identity(workspaceId), vectorBlob(1d, 2d),
+                "2026-09-02T00:00:00Z", 7L);
+        repository.clearCorpus(workspaceId, EmbeddingEvidenceKind.WIKI);
+
+        assertThat(repository.findAll(workspaceId)).isEmpty();
+    }
+
+    @Test
+    void compatibilityDeleteRemovesRowsFromEveryGeneration() {
+        long workspaceId = insertWorkspace("compatibility-delete");
+
+        repository.upsertFresh(identity(workspaceId), vectorBlob(1d, 2d),
+                "2026-09-02T00:00:00Z", 7L);
+        assertThat(repository.delete(workspaceId, EmbeddingEvidenceKind.WIKI, "same-page"))
+                .isEqualTo(1);
+
+        assertThat(repository.findAll(workspaceId)).isEmpty();
+    }
+
     private EmbeddingProjectionIdentity identity(long workspaceId) {
         return new EmbeddingProjectionIdentity(workspaceId, EmbeddingEvidenceKind.WIKI,
                 "same-page", HASH, "test-provider", "test-model", 2,
