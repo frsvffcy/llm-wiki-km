@@ -46,8 +46,8 @@ public class EmbeddingProjectionJobService {
 
     public void enqueueWiki(long workspaceId, long knowledgePageId) {
         enqueueIncremental(workspaceId, EmbeddingEvidenceKind.WIKI,
-                () -> {
-                    var result = projectionService.projectWiki(workspaceId, knowledgePageId);
+                generation -> {
+                    var result = projectionService.projectWiki(workspaceId, knowledgePageId, generation);
                     return switch (result.status()) {
                         case FRESH -> new EmbeddingProjectionBatchResult(1, 1, 0, 0, 0);
                         case FAILED -> new EmbeddingProjectionBatchResult(0, 1, 1, 0, 0);
@@ -57,12 +57,12 @@ public class EmbeddingProjectionJobService {
     }
     public void enqueueSourceDocument(long workspaceId, long documentId) {
         enqueueIncremental(workspaceId, EmbeddingEvidenceKind.SOURCE_CHUNK,
-                () -> {
-                    int removed = projectionService.removeOrphanedSourceProjections(workspaceId);
+                generation -> {
+                    int removed = projectionService.removeOrphanedSourceProjections(workspaceId, generation);
                     var authority = projectionService.sourceChunks(workspaceId, documentId);
                     int failed = 0, fresh = 0, skipped = 0;
                     for (long chunkId : authority) {
-                        var result = projectionService.projectSourceChunk(workspaceId, chunkId);
+                        var result = projectionService.projectSourceChunk(workspaceId, chunkId, generation);
                         switch (result.status()) {
                             case FRESH -> fresh++;
                             case FAILED -> failed++;
@@ -89,17 +89,17 @@ public class EmbeddingProjectionJobService {
     }
 
     private void enqueueIncremental(long workspaceId, EmbeddingEvidenceKind kind,
-                                    java.util.function.Supplier<EmbeddingProjectionBatchResult> work) {
+                                    java.util.function.Function<Long, EmbeddingProjectionBatchResult> work) {
         Launch launch;
         try {
-            readiness.markSchedulingStale(workspaceId, kind,
-                    "Canonical content changed; embedding projection repair is pending");
             launch = tx.execute(status -> {
+                long reservedGeneration = readiness.markSchedulingStale(workspaceId, kind,
+                        "Canonical content changed; embedding projection repair is pending");
                 ProcessingJob job = jobs.create(workspaceId, UUID.randomUUID().toString(),
                         ProcessingJobType.EMBEDDING_REBUILD, 1,
                         EmbeddingRebuildOperationMetadataCodec.encode(
                                 kind == EmbeddingEvidenceKind.WIKI ? SearchCorpus.WIKI : SearchCorpus.SOURCE));
-                readiness.markQueued(workspaceId, job.id(), kind, 1);
+                readiness.markQueued(workspaceId, job.id(), kind, 1, reservedGeneration);
                 return new Launch(workspaceId,
                         kind == EmbeddingEvidenceKind.WIKI ? SearchCorpus.WIKI : SearchCorpus.SOURCE, job);
             });
@@ -132,12 +132,13 @@ public class EmbeddingProjectionJobService {
             List<RebuildOutcome> outcomes = new ArrayList<>();
             for (EmbeddingEvidenceKind kind : kinds) {
                 SearchCorpus requested = kind == EmbeddingEvidenceKind.WIKI ? SearchCorpus.WIKI : SearchCorpus.SOURCE;
-                var result = projectionService.rebuildCorpus(launch.workspaceId(), requested);
+                long generation = readiness.generationFor(launch.workspaceId(), launch.job().id(), kind);
+                var result = projectionService.rebuildCorpus(launch.workspaceId(), requested, generation);
                 fresh += result.fresh();
                 failed += result.failed();
                 expected += result.attempted();
                 ineligible += result.ineligible();
-                outcomes.add(new RebuildOutcome(kind, result, projectionMetadata(launch.workspaceId(), kind)));
+                outcomes.add(new RebuildOutcome(kind, result, generation));
             }
             int completedFresh = fresh;
             int completedFailed = failed;
@@ -146,10 +147,14 @@ public class EmbeddingProjectionJobService {
             tx.executeWithoutResult(status -> {
                 for (RebuildOutcome outcome : outcomes) {
                     var result = outcome.result();
-                    var metadata = outcome.metadata();
-                    readiness.markCompleted(launch.workspaceId(), launch.job().id(), outcome.kind(),
+                    var metadata = projectionMetadata(launch.workspaceId(), outcome.kind(), outcome.generation());
+                    readiness.markCompletedForGeneration(launch.workspaceId(), launch.job().id(), outcome.kind(),
+                            outcome.generation(),
                             result.fresh(), result.attempted(), result.failed(), metadata.provider(),
-                            metadata.model(), metadata.dimension(), true);
+                            metadata.model(), metadata.dimension(), metadata.metadataComplete(),
+                            metadata.identityDrifted(),
+                            metadata.snapshotToken());
+                    reconcileCurrentProjection(launch.workspaceId(), outcome.kind());
                 }
                 int completedTotal = completedExpected + completedIneligible;
                 int completedProcessed = completedFresh + completedFailed + completedIneligible;
@@ -164,18 +169,26 @@ public class EmbeddingProjectionJobService {
     }
 
     private void runIncremental(Launch launch, EmbeddingEvidenceKind kind,
-                                java.util.function.Supplier<EmbeddingProjectionBatchResult> work) {
+                                java.util.function.Function<Long, EmbeddingProjectionBatchResult> work) {
         try {
             tx.executeWithoutResult(status -> {
                 jobs.markRunning(launch.job().id());
                 readiness.markRunning(launch.workspaceId(), launch.job().id(), kind);
             });
-            EmbeddingProjectionBatchResult result = work.get();
-            var metadata = projectionService.projectionMetadata(launch.workspaceId(), kind);
-            var counts = projectionService.projectionCounts(launch.workspaceId(), kind);
+            long generation = readiness.generationFor(launch.workspaceId(), launch.job().id(), kind);
+            EmbeddingProjectionBatchResult result = work.apply(generation);
             tx.executeWithoutResult(status -> {
-                readiness.markCompleted(launch.workspaceId(), launch.job().id(), kind, counts.indexed(), counts.expected(),
-                        Math.max(result.failed(), counts.failed()), metadata.provider(), metadata.model(), metadata.dimension(), false);
+                // Observe projection rows immediately before the terminal transition. A delayed
+                // older worker must reconcile current rows, not reuse a stale pre-callback proof.
+                var metadata = projectionService.projectionMetadata(launch.workspaceId(), kind, generation);
+                var counts = projectionService.projectionCounts(launch.workspaceId(), kind);
+                readiness.markCompletedForGeneration(launch.workspaceId(), launch.job().id(), kind,
+                        generation,
+                        counts.indexed(), counts.expected(), Math.max(result.failed(), counts.failed()),
+                        metadata.provider(), metadata.model(), metadata.dimension(), metadata.metadataComplete(),
+                        metadata.identityDrifted(),
+                        metadata.snapshotToken());
+                reconcileCurrentProjection(launch.workspaceId(), kind);
                 int completedTotal = result.attempted() + result.removed() + result.skipped();
                 int completedProcessed = result.fresh() + result.failed() + result.removed() + result.skipped();
                 jobs.markCompleted(launch.job().id(), completedTotal, completedProcessed,
@@ -244,12 +257,27 @@ public class EmbeddingProjectionJobService {
                 : corpus == SearchCorpus.SOURCE ? List.of(EmbeddingEvidenceKind.SOURCE_CHUNK)
                 : List.of(EmbeddingEvidenceKind.WIKI, EmbeddingEvidenceKind.SOURCE_CHUNK);
     }
-    private EmbeddingProjectionService.ProjectionMetadata projectionMetadata(long workspaceId, EmbeddingEvidenceKind kind) {
-        return projectionService.projectionMetadata(workspaceId, kind);
+    private EmbeddingProjectionService.ProjectionMetadata projectionMetadata(long workspaceId,
+                                                                               EmbeddingEvidenceKind kind,
+                                                                               long generation) {
+        return projectionService.projectionMetadata(workspaceId, kind, generation);
+    }
+
+    private void reconcileCurrentProjection(long workspaceId, EmbeddingEvidenceKind kind) {
+        // The completing worker may be older than the current target. Re-read the target and
+        // derive a new proof from current rows so out-of-order successful callbacks converge to
+        // READY without allowing an old snapshot token to overwrite a newer one.
+        long currentGeneration = readiness.currentGeneration(workspaceId, kind);
+        var metadata = projectionMetadata(workspaceId, kind, currentGeneration);
+        var counts = projectionService.projectionCounts(workspaceId, kind);
+        readiness.reconcileCurrentGeneration(workspaceId, kind, currentGeneration,
+                counts.indexed(), counts.expected(), counts.failed(), metadata.provider(), metadata.model(),
+                metadata.dimension(), metadata.metadataComplete(), metadata.identityDrifted(),
+                metadata.snapshotToken());
     }
     private record Launch(long workspaceId, SearchCorpus corpus, ProcessingJob job) {}
     private record RebuildOutcome(EmbeddingEvidenceKind kind, EmbeddingProjectionRebuildResult result,
-                                  EmbeddingProjectionService.ProjectionMetadata metadata) {}
+                                  long generation) {}
     private record EmbeddingProjectionBatchResult(int fresh, int attempted, int failed, int removed, int skipped) {}
     public record EmbeddingProjectionJobCreatedResponse(String jobId, String status, long workspaceId, SearchCorpus corpus) {}
 

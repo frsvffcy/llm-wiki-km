@@ -86,6 +86,7 @@ public class ProcessingJobRepository {
                 .set(PROCESSING_JOB.STARTED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.eq((int) jobId))
+                .and(PROCESSING_JOB.STATUS.eq(ProcessingJobStatus.QUEUED.name()))
                 .execute();
     }
 
@@ -126,6 +127,7 @@ public class ProcessingJobRepository {
                 .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.eq(intJobId))
+                .and(PROCESSING_JOB.STATUS.in(ProcessingJobStatus.QUEUED.name(), ProcessingJobStatus.RUNNING.name()))
                 .execute();
     }
 
@@ -157,6 +159,7 @@ public class ProcessingJobRepository {
                 .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.eq(Math.toIntExact(jobId)))
+                .and(PROCESSING_JOB.STATUS.in(ProcessingJobStatus.QUEUED.name(), ProcessingJobStatus.RUNNING.name()))
                 .execute();
     }
 
@@ -179,6 +182,8 @@ public class ProcessingJobRepository {
                 .set(PROCESSING_JOB.FINISHED_AT, now)
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.eq(Math.toIntExact(jobId)))
+                .and(PROCESSING_JOB.STATUS.in(
+                        ProcessingJobStatus.QUEUED.name(), ProcessingJobStatus.RUNNING.name()))
                 .execute();
     }
 
@@ -233,6 +238,7 @@ public class ProcessingJobRepository {
                 .set(PROCESSING_JOB.UPDATED_AT, now)
                 .where(PROCESSING_JOB.ID.in(jobIds.stream().map(Math::toIntExact).toList()))
                 .and(PROCESSING_JOB.JOB_TYPE.eq(ProcessingJobType.EMBEDDING_REBUILD.name()))
+                .and(PROCESSING_JOB.STATUS.in(ProcessingJobStatus.QUEUED.name(), ProcessingJobStatus.RUNNING.name()))
                 .execute();
     }
 

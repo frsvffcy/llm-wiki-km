@@ -27,6 +27,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -78,7 +79,7 @@ class EmbeddingProjectionServiceTest {
         EmbeddingProjectionResult refreshed = service.projectWiki(WORKSPACE_ID, first.id());
 
         assertThat(refreshed.status()).isEqualTo(EmbeddingProjectionOperationStatus.FRESH);
-        verify(projectionRepository, times(2)).upsertFresh(firstIdentity.capture(), any(), any());
+        verify(projectionRepository, times(2)).upsertFresh(firstIdentity.capture(), any(), any(), eq(0L));
         var identities = firstIdentity.getAllValues();
         assertThat(identities).hasSize(2);
         assertThat(identities.getFirst().stableId()).isEqualTo("wiki-703");
@@ -109,7 +110,7 @@ class EmbeddingProjectionServiceTest {
         assertThat(request.getValue().inputs()).singleElement()
                 .extracting(input -> input.text()).isEqualTo(normalized);
         var identity = org.mockito.ArgumentCaptor.forClass(EmbeddingProjectionIdentity.class);
-        verify(projectionRepository).upsertFresh(identity.capture(), any(), any());
+        verify(projectionRepository).upsertFresh(identity.capture(), any(), any(), eq(0L));
         assertThat(identity.getValue().evidenceKind()).isEqualTo(EmbeddingEvidenceKind.SOURCE_CHUNK);
         assertThat(identity.getValue().stableId()).isEqualTo(Long.toString(chunkId));
         assertThat(identity.getValue().canonicalContentHash()).isEqualTo(sha256(normalized));
@@ -129,7 +130,7 @@ class EmbeddingProjectionServiceTest {
         assertThat(result.failureType()).isEqualTo(EmbeddingFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE.name());
         verify(projectionRepository).markFailed(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI,
                 page.knowledgeId(), page.contentHash(),
-                EmbeddingFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE.name(), "upstream timeout");
+                EmbeddingFailureType.TIMEOUT_OR_NETWORK_UNAVAILABLE.name(), "upstream timeout", 0L);
     }
 
     @Test
@@ -141,7 +142,7 @@ class EmbeddingProjectionServiceTest {
 
         assertThat(result.status()).isEqualTo(EmbeddingProjectionOperationStatus.NOT_FOUND);
         verify(projectionRepository).delete(WORKSPACE_ID, EmbeddingEvidenceKind.SOURCE_CHUNK,
-                Long.toString(chunkId));
+                Long.toString(chunkId), 0L);
     }
 
     @Test
@@ -164,11 +165,57 @@ class EmbeddingProjectionServiceTest {
         assertThat(result).isEqualTo(new EmbeddingProjectionRebuildResult(WORKSPACE_ID,
                 2, 2, 0, 0));
         verify(projectionRepository).clearWorkspace(WORKSPACE_ID);
-        verify(projectionRepository, times(2)).upsertFresh(any(), any(), any());
+        verify(projectionRepository, times(2)).upsertFresh(any(), any(), any(), eq(0L));
         var requests = org.mockito.ArgumentCaptor.forClass(EmbeddingRequest.class);
         verify(embeddingClient, times(2)).embed(requests.capture());
         assertThat(requests.getAllValues()).extracting(request -> request.inputs().getFirst().text())
                 .containsExactly("current wiki body", normalized);
+    }
+
+    @Test
+    void detectsObsoleteProjectionVersionAsIdentityDriftEvenForOneRow() {
+        StoredPublishedWiki page = wiki("wiki-version-drift", "version drift hash");
+        when(wikiRepository.findAllPublished(WORKSPACE_ID)).thenReturn(List.of(page));
+        when(projectionRepository.findAll(WORKSPACE_ID)).thenReturn(List.of(storedRow(
+                page.knowledgeId(), page.contentHash(), "provider", "model", 2,
+                "embedding-projection-v0", 4L)));
+
+        var metadata = service.projectionMetadata(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI, 4L);
+
+        assertThat(metadata.metadataComplete()).isFalse();
+        assertThat(metadata.identityDrifted()).isTrue();
+        assertThat(metadata.snapshotToken()).isNull();
+    }
+
+    @Test
+    void detectsMixedProjectionIdentityRegardlessOfRowOrder() {
+        StoredPublishedWiki first = wiki("wiki-mixed-a", "mixed a hash");
+        StoredPublishedWiki second = wiki("wiki-mixed-b", "mixed b hash");
+        when(wikiRepository.findAllPublished(WORKSPACE_ID)).thenReturn(List.of(first, second));
+        var firstRow = storedRow(first.knowledgeId(), first.contentHash(), "provider-a", "model-a", 2,
+                EmbeddingProjectionContract.VERSION, 5L);
+        var secondRow = storedRow(second.knowledgeId(), second.contentHash(), "provider-b", "model-b", 2,
+                EmbeddingProjectionContract.VERSION, 5L);
+
+        when(projectionRepository.findAll(WORKSPACE_ID)).thenReturn(List.of(secondRow, firstRow));
+        var reverse = service.projectionMetadata(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI, 5L);
+        when(projectionRepository.findAll(WORKSPACE_ID)).thenReturn(List.of(firstRow, secondRow));
+        var forward = service.projectionMetadata(WORKSPACE_ID, EmbeddingEvidenceKind.WIKI, 5L);
+
+        assertThat(reverse.metadataComplete()).isFalse();
+        assertThat(reverse.identityDrifted()).isTrue();
+        assertThat(forward.metadataComplete()).isFalse();
+        assertThat(forward.identityDrifted()).isTrue();
+    }
+
+    private static StoredEmbeddingProjection storedRow(String stableId, String hash,
+                                                        String provider, String model, int dimension,
+                                                        String version, long generation) {
+        return new StoredEmbeddingProjection(1L, WORKSPACE_ID, EmbeddingEvidenceKind.WIKI,
+                stableId, hash, provider, model, dimension, version, generation,
+                EmbeddingProjectionStatus.FRESH, "FLOAT64_LE", null, 1,
+                "2026-09-02T00:00:00Z", "2026-09-02T00:00:00Z", null, null,
+                "2026-09-02T00:00:00Z", "2026-09-02T00:00:00Z");
     }
 
     private static EmbeddingResult resultFor(EmbeddingRequest request) {

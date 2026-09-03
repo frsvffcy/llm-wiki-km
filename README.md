@@ -183,16 +183,34 @@ semantics when not ready; `HYBRID_VECTOR` may use lexical fallback, but its resp
 mark that fallback as degraded. Provider/model/dimension or projection contract changes mark
 existing readiness `STALE` before another rebuild.
 
-Incremental readiness uses a persisted `incremental_prior_ready` invariant. It records whether the
-corpus was serving-ready before the queued mutation, while the externally visible state remains
-non-ready during `STALE`/`QUEUED`/`REBUILDING`:
+Embedding readiness is generation-aware. Each workspace/corpus has a monotonically increasing
+`target_generation`, an `applied_generation`, and a durable operation ledger containing one
+immutable row per processing job/corpus generation (`INCREMENTAL` or `FULL`). Projection rows carry
+their producing `projection_generation`; the persisted `projection_snapshot_token` is a deterministic
+SHA-256 boundary over the authoritative stable IDs, content hashes, projection identity, and row
+generations. `READY` is granted only when the target operation is complete, no effective operation
+is queued/running/failed, `applied_generation == target_generation`, and a complete set-based
+authority/projection proof exists. The legacy `incremental_prior_ready` column is retained for
+schema compatibility but is no longer the completeness authority.
+
+The generation state remains non-ready during `STALE`/`QUEUED`/`REBUILDING`:
 
 | Before incremental operation | Operation result | Final readiness |
 | --- | --- | --- |
-| `READY` | all projection attempts and cleanup succeed | `READY` |
+| `READY` | all projection attempts and cleanup succeed for the current generation | `READY` |
 | `NOT_BUILT`, `PARTIAL`, `FAILED`, or `STALE` | one or more projection attempts succeed without a true failure | remains non-ready (`PARTIAL`) |
 | any state | provider, authority, or dispatch failure | `PARTIAL`/`FAILED`, fail closed |
 | any state | canonical commit succeeds but durable enqueue cannot be established | `STALE`, repair required |
+
+An older completion or failure cannot overwrite a newer target. A historical failure below a later
+complete proof is ignored for current serving readiness; a failure at the newest effective
+generation remains fail-closed. Full rebuilds supersede all earlier generations at their persisted
+boundary, while later incrementals are evaluated after that full generation. This makes full versus
+incremental overlap deterministic across restart and executor scheduling. A provider/model/
+dimension/projection-version mismatch, mixed-generation identity, missing row, extra row, or legacy
+generation-zero row invalidates the proof and requires a full rebuild. Empty full rebuilds use the
+same generation and snapshot-token contract with an empty authoritative set, so an empty corpus can
+be `READY` without inventing row metadata.
 
 The incremental job counters distinguish `attempted`, `fresh/success`, `failed`, `removed`, and
 `skipped` internally. Normal orphan, deleted, superseded, or ineligible projection cleanup is
@@ -202,9 +220,13 @@ the same total, and true `failedCount` is bounded by attempted/expected work. A 
 incremental operation recomputes readiness counts from current workspace authority and projection
 rows, rather than presenting a one-item operation count as the corpus total.
 
-If the process stops during a rebuild, startup recovery marks the interrupted processing job and
-linked readiness rows `FAILED`; rerun the rebuild endpoint to recover. The endpoint returns a job
-acceptance response and is safe to call from local administration scripts.
+If the process stops during a rebuild, startup recovery marks every linked queued/running operation
+and processing job `FAILED`, then recomputes the current generation. An interrupted older operation
+therefore cannot damage a newer completed proof, while an interrupted current generation remains
+fail-closed; rerun the rebuild endpoint to recover. The endpoint returns a job acceptance response
+and is safe to call from local administration scripts. `target_generation` and
+`projection_snapshot_token` are stable snapshot-boundary inputs for later query-time revalidation;
+query-side TOCTOU handling remains outside this lifecycle issue.
 
 Processing Job metadata is immutable operation history: a rebuild captures its corpus (`WIKI`,
 `SOURCE`, or `ALL`) when the job row is created. The job response reads that captured metadata, so
