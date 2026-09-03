@@ -29,6 +29,12 @@ public class ProcessingJobRepository {
 
     public ProcessingJob create(long workspaceId, String jobId, ProcessingJobType jobType,
                                 int totalCount) {
+        return create(workspaceId, jobId, jobType, totalCount, null);
+    }
+
+    /** Creates a job and captures optional immutable operation metadata at creation time. */
+    public ProcessingJob create(long workspaceId, String jobId, ProcessingJobType jobType,
+                                int totalCount, String operationMetadataJson) {
         String now = now();
         Integer id = dsl.insertInto(PROCESSING_JOB)
                 .columns(
@@ -37,6 +43,7 @@ public class ProcessingJobRepository {
                         PROCESSING_JOB.JOB_TYPE,
                         PROCESSING_JOB.STATUS,
                         PROCESSING_JOB.TOTAL_COUNT,
+                        PROCESSING_JOB.OPERATION_METADATA_JSON,
                         PROCESSING_JOB.CREATED_AT,
                         PROCESSING_JOB.UPDATED_AT
                 )
@@ -46,6 +53,7 @@ public class ProcessingJobRepository {
                         jobType.name(),
                         ProcessingJobStatus.QUEUED.name(),
                         totalCount,
+                        operationMetadataJson,
                         now,
                         now
                 )
@@ -247,7 +255,8 @@ public class ProcessingJobRepository {
                 record.getStartedAt(),
                 record.getFinishedAt(),
                 record.getCreatedAt(),
-                record.getUpdatedAt());
+                record.getUpdatedAt(),
+                record.getOperationMetadataJson());
     }
 
     private static int valueOrZero(Integer value) {

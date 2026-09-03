@@ -14,5 +14,6 @@ public record ProcessingJobDetails(
         String startedAt,
         String finishedAt,
         String createdAt,
-        String updatedAt) {
+        String updatedAt,
+        String operationMetadataJson) {
 }

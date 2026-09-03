@@ -6,6 +6,7 @@ import org.km.llmwiki.processing.ProcessingJobRepository;
 import org.km.llmwiki.processing.ProcessingJobStatus;
 import org.km.llmwiki.processing.ProcessingJobType;
 import org.km.llmwiki.processing.ProcessingLogRepository;
+import org.km.llmwiki.search.SearchCorpus;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -16,6 +17,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -47,7 +49,7 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
     @Test
     void returnsQueuedRunningAndTerminalLifecycleDataForActiveWorkspace() throws Exception {
         long workspace = insertWorkspace("active");
-        ProcessingJob queued = createJob(workspace, "embedding-queued", ProcessingJobType.EMBEDDING_REBUILD);
+        ProcessingJob queued = createEmbeddingJob(workspace, "embedding-queued", SearchCorpus.WIKI);
         readiness.markQueued(workspace, queued.id(), EmbeddingEvidenceKind.WIKI, 0);
 
         getJob(queued.jobId())
@@ -61,7 +63,7 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
                 .andExpect(jsonPath("$.data.completedAt").doesNotExist())
                 .andExpect(jsonPath("$.data.failureCode").doesNotExist());
 
-        ProcessingJob running = createJob(workspace, "embedding-running", ProcessingJobType.EMBEDDING_REBUILD);
+        ProcessingJob running = createEmbeddingJob(workspace, "embedding-running", SearchCorpus.SOURCE);
         readiness.markQueued(workspace, running.id(), EmbeddingEvidenceKind.SOURCE_CHUNK, 1);
         readiness.markRunning(workspace, running.id(), EmbeddingEvidenceKind.SOURCE_CHUNK);
         setRunning(running.id());
@@ -73,7 +75,7 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
                 .andExpect(jsonPath("$.data.startedAt").value(STARTED))
                 .andExpect(jsonPath("$.data.completedAt").doesNotExist());
 
-        ProcessingJob succeeded = createJob(workspace, "embedding-succeeded", ProcessingJobType.EMBEDDING_REBUILD);
+        ProcessingJob succeeded = createEmbeddingJob(workspace, "embedding-succeeded", SearchCorpus.ALL);
         readiness.markQueued(workspace, succeeded.id(), EmbeddingEvidenceKind.WIKI, 1);
         readiness.markQueued(workspace, succeeded.id(), EmbeddingEvidenceKind.SOURCE_CHUNK, 1);
         readiness.markCompleted(workspace, succeeded.id(), EmbeddingEvidenceKind.WIKI,
@@ -95,9 +97,76 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
     }
 
     @Test
+    void keepsWikiCorpusAfterTheCurrentReadinessLinkMovesToAnotherWikiJob() throws Exception {
+        long workspace = insertWorkspace("mutable-readiness-link");
+        ProcessingJob first = createEmbeddingJob(workspace, "embedding-history-a", SearchCorpus.WIKI);
+        readiness.markQueued(workspace, first.id(), EmbeddingEvidenceKind.WIKI, 1);
+
+        ProcessingJob second = createEmbeddingJob(workspace, "embedding-history-b", SearchCorpus.WIKI);
+        readiness.markQueued(workspace, second.id(), EmbeddingEvidenceKind.WIKI, 1);
+
+        getJob(first.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.corpus").value("WIKI"));
+    }
+
+    @Test
+    void preservesAllAndSourceCorpusAfterLaterIncrementalReadinessChanges() throws Exception {
+        long workspace = insertWorkspace("immutable-corpus-history");
+        ProcessingJob all = createEmbeddingJob(workspace, "embedding-history-all", SearchCorpus.ALL);
+        readiness.markQueued(workspace, all.id(), EmbeddingEvidenceKind.WIKI, 1);
+        readiness.markQueued(workspace, all.id(), EmbeddingEvidenceKind.SOURCE_CHUNK, 1);
+
+        ProcessingJob wikiIncremental = createEmbeddingJob(workspace, "embedding-history-wiki", SearchCorpus.WIKI);
+        readiness.markQueued(workspace, wikiIncremental.id(), EmbeddingEvidenceKind.WIKI, 1);
+        ProcessingJob sourceIncremental = createEmbeddingJob(workspace, "embedding-history-source", SearchCorpus.SOURCE);
+        readiness.markQueued(workspace, sourceIncremental.id(), EmbeddingEvidenceKind.SOURCE_CHUNK, 1);
+
+        getJob(all.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.corpus").value("ALL"));
+        getJob(sourceIncremental.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.corpus").value("SOURCE"));
+    }
+
+    @Test
+    void reportsUnknownForLegacyOrInvalidMetadataWithoutGuessingFromReadiness() throws Exception {
+        long workspace = insertWorkspace("legacy-metadata");
+        ProcessingJob legacy = createJob(workspace, "embedding-legacy", ProcessingJobType.EMBEDDING_REBUILD);
+        readiness.markQueued(workspace, legacy.id(), EmbeddingEvidenceKind.WIKI, 1);
+
+        getJob(legacy.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.corpus").doesNotExist());
+
+        ProcessingJob invalid = createEmbeddingJob(workspace, "embedding-invalid", SearchCorpus.WIKI);
+        db().sql("UPDATE processing_job SET operation_metadata_json = :metadata WHERE id = :id")
+                .param("metadata", "{\"schema\":\"untrusted\",\"corpus\":\"ALL\"}")
+                .param("id", invalid.id()).update();
+        readiness.markQueued(workspace, invalid.id(), EmbeddingEvidenceKind.SOURCE_CHUNK, 1);
+
+        getJob(invalid.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.corpus").doesNotExist());
+    }
+
+    @Test
+    void migrationAddsNullableMetadataColumnAndLegacyRowsRemainNull() throws Exception {
+        assertThat(db().sql("PRAGMA table_info(processing_job)")
+                .query((rs, rowNum) -> rs.getString("name")).list())
+                .contains("operation_metadata_json");
+
+        long workspace = insertWorkspace("metadata-column");
+        ProcessingJob legacy = createJob(workspace, "embedding-null-metadata", ProcessingJobType.EMBEDDING_REBUILD);
+        assertThat(db().sql("SELECT operation_metadata_json FROM processing_job WHERE id = :id")
+                .param("id", legacy.id()).query(String.class).optional()).isEmpty();
+    }
+
+    @Test
     void exposesPartialCompletionAndSanitizedFailureDiagnostics() throws Exception {
         long workspace = insertWorkspace("diagnostics");
-        ProcessingJob partial = createJob(workspace, "embedding-partial", ProcessingJobType.EMBEDDING_REBUILD);
+        ProcessingJob partial = createEmbeddingJob(workspace, "embedding-partial", SearchCorpus.WIKI);
         readiness.markQueued(workspace, partial.id(), EmbeddingEvidenceKind.WIKI, 2);
         readiness.markCompleted(workspace, partial.id(), EmbeddingEvidenceKind.WIKI,
                 1, 2, 1, null, null, null, true);
@@ -110,7 +179,7 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
                 .andExpect(jsonPath("$.data.failureSummary").value(
                         "Embedding rebuild completed with failed items"));
 
-        ProcessingJob failed = createJob(workspace, "embedding-failed", ProcessingJobType.EMBEDDING_REBUILD);
+        ProcessingJob failed = createEmbeddingJob(workspace, "embedding-failed", SearchCorpus.SOURCE);
         readiness.markQueued(workspace, failed.id(), EmbeddingEvidenceKind.SOURCE_CHUNK, 1);
         readiness.markFailed(workspace, failed.id(), EmbeddingEvidenceKind.SOURCE_CHUNK,
                 "REBUILD_FAILED: provider response body, apiKey=do-not-return, /native/vec0.dylib");
@@ -137,8 +206,7 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
         db().sql("UPDATE workspace SET status = 'INACTIVE' WHERE id = :id")
                 .param("id", inactiveWorkspace).update();
 
-        ProcessingJob crossWorkspace = createJob(inactiveWorkspace, "embedding-cross-workspace",
-                ProcessingJobType.EMBEDDING_REBUILD);
+        ProcessingJob crossWorkspace = createEmbeddingJob(inactiveWorkspace, "embedding-cross-workspace", SearchCorpus.WIKI);
         readiness.markQueued(inactiveWorkspace, crossWorkspace.id(), EmbeddingEvidenceKind.WIKI, 1);
         ProcessingJob unrelated = createJob(activeWorkspace, "fts-not-public", ProcessingJobType.FTS_REBUILD);
 
@@ -158,7 +226,7 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
     @Test
     void keepsReadinessAggregateSeparateAndRebuildResponseBackwardCompatible() throws Exception {
         long workspace = insertWorkspace("readiness-contract");
-        ProcessingJob job = createJob(workspace, "embedding-readiness-contract", ProcessingJobType.EMBEDDING_REBUILD);
+        ProcessingJob job = createEmbeddingJob(workspace, "embedding-readiness-contract", SearchCorpus.ALL);
         readiness.markQueued(workspace, job.id(), EmbeddingEvidenceKind.WIKI, 0);
         readiness.markQueued(workspace, job.id(), EmbeddingEvidenceKind.SOURCE_CHUNK, 0);
 
@@ -183,6 +251,14 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
 
     private ProcessingJob createJob(long workspaceId, String jobId, ProcessingJobType type) {
         ProcessingJob job = jobs.create(workspaceId, jobId, type, 1);
+        db().sql("UPDATE processing_job SET created_at = :created WHERE id = :id")
+                .param("created", CREATED).param("id", job.id()).update();
+        return job;
+    }
+
+    private ProcessingJob createEmbeddingJob(long workspaceId, String jobId, SearchCorpus corpus) {
+        ProcessingJob job = jobs.create(workspaceId, jobId, ProcessingJobType.EMBEDDING_REBUILD, 1,
+                EmbeddingRebuildOperationMetadataCodec.encode(corpus));
         db().sql("UPDATE processing_job SET created_at = :created WHERE id = :id")
                 .param("created", CREATED).param("id", job.id()).update();
         return job;

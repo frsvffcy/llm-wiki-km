@@ -9,7 +9,6 @@ import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -23,16 +22,12 @@ public class EmbeddingProjectionJobQueryService {
     private final WorkspaceService workspaceService;
     private final ProcessingJobRepository jobs;
     private final ProcessingLogRepository logs;
-    private final EmbeddingProjectionReadinessRepository readiness;
-
     public EmbeddingProjectionJobQueryService(WorkspaceService workspaceService,
                                               ProcessingJobRepository jobs,
-                                              ProcessingLogRepository logs,
-                                              EmbeddingProjectionReadinessRepository readiness) {
+                                              ProcessingLogRepository logs) {
         this.workspaceService = workspaceService;
         this.jobs = jobs;
         this.logs = logs;
-        this.readiness = readiness;
     }
 
     public EmbeddingProjectionJobStatusResponse find(String jobId) {
@@ -40,21 +35,13 @@ public class EmbeddingProjectionJobQueryService {
                 .orElseThrow(NoActiveWorkspaceException::new).id();
         ProcessingJobDetails job = jobs.findEmbeddingRebuild(workspaceId, jobId)
                 .orElseThrow(ProcessingJobNotFoundException::new);
-        SearchCorpus corpus = corpus(readiness.findCorporaForJob(workspaceId, job.id()));
+        SearchCorpus corpus = EmbeddingRebuildOperationMetadataCodec
+                .decode(job.operationMetadataJson()).orElse(null);
         FailureDiagnostic failure = failure(job, logs.findLatestEmbeddingFailureMetadata(job.id()));
         return new EmbeddingProjectionJobStatusResponse(
                 job.jobId(), job.jobType(), corpus, job.status(), job.totalCount(), job.processedCount(),
                 job.successCount(), job.failedCount(), job.skippedCount(), job.createdAt(), job.startedAt(),
                 job.finishedAt(), failure.code(), failure.summary());
-    }
-
-    private static SearchCorpus corpus(List<EmbeddingEvidenceKind> kinds) {
-        boolean wiki = kinds.contains(EmbeddingEvidenceKind.WIKI);
-        boolean source = kinds.contains(EmbeddingEvidenceKind.SOURCE_CHUNK);
-        if (wiki && source) return SearchCorpus.ALL;
-        if (wiki) return SearchCorpus.WIKI;
-        if (source) return SearchCorpus.SOURCE;
-        return null;
     }
 
     private static FailureDiagnostic failure(ProcessingJobDetails job, Optional<String> metadata) {

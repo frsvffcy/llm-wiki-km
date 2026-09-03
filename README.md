@@ -142,7 +142,7 @@ curl 'http://127.0.0.1:8765/api/v1/search/index/embedding/rebuild/<jobId>'
 ```
 
 The rebuild job endpoint is an **operation-tracking** contract: it reports the workspace-scoped
-`EMBEDDING_REBUILD` Processing Job lifecycle, counters, timestamps, corpus, and sanitized failure
+`EMBEDDING_REBUILD` Processing Job lifecycle, counters, timestamps, immutable operation corpus, and sanitized failure
 diagnostics. It returns the existing Processing Job status enum (`QUEUED`, `RUNNING`, `COMPLETED`,
 `FAILED`, `CANCELLED`, or `PAUSED`); a `COMPLETED` job with failed items additionally reports
 `failureCode: PARTIAL_FAILURE` without changing the persisted enum status. Unknown, cross-workspace,
@@ -206,8 +206,17 @@ If the process stops during a rebuild, startup recovery marks the interrupted pr
 linked readiness rows `FAILED`; rerun the rebuild endpoint to recover. The endpoint returns a job
 acceptance response and is safe to call from local administration scripts.
 
-This lifecycle change does not alter the separate immutable job-corpus metadata concern tracked by
-Issue #211; that issue remains independent.
+Processing Job metadata is immutable operation history: a rebuild captures its corpus (`WIKI`,
+`SOURCE`, or `ALL`) when the job row is created. The job response reads that captured metadata, so
+later rebuilds or incremental work may replace the readiness row's current `processing_job_id`
+without changing an older job response. The readiness table remains current serving state only; it
+is not a historical operation index.
+
+The metadata is a bounded, canonical `embedding-rebuild-operation-v1` JSON value containing only
+the allow-listed `schema` and `corpus` fields. Existing `EMBEDDING_REBUILD` rows created before
+this metadata was introduced, or rows with missing/invalid metadata, return no `corpus` field
+(`null`/unknown in the domain contract). The application never guesses a legacy corpus from
+current readiness state.
 
 ## SQLite
 
@@ -217,7 +226,7 @@ Workspace roots are portable document/vault containers; the metadata DB is appli
 
 ## Database migrations
 
-Schema is managed with Flyway. Migrations live in `src/main/resources/db/migration/` and run automatically on startup against an empty database; already-applied migrations are never re-executed. Applied history is tracked in the `flyway_schema_history` table. A failed migration aborts application startup (the app never reaches READY state).
+Schema is managed with Flyway. Migrations live in `src/main/resources/db/migration/` and run automatically on startup against an empty database; already-applied migrations are never re-executed. Applied history is tracked in the `flyway_schema_history` table. A failed migration aborts application startup (the app never reaches READY state). Migration V24 adds the nullable generic `processing_job.operation_metadata_json` column; it does not backfill historical jobs because current readiness is not reliable historical evidence.
 
 ## Persistence conventions
 
