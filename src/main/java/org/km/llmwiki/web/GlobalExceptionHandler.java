@@ -3,6 +3,7 @@ package org.km.llmwiki.web;
 import org.km.llmwiki.ai.ask.AskApiException;
 import org.km.llmwiki.ai.ask.AskFailureType;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
+import org.km.llmwiki.search.embedding.ProcessingJobNotFoundException;
 import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
 import org.km.llmwiki.source.DocumentNotFoundException;
@@ -100,6 +101,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoActiveWorkspaceException.class)
     public ResponseEntity<ApiError> handleNoActiveWorkspace(NoActiveWorkspaceException exception) {
         return respond(HttpStatus.NOT_FOUND, "NO_ACTIVE_WORKSPACE", exception.getMessage());
+    }
+
+    @ExceptionHandler(ProcessingJobNotFoundException.class)
+    public ResponseEntity<ApiError> handleProcessingJobNotFound(ProcessingJobNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", exception.getMessage());
     }
 
     @ExceptionHandler(RetrievalUnavailableException.class)

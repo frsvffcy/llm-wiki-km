@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.select;
@@ -55,6 +56,19 @@ public class ProcessingJobRepository {
             throw new IllegalStateException("Processing job insert did not return a generated id");
         }
         return new ProcessingJob(id.longValue(), jobId, totalCount);
+    }
+
+    /**
+     * Finds only the public-safe job type used by the embedding rebuild operator surface.
+     * Workspace and external job id are part of the lookup so a missing result is also the
+     * intentional response for a job belonging to another workspace.
+     */
+    public Optional<ProcessingJobDetails> findEmbeddingRebuild(long workspaceId, String jobId) {
+        return dsl.selectFrom(PROCESSING_JOB)
+                .where(PROCESSING_JOB.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(PROCESSING_JOB.JOB_ID.eq(jobId))
+                .and(PROCESSING_JOB.JOB_TYPE.eq(ProcessingJobType.EMBEDDING_REBUILD.name()))
+                .fetchOptional(record -> mapDetails(record));
     }
 
     public void markRunning(long jobId) {
@@ -189,5 +203,27 @@ public class ProcessingJobRepository {
 
     private static String now() {
         return DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+    }
+
+    private static ProcessingJobDetails mapDetails(
+            org.km.llmwiki.persistence.jooq.generated.tables.records.ProcessingJobRecord record) {
+        return new ProcessingJobDetails(
+                record.getId().longValue(),
+                record.getJobId(),
+                ProcessingJobType.valueOf(record.getJobType()),
+                ProcessingJobStatus.valueOf(record.getStatus()),
+                valueOrZero(record.getTotalCount()),
+                valueOrZero(record.getProcessedCount()),
+                valueOrZero(record.getSuccessCount()),
+                valueOrZero(record.getFailedCount()),
+                valueOrZero(record.getSkippedCount()),
+                record.getStartedAt(),
+                record.getFinishedAt(),
+                record.getCreatedAt(),
+                record.getUpdatedAt());
+    }
+
+    private static int valueOrZero(Integer value) {
+        return value == null ? 0 : value;
     }
 }

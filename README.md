@@ -134,10 +134,45 @@ then inspect the active workspace's per-corpus state:
 ```bash
 curl -X POST 'http://127.0.0.1:8765/api/v1/search/index/embedding/rebuild?corpus=ALL'
 curl 'http://127.0.0.1:8765/api/v1/search/index/embedding/readiness'
+# Use the returned jobId to track the operation itself:
+curl 'http://127.0.0.1:8765/api/v1/search/index/embedding/rebuild/<jobId>'
 ```
 
-Readiness is persisted per workspace and corpus, and the endpoint reports corpus keys `WIKI` and
-`SOURCE`. `NOT_BUILT`/`QUEUED`/`REBUILDING` mean that a projection is not available yet; `PARTIAL`,
+The rebuild job endpoint is an **operation-tracking** contract: it reports the workspace-scoped
+`EMBEDDING_REBUILD` Processing Job lifecycle, counters, timestamps, corpus, and sanitized failure
+diagnostics. It returns the existing Processing Job status enum (`QUEUED`, `RUNNING`, `COMPLETED`,
+`FAILED`, `CANCELLED`, or `PAUSED`); a `COMPLETED` job with failed items additionally reports
+`failureCode: PARTIAL_FAILURE` without changing the persisted enum status. Unknown, cross-workspace,
+and unrelated job IDs all return the same `404 PROCESSING_JOB_NOT_FOUND` response.
+
+Example response shape:
+
+```json
+{
+  "data": {
+    "jobId": "<jobId>",
+    "jobType": "EMBEDDING_REBUILD",
+    "corpus": "ALL",
+    "status": "COMPLETED",
+    "totalCount": 1,
+    "processedCount": 1,
+    "successCount": 1,
+    "failedCount": 0,
+    "skippedCount": 0,
+    "createdAt": "2026-09-03T00:00:00Z",
+    "startedAt": "2026-09-03T00:00:01Z",
+    "completedAt": "2026-09-03T00:00:20Z",
+    "failureCode": null,
+    "failureSummary": null
+  }
+}
+```
+
+Failure fields contain only stable safe codes and summaries; raw logs, stack traces, provider
+responses, credentials, vectors, native extension paths, SQL, and internal exception names are not
+returned. Readiness is persisted per workspace and corpus, and the readiness endpoint reports
+the existing evidence-kind keys `WIKI` and `SOURCE_CHUNK`. It is a **semantic serving-readiness** contract, not an operation
+lifecycle query: `NOT_BUILT`/`QUEUED`/`REBUILDING` mean that a projection is not available yet; `PARTIAL`,
 `FAILED`, and `STALE` are explicit degraded states requiring a rebuild. Only `READY` permits the
 corresponding semantic signal. A `READY` projection with zero semantic candidates is a legitimate
 no-match. `SEMANTIC_WIKI` and `SEMANTIC_SOURCE` fail closed with typed projection-readiness

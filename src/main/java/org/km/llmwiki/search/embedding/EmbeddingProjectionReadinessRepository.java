@@ -32,6 +32,18 @@ public class EmbeddingProjectionReadinessRepository {
                 .where(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
                 .fetch(this::map);
     }
+
+    public List<EmbeddingEvidenceKind> findCorporaForJob(long workspaceId, long jobId) {
+        return dsl.select(EMBEDDING_PROJECTION_READINESS.CORPUS)
+                .from(EMBEDDING_PROJECTION_READINESS)
+                .where(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(EMBEDDING_PROJECTION_READINESS.PROCESSING_JOB_ID.eq(Math.toIntExact(jobId)))
+                .orderBy(EMBEDDING_PROJECTION_READINESS.CORPUS.asc())
+                .fetch(EMBEDDING_PROJECTION_READINESS.CORPUS)
+                .stream()
+                .map(EmbeddingEvidenceKind::fromStorageValue)
+                .toList();
+    }
     public void markQueued(long workspaceId, long jobId, EmbeddingEvidenceKind corpus, int expected) {
         var previous = find(workspaceId, corpus).orElse(null);
         int indexed = previous == null ? 0 : previous.indexedCount();
