@@ -1,5 +1,6 @@
 package org.km.llmwiki.search.vector.sqlite;
 
+import org.jooq.exception.DataAccessException;
 import org.km.llmwiki.config.VectorCapabilityProperties;
 import org.km.llmwiki.search.vector.VectorAvailability;
 import org.km.llmwiki.search.vector.VectorCapability;
@@ -84,7 +85,7 @@ public final class SqliteVectorSimilaritySearch implements VectorSimilaritySearc
             return query(connection, queryVector, candidates, limit);
         } catch (VectorCandidateSearchUnavailableException failure) {
             throw failure;
-        } catch (SQLException | RuntimeException failure) {
+        } catch (SQLException | DataAccessException failure) {
             throw new VectorCandidateSearchUnavailableException(
                     VectorCandidateSearchUnavailableException.Dependency.VECTOR_REPOSITORY,
                     failure);
