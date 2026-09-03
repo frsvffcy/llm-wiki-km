@@ -20,7 +20,8 @@ class AnswerClientContractTest {
         AnswerRequest request = new AnswerRequest("What is the architecture?", context,
                 AnswerGenerationOptions.defaults());
         AnswerProviderMetadata metadata = new AnswerProviderMetadata("stub", "test-model");
-        AnswerResult result = new AnswerResult("The architecture is local-first.", metadata,
+        AnswerResult result = new AnswerResult("The architecture is local-first.",
+                List.of("E1"), false, metadata,
                 Optional.of(new AnswerUsageMetadata(12, 8, 20)));
 
         assertThat(request.question()).isEqualTo("What is the architecture?");
@@ -31,6 +32,25 @@ class AnswerClientContractTest {
 
         assertThatThrownBy(() -> request.context().references().add(reference))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void enforcesCitationInvariantAtTheResultBoundary() {
+        AnswerProviderMetadata metadata = new AnswerProviderMetadata("stub", "test-model");
+
+        assertThatThrownBy(() -> new AnswerResult("ungrounded", List.of(), false,
+                metadata, Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must cite at least one evidence item");
+        assertThatThrownBy(() -> new AnswerResult("conflicting", List.of("E1"), true,
+                metadata, Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must not cite evidence");
+
+        AnswerResult insufficient = new AnswerResult("not enough evidence", List.of(), true,
+                metadata, Optional.empty());
+        assertThat(insufficient.insufficientEvidence()).isTrue();
+        assertThat(insufficient.citedEvidenceIds()).isEmpty();
     }
 
     @Test

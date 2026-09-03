@@ -32,18 +32,12 @@ public record AnswerResult(
             throw new IllegalArgumentException(
                     "insufficientEvidence results must not cite evidence");
         }
+        if (!insufficientEvidence && citedEvidenceIds.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "non-insufficient answers must cite at least one evidence item");
+        }
         citedEvidenceIds = List.copyOf(citedEvidenceIds);
         providerMetadata = Objects.requireNonNull(providerMetadata, "providerMetadata must not be null");
         usage = usage == null ? Optional.empty() : usage;
-    }
-
-    public AnswerResult(String answerText, AnswerProviderMetadata providerMetadata) {
-        this(answerText, List.of(), false, providerMetadata, Optional.empty());
-    }
-
-    /** Compatibility constructor for the STORY-601 provider-neutral result boundary. */
-    public AnswerResult(String answerText, AnswerProviderMetadata providerMetadata,
-                        Optional<AnswerUsageMetadata> usage) {
-        this(answerText, List.of(), false, providerMetadata, usage);
     }
 }
