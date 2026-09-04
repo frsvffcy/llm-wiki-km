@@ -14,6 +14,22 @@
 * **Branch**：分支名稱使用英文小寫 slug。
 * **技術識別字**：程式碼 identifier、API path、class / method / table / column 名稱，以及 CLI / library / framework 名稱保留英文。
 
+### 0.1 Model Routing Matrix
+
+* `L1`～`L5` 表示任務的難度、複雜度、風險與推理需求；Level 與實際執行的 model + reasoning effort 是兩個不同欄位，不永久綁定單一供應商或模型名稱。
+* 現行 Issue title 的 capability anchor 維持 `L1(5.6 Luna 高)`、`L2(5.6 Terra 高)`、`L3(5.6 Sol 高)`、`L4(5.6 Luna 極高)`、`L5(5.6 Sol 極高)`。括號內容只是目前的 routing anchor，不是 Level 的永久語意；模型可用性或能力變更時可更新 anchor，但不得回頭改寫任務複雜度。
+* 不同供應商的 reasoning effort 名稱只用於 routing，不視為精確等價的 benchmark。Executor 選擇必須以可用模型、任務風險與 repository evidence 為準，並忠實記錄無法採用建議 profile 的限制。
+
+| Level | 任務定位 | OpenAI anchor | GLM-5.3-Flash | DeepSeek V4 Flash | Gemini 3.7 Flash | Gemini 3.8 Flash |
+| --- | --- | --- | --- | --- | --- | --- |
+| L1 | 明確、小型、低風險 implementation | 5.6 Luna 高 | low | low | low | low |
+| L2 | 一般 implementation、少量跨 class | 5.6 Terra 高 | high | low～high | medium | low～medium |
+| L3 | integration / CI / 多 class correctness | 5.6 Sol 高 | high～max | high | high | medium |
+| L4 | architecture / race / concurrency / multi-surface | 5.6 Luna 極高 | max | max | high | high |
+| L5 | system architecture / Sprint-Phase readiness / global audit | 5.6 Sol 極高 | max reviewer | max reviewer | high reviewer | high reviewer |
+
+* **L5 特別規則**：L5 不等於只把 reasoning effort 開到最高。原則上必須包含 primary high-capability analysis、獨立的 second-pass challenge/review、repository evidence、test/CI evidence 與 architecture invariant verification。只有單一模型可用時，仍必須以與第一輪分離的 review pass 挑戰假設與結論。
+
 ## 1. 專案技術棧與階段劃分 (Project Stack & Phase Gate)
 * **核心框架**：
   * **語言／執行環境**：Java 21
@@ -60,6 +76,11 @@
   node --test src/test/js/ask-ui.test.mjs
   ```
   執行 Browser Ask UI contract regression suite，直接使用 Node.js 內建 test runner；不需要 npm、`package.json`、前端 framework 或額外 build toolchain。此 suite 是 Maven `fast`、`integration`、`full` 之外的補充，不取代任何 Maven tier。
+* **PR metadata guard tests**：
+  ```bash
+  node --test src/test/js/pr-metadata.test.mjs
+  ```
+  驗證 PR base、closing keyword、Issue existence 與 explicit exception contract；修改 PR template、validator 或 PR CI aggregation 時必須執行。
 * **Integration tier**：
   ```bash
   mvn test -Pintegration
@@ -221,6 +242,16 @@ public interface LlmClient {
 ## 6. Git 與工作流 (Git Workflow)
 > ⚠️ `main` 是本專案唯一的正式整合分支（Canonical Integration Branch）。Issue、PR 或修正是否完成，必須以 fix 是否實際存在於 `main` 為準，不得只依 GitHub 的 Closed / Merged 狀態判斷。
 
+正式交付路徑固定為：
+
+```text
+Issue → latest main → dedicated branch → implementation → verification
+→ commit → push → PR targeting main → CI / PR Gate → merge
+→ verify fix on main → verify / close Issue
+```
+
+repository visibility、GitHub plan 或 server-side protection 是否可用都不得省略此路徑。除人類明確授權的單次 emergency 外，owner/admin 權限不得成為直接 push `main` 的正常交付方式。
+
 ### 6.1 Git / GitHub CLI-first Execution Policy
 
 * **Issue 開始前 capability preflight**：
@@ -275,6 +306,10 @@ public interface LlmClient {
 * 若為 stacked PR，必須在 PR 說明中明確標示依賴的 parent PR，以及最終如何進入 `main`；parent PR merge 後的 follow-up fix 必須從最新 `main` 建立新 branch。
 * PR 標題與說明使用繁體中文。PR body 至少包含：摘要、相關 Issue、主要變更、驗收條件與驗證方式／結果。
 * 測試結果必須如實記錄，不得虛構、暗示或省略已知失敗。
+* Issue-driven 且 target `main` 的 PR，`相關 Issue` 必須逐一使用 GitHub closing keyword：`Closes #123`、`Fixes #123` 或 `Resolves #123`。`#123`、`- #123`、`Issue #123` 只有 reference 效果，不得期待自動關閉。
+* 純 dependency/reference 使用 `Related to #120`、`Depends on #121` 等非 closing wording；每個要關閉的 Issue 都必須有自己的 closing keyword，不得把不應關閉的 dependency 誤標為 completion linkage。
+* 非 Issue-driven PR 必須在 body 加入獨立一行 `PR-Metadata-Exception: non-issue-driven`。Stacked PR 必須說明 parent PR 與最後進入 `main` 的路徑，並加入獨立一行 `PR-Metadata-Exception: stacked-pr`；例外標記是可審查的 governance evidence，不是靜默跳過。
+* `.github/pull_request_template.md` 的 placeholder 必須替換完成；`.github/workflows/pr-ci.yml` 的 PR metadata guard 必須驗證 base、closing linkage、同 repository Issue existence 與 explicit exception。
 
 ### 6.6 Merge 與 Issue 關閉
 * Merge 前確認 PR base 為 `main`（除非已明確標示為 stacked PR）、測試通過、變更範圍正確、驗收條件（AC）滿足，且沒有未處理的 review blocker。
@@ -282,6 +317,13 @@ public interface LlmClient {
 * Issue 僅在以下條件均滿足後才可標示 completed：實作完成、AC 滿足、測試通過、PR 已 merge，且 fix 已確認存在於 `main`。
 * 若 GitHub 自動關閉 Issue，但 fix 尚未進入 `main`，必須 reopen Issue。
 * 若 PR 誤 merge 至非 `main` 分支，對應 Issue 不得視為完成；必要時 reopen，接著從最新 `main` 建立 branch，cherry-pick 或重新套用最小相關 commit，建立 target 為 `main` 的 PR，確認 fix 進入 `main` 後才能 close Issue。
+* Merge 後必須執行等價於下列檢查，不能只看 PR 畫面：
+  ```bash
+  gh pr view <pr> --json state,mergedAt,baseRefName
+  # 接著從 main 的實際內容確認 fix
+  gh issue view <issue> --json state,stateReason
+  ```
+* 若 requirements、tests、merge-to-main 與 main verification 已全部成立，但 Issue 因 closing keyword 遺漏或 GitHub linkage 異常仍 open，必須明確記錄 auto-close failure，先排除 stacked／non-main merge，再以 `gh issue close <issue> --reason completed` 補償關閉。若 fix 尚未進 `main`，禁止為了整理 dashboard 而手動 close。
 
 ### 6.7 Repository 狀態驗證
 * 代理進行進度盤點或回報前，必須同時檢查 Issue state、PR state、PR base、PR 是否真正 merge 至 `main`、`main` 的實際程式碼，以及關鍵測試結果。
@@ -304,10 +346,11 @@ public interface LlmClient {
 
 ### 7.3 Git 與 PR
 * Branch base 正確，commit 僅包含本 Issue 的變更，並符合 Conventional Commits type 加繁體中文 subject 的規範。
-* Branch 已 push；PR target 為 `main`（除明確標示依賴關係的 stacked PR 外）；PR 標題與說明使用繁體中文；測試結果如實記錄。
+* Branch 已 push；PR target 為 `main`（除明確標示依賴關係的 stacked PR 外）；Issue-driven PR 具有有效 closing keyword；PR 標題與說明使用繁體中文；測試結果如實記錄。
+* commit、push、PR、CI、merge 任一步失敗，都必須保留原始 error 並回報實際狀態；不得把 local implementation、commit、push 或 PR Ready 假裝成 `DONE`。
 
 ### 7.4 完成狀態回報
-* 僅當 `Issue requirements satisfied + Tests passed + PR merged + Fix verified on main` 全部成立時，才可回報 `DONE`。
+* 僅當 `Issue requirements satisfied + Tests passed + PR merged into main + Fix verified on main + Issue completed` 全部成立時，才可回報 `DONE`。
 * 僅在 branch／PR 上完成時，回報 `IMPLEMENTED / READY FOR MERGE`。
 * PR merge 至非 `main` 時，回報 `NOT INTEGRATED`。
 
@@ -337,7 +380,7 @@ public interface LlmClient {
 ### 8.2 Development Verification、Feature Ready 與 Final Verification
 * **Development Verification**：targeted tests、`mvn test -Pfast`、及依風險選定的 affected contract/integration tests；這是 coding feedback，不是 merge authorization。
 * **Feature Ready**：至少通過 affected integration/contract suite，並在 Issue/PR body 記錄實際 command 與結果。
-* **Final / PR Ready**：本機要求 `mvn clean verify -Pfull` 及 `git diff --check`；PR targeting `main` 還必須等待 PR CI 的 `PR Gate` 成功，並確認 Fast、Integration、Build Integrity、sqlite-vec Smoke 四個 evidence jobs 均成功。PR Ready 不得只靠 fast tests。
+* **Final / PR Ready**：本機要求 `mvn clean verify -Pfull` 及 `git diff --check`；PR targeting `main` 還必須等待 PR CI 的 `PR Gate` 成功，並確認 PR Metadata、Fast、Integration、Build Integrity、sqlite-vec Smoke 五個 evidence jobs 均成功。PR Ready 不得只靠 fast tests。
 * `mvn test`、`mvn compile`、`mvn clean package` 及 `mvn clean install -DskipTests` 各有局部用途；`mvn test` 雖是完整測試預設，仍不取代 `clean verify -Pfull` 的 final build-integrity 語意。`-DskipTests` 永遠只能是 preliminary。
 * 純邏輯修改期間可以不反覆跑 `mvn test`／`mvn clean verify -Pfull`。未修改 migration、persistence、generated sources 或 build tooling 時，中途可以跳過 clean Flyway/jOOQ/package gate；documentation、ADR、test-only spike 亦可中途跳過 full package，但完成前仍須依 scope 做必要驗證。
 * 只有 docs/AGENTS-only 且不改變 production、test、build 或 CI behavior 的變更，才可在 PR body 說明理由後採 docs-only verification 而不跑 full tests；這是明確的文件變更例外，不得套用於 Test Architecture 或 build behavior 變更。
@@ -370,12 +413,13 @@ public interface LlmClient {
 ### 8.7 可跳過與不可跳過的流程
 * **可跳過（coding loop）**：純邏輯修改可不反覆執行 full tests；未觸及 migration/persistence/codegen/build tooling 時可跳過 clean Flyway/jOOQ/package gate；單一 failed test 先跑 affected suite；documentation、ADR、test-only spike 中途可跳過 full package。
 * **不可跳過（final）**：migration、persistence wiring、generated sources、build plugin 或 package 改動，在本機 final 前必須 `mvn clean verify -Pfull`。PR Ready 不得只靠 fast tests；CI 失敗不得以本機 pass 取代。
-* `main` 已由 repository branch protection 強制 PR 與 `PR Gate` required check；local final full gate 仍保留，不得宣告本機 full 可以完全取消。
+* local final full gate 仍保留，不得宣告本機 full 可以完全取消；server-side protection 是否存在不改變 Logical PR Gate 與完整 PR workflow。
 
 ### 8.8 CI、Branch Protection 與 Merge Safety
-* PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 Fast unit and contract tests、Integration tests、Build Integrity、sqlite-vec JDBC Smoke 四個 evidence jobs，以及依賴四者的 `PR Gate` aggregate job。完整 `mvn --batch-mode clean verify -Pfull` 由 `.github/workflows/full-regression-canary.yml` 在 main push、nightly與 manual dispatch 執行。
-* `PR Gate` 是穩定的 merge safety gate；只有 Fast、Integration、Build Integrity、sqlite-vec Smoke 四者均回報 `success` 才能成功。任一 upstream job `failure`、`cancelled` 或 `skipped` 都不得讓 `PR Gate` 綠燈；Build Integrity job 執行 `mvn --batch-mode clean verify -Pbuild-integrity` 並包含 `git diff --check`。
-* `main` branch protection 已將穩定的 `PR Gate` 設為唯一 required check，並要求 PR branch 為最新；四個 upstream jobs 的 coverage 仍由 aggregate gate 保留。branch protection 是 repository setting，實際狀態優先於 AGENTS.md；若 contributor 無法讀取或驗證當前 protection，或設定日後變更，則不得宣告 required check 仍受強制，並須人工確認 `PR Gate`、Fast、Integration、Build Integrity、sqlite-vec Smoke 全部成功後才可合併，同時記錄權限／plan 限制。
+* PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 PR Metadata、Fast unit and contract tests、Integration tests、Build Integrity、sqlite-vec JDBC Smoke 五個 evidence jobs，以及依賴五者的 `PR Gate` aggregate job。完整 `mvn --batch-mode clean verify -Pfull` 由 `.github/workflows/full-regression-canary.yml` 在 main push、nightly 與 manual dispatch 執行。
+* **Logical PR Gate** 是本文件定義、永遠適用的 merge safety contract；`PR Gate` aggregate job 只有在上述五個 evidence jobs 都為 `success` 時才能成功。任一 upstream job `failure`、`cancelled` 或 `skipped` 都不得讓 gate 綠燈。
+* **Server-Enforced PR Gate** 是 GitHub branch protection／ruleset 的 required check enforcement，只是額外的 server-side protection layer。若 repository plan／visibility 支援，`main` 應要求 PR、up-to-date branch、`PR Gate` required status check，並限制 bypass；若無法設定或無權驗證，禁止宣稱 GitHub 正在強制，合併者仍須透過 `gh pr checks` 明確確認 Logical PR Gate 的五個 evidence jobs 全部成功。
+* public/private 與 GitHub plan 不得改變 correctness、testing、PR、merge、main verification 或 Definition of Done。Visibility 切換屬獨立 destructive/governance mutation，必須先取得人類明確確認，並檢查 protection/ruleset、Actions、GitHub App 與 connector access；細節見 `docs/development/github-delivery-governance.md`。
 * CI 失敗時，必須修正或明確記錄 blocker；不能用本機成功取代 CI 結果，也不能因 local full pass 而忽略未完成的 repository protection 設定。
 
 ### 8.9 量測與 Java 版本規範

@@ -2,17 +2,35 @@ name: PR CI
 
 on:
   pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 concurrency:
   group: pr-ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
+  pr-metadata:
+    name: PR metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run PR metadata guard tests
+        run: node --test src/test/js/pr-metadata.test.mjs
+      - name: Validate PR base and Issue linkage
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/validate-pr-metadata.mjs
+
   fast-tests:
     name: Fast unit and contract tests
     runs-on: ubuntu-latest
@@ -109,6 +127,7 @@ jobs:
     name: PR Gate
     if: ${{ always() }}
     needs:
+      - pr-metadata
       - fast-tests
       - integration-tests
       - build-integrity
@@ -117,16 +136,18 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Verify required CI jobs succeeded
-        if: ${{ needs.fast-tests.result == 'success' && needs.integration-tests.result == 'success' && needs.build-integrity.result == 'success' && needs.sqlite-vec-smoke.result == 'success' }}
-        run: echo "Fast, Integration, Build Integrity, and sqlite-vec Smoke CI jobs all succeeded."
+        if: ${{ needs.pr-metadata.result == 'success' && needs.fast-tests.result == 'success' && needs.integration-tests.result == 'success' && needs.build-integrity.result == 'success' && needs.sqlite-vec-smoke.result == 'success' }}
+        run: echo "PR Metadata, Fast, Integration, Build Integrity, and sqlite-vec Smoke CI jobs all succeeded."
       - name: Reject incomplete required CI jobs
-        if: ${{ needs.fast-tests.result != 'success' || needs.integration-tests.result != 'success' || needs.build-integrity.result != 'success' || needs.sqlite-vec-smoke.result != 'success' }}
+        if: ${{ needs.pr-metadata.result != 'success' || needs.fast-tests.result != 'success' || needs.integration-tests.result != 'success' || needs.build-integrity.result != 'success' || needs.sqlite-vec-smoke.result != 'success' }}
         env:
+          PR_METADATA_RESULT: ${{ needs.pr-metadata.result }}
           FAST_RESULT: ${{ needs.fast-tests.result }}
           INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
           BUILD_INTEGRITY_RESULT: ${{ needs.build-integrity.result }}
           SQLITE_VEC_RESULT: ${{ needs.sqlite-vec-smoke.result }}
         run: |
+          echo "PR metadata: ${PR_METADATA_RESULT}"
           echo "Fast unit and contract tests: ${FAST_RESULT}"
           echo "Integration tests: ${INTEGRATION_RESULT}"
           echo "Build integrity: ${BUILD_INTEGRITY_RESULT}"
