@@ -172,15 +172,14 @@ durations and Maven/Surefire counts from the PR workflow in the PR description f
 wall-clock evidence. These figures are observations rather than an SLA because runner load and
 dependency-cache state vary.
 
-Repository administrators should mark the stable `PR Gate` job as the required status check in
-branch protection for `main` after the workflow has completed its first run. The upstream Fast,
-Integration, Build Integrity, and sqlite-vec Smoke jobs remain required evidence through the
-aggregate gate; do not remove the Browser Ask UI command from the Fast job or reduce any existing
-coverage. If branch protection or
-rulesets cannot be read or changed by the current contributor because of repository permissions or
-the repository plan, do not claim that `PR Gate` is enforced: until an administrator configures it,
-manually confirm that `PR Gate`, Fast, Integration, Build Integrity, and sqlite-vec Smoke are all
-`SUCCESS` before merging.
+`main` branch protection requires a pull request, an up-to-date branch, and the stable `PR Gate`
+status check before merging. `PR Gate` is the sole required check; Fast, Integration, Build
+Integrity, and sqlite-vec Smoke remain required evidence through that aggregate gate. Do not
+remove the Browser Ask UI command from the Fast job or reduce any existing coverage. Branch
+protection is a repository setting that can change independently of this document. If a
+contributor cannot verify its current state because of repository permissions or plan limits, they
+must not claim that `PR Gate` is enforced and must manually confirm that `PR Gate`, Fast,
+Integration, Build Integrity, and sqlite-vec Smoke are all `SUCCESS` before merging.
 
 ## Tag/profile smoke checks
 
