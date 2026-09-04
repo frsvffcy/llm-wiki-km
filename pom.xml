@@ -22,6 +22,8 @@
         <sqlite-jdbc.version>3.50.3.0</sqlite-jdbc.version>
         <tika.version>3.2.3</tika.version>
         <pdfbox.version>3.0.5</pdfbox.version>
+        <arcadedb.version>26.9.1</arcadedb.version>
+        <nitrite.version>4.3.0</nitrite.version>
         <!-- Empty by default: mvn test runs the complete regression suite. Profiles below
              set these to JUnit 5 tags for intentionally narrower feedback loops. -->
         <test.tags.include></test.tags.include>
@@ -196,6 +198,56 @@
                      packaging, and verification from a clean workspace. -->
                 <test.execution.skip>true</test.execution.skip>
             </properties>
+        </profile>
+        <profile>
+            <id>graph-adapter-spike</id>
+            <properties>
+                <!-- The spike is opt-in and intentionally excludes the normal regression tiers. -->
+                <test.tags.include>graph-spike</test.tags.include>
+                <test.tags.exclude></test.tags.exclude>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>com.arcadedb</groupId>
+                    <artifactId>arcadedb-engine</artifactId>
+                    <version>${arcadedb.version}</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.dizitart</groupId>
+                    <artifactId>nitrite</artifactId>
+                    <version>${nitrite.version}</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.dizitart</groupId>
+                    <artifactId>nitrite-mvstore-adapter</artifactId>
+                    <version>${nitrite.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>add-graph-adapter-spike-test-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>${project.basedir}/src/test/java-graph-adapter-spike</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 </project>
