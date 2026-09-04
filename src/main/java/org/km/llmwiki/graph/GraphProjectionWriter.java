@@ -51,6 +51,23 @@ public interface GraphProjectionWriter {
      */
     GraphProjectionCleanupResult removeStale(GraphProjectionReconciliation reconciliation);
 
-    /** Deletes all derived graph state for one workspace without touching canonical authority. */
-    void clearWorkspace(GraphWorkspaceScope workspace);
+    /**
+     * Conditionally clears the derived projection state owned by one generation.
+     *
+     * <p>The target workspace and the complete application-owned context proof must be supplied
+     * together. Implementations must compare the current snapshot with the context and perform
+     * the destructive clear as one atomic state transition, or a provider-neutral equivalent;
+     * a caller must not implement this as a read-then-clear sequence. A newer current generation
+     * must return {@link GraphProjectionWriteStatus#SUPERSEDED} without mutation. A same-generation
+     * proof mismatch must fail with {@link GraphProjectionFailureType#INVALID_PROJECTION_INPUT},
+     * a cross-workspace target must fail with {@link GraphProjectionFailureType#CROSS_WORKSPACE},
+     * and an incompatible projection version must fail with
+     * {@link GraphProjectionFailureType#PROJECTION_INCOMPATIBLE}. A clear may remove rows owned
+     * by the expected generation and older generations, but must preserve rows staged for newer
+     * generations so they can still be published. Repeating an already applied clear with the
+     * same proof is an idempotent {@link GraphProjectionWriteStatus#NO_OP}. Canonical authority
+     * must never be modified.
+     */
+    GraphProjectionWriteResult clearWorkspace(GraphWorkspaceScope workspace,
+                                               GraphProjectionWriteContext context);
 }
