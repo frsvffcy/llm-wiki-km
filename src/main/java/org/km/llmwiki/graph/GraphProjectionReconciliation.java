@@ -49,6 +49,11 @@ public record GraphProjectionReconciliation(GraphProjectionInput input,
         return snapshot.equals(current);
     }
 
+    /** Returns the write context carrying this reconciliation's complete input and snapshot proof. */
+    public GraphProjectionWriteContext writeContext() {
+        return GraphProjectionWriteContext.of(input, snapshot);
+    }
+
     /** Whether a newer generation has superseded this reconciliation. */
     public boolean isSupersededBy(GraphProjectionSnapshot current) {
         return current != null && workspace().equals(current.workspace())

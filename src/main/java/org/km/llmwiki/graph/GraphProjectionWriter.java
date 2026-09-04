@@ -4,18 +4,38 @@ package org.km.llmwiki.graph;
 public interface GraphProjectionWriter {
 
     /**
-     * Upserts one immutable entity projection in the supplied workspace.
-     * Implementations must reject a mismatched entity workspace and must not mutate canonical
-     * authority.
+     * Upserts one immutable entity projection under an application-owned snapshot proof.
+     *
+     * <p>A context for a generation newer than the current snapshot may be staged, but staged
+     * rows must not be current-visible until {@link #publish(GraphProjectionWriteContext)}
+     * succeeds. If a newer generation is already current, implementations must return
+     * {@link GraphProjectionWriteStatus#SUPERSEDED} without mutating any row. A same-generation
+     * proof mismatch must fail with
+     * {@link GraphProjectionFailureType#INVALID_PROJECTION_INPUT}; workspace and projection
+     * version mismatches must fail closed as typed projection failures. Implementations must not
+     * mutate canonical authority.
      */
-    void upsertEntity(GraphWorkspaceScope workspace, GraphEntity entity);
+    GraphProjectionWriteResult upsertEntity(GraphProjectionWriteContext context, GraphEntity entity);
 
     /**
-     * Upserts one immutable relation projection in the supplied workspace.
-     * Implementations must reject a mismatched relation workspace and must not mutate canonical
-     * authority.
+     * Upserts one immutable relation projection under the same generation ownership rules as an
+     * entity write. Entity and relation writes must have identical stale, conflict, workspace,
+     * version, and idempotency semantics.
      */
-    void upsertRelation(GraphWorkspaceScope workspace, GraphRelation relation);
+    GraphProjectionWriteResult upsertRelation(GraphProjectionWriteContext context,
+                                               GraphRelation relation);
+
+    /**
+     * Atomically publishes the context's staged rows as the workspace's current projection.
+     *
+     * <p>Publication is the visibility boundary: all rows written with the matching context are
+     * current-visible only after this operation succeeds. Publication does not infer missing
+     * rows; callers must complete the context's entity/relation writes before publishing. A newer
+     * current generation wins the compare-and-set and causes
+     * {@link GraphProjectionWriteStatus#SUPERSEDED}; an incompatible same-generation proof fails
+     * closed. A matching current proof is idempotent.
+     */
+    GraphProjectionWriteResult publish(GraphProjectionWriteContext context);
 
     /**
      * Conditionally removes or supersedes projection rows absent from the active set.
