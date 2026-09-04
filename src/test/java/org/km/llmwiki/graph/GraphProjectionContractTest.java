@@ -52,6 +52,14 @@ class GraphProjectionContractTest {
                 List.of(first, first), List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("duplicate");
+
+        GraphEntity missing = entity(firstWorkspace, "missing", "Missing", version);
+        GraphRelation orphan = GraphRelation.of(first.identity(), GraphRelationType.LINKS_TO,
+                missing.identity(), first.provenance(), GraphMetadata.empty());
+        assertThatThrownBy(() -> new GraphProjectionInput(firstWorkspace, version,
+                List.of(first), List.of(orphan)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("orphan");
     }
 
     @Test
@@ -62,26 +70,54 @@ class GraphProjectionContractTest {
         GraphEntity second = entity(workspace, "second", "Second", version);
         GraphRelation relation = GraphRelation.of(first.identity(), GraphRelationType.LINKS_TO,
                 second.identity(), first.provenance(), GraphMetadata.empty());
-        String token = "d".repeat(64);
-        GraphProjectionSnapshot snapshot = new GraphProjectionSnapshot(workspace, version, 3,
-                "e".repeat(64), token);
-        GraphProjectionReconciliation reconciliation = new GraphProjectionReconciliation(workspace,
-                snapshot, List.of(second.identity(), first.identity()), List.of(relation.identity()));
+        GraphProjectionInput input = new GraphProjectionInput(workspace, version,
+                List.of(second, first), List.of(relation));
+        GraphProjectionSnapshot snapshot = GraphProjectionSnapshot.of(input, 3);
+        GraphProjectionReconciliation reconciliation = GraphProjectionReconciliation.from(input, snapshot);
 
         assertThat(reconciliation.activeEntities()).containsExactly(first.identity(), second.identity());
+        assertThat(reconciliation.activeRelations()).containsExactly(relation.identity());
+        assertThat(reconciliation.input()).isEqualTo(input);
+        assertThat(reconciliation.activeEntities()).isUnmodifiable();
         GraphProjectionSnapshot rebuilt = GraphProjectionSnapshot.of(
                 new GraphProjectionInput(workspace, version, List.of(first, second), List.of(relation)), 3);
-        assertThat(rebuilt.snapshotToken()).isEqualTo(GraphProjectionSnapshot.of(
-                new GraphProjectionInput(workspace, version, List.of(second, first), List.of(relation)), 3)
-                .snapshotToken());
-        assertThatThrownBy(() -> new GraphProjectionReconciliation(new GraphWorkspaceScope(22),
-                snapshot, List.of(), List.of()))
+        assertThat(rebuilt.snapshotToken()).isEqualTo(snapshot.snapshotToken())
+                .hasSize(64).matches("[0-9a-f]{64}");
+        assertThat(GraphProjectionSnapshot.TOKEN_VERSION).isEqualTo("graph-projection-snapshot-v1");
+        assertThat(reconciliation.owns(rebuilt)).isTrue();
+        assertThat(reconciliation.isSupersededBy(GraphProjectionSnapshot.of(input, 4))).isTrue();
+        GraphProjectionInput otherWorkspaceInput = new GraphProjectionInput(new GraphWorkspaceScope(22),
+                version, List.of(), List.of());
+        assertThatThrownBy(() -> GraphProjectionReconciliation.from(otherWorkspaceInput, snapshot))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("workspace");
-        assertThatThrownBy(() -> new GraphProjectionReconciliation(workspace, snapshot,
-                List.of(first.identity()), List.of(relation.identity())))
+        GraphProjectionInput otherInput = new GraphProjectionInput(workspace, version,
+                List.of(first), List.of());
+        GraphProjectionSnapshot otherSnapshot = GraphProjectionSnapshot.of(otherInput, 3);
+        assertThatThrownBy(() -> GraphProjectionReconciliation.from(input, otherSnapshot))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("orphan");
+                .hasMessageContaining("fingerprint");
+        GraphProjectionVersion otherVersion = new GraphProjectionVersion("graph-projection-v2");
+        GraphProjectionInput otherVersionInput = new GraphProjectionInput(workspace, otherVersion,
+                List.of(), List.of());
+        assertThatThrownBy(() -> GraphProjectionReconciliation.from(input,
+                GraphProjectionSnapshot.of(otherVersionInput, 3)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("version");
+    }
+
+    @Test
+    void snapshotRejectsArbitraryProofTokenAndUsesVersionedApplicationEncoding() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(21);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphProjectionInput input = new GraphProjectionInput(workspace, version, List.of(), List.of());
+
+        assertThatThrownBy(() -> new GraphProjectionSnapshot(workspace, version, 3,
+                input.sourceFingerprint(), "d".repeat(64)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("token");
+        assertThat(GraphProjectionSnapshot.of(input, 3).snapshotToken())
+                .isEqualTo(GraphProjectionSnapshot.of(input, 3).snapshotToken());
     }
 
     @Test

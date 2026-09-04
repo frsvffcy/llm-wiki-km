@@ -1,60 +1,63 @@
 package org.km.llmwiki.graph;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
-/** Workspace-scoped active set used to remove or supersede stale derived projection state. */
-public record GraphProjectionReconciliation(GraphWorkspaceScope workspace,
-                                            GraphProjectionSnapshot snapshot,
-                                            List<GraphEntityIdentity> activeEntities,
-                                            List<GraphRelationIdentity> activeRelations) {
+/**
+ * Workspace-scoped active set used to remove or supersede stale derived projection state.
+ *
+ * <p>The active identities are derived from the immutable input. There is intentionally no
+ * constructor that accepts a caller-supplied active set: a reconciliation must carry proof that
+ * its cleanup set came from the same input fingerprint as its snapshot.
+ */
+public record GraphProjectionReconciliation(GraphProjectionInput input,
+                                            GraphProjectionSnapshot snapshot) {
 
     public GraphProjectionReconciliation {
-        if (workspace == null || snapshot == null || !workspace.equals(snapshot.workspace())
-                || activeEntities == null || activeRelations == null) {
-            throw new IllegalArgumentException("Graph reconciliation is incomplete or cross-workspace");
+        if (input == null || snapshot == null) {
+            throw new IllegalArgumentException("Graph reconciliation input and snapshot are required");
         }
-        activeEntities = sortedEntities(workspace, activeEntities);
-        activeRelations = sortedRelations(workspace, activeRelations);
-        Set<GraphEntityIdentity> activeEntitySet = Set.copyOf(activeEntities);
-        for (GraphRelationIdentity relation : activeRelations) {
-            if (!activeEntitySet.contains(relation.source())
-                    || !activeEntitySet.contains(relation.target())) {
-                throw new IllegalArgumentException("Graph reconciliation contains an orphan relation");
-            }
+        if (!input.workspace().equals(snapshot.workspace())) {
+            throw new IllegalArgumentException("Graph reconciliation crosses workspace boundary");
+        }
+        if (!input.projectionVersion().equals(snapshot.projectionVersion())) {
+            throw new IllegalArgumentException("Graph reconciliation projection version differs from snapshot");
+        }
+        if (!input.sourceFingerprint().equals(snapshot.sourceFingerprint())) {
+            throw new IllegalArgumentException("Graph reconciliation source fingerprint differs from snapshot");
         }
     }
 
-    private static List<GraphEntityIdentity> sortedEntities(GraphWorkspaceScope workspace,
-                                                             List<GraphEntityIdentity> input) {
-        List<GraphEntityIdentity> result = new ArrayList<>(input);
-        if (result.stream().anyMatch(identity -> identity == null)) {
-            throw new IllegalArgumentException("Graph reconciliation contains a null entity identity");
-        }
-        result.sort(java.util.Comparator.comparing(GraphEntityIdentity::stableId));
-        for (int i = 0; i < result.size(); i++) {
-            if (!workspace.equals(result.get(i).workspace())
-                    || (i > 0 && result.get(i - 1).equals(result.get(i)))) {
-                throw new IllegalArgumentException("Graph reconciliation contains invalid entity identity");
-            }
-        }
-        return List.copyOf(result);
+    public static GraphProjectionReconciliation from(GraphProjectionInput input,
+                                                     GraphProjectionSnapshot snapshot) {
+        return new GraphProjectionReconciliation(input, snapshot);
     }
 
-    private static List<GraphRelationIdentity> sortedRelations(GraphWorkspaceScope workspace,
-                                                                List<GraphRelationIdentity> input) {
-        List<GraphRelationIdentity> result = new ArrayList<>(input);
-        if (result.stream().anyMatch(identity -> identity == null)) {
-            throw new IllegalArgumentException("Graph reconciliation contains a null relation identity");
-        }
-        result.sort(java.util.Comparator.comparing(GraphRelationIdentity::stableId));
-        for (int i = 0; i < result.size(); i++) {
-            if (!workspace.equals(result.get(i).workspace())
-                    || (i > 0 && result.get(i - 1).equals(result.get(i)))) {
-                throw new IllegalArgumentException("Graph reconciliation contains invalid relation identity");
-            }
-        }
-        return List.copyOf(result);
+    public GraphWorkspaceScope workspace() {
+        return input.workspace();
+    }
+
+    public List<GraphEntityIdentity> activeEntities() {
+        return input.entities().stream().map(GraphEntity::identity).toList();
+    }
+
+    public List<GraphRelationIdentity> activeRelations() {
+        return input.relations().stream().map(GraphRelation::identity).toList();
+    }
+
+    /** Whether this reconciliation still owns the supplied current snapshot proof. */
+    public boolean owns(GraphProjectionSnapshot current) {
+        return snapshot.equals(current);
+    }
+
+    /** Whether a newer generation has superseded this reconciliation. */
+    public boolean isSupersededBy(GraphProjectionSnapshot current) {
+        return current != null && workspace().equals(current.workspace())
+                && current.generation() > snapshot.generation();
+    }
+
+    /** Whether the same generation is represented by a different snapshot proof. */
+    public boolean conflictsWith(GraphProjectionSnapshot current) {
+        return current != null && workspace().equals(current.workspace())
+                && current.generation() == snapshot.generation() && !owns(current);
     }
 }
