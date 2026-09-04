@@ -55,7 +55,17 @@ lexical fallback when vector search is unavailable, while `SEMANTIC_*` fails clo
 unavailable response. These modes describe available retrieval contracts, not semantic corpus
 readiness: semantic serving additionally requires backend capability configuration, a `READY`
 embedding projection for the requested workspace and corpus, and query-time metadata, freshness,
-and authority validation. Neo4j/GraphRAG remains Phase 3.
+and authority validation. Phase 3 is reserved for the provider-neutral Knowledge Graph, bounded
+Graph Retrieval, and GraphRAG capability; no graph runtime is part of the current baseline. Its
+contract must cover Graph Entity, Relation, Provenance, stable identity, workspace scope, and
+rebuildable projection. Graph candidates must pass workspace-scoped authority, provenance,
+freshness, and eligibility revalidation before entering `EvidenceBundle`, then continue through
+the existing citation and grounded Answer contract. Neo4j is a local-first interactive
+reference-adapter candidate, BigQuery Graph is an optional cloud analytics adapter that still
+requires local-to-cloud projection/sync when canonical data is local, and Spanner Graph is a
+future realtime/operational adapter candidate. No backend is canonical, browser-accessible, or the
+domain contract; Cypher, GQL, SQL-PGQ, and vendor DTOs remain behind adapters. See
+[ADR 0007](docs/adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md).
 
 The capability decision, platform matrix, fallback semantics, and dependencies for #183–#185 are
 recorded in [ADR 0003](docs/adr/0003-vector-capability-and-sqlite-vec-feasibility.md). Native

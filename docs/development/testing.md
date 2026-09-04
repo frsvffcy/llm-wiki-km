@@ -100,6 +100,35 @@ state vary. A result count below the requested limit is valid when authority rev
 stale, ineligible or drifted rows; it must never be filled by an unbounded workspace scan or by
 treating projection data as canonical authority.
 
+## Phase 3 Graph capability boundary
+
+Phase 3 is a provider-neutral Knowledge Graph, bounded Graph Retrieval, and GraphRAG capability;
+it is not a commitment to Neo4j or another specific backend. Until the capability is implemented,
+the lexical/vector retrieval baseline and its evidence contracts remain the active product surface.
+The architecture decision is recorded in
+[ADR 0007](../adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md).
+
+Future graph work must provide evidence at each boundary:
+
+- Graph Entity, Relation, Provenance, stable identity, and workspace scope are tested as
+  provider-neutral contracts; Cypher, GQL, SQL-PGQ, and vendor DTOs stay in adapter tests.
+- Projection tests prove that graph state is derived and rebuildable from canonical
+  `archive/`/`vault/` content and authoritative metadata, with workspace isolation and stale or
+  orphaned projection recovery.
+- Traversal tests assert deterministic bounds for seed count, hop depth, fan-out, node/edge
+  candidates, and context/evidence budget. No test may rely on an unbounded traversal or graph
+  explosion being unlikely.
+- Retrieval tests prove graph candidates undergo authority, provenance, freshness, and eligibility
+  revalidation before `EvidenceBundle` assembly, citation creation, and grounded Answer validation.
+- Adapter-unavailable tests prove lexical/vector retrieval remains usable and that operational
+  failure is not reported as a false empty graph result. Cloud adapter evaluation must also record
+  local-first/offline fit, latency, projection/sync complexity, cost, IAM/security,
+  residency/privacy, operability, scale, developer ergonomics, and portability/lock-in.
+
+These checks are selected by changed surface and must be assigned to the existing unit, contract,
+or integration tiers; introducing a graph backend does not justify bypassing the current
+authority/evidence suites or making a vendor the default solely because it is generally available.
+
 ## PR CI and merge gate
 
 Every pull request targeting `main` runs `.github/workflows/pr-ci.yml` with four complementary
