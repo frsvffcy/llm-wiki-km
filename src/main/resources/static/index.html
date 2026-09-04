@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; connect-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>Local Knowledge Ask</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/ask-ui.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="page-header">
+      <p class="eyebrow">LOCAL KNOWLEDGE</p>
+      <h1>Ask your knowledge base</h1>
+      <p class="intro">從已索引的 Wiki 與來源文件取得有依據的回答。</p>
+    </header>
+
+    <section class="panel ask-panel" aria-labelledby="ask-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">ASK</p>
+          <h2 id="ask-heading">提出問題</h2>
+        </div>
+        <span class="status-dot" aria-hidden="true"></span>
+      </div>
+      <form id="ask-form" novalidate>
+        <label for="question">問題</label>
+        <textarea id="question" name="question" rows="5" maxlength="4000"
+                  placeholder="例如：這個知識庫的核心架構原則是什麼？"
+                  required></textarea>
+        <div class="form-row">
+          <div class="field-group">
+            <label for="retrieval-mode">搜尋範圍</label>
+            <select id="retrieval-mode" name="retrievalMode">
+              <option value="HYBRID_FTS">Wiki 與來源文件（全文搜尋）</option>
+              <option value="WIKI_ONLY">僅 Wiki</option>
+              <option value="SOURCE_ONLY">僅來源文件</option>
+              <option value="SEMANTIC_WIKI">Wiki 語意搜尋</option>
+              <option value="SEMANTIC_SOURCE">來源文件語意搜尋</option>
+              <option value="HYBRID_VECTOR">Wiki 與來源文件（語意混合）</option>
+            </select>
+          </div>
+          <button id="ask-submit" type="submit">取得回答</button>
+        </div>
+        <p id="form-hint" class="form-hint" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section id="ask-result" class="panel result-panel" aria-live="polite" aria-busy="false">
+      <div id="result-empty" class="empty-state">
+        <span class="empty-mark" aria-hidden="true">✦</span>
+        <p>回答會顯示在這裡</p>
+      </div>
+      <div id="result-error" class="result-state error-state" role="alert" hidden>
+        <p class="state-label">需要處理</p>
+        <h2 id="error-title"></h2>
+        <p id="error-message"></p>
+      </div>
+      <div id="result-insufficient" class="result-state insufficient-state" hidden>
+        <p class="state-label">證據狀態</p>
+        <h2>目前沒有足夠證據</h2>
+        <p>這次搜尋沒有找到足以支持回答的已索引內容。可以改用更具體的問題，或確認資料已完成索引。</p>
+      </div>
+      <div id="result-answer" hidden>
+        <div class="answer-heading">
+          <div>
+            <p class="state-label">Grounded answer</p>
+            <h2>回答</h2>
+          </div>
+          <span id="answer-status" class="answer-badge">有依據</span>
+        </div>
+        <div id="answer-text" class="answer-text"></div>
+        <div id="provider-metadata" class="provider-metadata" hidden></div>
+        <div class="citation-heading">
+          <h3>引用來源</h3>
+          <span id="citation-count" class="citation-count"></span>
+        </div>
+        <ol id="citations" class="citation-list"></ol>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

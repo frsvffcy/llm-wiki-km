@@ -1,0 +1,121 @@
+name: PR CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fast-tests:
+    name: Fast unit and contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run Browser Ask UI contract tests
+        run: node --test src/test/js/ask-ui.test.mjs
+      - name: Run fast test tier
+        run: mvn --batch-mode test -Pfast
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run integration test tier
+        run: mvn --batch-mode test -Pintegration
+
+  full-build-integrity:
+    name: Full regression and build integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Check diff whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --check "$BASE_SHA...$HEAD_SHA"
+      - name: Run clean full regression, Flyway, jOOQ and package gate
+        run: mvn --batch-mode clean verify -Pfull
+      - name: Run pinned sqlite-vec JDBC smoke on Linux
+        run: |
+          curl --fail --location --silent --show-error \
+            --output sqlite-vec-linux.tgz \
+            https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-loadable-linux-x86_64.tar.gz
+          echo "b959baa1d8dc88861b1edb337b8587178cdcb12d60b4998f9d10b6a82052d5d7  sqlite-vec-linux.tgz" | sha256sum --check
+          mkdir -p target/sqlite-vec-linux
+          tar --extract --gzip --file sqlite-vec-linux.tgz --directory target/sqlite-vec-linux
+          chmod +x scripts/sqlite-vec-jdbc-smoke.sh
+          scripts/sqlite-vec-jdbc-smoke.sh target/sqlite-vec-linux/vec0.so
+      - name: Upload Surefire reports and package artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-build-reports
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+            target/*.jar
+          if-no-files-found: ignore
+
+  pr-gate:
+    name: PR Gate
+    if: ${{ always() }}
+    needs:
+      - fast-tests
+      - integration-tests
+      - full-build-integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required CI jobs succeeded
+        if: ${{ needs.fast-tests.result == 'success' && needs.integration-tests.result == 'success' && needs.full-build-integrity.result == 'success' }}
+        run: echo "Fast, Integration, and Full CI jobs all succeeded."
+      - name: Reject incomplete required CI jobs
+        if: ${{ needs.fast-tests.result != 'success' || needs.integration-tests.result != 'success' || needs.full-build-integrity.result != 'success' }}
+        env:
+          FAST_RESULT: ${{ needs.fast-tests.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+          FULL_RESULT: ${{ needs.full-build-integrity.result }}
+        run: |
+          echo "Fast unit and contract tests: ${FAST_RESULT}"
+          echo "Integration tests: ${INTEGRATION_RESULT}"
+          echo "Full regression and build integrity: ${FULL_RESULT}"
+          echo "PR Gate requires every upstream CI job to succeed."
+          exit 1

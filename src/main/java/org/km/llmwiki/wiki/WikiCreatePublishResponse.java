@@ -1,0 +1,28 @@
+package org.km.llmwiki.wiki;
+
+/** Provenance returned for both the first CREATE and a verified repeat NO_OP. */
+public record WikiCreatePublishResponse(WikiPublishResultType result, WikiPublishOutcome outcome, Long attemptId,
+                                        long operationId, long workspaceId,
+                                        long proposalId, long draftId, long knowledgePageId,
+                                        String knowledgeId, String targetPath, String contentHash,
+                                        int revision, String publishedAt) implements WikiPublishResult {
+    public static WikiCreatePublishResponse from(WikiPublishOutcome outcome,
+                                                 StoredWikiPublishOperation operation) {
+        if (operation.action() != org.km.llmwiki.ai.LlmProposalAction.CREATE
+                || operation.status() != WikiPublishOperationStatus.COMPLETED
+                || operation.knowledgePageId() == null || operation.completedAt() == null) {
+            throw new IllegalArgumentException("Only a completed CREATE publish can produce a response");
+        }
+        WikiPublishResultType result = outcome == WikiPublishOutcome.NO_OP
+                ? WikiPublishResultType.NO_OP : WikiPublishResultType.PUBLISHED;
+        return new WikiCreatePublishResponse(result, outcome, null, operation.id(), operation.workspaceId(),
+                operation.proposalId(), operation.draftId(), operation.knowledgePageId(), operation.knowledgeId(),
+                operation.targetPath(), operation.contentHash(), operation.revision(), operation.completedAt());
+    }
+
+    @Override
+    public WikiCreatePublishResponse withAttemptId(long attemptId) {
+        return new WikiCreatePublishResponse(result, outcome, attemptId, operationId, workspaceId, proposalId,
+                draftId, knowledgePageId, knowledgeId, targetPath, contentHash, revision, publishedAt);
+    }
+}

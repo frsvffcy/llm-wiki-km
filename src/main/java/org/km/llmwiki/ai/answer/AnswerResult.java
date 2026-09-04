@@ -1,0 +1,43 @@
+package org.km.llmwiki.ai.answer;
+
+import java.util.Objects;
+import java.util.List;
+import java.util.Optional;
+
+/** Immutable generated answer and non-secret provider metadata. */
+public record AnswerResult(
+        String answerText,
+        List<String> citedEvidenceIds,
+        boolean insufficientEvidence,
+        AnswerProviderMetadata providerMetadata,
+        Optional<AnswerUsageMetadata> usage
+) {
+
+    private static final int MAX_ANSWER_CODE_POINTS = AnswerGenerationOptions.MAX_ALLOWED_OUTPUT_CODE_POINTS;
+
+    public AnswerResult {
+        if (answerText == null || answerText.isBlank()) {
+            throw new IllegalArgumentException("answerText must not be blank");
+        }
+        if (answerText.codePointCount(0, answerText.length()) > MAX_ANSWER_CODE_POINTS) {
+            throw new IllegalArgumentException("answerText exceeds the bounded result size");
+        }
+        if (citedEvidenceIds == null || citedEvidenceIds.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("citedEvidenceIds must not be null");
+        }
+        if (citedEvidenceIds.stream().anyMatch(id -> id.isBlank() || id.length() > 32)) {
+            throw new IllegalArgumentException("citedEvidenceIds contains an invalid id");
+        }
+        if (insufficientEvidence && !citedEvidenceIds.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "insufficientEvidence results must not cite evidence");
+        }
+        if (!insufficientEvidence && citedEvidenceIds.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "non-insufficient answers must cite at least one evidence item");
+        }
+        citedEvidenceIds = List.copyOf(citedEvidenceIds);
+        providerMetadata = Objects.requireNonNull(providerMetadata, "providerMetadata must not be null");
+        usage = usage == null ? Optional.empty() : usage;
+    }
+}

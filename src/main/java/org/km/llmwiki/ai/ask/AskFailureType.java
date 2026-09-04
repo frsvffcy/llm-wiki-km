@@ -1,0 +1,24 @@
+package org.km.llmwiki.ai.ask;
+
+/** Failure categories exposed by Ask without collapsing retrieval and provider failures. */
+public enum AskFailureType {
+    RETRIEVAL_UNAVAILABLE("RETRIEVAL_UNAVAILABLE"),
+    RETRIEVAL_VECTOR_UNAVAILABLE("RETRIEVAL_VECTOR_UNAVAILABLE"),
+    PROVIDER_CONFIGURATION_UNAVAILABLE("ANSWER_PROVIDER_NOT_CONFIGURED"),
+    PROVIDER_AUTHENTICATION_OR_AUTHORIZATION("ANSWER_PROVIDER_AUTHENTICATION_FAILED"),
+    PROVIDER_RATE_LIMIT_OR_QUOTA("ANSWER_PROVIDER_RATE_LIMITED"),
+    PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE("ANSWER_PROVIDER_UNAVAILABLE"),
+    PROVIDER_SERVER_FAILURE("ANSWER_PROVIDER_SERVER_FAILURE"),
+    PROVIDER_INVALID_RESPONSE("ANSWER_PROVIDER_INVALID_RESPONSE"),
+    LOCAL_VALIDATION("ANSWER_REQUEST_REJECTED");
+
+    private final String publicCode;
+
+    AskFailureType(String publicCode) {
+        this.publicCode = publicCode;
+    }
+
+    public String publicCode() {
+        return publicCode;
+    }
+}
