@@ -391,6 +391,25 @@ public class EmbeddingProjectionReadinessRepository {
                 .and(EMBEDDING_PROJECTION_READINESS.STATUS.eq(EmbeddingProjectionReadinessStatus.READY.name())).execute();
     }
 
+    /**
+     * Invalidates only the READY generation observed by a caller. A delayed semantic query must
+     * never turn a newer generation's proof stale after a rebuild has already published it.
+     */
+    @Transactional
+    public int markStaleIfGeneration(long workspaceId, EmbeddingEvidenceKind corpus,
+                                     long expectedGeneration, String detail) {
+        return dsl.update(EMBEDDING_PROJECTION_READINESS)
+                .set(EMBEDDING_PROJECTION_READINESS.STATUS, EmbeddingProjectionReadinessStatus.STALE.name())
+                .set(EMBEDDING_PROJECTION_READINESS.PROJECTION_SNAPSHOT_TOKEN, (String) null)
+                .set(EMBEDDING_PROJECTION_READINESS.FAILURE_DETAIL, bounded(detail))
+                .set(EMBEDDING_PROJECTION_READINESS.UPDATED_AT, now())
+                .where(EMBEDDING_PROJECTION_READINESS.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(EMBEDDING_PROJECTION_READINESS.CORPUS.eq(corpus.storageValue()))
+                .and(EMBEDDING_PROJECTION_READINESS.STATUS.eq(EmbeddingProjectionReadinessStatus.READY.name()))
+                .and(EMBEDDING_PROJECTION_READINESS.TARGET_GENERATION.eq(Math.toIntExact(expectedGeneration)))
+                .execute();
+    }
+
     private void recompute(long workspaceId, EmbeddingEvidenceKind corpus, String detail) {
         var current = findRecord(workspaceId, corpus).orElse(null);
         if (current == null) return;

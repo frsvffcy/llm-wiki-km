@@ -18,6 +18,9 @@ import org.km.llmwiki.search.SourceSearchAuthorityDocument;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
 import org.km.llmwiki.search.embedding.EmbeddingEvidenceKind;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionContract;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadiness;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessRepository;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessStatus;
 import org.km.llmwiki.wiki.PageStatus;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.km.llmwiki.wiki.StoredPublishedWiki;
@@ -25,15 +28,19 @@ import org.km.llmwiki.wiki.WikiPageType;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @Tag("unit")
@@ -48,6 +55,8 @@ class VectorCandidateSearchServiceTest {
     private PublishedWikiRepository wikiRepository;
     private SourceSearchAuthorityRepository sourceRepository;
     private VectorSimilaritySearch similaritySearch;
+    private EmbeddingProjectionReadinessRepository readinessRepository;
+    private Map<EmbeddingEvidenceKind, EmbeddingProjectionReadiness> readinessStates;
     private VectorCandidateSearchService service;
 
     @BeforeEach
@@ -215,6 +224,141 @@ class VectorCandidateSearchServiceTest {
         }
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = EmbeddingProjectionReadinessStatus.class,
+            names = {"STALE", "QUEUED", "REBUILDING"})
+    void providerReturnAfterReadinessLeavesReadyFailsClosed(
+            EmbeddingProjectionReadinessStatus invalidatedStatus) {
+        EmbeddingProjectionReadiness ready = ready(EmbeddingEvidenceKind.WIKI, 1, 1, "snapshot-a");
+        useReadiness(ready);
+        when(embeddingClient.embed(any(EmbeddingRequest.class))).thenAnswer(invocation -> {
+            readinessStates.put(EmbeddingEvidenceKind.WIKI,
+                    state(EmbeddingEvidenceKind.WIKI, invalidatedStatus, 2, 1, null));
+            return embeddingResult(invocation.getArgument(0, EmbeddingRequest.class),
+                    "test-provider", "test-model", 2);
+        });
+
+        assertProjectionReadinessUnavailable();
+        verifyNoInteractions(similaritySearch);
+    }
+
+    @org.junit.jupiter.api.Test
+    void providerReturnAfterFullRebuildPublishesNewReadyGenerationFailsClosed() {
+        useReadiness(ready(EmbeddingEvidenceKind.WIKI, 1, 1, "snapshot-a"));
+        when(embeddingClient.embed(any(EmbeddingRequest.class))).thenAnswer(invocation -> {
+            readinessStates.put(EmbeddingEvidenceKind.WIKI,
+                    ready(EmbeddingEvidenceKind.WIKI, 2, 2, "snapshot-b"));
+            return embeddingResult(invocation.getArgument(0, EmbeddingRequest.class),
+                    "test-provider", "test-model", 2);
+        });
+
+        assertProjectionReadinessUnavailable();
+        verifyNoInteractions(similaritySearch);
+    }
+
+    @Test
+    void readyProofWithUnappliedTargetGenerationFailsClosed() {
+        useReadiness(ready(EmbeddingEvidenceKind.WIKI, 2, 1, "snapshot-a"));
+
+        assertProjectionReadinessUnavailable();
+        verifyNoInteractions(similaritySearch);
+    }
+
+    @org.junit.jupiter.api.Test
+    void refillDoesNotStartAfterReadinessGenerationChanges() {
+        useReadiness(ready(EmbeddingEvidenceKind.WIKI, 1, 1, "snapshot-a"));
+        when(similaritySearch.findNearest(any(VectorSimilarityQuery.class))).thenAnswer(invocation -> {
+            readinessStates.put(EmbeddingEvidenceKind.WIKI,
+                    ready(EmbeddingEvidenceKind.WIKI, 2, 2, "snapshot-b"));
+            return List.of(match(EmbeddingEvidenceKind.WIKI, "missing-a", HASH_A, 0.9d),
+                    match(EmbeddingEvidenceKind.WIKI, "missing-b", HASH_B, 0.8d));
+        });
+
+        assertProjectionReadinessUnavailable();
+        verify(similaritySearch).findNearest(any(VectorSimilarityQuery.class));
+    }
+
+    @org.junit.jupiter.api.Test
+    void allCorpusFailsWhenOnlySourceGenerationChangesDuringProviderCall() {
+        useReadiness(ready(EmbeddingEvidenceKind.WIKI, 1, 1, "wiki-a"),
+                ready(EmbeddingEvidenceKind.SOURCE_CHUNK, 1, 1, "source-a"));
+        when(embeddingClient.embed(any(EmbeddingRequest.class))).thenAnswer(invocation -> {
+            readinessStates.put(EmbeddingEvidenceKind.SOURCE_CHUNK,
+                    ready(EmbeddingEvidenceKind.SOURCE_CHUNK, 2, 2, "source-b"));
+            return embeddingResult(invocation.getArgument(0, EmbeddingRequest.class),
+                    "test-provider", "test-model", 2);
+        });
+
+        assertProjectionReadinessUnavailable(SearchCorpus.ALL);
+        verifyNoInteractions(similaritySearch);
+    }
+
+    @org.junit.jupiter.api.Test
+    void metadataDriftIsTypedUnavailableAndUsesGenerationConditionalStaleMarking() {
+        useReadiness(ready(EmbeddingEvidenceKind.WIKI, 7, 7, "snapshot-a"));
+        when(embeddingClient.embed(any(EmbeddingRequest.class))).thenAnswer(invocation ->
+                embeddingResult(invocation.getArgument(0, EmbeddingRequest.class),
+                        "different-provider", "test-model", 2));
+
+        assertProjectionReadinessUnavailable();
+        verify(readinessRepository).markStaleIfGeneration(WORKSPACE.id(),
+                EmbeddingEvidenceKind.WIKI, 7, "Embedding provider/model/dimension changed; rebuild required");
+        verifyNoInteractions(similaritySearch);
+    }
+
+    @org.junit.jupiter.api.Test
+    void modelDriftIsTypedUnavailable() {
+        useReadiness(ready(EmbeddingEvidenceKind.WIKI, 1, 1, "snapshot-a"));
+        when(embeddingClient.embed(any(EmbeddingRequest.class))).thenAnswer(invocation ->
+                embeddingResult(invocation.getArgument(0, EmbeddingRequest.class),
+                        "test-provider", "different-model", 2));
+
+        assertProjectionReadinessUnavailable();
+        verify(readinessRepository).markStaleIfGeneration(WORKSPACE.id(),
+                EmbeddingEvidenceKind.WIKI, 1, "Embedding provider/model/dimension changed; rebuild required");
+    }
+
+    @org.junit.jupiter.api.Test
+    void dimensionDriftIsTypedUnavailable() {
+        useReadiness(state(EmbeddingEvidenceKind.WIKI, EmbeddingProjectionReadinessStatus.READY,
+                1, 1, "snapshot-a", "test-provider", "test-model", 3,
+                EmbeddingProjectionContract.VERSION));
+
+        assertProjectionReadinessUnavailable();
+        verify(readinessRepository).markStaleIfGeneration(WORKSPACE.id(),
+                EmbeddingEvidenceKind.WIKI, 1, "Embedding provider/model/dimension changed; rebuild required");
+    }
+
+    @org.junit.jupiter.api.Test
+    void projectionVersionDriftIsTypedUnavailable() {
+        useReadiness(state(EmbeddingEvidenceKind.WIKI, EmbeddingProjectionReadinessStatus.READY,
+                1, 1, "snapshot-a", "test-provider", "test-model", 2, "projection-v0"));
+
+        assertProjectionReadinessUnavailable();
+        verify(readinessRepository).markStaleIfGeneration(WORKSPACE.id(),
+                EmbeddingEvidenceKind.WIKI, 1, "Embedding provider/model/dimension changed; rebuild required");
+    }
+
+    @org.junit.jupiter.api.Test
+    void unchangedReadyGenerationWithNoKnnMatchesIsLegitimateEmptyResult() {
+        useReadiness(ready(EmbeddingEvidenceKind.WIKI, 1, 1, "snapshot-a"));
+        when(similaritySearch.findNearest(any(VectorSimilarityQuery.class))).thenReturn(List.of());
+
+        SearchCandidatePage page = service.findCandidates(
+                new VectorCandidateSearchQuery("query", SearchCorpus.WIKI, 2), WORKSPACE);
+
+        assertThat(page.items()).isEmpty();
+        verify(similaritySearch).findNearest(any(VectorSimilarityQuery.class));
+    }
+
+    @org.junit.jupiter.api.Test
+    void readinessIsWorkspaceIsolated() {
+        useReadiness(ready(EmbeddingEvidenceKind.WIKI, 1, 1, "other-workspace"), 99L);
+
+        assertProjectionReadinessUnavailable();
+        verifyNoInteractions(similaritySearch);
+    }
+
     @Test
     void propagatesUnexpectedSimilarityRuntimeException() {
         IllegalStateException defect = new IllegalStateException("programming defect");
@@ -245,6 +389,95 @@ class VectorCandidateSearchServiceTest {
                                                String hash, double similarity) {
         return new VectorSimilarityMatch(kind, id, hash, "test-provider", "test-model", 2,
                 EmbeddingProjectionContract.VERSION, similarity);
+    }
+
+    private void useReadiness(EmbeddingProjectionReadiness... states) {
+        useReadiness(WORKSPACE.id(), states);
+    }
+
+    private void useReadiness(EmbeddingProjectionReadiness state, long workspaceId) {
+        readinessRepository = mock(EmbeddingProjectionReadinessRepository.class);
+        readinessStates = new EnumMap<>(EmbeddingEvidenceKind.class);
+        readinessStates.put(state.corpus(), state);
+        when(readinessRepository.find(anyLong(), any(EmbeddingEvidenceKind.class)))
+                .thenAnswer(invocation -> {
+                    long requestedWorkspace = invocation.getArgument(0, Long.class);
+                    return requestedWorkspace == workspaceId
+                            ? Optional.ofNullable(readinessStates.get(invocation.getArgument(1,
+                            EmbeddingEvidenceKind.class))) : Optional.empty();
+                });
+        service = new VectorCandidateSearchService(embeddingClient, wikiRepository,
+                sourceRepository, similaritySearch, readinessRepository);
+    }
+
+    private void useReadiness(long workspaceId, EmbeddingProjectionReadiness... states) {
+        readinessRepository = mock(EmbeddingProjectionReadinessRepository.class);
+        readinessStates = new EnumMap<>(EmbeddingEvidenceKind.class);
+        for (EmbeddingProjectionReadiness state : states) {
+            readinessStates.put(state.corpus(), state);
+        }
+        when(readinessRepository.find(anyLong(), any(EmbeddingEvidenceKind.class)))
+                .thenAnswer(invocation -> {
+                    long requestedWorkspace = invocation.getArgument(0, Long.class);
+                    return requestedWorkspace == workspaceId
+                            ? Optional.ofNullable(readinessStates.get(invocation.getArgument(1,
+                            EmbeddingEvidenceKind.class))) : Optional.empty();
+                });
+        service = new VectorCandidateSearchService(embeddingClient, wikiRepository,
+                sourceRepository, similaritySearch, readinessRepository);
+    }
+
+    private void assertProjectionReadinessUnavailable() {
+        assertProjectionReadinessUnavailable(SearchCorpus.WIKI);
+    }
+
+    private void assertProjectionReadinessUnavailable(SearchCorpus corpus) {
+        var failure = catchThrowableOfType(() -> service.findCandidates(
+                        new VectorCandidateSearchQuery("query", corpus, 2), WORKSPACE),
+                VectorCandidateSearchUnavailableException.class);
+        assertThat(failure).isNotNull();
+        assertThat(failure.dependency())
+                .isEqualTo(VectorCandidateSearchUnavailableException.Dependency.PROJECTION_READINESS);
+    }
+
+    private static EmbeddingProjectionReadiness ready(EmbeddingEvidenceKind corpus,
+                                                       long targetGeneration,
+                                                       long appliedGeneration,
+                                                       String snapshotToken) {
+        return state(corpus, EmbeddingProjectionReadinessStatus.READY, targetGeneration,
+                appliedGeneration, snapshotToken);
+    }
+
+    private static EmbeddingProjectionReadiness state(EmbeddingEvidenceKind corpus,
+                                                       EmbeddingProjectionReadinessStatus status,
+                                                       long targetGeneration,
+                                                       long appliedGeneration,
+                                                       String snapshotToken) {
+        return state(corpus, status, targetGeneration, appliedGeneration, snapshotToken,
+                "test-provider", "test-model", 2, EmbeddingProjectionContract.VERSION);
+    }
+
+    private static EmbeddingProjectionReadiness state(EmbeddingEvidenceKind corpus,
+                                                       EmbeddingProjectionReadinessStatus status,
+                                                       long targetGeneration,
+                                                       long appliedGeneration,
+                                                       String snapshotToken,
+                                                       String provider,
+                                                       String model,
+                                                       int dimension,
+                                                       String projectionVersion) {
+        return new EmbeddingProjectionReadiness(WORKSPACE.id(), corpus, status, 1L, 1, 1, 0,
+                provider, model, dimension, projectionVersion,
+                null, null, null, null, targetGeneration, appliedGeneration, snapshotToken);
+    }
+
+    private static EmbeddingResult embeddingResult(EmbeddingRequest request, String provider,
+                                                    String model, int dimension) {
+        List<Double> values = dimension == 2 ? List.of(0.25d, 0.75d)
+                : java.util.Collections.nCopies(dimension, 0.25d);
+        var input = request.inputs().getFirst();
+        return new EmbeddingResult(List.of(new EmbeddingVector(input.identity(), values)),
+                new EmbeddingProviderMetadata(provider, model), Optional.empty());
     }
 
     private static StoredPublishedWiki wiki(String knowledgeId, String hash) {
