@@ -301,6 +301,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 + "WHERE corpus = 'KNOWLEDGE' AND workspace_id = :workspace AND stable_id = :stableId")
                 .param("workspace", workspace.id()).param("stableId", knowledgeId)
                 .query(Long.class).single();
+        awaitEmbeddingProjectionTasks();
 
         Proposal secondProposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
                 KnowledgeProposalStatus.APPROVED, "Second Merge");
@@ -311,6 +312,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", secondDraftId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.outcome").value("MERGED"));
+        awaitEmbeddingProjectionTasks();
 
         assertThat(ftsSearch(workspace.id(), "Revision two unique"))
                 .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
@@ -323,8 +325,8 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
 
         WikiIndexSyncResult firstReindex = publishedWikiIndexingService.reindex(workspace.id(), pageId);
         WikiIndexSyncResult secondReindex = publishedWikiIndexingService.reindex(workspace.id(), pageId);
-        assertThat(firstReindex.status()).isEqualTo(WikiIndexSyncStatus.SYNCED);
-        assertThat(secondReindex.status()).isEqualTo(WikiIndexSyncStatus.SYNCED);
+        assertThat(firstReindex.status()).as(firstReindex.detail()).isEqualTo(WikiIndexSyncStatus.SYNCED);
+        assertThat(secondReindex.status()).as(secondReindex.detail()).isEqualTo(WikiIndexSyncStatus.SYNCED);
         assertThat(db().sql("SELECT fts_rowid FROM search_index_identity "
                 + "WHERE corpus = 'KNOWLEDGE' AND workspace_id = :workspace AND stable_id = :stableId")
                 .param("workspace", workspace.id()).param("stableId", knowledgeId)
@@ -386,9 +388,10 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 .containsEntry("indexed_content_hash", null)
                 .containsEntry("failure_detail", "Published Wiki FTS sync failed: IllegalStateException: simulated FTS outage");
 
+        awaitEmbeddingProjectionTasks();
         doCallRealMethod().when(ftsSearchIndexRepository).upsertKnowledge(any());
         WikiIndexSyncResult repaired = publishedWikiIndexingService.reindex(workspace.id(), pageId);
-        assertThat(repaired.status()).isEqualTo(WikiIndexSyncStatus.SYNCED);
+        assertThat(repaired.status()).as(repaired.detail()).isEqualTo(WikiIndexSyncStatus.SYNCED);
         assertThat(ftsSearch(workspace.id(), "Rendered content"))
                 .extracting(org.km.llmwiki.search.SearchIndexMatch::stableId)
                 .containsExactly(knowledgeId);
