@@ -41,8 +41,8 @@
 * **階段邊界與防護欄（Phase Gate）**：
   * **Phase 1 / baseline completed through Sprint 6**：Foundation、Inbox/Archive、Tika Extraction、Job Engine、LLM Proposal/Review、Wiki Publish、SQLite FTS5、FTS-backed Retrieval、Evidence Assembly、provider-neutral Answer contract、grounded prompt/response validation、第一個 production provider adapter、stateless Ask orchestration、Ask REST API 與 Browser Ask UI。這些 Ask/Answer surface 是目前已完成的 ephemeral MVP，不直接寫入 `vault/`、`archive/` 或改變 canonical knowledge state；持久知識變更仍遵守 Proposal → Draft → Human Review → Publish。
   * **Phase 2 / current through Sprint 7**：Embedding、Vector Candidate Search、semantic retrieval 與 lexical + vector Hybrid RAG 已建立 provider-neutral contract，並由 Ask 的 `SEMANTIC_WIKI`、`SEMANTIC_SOURCE`、`HYBRID_VECTOR` additive modes 安全接入；`HYBRID_FTS` 仍是 Wiki + Source FTS-only。Phase 2 的可操作性必須區分三層：backend embedding/vector capability 是否已配置、每個 workspace／corpus 的 embedding projection 是否 `READY`，以及 query-time 的 metadata／freshness／authority revalidation 是否通過；mode 存在不代表 semantic corpus 已 ready。可透過 `POST /api/v1/search/index/embedding/rebuild?corpus=ALL|WIKI|SOURCE` 非同步建立或重建 projection，並以 `GET /api/v1/search/index/embedding/readiness` 查看 `WIKI`／`SOURCE` readiness。Vector unavailable 與 hybrid degraded fallback 維持 typed/diagnostic semantics，不得繞過 authority revalidation 或 grounded Answer contract。
-  * **Phase 3**：Neo4j projection 與 GraphRAG。
-  * **禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/sqlite-vec/semantic rerank/Neo4j/GraphRAG 技術，不得阻擋既有的 FTS-backed Retrieval、Evidence Assembly 或其必要修正。不得因架構願景而新增不存在的 milestone 或 Issue 作為規範依據。
+  * **Phase 3 / future capability**：Knowledge Graph、bounded Graph Retrieval 與 GraphRAG 能力。Graph 是 provider-neutral 的 application/domain capability，不等同任何單一 backend。Graph Entity、Relation、Provenance、stable identity 與 workspace scope 應由可替換的 Graph Projection / Graph Traversal contract 表達；projection 是由 `archive/`、`vault/` 與 authoritative metadata 建立的可重建 derived state。Graph candidate 必須經 workspace-scoped authority、provenance、freshness 與 eligibility revalidation，才可進入 `EvidenceBundle`，並沿用既有 citation 與 grounded Answer contract。Neo4j 是 local-first、低延遲互動 GraphRAG 的優先 reference adapter 候選；BigQuery Graph 是需評估 local-to-cloud projection/sync 的 optional cloud analytics adapter；Spanner Graph 是 future realtime/operational adapter 候選。三者皆不是 canonical Source of Truth、唯一 domain API 或近期必要 dependency；詳細 contract、bounded traversal 與 adoption gate 見 [ADR 0007](docs/adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md)。
+  * **禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/sqlite-vec/semantic rerank、Knowledge Graph、Graph Retrieval、GraphRAG 或特定 graph backend 技術，不得阻擋既有的 FTS-backed Retrieval、Evidence Assembly 或其必要修正。不得因架構願景而新增不存在的 milestone 或 Issue 作為規範依據。
 
 ## 2. 核心執行指令 (Build & Test Commands)
 > 測試選擇採風險導向：coding loop 預設 targeted-test-first；Browser Ask UI / Vanilla JS contract tests 使用 Node.js 內建 test runner；`mvn test` 是完整 regression 的安全預設；本機 PR Ready 的 final gate 是 `mvn clean verify -Pfull`。PR CI 則以 Fast、Integration、Build Integrity 與 sqlite-vec Smoke 的互補證據組成 merge safety；`-DskipTests` 只能作 preliminary verification，不得作為 final gate。
@@ -104,7 +104,7 @@
     ├── wiki/          # Wiki Page (Markdown+YAML Frontmatter)、Taxonomy、Alias、Citation 關聯
     ├── search/        # Metadata 搜尋、SQLite FTS5、provider-neutral vector candidates
     ├── rag/           # Lexical/semantic/hybrid Retrieval、Evidence Assembly
-    ├── graph/         # 未來 Graph projection、Graph sync、Neo4j
+    ├── graph/         # 未來 provider-neutral Graph projection、Traversal 與 adapter boundary
     ├── quality/       # 知識庫品質檢測（矛盾、重複、孤立頁面）
     ├── backup/        # 知識庫備份、還原與 SQLite Rebuild
     ├── persistence/   # Repository、Flyway migration
