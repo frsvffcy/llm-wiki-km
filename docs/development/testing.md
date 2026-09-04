@@ -8,7 +8,8 @@ test-class boundary so a test cannot silently move tiers because its class name 
 | L1 Unit / Fast | `unit` | Pure Java tests with no Spring application context | Every coding iteration |
 | L2 Feature / Contract | `contract` | Stable domain, API-shape, and search-behavior contracts | Feature-ready changes |
 | L3 Integration | `integration` | Spring, SQLite, Flyway, jOOQ, REST, filesystem, transaction, parser, and FTS tests | Affected feature validation |
-| L4 Full / Build Integrity | all tests (no tag filter) | Complete regression coverage plus clean Maven lifecycle/code generation | Pull-request gate |
+| L4 Full regression | all tests (no tag filter) | Complete regression coverage plus clean Maven lifecycle/code generation | Local final verification and main/nightly/manual canary |
+| Build Integrity | test execution intentionally omitted | Clean Maven lifecycle, Flyway/jOOQ code generation, compilation, package, and verify | Pull-request evidence |
 
 ## Commands and default behavior
 
@@ -19,6 +20,7 @@ as a fast-only run. The explicit profiles are:
 node --test src/test/js/ask-ui.test.mjs # Browser Ask UI contract regression suite
 mvn test -Pfast         # unit + contract; no Spring context tests
 mvn test -Pintegration  # integration-tagged tests
+mvn clean verify -Pbuild-integrity # clean build evidence; test execution intentionally omitted
 mvn clean verify -Pfull # all tests plus clean package/build-integrity checks
 ```
 
@@ -26,13 +28,20 @@ The Browser Ask UI contract suite runs directly with the Node.js built-in test r
 not require npm dependencies, a frontend build, a browser automation server, provider credentials,
 or network access. The PR workflow pins its runtime to Node.js 22 LTS and runs this suite in the
 `Fast unit and contract tests` job before the Maven fast tier. A failure in either command fails
-that job; the three Maven profiles retain their existing responsibilities. The `PR Gate` job
-aggregates the Fast, Integration, and Full job results and fails unless all three succeed.
+that job. The `PR Gate` job aggregates Fast, Integration, Build Integrity, and sqlite-vec smoke
+results and fails unless every evidence job succeeds.
 
 The `full` profile deliberately applies no include or exclude filter. This guarantees that adding
 a new tagged test cannot accidentally remove it from the final gate. `fast` is feedback only; it
 may be skipped while investigating an unrelated build failure, but the affected contract or
 integration tests must run before a feature is declared ready.
+
+`build-integrity` is a dedicated CI profile, not an ad-hoc `-DskipTests` invocation. It sets the
+Surefire execution switch defined in `pom.xml`, so tests are still compiled while test execution is
+intentionally omitted. `mvn clean verify -Pbuild-integrity` consequently retains the complete clean
+Maven lifecycle: Flyway-backed jOOQ generation, compilation, Spring Boot packaging, and verify. It
+is complementary to—not a replacement for—the Fast and Integration test inventories or the local
+and canary `full` gate.
 
 ## Local verification by change type
 
@@ -93,46 +102,56 @@ treating projection data as canonical authority.
 
 ## PR CI and merge gate
 
-Every pull request targeting `main` runs `.github/workflows/pr-ci.yml` with three evidence jobs and
-one aggregate merge gate:
+Every pull request targeting `main` runs `.github/workflows/pr-ci.yml` with four complementary
+evidence jobs and one aggregate merge gate:
 
 | CI job | Command | Purpose |
 | --- | --- | --- |
 | Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
-| Full regression and build integrity | `mvn --batch-mode clean verify -Pfull` | Clean Flyway/jOOQ source generation, all tests, compilation, verification, and package |
-| PR Gate | Requires all three jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
+| Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
+| sqlite-vec JDBC smoke | Pinned Linux archive download, checksum, and `scripts/sqlite-vec-jdbc-smoke.sh` | Linux JDBC/native extension portability evidence with a distinct failure stage |
+| PR Gate | Requires all four jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
 
-The three evidence jobs retain independent coverage, while `PR Gate` is the stable aggregate PR
-safety gate. It uses the workflow `needs` results and succeeds only when Fast, Integration, and
-Full all report `success`; an upstream failure, cancellation, or skip cannot produce a green gate.
-The full/build-integrity job's `clean` phase removes generated
-build output before Maven runs `generate-sources`; the jOOQ generator then applies all published
-Flyway migrations to a fresh temporary SQLite database and the generated sources are compiled into
-the package. Maven dependency caching only reuses downloaded dependencies and does not replace this
-clean-build semantics. The job also runs `git diff --check` and uploads Surefire/package artifacts
-when available so a failure can be diagnosed by stage.
+The four evidence jobs retain independent coverage, while `PR Gate` is the stable aggregate PR
+safety gate. It uses the workflow `needs` results and succeeds only when Fast, Integration, Build
+Integrity, and sqlite-vec Smoke all report `success`; an upstream failure, cancellation, or skip
+cannot produce a green gate. The Build Integrity job's `clean` phase removes generated build output
+before Maven runs `generate-sources`; the jOOQ generator then applies all published Flyway
+migrations to a fresh temporary SQLite database and the generated sources are compiled into the
+package. Maven dependency caching only reuses downloaded dependencies and does not replace this
+clean-build semantics. This job runs `git diff --check` and uploads package artifacts, while test
+reports remain attributable to the Fast and Integration jobs.
 
-The Full job also runs the pinned sqlite-vec JDBC smoke after the clean verification. It downloads
-the official v0.1.9 Linux x86_64 loadable archive, verifies its SHA-256, and checks Java 21 plus the
-project's pinned Xerial driver, extension loading, `vec0`, and a 3-dimensional nearest-neighbour
-query. This is capability evidence only; it does not enable the application capability or create
-vector persistence. The local macOS Apple Silicon variant uses the same source with the official
-macOS aarch64 archive. See [ADR 0003](../adr/0003-vector-capability-and-sqlite-vec-feasibility.md)
-for the platform matrix and exact checksums.
+The sqlite-vec job downloads the official v0.1.9 Linux x86_64 loadable archive, verifies its
+SHA-256, and checks Java 21 plus the project's pinned Xerial driver, extension loading, `vec0`, and
+a 3-dimensional nearest-neighbour query. This is capability evidence only; it does not enable the
+application capability or create vector persistence. The local macOS Apple Silicon variant uses the
+same source with the official macOS aarch64 archive. See
+[ADR 0003](../adr/0003-vector-capability-and-sqlite-vec-feasibility.md) for the platform matrix and
+exact checksums.
 
-Issue #130 measured the local warm `mvn test` at about 25.83 seconds and `mvn clean package` at about
-28.45 seconds. The CI workflow keeps the full gate separate from the fast local loop; CI wall-clock
-is recorded from the completed workflow run and compared with those baselines in the PR. These
-figures are observations rather than an SLA because runner load and dependency-cache state vary.
+`.github/workflows/full-regression-canary.yml` retains `mvn --batch-mode clean verify -Pfull` as
+clean end-to-end evidence on every push to `main`, daily at 02:17 Asia/Taipei, and on manual
+dispatch. This separates the complete regression canary from the PR's complementary evidence jobs
+without removing the full safety net.
+
+Before this split, PR #216 recorded Fast 339 + Integration 249 = Full 588 Java test executions,
+so the PR workflow repeated the Java regression inventory. After this split, Fast and Integration
+remain the only PR Java test tiers; Build Integrity executes no Java tests. Record the actual job
+durations and Maven/Surefire counts from the PR workflow in the PR description for before/after
+wall-clock evidence. These figures are observations rather than an SLA because runner load and
+dependency-cache state vary.
 
 Repository administrators should mark the stable `PR Gate` job as the required status check in
 branch protection for `main` after the workflow has completed its first run. The upstream Fast,
-Integration, and Full jobs remain required evidence through the aggregate gate; do not remove the
-Browser Ask UI command from the Fast job or reduce any existing coverage. If branch protection or
+Integration, Build Integrity, and sqlite-vec Smoke jobs remain required evidence through the
+aggregate gate; do not remove the Browser Ask UI command from the Fast job or reduce any existing
+coverage. If branch protection or
 rulesets cannot be read or changed by the current contributor because of repository permissions or
 the repository plan, do not claim that `PR Gate` is enforced: until an administrator configures it,
-manually confirm that `PR Gate`, Fast, Integration, and Full are all `SUCCESS` before merging.
+manually confirm that `PR Gate`, Fast, Integration, Build Integrity, and sqlite-vec Smoke are all
+`SUCCESS` before merging.
 
 ## Tag/profile smoke checks
 

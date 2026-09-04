@@ -15,7 +15,8 @@ Choose the command by purpose:
 Coding feedback      mvn test -Pfast
 Full regression      mvn test
 Integration          mvn test -Pintegration
-Final PR/build gate  mvn clean verify -Pfull
+CI build integrity       mvn clean verify -Pbuild-integrity
+Local final/full canary  mvn clean verify -Pfull
 ```
 
 For a package/build smoke check, use the following command; it is not the final PR gate. The full
@@ -26,9 +27,10 @@ developer test-tier guidance is in
 mvn clean package
 ```
 
-Pull requests targeting `main` also run the GitHub Actions workflow documented in
-[docs/development/testing.md](docs/development/testing.md): three evidence jobs (Fast, Integration,
-and Full) plus one aggregate `PR Gate` merge-safety job.
+Pull requests targeting `main` run Fast, Integration, Build Integrity, and sqlite-vec smoke evidence
+jobs, followed by an aggregate `PR Gate` merge-safety job. The clean full regression remains a
+post-merge, nightly, and manually dispatchable canary. Details are in
+[docs/development/testing.md](docs/development/testing.md).
 
 ## Run
 

@@ -45,7 +45,7 @@
   * **禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/sqlite-vec/semantic rerank/Neo4j/GraphRAG 技術，不得阻擋既有的 FTS-backed Retrieval、Evidence Assembly 或其必要修正。不得因架構願景而新增不存在的 milestone 或 Issue 作為規範依據。
 
 ## 2. 核心執行指令 (Build & Test Commands)
-> 測試選擇採風險導向：coding loop 預設 targeted-test-first；Browser Ask UI / Vanilla JS contract tests 使用 Node.js 內建 test runner；`mvn test` 是完整 regression 的安全預設；PR Ready 的 build-integrity safety gate 是 `mvn clean verify -Pfull`。`-DskipTests` 只能作 preliminary verification，不得作為 final gate。
+> 測試選擇採風險導向：coding loop 預設 targeted-test-first；Browser Ask UI / Vanilla JS contract tests 使用 Node.js 內建 test runner；`mvn test` 是完整 regression 的安全預設；本機 PR Ready 的 final gate 是 `mvn clean verify -Pfull`。PR CI 則以 Fast、Integration、Build Integrity 與 sqlite-vec Smoke 的互補證據組成 merge safety；`-DskipTests` 只能作 preliminary verification，不得作為 final gate。
 * **完整 regression 預設**：
   ```bash
   mvn test
@@ -69,6 +69,11 @@
   mvn clean verify -Pfull
   ```
   `-Pfull` 不設 tag filter，會執行完整 regression、clean Flyway/jOOQ generation、build integrity 與 package/verification。
+* **PR CI Build Integrity evidence**：
+  ```bash
+  mvn clean verify -Pbuild-integrity
+  ```
+  此專用 profile 只略過 test execution，仍從 clean state 執行 Flyway/jOOQ generation、test compile、compile、package 與 verify；它必須與 Fast／Integration evidence 一起判讀，不能取代本機 final full gate。
 * **初步依賴／建置確認（非 final）**：
   ```bash
   mvn clean install -DskipTests
@@ -81,7 +86,7 @@
   ```
 * **Coding loop**：先依 changed surface 執行受影響的 class／suite；Browser Ask UI / Vanilla JS 變更執行 `node --test src/test/js/ask-ui.test.mjs`；純 Java 變更可使用 targeted unit/contract tests，或使用 `mvn test -Pfast` 取得 unit + contract feedback。Node suite 不取代 Maven `fast`、`integration` 或 `full`；`mvn compile` 只代表 compilation smoke check，不代表測試或 final gate。
 * **Feature Ready**：至少執行受影響的 contract／integration suite；需要 Spring、SQLite、Flyway、jOOQ、REST、transaction、filesystem 或 FTS 時，必須涵蓋對應 integration tests。
-* **PR Ready / Final**：除 `mvn clean verify -Pfull` 外，執行 `git diff --check`。`-Pfull` 會依目前 `pom.xml` 的 generate-sources lifecycle 重新產生 jOOQ sources；不需在 AGENTS 中維護另一套手動 codegen 流程。`mvn clean package` 可作中途 package smoke check，但不得取代此 final gate。
+* **PR Ready / Final**：本機除 `mvn clean verify -Pfull` 外，執行 `git diff --check`。PR CI 使用 Build Integrity profile 另行驗證 clean Flyway/jOOQ/package，而完整 `-Pfull` 保留在 main push、nightly、manual canary 與本機 final verification。`-Pfull` 會依目前 `pom.xml` 的 generate-sources lifecycle 重新產生 jOOQ sources；不需在 AGENTS 中維護另一套手動 codegen 流程。`mvn clean package` 可作中途 package smoke check，但不得取代此 final gate。
 
 ## 3. 架構與設計約束 (Architecture Constraints)
 * **目錄結構**：
@@ -332,7 +337,7 @@ public interface LlmClient {
 ### 8.2 Development Verification、Feature Ready 與 Final Verification
 * **Development Verification**：targeted tests、`mvn test -Pfast`、及依風險選定的 affected contract/integration tests；這是 coding feedback，不是 merge authorization。
 * **Feature Ready**：至少通過 affected integration/contract suite，並在 Issue/PR body 記錄實際 command 與結果。
-* **Final / PR Ready**：要求 `mvn clean verify -Pfull` 及 `git diff --check`；PR targeting `main` 還必須等待 PR CI 的 `PR Gate` 成功，並確認 Fast、Integration、Full 三個 evidence jobs 均成功。PR Ready 不得只靠 fast tests。
+* **Final / PR Ready**：本機要求 `mvn clean verify -Pfull` 及 `git diff --check`；PR targeting `main` 還必須等待 PR CI 的 `PR Gate` 成功，並確認 Fast、Integration、Build Integrity、sqlite-vec Smoke 四個 evidence jobs 均成功。PR Ready 不得只靠 fast tests。
 * `mvn test`、`mvn compile`、`mvn clean package` 及 `mvn clean install -DskipTests` 各有局部用途；`mvn test` 雖是完整測試預設，仍不取代 `clean verify -Pfull` 的 final build-integrity 語意。`-DskipTests` 永遠只能是 preliminary。
 * 純邏輯修改期間可以不反覆跑 `mvn test`／`mvn clean verify -Pfull`。未修改 migration、persistence、generated sources 或 build tooling 時，中途可以跳過 clean Flyway/jOOQ/package gate；documentation、ADR、test-only spike 亦可中途跳過 full package，但完成前仍須依 scope 做必要驗證。
 * 只有 docs/AGENTS-only 且不改變 production、test、build 或 CI behavior 的變更，才可在 PR body 說明理由後採 docs-only verification 而不跑 full tests；這是明確的文件變更例外，不得套用於 Test Architecture 或 build behavior 變更。
@@ -341,6 +346,7 @@ public interface LlmClient {
 * `mvn test`：安全預設，執行完整 regression；不得誤解為 fast。
 * `mvn test -Pfast`：只執行 `unit` + `contract`，並排除 `integration`；僅供 coding feedback。
 * `mvn test -Pintegration`：執行 `integration` tier。
+* `mvn clean verify -Pbuild-integrity`：CI 專用的 clean build evidence，不執行 tests，但仍執行 Flyway/jOOQ generation、test compile、compile、package 與 verify；不得以 ad-hoc `-DskipTests` 替代。
 * `mvn clean verify -Pfull`：不設 tag filter，執行完整 regression、clean Flyway/jOOQ generation、build integrity 與 package/verification。
 * `full` 刻意不使用 include/exclude filter，因此新增且正確分類的 test 不得從 final gate 靜默消失。變更 test tags、profiles 或 Maven configuration 時，PR body 必須核對 fast/integration/full 的 test inventory。
 
@@ -363,13 +369,13 @@ public interface LlmClient {
 
 ### 8.7 可跳過與不可跳過的流程
 * **可跳過（coding loop）**：純邏輯修改可不反覆執行 full tests；未觸及 migration/persistence/codegen/build tooling 時可跳過 clean Flyway/jOOQ/package gate；單一 failed test 先跑 affected suite；documentation、ADR、test-only spike 中途可跳過 full package。
-* **不可跳過（final）**：migration、persistence wiring、generated sources、build plugin 或 package 改動，在 final 前必須 `mvn clean verify -Pfull`。PR Ready 不得只靠 fast tests；CI 失敗不得以本機 pass 取代。
+* **不可跳過（final）**：migration、persistence wiring、generated sources、build plugin 或 package 改動，在本機 final 前必須 `mvn clean verify -Pfull`。PR Ready 不得只靠 fast tests；CI 失敗不得以本機 pass 取代。
 * main 尚未由 repository setting 強制 required check 前，local final full gate 仍保留，不得宣告本機 full 可以完全取消。
 
 ### 8.8 CI、Branch Protection 與 Merge Safety
-* PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 Fast unit and contract tests、Integration tests、`Full regression and build integrity` 三個 evidence jobs，以及依賴三者的 `PR Gate` aggregate job。
-* `PR Gate` 是穩定的 merge safety gate；只有 Fast、Integration、Full 三者均回報 `success` 才能成功。任一 upstream job `failure`、`cancelled` 或 `skipped` 都不得讓 `PR Gate` 綠燈；Full job 仍執行 `mvn --batch-mode clean verify -Pfull` 並包含 `git diff --check`。
-* 未來 branch protection / rulesets 優先將穩定的 `PR Gate` 設為 `main` 的 required check，並保留三個 upstream jobs 的 coverage。branch protection 是 repository setting，不由 AGENTS.md 宣告；若 main 尚未實際強制 `PR Gate`，工程師仍須人工確認 `PR Gate`、Fast、Integration、Full 全部成功後才可合併。本規範不得寫成 required check 已強制；若 contributor 無法讀取或設定 repository protection，也只能採此保守判定並記錄權限／plan 限制。
+* PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 Fast unit and contract tests、Integration tests、Build Integrity、sqlite-vec JDBC Smoke 四個 evidence jobs，以及依賴四者的 `PR Gate` aggregate job。完整 `mvn --batch-mode clean verify -Pfull` 由 `.github/workflows/full-regression-canary.yml` 在 main push、nightly與 manual dispatch 執行。
+* `PR Gate` 是穩定的 merge safety gate；只有 Fast、Integration、Build Integrity、sqlite-vec Smoke 四者均回報 `success` 才能成功。任一 upstream job `failure`、`cancelled` 或 `skipped` 都不得讓 `PR Gate` 綠燈；Build Integrity job 執行 `mvn --batch-mode clean verify -Pbuild-integrity` 並包含 `git diff --check`。
+* 未來 branch protection / rulesets 優先將穩定的 `PR Gate` 設為 `main` 的 required check，並保留四個 upstream jobs 的 coverage。branch protection 是 repository setting，不由 AGENTS.md 宣告；若 main 尚未實際強制 `PR Gate`，工程師仍須人工確認 `PR Gate`、Fast、Integration、Build Integrity、sqlite-vec Smoke 全部成功後才可合併。本規範不得寫成 required check 已強制；若 contributor 無法讀取或設定 repository protection，也只能採此保守判定並記錄權限／plan 限制。
 * CI 失敗時，必須修正或明確記錄 blocker；不能用本機成功取代 CI 結果，也不能因 local full pass 而忽略未完成的 repository protection 設定。
 
 ### 8.9 量測與 Java 版本規範

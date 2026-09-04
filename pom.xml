@@ -26,6 +26,9 @@
              set these to JUnit 5 tags for intentionally narrower feedback loops. -->
         <test.tags.include></test.tags.include>
         <test.tags.exclude></test.tags.exclude>
+        <!-- The dedicated build-integrity profile changes this explicit switch. It skips only
+             test execution; test compilation and the complete clean Maven lifecycle remain. -->
+        <test.execution.skip>false</test.execution.skip>
     </properties>
 
     <dependencies>
@@ -156,6 +159,7 @@
                 <configuration>
                     <groups>${test.tags.include}</groups>
                     <excludedGroups>${test.tags.exclude}</excludedGroups>
+                    <skipTests>${test.execution.skip}</skipTests>
                 </configuration>
             </plugin>
         </plugins>
@@ -182,6 +186,15 @@
                 <!-- Deliberately no tag filter: this is the complete regression/build gate. -->
                 <test.tags.include></test.tags.include>
                 <test.tags.exclude></test.tags.exclude>
+            </properties>
+        </profile>
+        <profile>
+            <id>build-integrity</id>
+            <properties>
+                <!-- This CI evidence profile intentionally skips execution only. Running
+                     clean verify still performs Flyway-backed jOOQ generation, compilation,
+                     packaging, and verification from a clean workspace. -->
+                <test.execution.skip>true</test.execution.skip>
             </properties>
         </profile>
     </profiles>
