@@ -18,7 +18,9 @@ import org.km.llmwiki.search.SourceSearchEligibilityPolicy;
 import org.km.llmwiki.search.SourceSearchFreshness;
 import org.km.llmwiki.search.embedding.EmbeddingEvidenceKind;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionContract;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadiness;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessRepository;
+import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessSnapshot;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessStatus;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -83,10 +85,11 @@ public class VectorCandidateSearchService {
         }
         EmbeddingInput input = new EmbeddingInput(Normalizer.normalize(
                 query.query().strip(), Normalizer.Form.NFC));
-        ensureProjectionReady(query.corpus(), activeWorkspace.id());
+        List<EmbeddingProjectionReadinessSnapshot> readinessSnapshots =
+                captureProjectionSnapshots(query.corpus(), activeWorkspace.id());
         EmbeddingResult result = embed(input);
         EmbeddingVector queryVector = validateSingleResult(result, input);
-        ensureProjectionMetadata(query.corpus(), activeWorkspace.id(), result, queryVector.values().size());
+        ensureProjectionMetadata(readinessSnapshots, result, queryVector.values().size());
 
         List<EmbeddingEvidenceKind> kinds = kinds(query.corpus());
         int fetchBudget = Math.min(MAX_OVERFETCH_ROWS,
@@ -100,6 +103,9 @@ public class VectorCandidateSearchService {
 
         while (candidates.size() < query.limit() && fetched < fetchBudget
                 && rounds < MAX_REFILL_ROUNDS) {
+            // The check is intentionally outside the storage transaction. It is a non-blocking
+            // boundary that prevents an invalidated snapshot from starting another KNN/refill.
+            ensureProjectionSnapshot(readinessSnapshots);
             int requestSize = Math.min(batchSize, fetchBudget - fetched);
             VectorSimilarityQuery knn = new VectorSimilarityQuery(activeWorkspace.id(), kinds,
                     result.providerMetadata().provider(), result.providerMetadata().model(),
@@ -127,6 +133,11 @@ public class VectorCandidateSearchService {
                 break;
             }
         }
+
+        // Authority reads are deliberately outside a long transaction. Recheck once more before
+        // exposing candidates so a mutation during authority assembly cannot become a semantic
+        // success (including an apparently legitimate empty result).
+        ensureProjectionSnapshot(readinessSnapshots);
 
         candidates.sort(RESULT_ORDER);
         if (candidates.size() > query.limit()) {
@@ -166,38 +177,58 @@ public class VectorCandidateSearchService {
                 + workspace.id());
     }
 
-    private void ensureProjectionReady(SearchCorpus corpus, long workspaceId) {
-        if (readinessRepository == null) return;
+    private List<EmbeddingProjectionReadinessSnapshot> captureProjectionSnapshots(SearchCorpus corpus,
+                                                                                   long workspaceId) {
+        if (readinessRepository == null) return List.of();
+        List<EmbeddingProjectionReadinessSnapshot> snapshots = new ArrayList<>();
         for (EmbeddingEvidenceKind kind : kinds(corpus)) {
-            var state = readinessRepository.find(workspaceId, kind);
-            if (state.isEmpty() || state.get().status() != EmbeddingProjectionReadinessStatus.READY) {
+            Optional<EmbeddingProjectionReadiness> state = readinessRepository.find(workspaceId, kind);
+            try {
+                snapshots.add(EmbeddingProjectionReadinessSnapshot.from(state.orElse(null)));
+            } catch (IllegalArgumentException incomplete) {
                 String status = state.map(value -> value.status().name()).orElse("NOT_BUILT");
-                throw unavailable(VectorCandidateSearchUnavailableException.Dependency.PROJECTION_READINESS,
-                        new IllegalStateException("Embedding projection is not ready: "
-                                + kind.name() + "/" + status));
+                throw projectionReadinessUnavailable("Embedding projection is not ready: "
+                        + kind.name() + "/" + status, incomplete);
+            }
+        }
+        return List.copyOf(snapshots);
+    }
+
+    private void ensureProjectionMetadata(List<EmbeddingProjectionReadinessSnapshot> snapshots,
+                                          EmbeddingResult result, int dimension) {
+        if (readinessRepository == null) return;
+        for (EmbeddingProjectionReadinessSnapshot snapshot : snapshots) {
+            boolean mismatch = !snapshot.provider().equals(result.providerMetadata().provider())
+                    || !snapshot.model().equals(result.providerMetadata().model())
+                    || snapshot.dimension() != dimension
+                    || !snapshot.projectionVersion().equals(EmbeddingProjectionContract.VERSION);
+            if (mismatch) {
+                readinessRepository.markStaleIfGeneration(snapshot.workspaceId(), snapshot.corpus(),
+                        snapshot.targetGeneration(),
+                        "Embedding provider/model/dimension changed; rebuild required");
+                throw projectionReadinessUnavailable("Embedding projection metadata is unavailable: "
+                        + snapshot.corpus().name(), new IllegalStateException("Embedding metadata drift"));
+            }
+        }
+        ensureProjectionSnapshot(snapshots);
+    }
+
+    private void ensureProjectionSnapshot(List<EmbeddingProjectionReadinessSnapshot> snapshots) {
+        if (readinessRepository == null) return;
+        for (EmbeddingProjectionReadinessSnapshot snapshot : snapshots) {
+            EmbeddingProjectionReadiness current = readinessRepository.find(snapshot.workspaceId(),
+                    snapshot.corpus()).orElse(null);
+            if (!snapshot.matches(current)) {
+                throw projectionReadinessUnavailable("Embedding projection readiness changed during query: "
+                        + snapshot.corpus().name(), new IllegalStateException("Embedding readiness snapshot changed"));
             }
         }
     }
 
-    private void ensureProjectionMetadata(SearchCorpus corpus, long workspaceId,
-                                          EmbeddingResult result, int dimension) {
-        if (readinessRepository == null) return;
-        for (EmbeddingEvidenceKind kind : kinds(corpus)) {
-            var state = readinessRepository.find(workspaceId, kind).orElse(null);
-            if (state == null || state.status() != EmbeddingProjectionReadinessStatus.READY) continue;
-            boolean mismatch = state.provider() != null
-                    && !state.provider().equals(result.providerMetadata().provider())
-                    || state.model() != null && !state.model().equals(result.providerMetadata().model())
-                    || state.dimension() != null && state.dimension() != dimension
-                    || state.projectionVersion() != null
-                    && !EmbeddingProjectionContract.VERSION.equals(state.projectionVersion());
-            if (mismatch) {
-                readinessRepository.markStale(workspaceId, kind,
-                        "Embedding provider/model/dimension changed; rebuild required");
-                throw unavailable(VectorCandidateSearchUnavailableException.Dependency.PROJECTION_READINESS,
-                        new IllegalStateException("Embedding projection is stale: " + kind.name()));
-            }
-        }
+    private static VectorCandidateSearchUnavailableException projectionReadinessUnavailable(
+            String message, Throwable cause) {
+        return unavailable(VectorCandidateSearchUnavailableException.Dependency.PROJECTION_READINESS,
+                new IllegalStateException(message, cause));
     }
 
     private static List<EmbeddingEvidenceKind> kinds(SearchCorpus corpus) {

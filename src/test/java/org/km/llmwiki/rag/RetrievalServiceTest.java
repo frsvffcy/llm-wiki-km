@@ -332,6 +332,28 @@ class RetrievalServiceTest {
     }
 
     @Test
+    void hybridTreatsProjectionReadinessInvalidationAsDegradedLexicalFallback() {
+        stubWiki("lexical", "lexical authority");
+        VectorCandidateSearchService vector = mock(VectorCandidateSearchService.class);
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("lexical", 1.0))));
+        when(vector.findCandidates(any(VectorCandidateSearchQuery.class), any()))
+                .thenThrow(new VectorCandidateSearchUnavailableException(
+                        VectorCandidateSearchUnavailableException.Dependency.PROJECTION_READINESS,
+                        new IllegalStateException("readiness generation changed")));
+        retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
+                wikiContentReader, sourceRepository, vector);
+
+        EvidenceBundle bundle = retrievalService.retrieve(RetrievalRequest.of(
+                "fallback", RetrievalMode.WIKI_ONLY, RetrievalStrategy.HYBRID, 8, 100));
+
+        assertThat(bundle.items()).extracting(EvidenceItem::stableId).containsExactly("lexical");
+        assertThat(bundle.diagnostics().degradedFallback()).isTrue();
+        assertThat(bundle.diagnostics().vectorUnavailable()).isTrue();
+        assertThat(bundle.diagnostics().vectorSignalUsed()).isFalse();
+    }
+
+    @Test
     void hybridPropagatesUnexpectedVectorRuntimeDefect() {
         stubWiki("lexical", "lexical authority");
         IllegalStateException defect = new IllegalStateException("programming defect");

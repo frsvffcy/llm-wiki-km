@@ -44,6 +44,35 @@ class EmbeddingProjectionReadinessRepositoryIntegrationTest extends IsolatedInte
     }
 
     @Test
+    void staleMarkUsesCompareAndSetAndCannotRewriteNewerReadyGeneration() {
+        long workspace = insertWorkspace();
+        long firstJob = jobs.create(workspace, "cas-first", ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        long firstGeneration = repository.markQueued(workspace, firstJob, EmbeddingEvidenceKind.WIKI, 0);
+        repository.markCompletedForGeneration(workspace, firstJob, EmbeddingEvidenceKind.WIKI,
+                firstGeneration, 1, 1, 0, "provider", "model", 2, true, "proof-first");
+
+        long secondJob = jobs.create(workspace, "cas-second", ProcessingJobType.EMBEDDING_REBUILD, 1).id();
+        long secondGeneration = queueIncremental(workspace, secondJob, EmbeddingEvidenceKind.WIKI, 1);
+        repository.markCompletedForGeneration(workspace, secondJob, EmbeddingEvidenceKind.WIKI,
+                secondGeneration, 1, 1, 0, "provider", "model", 2, true, "proof-second");
+
+        assertThat(repository.markStaleIfGeneration(workspace, EmbeddingEvidenceKind.WIKI,
+                firstGeneration, "delayed query metadata drift")).isZero();
+        assertThat(repository.find(workspace, EmbeddingEvidenceKind.WIKI).orElseThrow())
+                .satisfies(state -> {
+                    assertThat(state.status()).isEqualTo(EmbeddingProjectionReadinessStatus.READY);
+                    assertThat(state.targetGeneration()).isEqualTo(secondGeneration);
+                    assertThat(state.appliedGeneration()).isEqualTo(secondGeneration);
+                    assertThat(state.projectionSnapshotToken()).isEqualTo("proof-second");
+                });
+
+        assertThat(repository.markStaleIfGeneration(workspace, EmbeddingEvidenceKind.WIKI,
+                secondGeneration, "current query metadata drift")).isOne();
+        assertThat(repository.find(workspace, EmbeddingEvidenceKind.WIKI).orElseThrow().status())
+                .isEqualTo(EmbeddingProjectionReadinessStatus.STALE);
+    }
+
+    @Test
     void preservesPriorReadyOnlyForSuccessfulIncrementalCompletion() {
         long workspace = insertWorkspace();
         long fullJob = jobs.create(workspace, "embedding-full", ProcessingJobType.EMBEDDING_REBUILD, 1).id();
