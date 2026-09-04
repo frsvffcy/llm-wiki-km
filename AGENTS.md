@@ -17,7 +17,8 @@
 ### 0.1 Model Routing Matrix
 
 * `L1`～`L5` 表示任務的難度、複雜度、風險與推理需求；Level 與實際執行的 model + reasoning effort 是兩個不同欄位，不永久綁定單一供應商或模型名稱。
-* 現行 Issue title 的 capability anchor 維持 `L1(5.6 Luna 高)`、`L2(5.6 Terra 高)`、`L3(5.6 Sol 高)`、`L4(5.6 Luna 極高)`、`L5(5.6 Sol 極高)`。括號內容只是目前的 routing anchor，不是 Level 的永久語意；模型可用性或能力變更時可更新 anchor，但不得回頭改寫任務複雜度。
+* Issue complexity title 僅使用 `L1`～`L5`；建議 title prefix 為 `[L1]`、`[L2]`、`[L3]`、`[L4]`、`[L5]`。Level 表示任務的複雜度、風險與推理負擔，不得在 title 綁定特定 model 或 reasoning effort。
+* model + reasoning effort 僅作為下列 Model Routing Matrix 的 executor guidance。OpenAI anchor 欄是目前的 routing reference，不是 Issue title schema；模型可用性、版本或 routing 調整不要求回寫既有 Issue complexity title。
 * 不同供應商的 reasoning effort 名稱只用於 routing，不視為精確等價的 benchmark。Executor 選擇必須以可用模型、任務風險與 repository evidence 為準，並忠實記錄無法採用建議 profile 的限制。
 
 | Level | 任務定位 | OpenAI anchor | GLM-5.3-Flash | DeepSeek V4 Flash | Gemini 3.7 Flash | Gemini 3.8 Flash |
