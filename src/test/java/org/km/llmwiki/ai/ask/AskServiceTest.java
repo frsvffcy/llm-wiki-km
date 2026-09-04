@@ -130,10 +130,14 @@ class AskServiceTest {
             assertThat(failure.retrievalDependency()).contains(
                     RetrievalUnavailableException.Dependency.SEARCH_INDEX);
         });
+        assertThat(result.retrievalDiagnostics()).isEqualTo(RetrievalDiagnostics.lexical());
+        assertThat(AskApiResponse.from(result).retrievalMetadata()).isEqualTo(
+                new AskApiResponse.RetrievalMetadata("LEXICAL", true, false, false, false));
     }
 
-    @Test
-    void vectorUnavailableIsTypedAndNeverConvertedToInsufficientEvidence() {
+    @ParameterizedTest
+    @EnumSource(value = RetrievalMode.class, names = {"SEMANTIC_WIKI", "SEMANTIC_SOURCE"})
+    void semanticVectorUnavailableIsTypedAndRetainsSemanticDiagnostics(RetrievalMode mode) {
         RetrievalService retrieval = mock(RetrievalService.class);
         when(retrieval.retrieve(any())).thenThrow(new RetrievalUnavailableException(
                 RetrievalUnavailableException.Dependency.VECTOR_SEARCH,
@@ -145,7 +149,7 @@ class AskServiceTest {
         };
 
         AskResult result = new AskService(retrieval, new AnswerContextAssembler(), provider)
-                .ask(AskRequest.defaults("question", RetrievalMode.SEMANTIC_WIKI));
+                .ask(AskRequest.defaults("question", mode));
 
         assertThat(result.failure()).hasValueSatisfying(failure -> {
             assertThat(failure.type()).isEqualTo(AskFailureType.RETRIEVAL_VECTOR_UNAVAILABLE);
@@ -154,6 +158,32 @@ class AskServiceTest {
         });
         assertThat(result.insufficientEvidence()).isFalse();
         assertThat(calls).hasValue(0);
+        assertThat(result.retrievalDiagnostics()).isEqualTo(
+                RetrievalDiagnostics.unavailableSemantic(
+                        "Retrieval dependency is unavailable: VECTOR_SEARCH"));
+        assertThat(AskApiResponse.from(result).retrievalMetadata()).isEqualTo(
+                new AskApiResponse.RetrievalMetadata("SEMANTIC", false, false, false, true));
+    }
+
+    @Test
+    void hybridVectorUnavailableIsTypedAndRetainsDegradedHybridDiagnostics() {
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenThrow(new RetrievalUnavailableException(
+                RetrievalUnavailableException.Dependency.VECTOR_SEARCH,
+                new IllegalStateException("vector unavailable")));
+
+        AskResult result = new AskService(retrieval, new AnswerContextAssembler(),
+                request -> {
+                    throw new AssertionError("provider must not be called");
+                }).ask(AskRequest.defaults("question", RetrievalMode.HYBRID_VECTOR));
+
+        assertThat(result.failure()).hasValueSatisfying(failure ->
+                assertThat(failure.type()).isEqualTo(AskFailureType.RETRIEVAL_VECTOR_UNAVAILABLE));
+        assertThat(result.retrievalDiagnostics()).isEqualTo(
+                RetrievalDiagnostics.degradedHybrid(
+                        "Retrieval dependency is unavailable: VECTOR_SEARCH"));
+        assertThat(AskApiResponse.from(result).retrievalMetadata()).isEqualTo(
+                new AskApiResponse.RetrievalMetadata("HYBRID", true, false, true, true));
     }
 
     @Test

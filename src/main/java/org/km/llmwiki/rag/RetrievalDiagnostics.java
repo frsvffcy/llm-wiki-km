@@ -28,6 +28,13 @@ public record RetrievalDiagnostics(
                 false, false, null);
     }
 
+    /** Semantic retrieval cannot complete when its required vector signal is unavailable. */
+    public static RetrievalDiagnostics unavailableSemantic(String reason) {
+        return new RetrievalDiagnostics(RetrievalStrategy.SEMANTIC, false, false,
+                false, true,
+                reason == null ? "vector candidate search unavailable" : reason);
+    }
+
     public static RetrievalDiagnostics hybrid() {
         return new RetrievalDiagnostics(RetrievalStrategy.HYBRID, true, true,
                 false, false, null);
