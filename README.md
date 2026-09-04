@@ -55,16 +55,21 @@ lexical fallback when vector search is unavailable, while `SEMANTIC_*` fails clo
 unavailable response. These modes describe available retrieval contracts, not semantic corpus
 readiness: semantic serving additionally requires backend capability configuration, a `READY`
 embedding projection for the requested workspace and corpus, and query-time metadata, freshness,
-and authority validation. Phase 3 is reserved for the provider-neutral Knowledge Graph, bounded
-Graph Retrieval, and GraphRAG capability; no graph runtime is part of the current baseline. Its
-contract must cover Graph Entity, Relation, Provenance, stable identity, workspace scope, and
-rebuildable projection. Graph candidates must pass workspace-scoped authority, provenance,
-freshness, and eligibility revalidation before entering `EvidenceBundle`, then continue through
-the existing citation and grounded Answer contract. Neo4j is a local-first interactive
-reference-adapter candidate, BigQuery Graph is an optional cloud analytics adapter that still
-requires local-to-cloud projection/sync when canonical data is local, and Spanner Graph is a
-future realtime/operational adapter candidate. No backend is canonical, browser-accessible, or the
-domain contract; Cypher, GQL, SQL-PGQ, and vendor DTOs remain behind adapters. See
+and authority validation. SQLite remains the operational/control plane for the relational schema,
+SQLite FTS5, readiness, and authority/provenance enforcement; it is not being migrated or
+replaced. Phase 3 is reserved for the provider-neutral Knowledge Graph, bounded Graph Retrieval,
+and GraphRAG capability; no graph runtime is part of the current baseline. Its contract must cover
+Graph Entity, Relation, Provenance, stable identity, workspace scope, and rebuildable projection.
+ArcadeDB is the currently preferred embedded multi-model adapter candidate, limited to rebuildable
+Document, Vector, Graph, and Search projections. It is not a SQLite replacement or migration
+target, canonical knowledge store, or domain authority. Neo4j, RyuGraph, BigQuery Graph, and
+Spanner Graph remain future adapter candidates subject to adoption gates. Graph candidates must
+pass workspace-scoped authority, provenance, freshness, and eligibility revalidation before
+entering `EvidenceBundle`, then continue through the existing citation and grounded Answer
+contract. If a graph backend is unavailable, the lexical + vector baseline remains in effect; a
+vector/backend outage continues to use the existing typed degraded lexical fallback semantics. No
+backend is canonical, browser-accessible, or the domain contract; vendor APIs, record models,
+Cypher, GQL, SQL-PGQ, and DTOs remain behind adapters. See
 [ADR 0007](docs/adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md).
 
 The capability decision, platform matrix, fallback semantics, and dependencies for #183–#185 are

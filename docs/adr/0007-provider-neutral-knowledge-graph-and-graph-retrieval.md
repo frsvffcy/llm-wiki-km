@@ -8,13 +8,15 @@
 
 Repository-level 文件曾把 Phase 3 簡化成「Neo4j projection 與 GraphRAG」。這會把部署選項誤當成
 domain contract，也容易讓後續實作直接以 Cypher、GQL、SQL-PGQ 或 vendor DTO 作為 application
-authority。Knowledge Graph 應是 application/domain capability；Neo4j、BigQuery Graph 與 Spanner
-Graph 則是可替換的 adapter 或 deployment choice。
+authority。Knowledge Graph 應是 application/domain capability；ArcadeDB、Neo4j、RyuGraph、BigQuery
+Graph 與 Spanner Graph 都只是可替換的 adapter 或 deployment choice。ArcadeDB 目前是首選的
+embedded multi-model adapter candidate，但這個偏好不是 vendor commitment。
 
 既有 `archive/`、`vault/` 與 authoritative metadata 才是 canonical Source of Truth。FTS、vector
 與未來 graph data 都只能是可重建的 derived projection；既有 lexical/vector Retrieval、
 `EvidenceBundle`、citation validation 與 grounded Answer contract 不能因 graph backend 的存在
-而失效。
+而失效。SQLite 持續是 operational/control plane，承擔 relational schema、SQLite FTS5、readiness
+與 authority/provenance enforcement；本 ADR 不授權 SQLite migration 或 replacement。
 
 ## Decision
 
@@ -34,13 +36,14 @@ application/domain contract 至少包含：
 
 這些是責任與邊界，不預先規定實際 class/interface 名稱。`GraphProjectionRepository`、
 `GraphTraversalSearch` 等名稱若在後續 Story 採用，也只能表達 provider-neutral contract；不能
-把 Neo4j service、Cypher retriever、GQL、SQL-PGQ 或 vendor-specific DTO 直接定義成
-application/domain API。
+把 ArcadeDB 或其他 backend 的 API、record model、service、Cypher retriever、GQL、SQL-PGQ 或
+vendor-specific DTO 直接定義成 application/domain API。
 
 ### Canonical data and security invariants
 
-1. `archive/`、`vault/` 與既有 authoritative metadata 是 canonical Source of Truth；任何 graph
-   backend 都只是可刪除、可重建的 projection，不得反向改變 canonical knowledge state。
+1. `archive/`、`vault/` 與既有 authoritative metadata 是 canonical Source of Truth；SQLite 保留
+   operational/control plane 的責任。任何 graph/vector backend 都只是可刪除、可重建的 Document、
+   Vector、Graph 或 Search projection，不得反向改變 canonical knowledge state。
 2. Projection rebuild 必須能從 canonical sources 重現 stable identity、workspace scope、
    relation/provenance metadata 與必要的 freshness/version information。
 3. Graph backend unavailable、stale 或 degraded 時，不得破壞既有 lexical/vector baseline；
@@ -72,7 +75,9 @@ Graph backend 只存在 adapter boundary，並依 deployment context 評估：
 
 | Adapter candidate | 定位 | 必要邊界 |
 | --- | --- | --- |
-| Neo4j | Phase 3 local-first、低延遲 interactive GraphRAG 的優先 reference adapter / spike 候選 | 不成為 canonical SoT、唯一 backend 或 domain API；local deployment 與 traversal ergonomics 是主要價值 |
+| ArcadeDB | 目前首選的 embedded multi-model adapter candidate；可作 optional feasibility spike 的第一候選 | 僅承接可重建的 Document / Vector / Graph / Search projection；不是 SQLite replacement、migration target、canonical SoT 或 domain authority |
+| Neo4j | Future local-first、低延遲 interactive GraphRAG adapter candidate | 不成為 canonical SoT、唯一 backend 或 domain API；local deployment 與 traversal ergonomics 是主要價值 |
+| RyuGraph | Optional embedded graph comparison candidate | 必須維持可重建 projection 與 provider-neutral boundary；不得因比較而承諾 runtime adoption |
 | BigQuery Graph | Optional cloud / enterprise analytics adapter | 若 canonical data 原本在 local workspace，仍需 local→cloud projection/sync；導入不代表免搬資料 |
 | Spanner Graph | Future realtime/operational cloud graph adapter evaluation | 不是近期必要 dependency；需另行驗證 operational consistency、latency 與成本 |
 
@@ -84,7 +89,7 @@ graph scale、GraphRAG developer ergonomics 與 provider lock-in/portability。B
 ### Suggested Phase 3 roadmap
 
 - **Phase 3A** — Graph domain / projection contract
-- **Phase 3B** — Local Neo4j adapter spike / reference implementation
+- **Phase 3B** — Optional embedded multi-model feasibility spike：以 SQLite + ArcadeDB adapter 為目前首選方向，並與 Nitrite / RyuGraph 比較；不是 SQLite migration，也不是 Phase 2 或 lexical/vector baseline blocker
 - **Phase 3C** — Graph Retrieval + Evidence integration
 - **Phase 3D** — Lexical + Vector + Graph hybrid GraphRAG fusion
 - **Phase 3E** — Optional BigQuery Graph cloud analytics adapter spike
@@ -96,7 +101,7 @@ runtime dependency、schema、REST contract 或 persistent graph table。
 ## Consequences
 
 - 後續 Graph Story 可以先針對 domain/projection/retrieval contract 交付，再以 adapter 取代 backend，
-  不必讓 Neo4j-specific query 或 deployment assumptions 滲入核心服務。
+  不必讓任何 vendor-specific query 或 deployment assumptions 滲入核心服務。
 - Graph projection 可在 backend 損壞、遷移或重建時重新產生；canonical archive/vault、authority、
   citation 與 grounded Answer invariants 保持不變。
 - Bounded traversal、authority revalidation 與 Evidence assembly 會增加每個 Graph Retrieval
@@ -105,8 +110,8 @@ runtime dependency、schema、REST contract 或 persistent graph table。
 
 ## Non-goals
 
-- 本 ADR 不建立 Neo4j、BigQuery Graph 或 Spanner Graph client、dependency、schema、migration、
-  projection job、REST endpoint 或 Browser UI。
+- 本 ADR 不建立 ArcadeDB、Neo4j、RyuGraph、BigQuery Graph 或 Spanner Graph client、dependency、
+  schema、migration、projection job、REST endpoint 或 Browser UI。
 - 本 ADR 不把任何 vendor query language、SDK、credential、DTO 或 raw score 變成 domain contract。
 - 本 ADR 不改變現有 lexical/vector Retrieval、`HYBRID_FTS`、`HYBRID_VECTOR`、`EvidenceBundle` 或
   grounded Answer 的 runtime semantics。
