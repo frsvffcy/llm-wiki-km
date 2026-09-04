@@ -4,8 +4,10 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -136,8 +138,253 @@ class GraphProjectionWriterContractTest {
     }
 
     @Test
+    void olderEntityWriteCannotResurrectStateAfterNewerGenerationIsPublished() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(38);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphEntity first = entity(workspace, "first", "First", version);
+        GraphEntity staleOnly = entity(workspace, "stale-only", "Stale only", version);
+        GraphProjectionInput generationA = new GraphProjectionInput(workspace, version,
+                List.of(first, staleOnly), List.of());
+        GraphProjectionInput generationB = new GraphProjectionInput(workspace, version,
+                List.of(first), List.of());
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        GraphProjectionWriteContext contextA = context(generationA, 10);
+        writer.publish(generationA, 10);
+        writer.publish(generationB, 11);
+
+        GraphProjectionWriteResult result = writer.upsertEntity(contextA, staleOnly);
+
+        assertThat(result.status()).isEqualTo(GraphProjectionWriteStatus.SUPERSEDED);
+        assertThat(writer.hasEntity(staleOnly.identity())).isFalse();
+        assertThat(writer.hasEntity(first.identity())).isTrue();
+    }
+
+    @Test
+    void olderRelationWriteCannotResurrectStateAfterNewerGenerationIsPublished() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(39);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphEntity first = entity(workspace, "first", "First", version);
+        GraphEntity second = entity(workspace, "second", "Second", version);
+        GraphRelation staleRelation = relation(first, second, GraphRelationType.LINKS_TO);
+        GraphProjectionInput generationA = new GraphProjectionInput(workspace, version,
+                List.of(first, second), List.of(staleRelation));
+        GraphProjectionInput generationB = new GraphProjectionInput(workspace, version,
+                List.of(first, second), List.of());
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        GraphProjectionWriteContext contextA = context(generationA, 20);
+        writer.publish(generationA, 20);
+        writer.publish(generationB, 21);
+
+        GraphProjectionWriteResult result = writer.upsertRelation(contextA, staleRelation);
+
+        assertThat(result.status()).isEqualTo(GraphProjectionWriteStatus.SUPERSEDED);
+        assertThat(writer.hasRelation(staleRelation.identity())).isFalse();
+    }
+
+    @Test
+    void matchingProofWriteAppliesAndRepeatedWriteIsIdempotent() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(40);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphEntity first = entity(workspace, "first", "First", version);
+        GraphEntity second = entity(workspace, "second", "Second", version);
+        GraphRelation relation = relation(first, second, GraphRelationType.RELATED_TO);
+        GraphProjectionInput input = new GraphProjectionInput(workspace, version,
+                List.of(first, second), List.of(relation));
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        GraphProjectionWriteContext context = context(input, 30);
+        writer.publish(new GraphProjectionInput(workspace, version, List.of(), List.of()), 29);
+
+        GraphProjectionWriteResult entityApplied = writer.upsertEntity(context, first);
+        GraphProjectionWriteResult secondApplied = writer.upsertEntity(context, second);
+        GraphProjectionWriteResult entityRepeated = writer.upsertEntity(context, first);
+        GraphProjectionWriteResult relationApplied = writer.upsertRelation(context, relation);
+        GraphProjectionWriteResult relationRepeated = writer.upsertRelation(context, relation);
+
+        assertThat(entityApplied.status()).isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThat(secondApplied.status()).isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThat(entityRepeated.status()).isEqualTo(GraphProjectionWriteStatus.NO_OP);
+        assertThat(relationApplied.status()).isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThat(relationRepeated.status()).isEqualTo(GraphProjectionWriteStatus.NO_OP);
+        assertThat(writer.hasEntity(first.identity())).isFalse();
+        assertThat(writer.hasRelation(relation.identity())).isFalse();
+
+        assertThat(writer.publish(context).status()).isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThat(writer.hasEntity(first.identity())).isTrue();
+        assertThat(writer.hasEntity(second.identity())).isTrue();
+        assertThat(writer.hasRelation(relation.identity())).isTrue();
+        assertThat(writer.upsertEntity(context, first).status())
+                .isEqualTo(GraphProjectionWriteStatus.NO_OP);
+        assertThat(writer.upsertRelation(context, relation).status())
+                .isEqualTo(GraphProjectionWriteStatus.NO_OP);
+        assertThat(writer.publish(context).status()).isEqualTo(GraphProjectionWriteStatus.NO_OP);
+    }
+
+    @Test
+    void sameGenerationConflictingProofFailsClosedForBothMutationKinds() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(41);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphEntity first = entity(workspace, "first", "First", version);
+        GraphEntity second = entity(workspace, "second", "Second", version);
+        GraphRelation relation = relation(first, second, GraphRelationType.LINKS_TO);
+        GraphProjectionInput current = new GraphProjectionInput(workspace, version,
+                List.of(first, second), List.of(relation));
+        GraphProjectionInput conflicting = new GraphProjectionInput(workspace, version,
+                List.of(first), List.of());
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        writer.publish(current, 40);
+        GraphProjectionWriteContext conflictingContext = context(conflicting, 40);
+
+        assertThatThrownBy(() -> writer.upsertEntity(conflictingContext, first))
+                .isInstanceOf(GraphProjectionException.class)
+                .extracting(exception -> ((GraphProjectionException) exception).failureType())
+                .isEqualTo(GraphProjectionFailureType.INVALID_PROJECTION_INPUT);
+        assertThatThrownBy(() -> writer.upsertRelation(conflictingContext, relation))
+                .isInstanceOf(GraphProjectionException.class)
+                .extracting(exception -> ((GraphProjectionException) exception).failureType())
+                .isEqualTo(GraphProjectionFailureType.INVALID_PROJECTION_INPUT);
+        assertThat(writer.hasEntity(second.identity())).isTrue();
+        assertThat(writer.hasRelation(relation.identity())).isTrue();
+    }
+
+    @Test
+    void sameGenerationConflictingProofIsRejectedBeforeEitherOperationPublishes() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(42);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphEntity first = entity(workspace, "first", "First", version);
+        GraphEntity second = entity(workspace, "second", "Second", version);
+        GraphProjectionInput firstInput = new GraphProjectionInput(workspace, version,
+                List.of(first), List.of());
+        GraphProjectionInput secondInput = new GraphProjectionInput(workspace, version,
+                List.of(second), List.of());
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        GraphProjectionWriteContext firstContext = context(firstInput, 50);
+        GraphProjectionWriteContext secondContext = context(secondInput, 50);
+
+        assertThat(writer.upsertEntity(firstContext, first).status())
+                .isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThatThrownBy(() -> writer.upsertEntity(secondContext, second))
+                .isInstanceOf(GraphProjectionException.class)
+                .extracting(exception -> ((GraphProjectionException) exception).failureType())
+                .isEqualTo(GraphProjectionFailureType.INVALID_PROJECTION_INPUT);
+        assertThatThrownBy(() -> writer.publish(secondContext))
+                .isInstanceOf(GraphProjectionException.class)
+                .extracting(exception -> ((GraphProjectionException) exception).failureType())
+                .isEqualTo(GraphProjectionFailureType.INVALID_PROJECTION_INPUT);
+        assertThat(writer.publish(firstContext).status())
+                .isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThat(writer.hasEntity(first.identity())).isTrue();
+        assertThat(writer.hasEntity(second.identity())).isFalse();
+    }
+
+    @Test
+    void crossWorkspaceAndIncompatibleVersionWritesFailClosed() {
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphProjectionVersion incompatibleVersion = new GraphProjectionVersion("graph-projection-v2");
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(43);
+        GraphWorkspaceScope otherWorkspace = new GraphWorkspaceScope(44);
+        GraphEntity local = entity(workspace, "local", "Local", version);
+        GraphEntity foreign = entity(otherWorkspace, "foreign", "Foreign", version);
+        GraphEntity incompatible = entity(workspace, "incompatible", "Incompatible", incompatibleVersion);
+        GraphProjectionInput input = new GraphProjectionInput(workspace, version,
+                List.of(local), List.of());
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        GraphProjectionWriteContext context = context(input, 60);
+
+        assertThatThrownBy(() -> writer.upsertEntity(context, foreign))
+                .isInstanceOf(GraphProjectionException.class)
+                .extracting(exception -> ((GraphProjectionException) exception).failureType())
+                .isEqualTo(GraphProjectionFailureType.CROSS_WORKSPACE);
+        assertThatThrownBy(() -> writer.upsertEntity(context, incompatible))
+                .isInstanceOf(GraphProjectionException.class)
+                .extracting(exception -> ((GraphProjectionException) exception).failureType())
+                .isEqualTo(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+        assertThatThrownBy(() -> writer.upsertRelation(context,
+                relation(foreign, foreign, GraphRelationType.RELATED_TO)))
+                .isInstanceOf(GraphProjectionException.class)
+                .extracting(exception -> ((GraphProjectionException) exception).failureType())
+                .isEqualTo(GraphProjectionFailureType.CROSS_WORKSPACE);
+    }
+
+    @Test
+    void newerWriteAndOlderCleanupInterleaveWithoutHidingNewerStagedState() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(45);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphEntity first = entity(workspace, "first", "First", version);
+        GraphEntity second = entity(workspace, "second", "Second", version);
+        GraphProjectionInput generationA = new GraphProjectionInput(workspace, version,
+                List.of(first), List.of());
+        GraphProjectionInput generationB = new GraphProjectionInput(workspace, version,
+                List.of(first, second), List.of());
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        writer.publish(generationA, 70);
+        GraphProjectionWriteContext contextB = context(generationB, 71);
+
+        assertThat(writer.upsertEntity(contextB, second).status())
+                .isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThat(writer.removeStale(reconciliation(generationA, 70)).status())
+                .isEqualTo(GraphProjectionCleanupStatus.NO_OP);
+        assertThat(writer.hasEntity(second.identity())).isFalse();
+        assertThat(writer.publish(contextB).status()).isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThat(writer.hasEntity(second.identity())).isTrue();
+    }
+
+    @Test
+    void newerPublishWinsAndOlderWriteAndCleanupAreBothNoMutation() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(46);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphEntity first = entity(workspace, "first", "First", version);
+        GraphEntity staleOnly = entity(workspace, "stale-only", "Stale only", version);
+        GraphProjectionInput generationA = new GraphProjectionInput(workspace, version,
+                List.of(first, staleOnly), List.of());
+        GraphProjectionInput generationB = new GraphProjectionInput(workspace, version,
+                List.of(first), List.of());
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        GraphProjectionReconciliation reconciliationA = reconciliation(generationA, 80);
+        GraphProjectionWriteContext contextA = reconciliationA.writeContext();
+        writer.publish(generationA, 80);
+        writer.publish(generationB, 81);
+
+        assertThat(writer.upsertEntity(contextA, staleOnly).status())
+                .isEqualTo(GraphProjectionWriteStatus.SUPERSEDED);
+        assertThat(writer.removeStale(reconciliationA).status())
+                .isEqualTo(GraphProjectionCleanupStatus.SUPERSEDED);
+        assertThat(writer.hasEntity(staleOnly.identity())).isFalse();
+        assertThat(writer.hasEntity(first.identity())).isTrue();
+    }
+
+    @Test
+    void cleanupDoesNotDeleteRowsStagedForAStillUnpublishedNewerGeneration() {
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(47);
+        GraphProjectionVersion version = GraphProjectionVersion.initial();
+        GraphEntity first = entity(workspace, "first", "First", version);
+        GraphEntity staleOnly = entity(workspace, "stale-only", "Stale only", version);
+        GraphEntity newerOnly = entity(workspace, "newer-only", "Newer only", version);
+        GraphProjectionInput oldGeneration = new GraphProjectionInput(workspace, version,
+                List.of(first, staleOnly), List.of());
+        GraphProjectionInput generationA = new GraphProjectionInput(workspace, version,
+                List.of(first), List.of());
+        GraphProjectionInput generationB = new GraphProjectionInput(workspace, version,
+                List.of(first, newerOnly), List.of());
+        InMemoryGraphProjectionWriter writer = new InMemoryGraphProjectionWriter();
+        writer.publish(oldGeneration, 89);
+        writer.publish(generationA, 90);
+        GraphProjectionWriteContext contextB = context(generationB, 91);
+        assertThat(writer.upsertEntity(contextB, newerOnly).status())
+                .isEqualTo(GraphProjectionWriteStatus.APPLIED);
+
+        GraphProjectionCleanupResult cleanup = writer.removeStale(reconciliation(generationA, 90));
+
+        assertThat(cleanup.status()).isEqualTo(GraphProjectionCleanupStatus.APPLIED);
+        assertThat(cleanup.removedEntities()).isEqualTo(1);
+        assertThat(writer.hasEntity(staleOnly.identity())).isFalse();
+        assertThat(writer.hasEntity(newerOnly.identity())).isFalse();
+        assertThat(writer.publish(contextB).status()).isEqualTo(GraphProjectionWriteStatus.APPLIED);
+        assertThat(writer.hasEntity(newerOnly.identity())).isTrue();
+    }
+
+    @Test
     void cleanupResultRejectsStatusAndCountContradictions() {
-        GraphWorkspaceScope workspace = new GraphWorkspaceScope(37);
+        GraphWorkspaceScope workspace = new GraphWorkspaceScope(48);
 
         assertThatThrownBy(() -> new GraphProjectionCleanupResult(
                 GraphProjectionCleanupStatus.NO_OP, workspace, 1, 1, 0))
@@ -153,6 +400,10 @@ class GraphProjectionWriterContractTest {
     private static GraphProjectionReconciliation reconciliation(GraphProjectionInput input,
                                                                 long generation) {
         return GraphProjectionReconciliation.from(input, GraphProjectionSnapshot.of(input, generation));
+    }
+
+    private static GraphProjectionWriteContext context(GraphProjectionInput input, long generation) {
+        return GraphProjectionWriteContext.of(input, generation);
     }
 
     private static GraphEntity entity(GraphWorkspaceScope workspace, String key, String name,
@@ -172,87 +423,197 @@ class GraphProjectionWriterContractTest {
 
     /** Minimal deterministic adapter used only to execute the provider-neutral generation contract. */
     private static final class InMemoryGraphProjectionWriter implements GraphProjectionWriter {
-        private final Map<GraphEntityIdentity, StoredEntity> entities = new HashMap<>();
-        private final Map<GraphRelationIdentity, StoredRelation> relations = new HashMap<>();
+        private final Map<GraphEntityIdentity, Map<GraphProjectionSnapshot, GraphEntity>> entities = new HashMap<>();
+        private final Map<GraphRelationIdentity, Map<GraphProjectionSnapshot, GraphRelation>> relations = new HashMap<>();
         private final Map<GraphWorkspaceScope, GraphProjectionSnapshot> currentSnapshots = new HashMap<>();
+        private final Map<GraphWorkspaceScope, Map<Long, GraphProjectionSnapshot>> operationOwners = new HashMap<>();
 
         void publish(GraphProjectionInput input, long generation) {
-            GraphProjectionSnapshot snapshot = GraphProjectionSnapshot.of(input, generation);
-            GraphProjectionSnapshot current = currentSnapshots.get(input.workspace());
-            if (current != null && current.generation() > generation) {
-                return;
+            GraphProjectionWriteContext context = context(input, generation);
+            input.entities().forEach(entity -> upsertEntity(context, entity));
+            input.relations().forEach(relation -> upsertRelation(context, relation));
+            assertThat(publish(context).status())
+                    .isNotEqualTo(GraphProjectionWriteStatus.SUPERSEDED);
+        }
+
+        @Override
+        public GraphProjectionWriteResult upsertEntity(GraphProjectionWriteContext context,
+                                                        GraphEntity entity) {
+            validateEntity(context, entity);
+            GraphProjectionWriteStatus currentStatus = validateCurrent(context);
+            if (currentStatus == GraphProjectionWriteStatus.SUPERSEDED) {
+                return GraphProjectionWriteResult.superseded(context);
             }
-            currentSnapshots.put(input.workspace(), snapshot);
-            input.entities().forEach(entity -> entities.put(entity.identity(),
-                    new StoredEntity(input.workspace(), generation)));
-            input.relations().forEach(relation -> relations.put(relation.identity(),
-                    new StoredRelation(input.workspace(), generation)));
+            Map<GraphProjectionSnapshot, GraphEntity> rows = entities.computeIfAbsent(
+                    entity.identity(), ignored -> new HashMap<>());
+            GraphEntity previous = rows.putIfAbsent(context.snapshot(), entity);
+            if (previous == null) {
+                return GraphProjectionWriteResult.applied(context);
+            }
+            if (!previous.equals(entity)) {
+                throw invalidInput("Graph entity contents conflict with its write proof");
+            }
+            return GraphProjectionWriteResult.noOp(context);
         }
 
         @Override
-        public void upsertEntity(GraphWorkspaceScope workspace, GraphEntity entity) {
-            requireWorkspace(workspace, entity.identity().workspace());
-            GraphProjectionSnapshot current = requireCurrent(workspace);
-            entities.put(entity.identity(), new StoredEntity(workspace, current.generation()));
+        public GraphProjectionWriteResult upsertRelation(GraphProjectionWriteContext context,
+                                                         GraphRelation relation) {
+            validateRelation(context, relation);
+            GraphProjectionWriteStatus currentStatus = validateCurrent(context);
+            if (currentStatus == GraphProjectionWriteStatus.SUPERSEDED) {
+                return GraphProjectionWriteResult.superseded(context);
+            }
+            Map<GraphProjectionSnapshot, GraphRelation> rows = relations.computeIfAbsent(
+                    relation.identity(), ignored -> new HashMap<>());
+            GraphRelation previous = rows.putIfAbsent(context.snapshot(), relation);
+            if (previous == null) {
+                return GraphProjectionWriteResult.applied(context);
+            }
+            if (!previous.equals(relation)) {
+                throw invalidInput("Graph relation contents conflict with its write proof");
+            }
+            return GraphProjectionWriteResult.noOp(context);
         }
 
         @Override
-        public void upsertRelation(GraphWorkspaceScope workspace, GraphRelation relation) {
-            requireWorkspace(workspace, relation.identity().workspace());
-            GraphProjectionSnapshot current = requireCurrent(workspace);
-            relations.put(relation.identity(), new StoredRelation(workspace, current.generation()));
+        public GraphProjectionWriteResult publish(GraphProjectionWriteContext context) {
+            requireContext(context);
+            GraphProjectionSnapshot current = currentSnapshots.get(context.workspace());
+            GraphProjectionWriteStatus currentStatus = validateCurrent(context);
+            if (currentStatus == GraphProjectionWriteStatus.SUPERSEDED) {
+                return GraphProjectionWriteResult.superseded(context);
+            }
+            if (current != null && context.owns(current)) {
+                return GraphProjectionWriteResult.noOp(context);
+            }
+            currentSnapshots.put(context.workspace(), context.snapshot());
+            return GraphProjectionWriteResult.applied(context);
         }
 
         @Override
         public GraphProjectionCleanupResult removeStale(GraphProjectionReconciliation reconciliation) {
+            if (reconciliation == null) {
+                throw new IllegalArgumentException("Graph reconciliation is required");
+            }
             GraphProjectionSnapshot current = requireCurrent(reconciliation.workspace());
+            if (!reconciliation.snapshot().projectionVersion().equals(current.projectionVersion())) {
+                throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+            }
             if (reconciliation.isSupersededBy(current)) {
                 return GraphProjectionCleanupResult.superseded(reconciliation);
             }
             if (reconciliation.conflictsWith(current)) {
-                throw new GraphProjectionException(GraphProjectionFailureType.INVALID_PROJECTION_INPUT);
+                throw invalidInput("Graph cleanup proof conflicts with current generation");
             }
             if (!reconciliation.owns(current)) {
                 throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
             }
+            claim(reconciliation.writeContext());
 
-            int removedEntities = removeStaleEntities(reconciliation);
-            int removedRelations = removeStaleRelations(reconciliation);
+            int removedEntities = removeStaleEntities(reconciliation, current);
+            int removedRelations = removeStaleRelations(reconciliation, current);
             return GraphProjectionCleanupResult.applied(reconciliation, removedEntities, removedRelations);
         }
 
         @Override
         public void clearWorkspace(GraphWorkspaceScope workspace) {
-            entities.entrySet().removeIf(entry -> entry.getValue().workspace().equals(workspace));
-            relations.entrySet().removeIf(entry -> entry.getValue().workspace().equals(workspace));
+            requireWorkspace(workspace);
+            entities.entrySet().removeIf(entry -> entry.getKey().workspace().equals(workspace));
+            relations.entrySet().removeIf(entry -> entry.getKey().workspace().equals(workspace));
             currentSnapshots.remove(workspace);
+            operationOwners.remove(workspace);
         }
 
         boolean hasEntity(GraphEntityIdentity identity) {
-            return entities.containsKey(identity);
+            GraphProjectionSnapshot current = currentSnapshots.get(identity.workspace());
+            return current != null && entities.getOrDefault(identity, Map.of()).containsKey(current);
         }
 
         boolean hasRelation(GraphRelationIdentity identity) {
-            return relations.containsKey(identity);
+            GraphProjectionSnapshot current = currentSnapshots.get(identity.workspace());
+            return current != null && relations.getOrDefault(identity, Map.of()).containsKey(current);
         }
 
-        private int removeStaleEntities(GraphProjectionReconciliation reconciliation) {
-            int before = entities.size();
-            List<GraphEntityIdentity> active = reconciliation.activeEntities();
-            entities.entrySet().removeIf(entry -> entry.getValue().workspace().equals(reconciliation.workspace())
-                    && !active.contains(entry.getKey()));
-            return before - entities.size();
+        private GraphProjectionWriteStatus validateCurrent(GraphProjectionWriteContext context) {
+            requireContext(context);
+            GraphProjectionSnapshot current = currentSnapshots.get(context.workspace());
+            if (current != null && !context.projectionVersion().equals(current.projectionVersion())) {
+                throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+            }
+            if (context.isSupersededBy(current)) {
+                return GraphProjectionWriteStatus.SUPERSEDED;
+            }
+            if (context.conflictsWith(current)) {
+                throw invalidInput("Graph write proof conflicts with current generation");
+            }
+            claim(context);
+            return null;
         }
 
-        private int removeStaleRelations(GraphProjectionReconciliation reconciliation) {
-            int before = relations.size();
-            List<GraphRelationIdentity> active = reconciliation.activeRelations();
-            relations.entrySet().removeIf(entry -> entry.getValue().workspace().equals(reconciliation.workspace())
-                    && !active.contains(entry.getKey()));
-            return before - relations.size();
+        private void validateEntity(GraphProjectionWriteContext context, GraphEntity entity) {
+            requireContext(context);
+            if (entity == null || !context.workspace().equals(entity.identity().workspace())) {
+                throw new GraphProjectionException(GraphProjectionFailureType.CROSS_WORKSPACE);
+            }
+            if (!context.projectionVersion().equals(entity.projectionVersion())) {
+                throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+            }
+            if (!context.matches(entity)) {
+                throw invalidInput("Graph entity does not belong to its write proof");
+            }
+        }
+
+        private void validateRelation(GraphProjectionWriteContext context, GraphRelation relation) {
+            requireContext(context);
+            if (relation == null || !context.workspace().equals(relation.identity().workspace())) {
+                throw new GraphProjectionException(GraphProjectionFailureType.CROSS_WORKSPACE);
+            }
+            if (!context.projectionVersion().equals(relation.projectionVersion())) {
+                throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+            }
+            if (!context.matches(relation)) {
+                throw invalidInput("Graph relation does not belong to its write proof");
+            }
+        }
+
+        private int removeStaleEntities(GraphProjectionReconciliation reconciliation,
+                                        GraphProjectionSnapshot current) {
+            Set<GraphEntityIdentity> active = new HashSet<>(reconciliation.activeEntities());
+            int removed = 0;
+            for (var entry : entities.entrySet()) {
+                if (!entry.getKey().workspace().equals(reconciliation.workspace())
+                        || active.contains(entry.getKey())) {
+                    continue;
+                }
+                removed += removeRowsThroughGeneration(entry.getValue(), current.generation());
+            }
+            return removed;
+        }
+
+        private int removeStaleRelations(GraphProjectionReconciliation reconciliation,
+                                         GraphProjectionSnapshot current) {
+            Set<GraphRelationIdentity> active = new HashSet<>(reconciliation.activeRelations());
+            int removed = 0;
+            for (var entry : relations.entrySet()) {
+                if (!entry.getKey().workspace().equals(reconciliation.workspace())
+                        || active.contains(entry.getKey())) {
+                    continue;
+                }
+                removed += removeRowsThroughGeneration(entry.getValue(), current.generation());
+            }
+            return removed;
+        }
+
+        private static <T> int removeRowsThroughGeneration(Map<GraphProjectionSnapshot, T> rows,
+                                                            long generation) {
+            int before = rows.size();
+            rows.keySet().removeIf(snapshot -> snapshot.generation() <= generation);
+            return before - rows.size();
         }
 
         private GraphProjectionSnapshot requireCurrent(GraphWorkspaceScope workspace) {
+            requireWorkspace(workspace);
             GraphProjectionSnapshot current = currentSnapshots.get(workspace);
             if (current == null) {
                 throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_NOT_READY);
@@ -260,16 +621,31 @@ class GraphProjectionWriterContractTest {
             return current;
         }
 
-        private static void requireWorkspace(GraphWorkspaceScope expected, GraphWorkspaceScope actual) {
-            if (expected == null || !expected.equals(actual)) {
-                throw new GraphProjectionException(GraphProjectionFailureType.CROSS_WORKSPACE);
+        private void claim(GraphProjectionWriteContext context) {
+            Map<Long, GraphProjectionSnapshot> generations = operationOwners.computeIfAbsent(
+                    context.workspace(), ignored -> new HashMap<>());
+            GraphProjectionSnapshot previous = generations.putIfAbsent(context.generation(),
+                    context.snapshot());
+            if (previous != null && !previous.equals(context.snapshot())) {
+                throw invalidInput("Graph generation already has another write proof");
             }
         }
 
-        private record StoredEntity(GraphWorkspaceScope workspace, long generation) {
+        private static void requireContext(GraphProjectionWriteContext context) {
+            if (context == null) {
+                throw new IllegalArgumentException("Graph projection write context is required");
+            }
         }
 
-        private record StoredRelation(GraphWorkspaceScope workspace, long generation) {
+        private static void requireWorkspace(GraphWorkspaceScope workspace) {
+            if (workspace == null) {
+                throw new IllegalArgumentException("Graph workspace is required");
+            }
+        }
+
+        private static GraphProjectionException invalidInput(String diagnostic) {
+            return new GraphProjectionException(new GraphProjectionFailure(
+                    GraphProjectionFailureType.INVALID_PROJECTION_INPUT, diagnostic));
         }
     }
 }
