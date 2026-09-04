@@ -1,0 +1,44 @@
+name: Full Regression Canary
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    # 02:17 Asia/Taipei (18:17 UTC) keeps a daily clean end-to-end canary.
+    - cron: '17 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-regression-canary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  full-regression:
+    name: Full regression canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run clean full regression, Flyway, jOOQ and package gate
+        run: mvn --batch-mode clean verify -Pfull
+      - name: Upload Surefire reports and package artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-regression-canary-reports
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+            target/*.jar
+          if-no-files-found: ignore
