@@ -103,18 +103,24 @@ treating projection data as canonical authority.
 ## Phase 3 Graph capability boundary
 
 Phase 3 is a provider-neutral Knowledge Graph, bounded Graph Retrieval, and GraphRAG capability;
-it is not a commitment to Neo4j or another specific backend. Until the capability is implemented,
-the lexical/vector retrieval baseline and its evidence contracts remain the active product surface.
+it is not a commitment to Neo4j or another specific backend. Phase 3A now owns the immutable
+domain/projection contract, while no graph runtime or retrieval surface has been introduced. The
+lexical/vector retrieval baseline and its evidence contracts remain the active product surface.
 The architecture decision is recorded in
 [ADR 0007](../adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md).
 
 Future graph work must provide evidence at each boundary:
 
-- Graph Entity, Relation, Provenance, stable identity, and workspace scope are tested as
-  provider-neutral contracts; Cypher, GQL, SQL-PGQ, and vendor DTOs stay in adapter tests.
-- Projection tests prove that graph state is derived and rebuildable from canonical
-  `archive/`/`vault/` content and authoritative metadata, with workspace isolation and stale or
-  orphaned projection recovery.
+- `org.km.llmwiki.graph.GraphDomainContractTest` and
+  `org.km.llmwiki.graph.GraphProjectionContractTest` own the Phase 3A contract for Graph Entity,
+  Relation, Provenance, stable identity, workspace scope, bounded metadata, deterministic
+  rebuild input, projection snapshots, and typed failures. The
+  `org.km.llmwiki.graph.GraphVendorNeutralContractTest` guards the production package against
+  vendor API/query references. Cypher, GQL, SQL-PGQ, and vendor DTOs stay in adapter tests.
+- Projection contract tests prove that an adapter receives deterministic, workspace-scoped input
+  assembled from prevalidated canonical `archive/`/`vault/` content and authoritative metadata;
+  stale/orphan reconciliation is represented without granting the projection canonical authority.
+  Actual source assembly and adapter recovery remain follow-up implementation surfaces.
 - Traversal tests assert deterministic bounds for seed count, hop depth, fan-out, node/edge
   candidates, and context/evidence budget. No test may rely on an unbounded traversal or graph
   explosion being unlikely.

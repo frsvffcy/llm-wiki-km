@@ -57,9 +57,11 @@ readiness: semantic serving additionally requires backend capability configurati
 embedding projection for the requested workspace and corpus, and query-time metadata, freshness,
 and authority validation. SQLite remains the operational/control plane for the relational schema,
 SQLite FTS5, readiness, and authority/provenance enforcement; it is not being migrated or
-replaced. Phase 3 is reserved for the provider-neutral Knowledge Graph, bounded Graph Retrieval,
-and GraphRAG capability; no graph runtime is part of the current baseline. Its contract must cover
-Graph Entity, Relation, Provenance, stable identity, workspace scope, and rebuildable projection.
+replaced. Phase 3A now provides the provider-neutral Knowledge Graph domain/projection contract:
+immutable Graph Entity, Relation, Provenance, stable identity, workspace scope, bounded metadata,
+deterministic rebuild input, projection snapshot/version, and typed projection failures. No graph
+runtime or retrieval surface is part of the current baseline. Phase 3B onward remains reserved for
+an optional adapter feasibility study, bounded Graph Retrieval, and GraphRAG.
 ArcadeDB is the currently preferred embedded multi-model adapter candidate, limited to rebuildable
 Document, Vector, Graph, and Search projections. It is not a SQLite replacement or migration
 target, canonical knowledge store, or domain authority. Neo4j, RyuGraph, BigQuery Graph, and
