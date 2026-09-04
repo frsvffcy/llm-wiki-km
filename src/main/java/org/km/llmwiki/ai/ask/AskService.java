@@ -11,6 +11,7 @@ import org.km.llmwiki.rag.EvidenceBundle;
 import org.km.llmwiki.rag.RetrievalService;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
 import org.km.llmwiki.rag.RetrievalDiagnostics;
+import org.km.llmwiki.rag.RetrievalStrategy;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -53,7 +54,7 @@ public class AskService {
                             "retrieval dependency is unavailable",
                             Optional.of(exception.dependency())),
                     new AskExecutionMetadata(0, 0, 0, false),
-                    List.of(), RetrievalDiagnostics.lexical());
+                    List.of(), retrievalFailureDiagnostics(request, exception));
         }
 
         AnswerContext context = contextAssembler.assemble(evidence, request.contextBudget());
@@ -112,6 +113,23 @@ public class AskService {
         return exception.dependency() == RetrievalUnavailableException.Dependency.VECTOR_SEARCH
                 ? AskFailureType.RETRIEVAL_VECTOR_UNAVAILABLE
                 : AskFailureType.RETRIEVAL_UNAVAILABLE;
+    }
+
+    private static RetrievalDiagnostics retrievalFailureDiagnostics(AskRequest request,
+                                                                     RetrievalUnavailableException exception) {
+        RetrievalStrategy strategy = request.retrievalRequest().strategy();
+        if (exception.dependency() != RetrievalUnavailableException.Dependency.VECTOR_SEARCH) {
+            return switch (strategy) {
+                case LEXICAL -> RetrievalDiagnostics.lexical();
+                case SEMANTIC -> RetrievalDiagnostics.semantic();
+                case HYBRID -> RetrievalDiagnostics.hybrid();
+            };
+        }
+        return switch (strategy) {
+            case LEXICAL -> RetrievalDiagnostics.lexical();
+            case SEMANTIC -> RetrievalDiagnostics.unavailableSemantic(exception.getMessage());
+            case HYBRID -> RetrievalDiagnostics.degradedHybrid(exception.getMessage());
+        };
     }
 
     private static List<AskCitation> mapCitations(AnswerContext context, List<String> citationIds) {
