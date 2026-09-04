@@ -370,12 +370,12 @@ public interface LlmClient {
 ### 8.7 可跳過與不可跳過的流程
 * **可跳過（coding loop）**：純邏輯修改可不反覆執行 full tests；未觸及 migration/persistence/codegen/build tooling 時可跳過 clean Flyway/jOOQ/package gate；單一 failed test 先跑 affected suite；documentation、ADR、test-only spike 中途可跳過 full package。
 * **不可跳過（final）**：migration、persistence wiring、generated sources、build plugin 或 package 改動，在本機 final 前必須 `mvn clean verify -Pfull`。PR Ready 不得只靠 fast tests；CI 失敗不得以本機 pass 取代。
-* main 尚未由 repository setting 強制 required check 前，local final full gate 仍保留，不得宣告本機 full 可以完全取消。
+* `main` 已由 repository branch protection 強制 PR 與 `PR Gate` required check；local final full gate 仍保留，不得宣告本機 full 可以完全取消。
 
 ### 8.8 CI、Branch Protection 與 Merge Safety
 * PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 Fast unit and contract tests、Integration tests、Build Integrity、sqlite-vec JDBC Smoke 四個 evidence jobs，以及依賴四者的 `PR Gate` aggregate job。完整 `mvn --batch-mode clean verify -Pfull` 由 `.github/workflows/full-regression-canary.yml` 在 main push、nightly與 manual dispatch 執行。
 * `PR Gate` 是穩定的 merge safety gate；只有 Fast、Integration、Build Integrity、sqlite-vec Smoke 四者均回報 `success` 才能成功。任一 upstream job `failure`、`cancelled` 或 `skipped` 都不得讓 `PR Gate` 綠燈；Build Integrity job 執行 `mvn --batch-mode clean verify -Pbuild-integrity` 並包含 `git diff --check`。
-* 未來 branch protection / rulesets 優先將穩定的 `PR Gate` 設為 `main` 的 required check，並保留四個 upstream jobs 的 coverage。branch protection 是 repository setting，不由 AGENTS.md 宣告；若 main 尚未實際強制 `PR Gate`，工程師仍須人工確認 `PR Gate`、Fast、Integration、Build Integrity、sqlite-vec Smoke 全部成功後才可合併。本規範不得寫成 required check 已強制；若 contributor 無法讀取或設定 repository protection，也只能採此保守判定並記錄權限／plan 限制。
+* `main` branch protection 已將穩定的 `PR Gate` 設為唯一 required check，並要求 PR branch 為最新；四個 upstream jobs 的 coverage 仍由 aggregate gate 保留。branch protection 是 repository setting，實際狀態優先於 AGENTS.md；若 contributor 無法讀取或驗證當前 protection，或設定日後變更，則不得宣告 required check 仍受強制，並須人工確認 `PR Gate`、Fast、Integration、Build Integrity、sqlite-vec Smoke 全部成功後才可合併，同時記錄權限／plan 限制。
 * CI 失敗時，必須修正或明確記錄 blocker；不能用本機成功取代 CI 結果，也不能因 local full pass 而忽略未完成的 repository protection 設定。
 
 ### 8.9 量測與 Java 版本規範
