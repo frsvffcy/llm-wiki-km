@@ -18,6 +18,7 @@ as a fast-only run. The explicit profiles are:
 
 ```text
 node --test src/test/js/ask-ui.test.mjs # Browser Ask UI contract regression suite
+node --test src/test/js/pr-metadata.test.mjs # PR metadata guard regression suite
 mvn test -Pfast         # unit + contract; no Spring context tests
 mvn test -Pintegration  # integration-tagged tests
 mvn clean verify -Pbuild-integrity # clean build evidence; test execution intentionally omitted
@@ -28,8 +29,9 @@ The Browser Ask UI contract suite runs directly with the Node.js built-in test r
 not require npm dependencies, a frontend build, a browser automation server, provider credentials,
 or network access. The PR workflow pins its runtime to Node.js 22 LTS and runs this suite in the
 `Fast unit and contract tests` job before the Maven fast tier. A failure in either command fails
-that job. The `PR Gate` job aggregates Fast, Integration, Build Integrity, and sqlite-vec smoke
-results and fails unless every evidence job succeeds.
+that job. The separate PR Metadata job executes the metadata guard regression suite and validates
+the live pull-request event. The `PR Gate` job aggregates PR Metadata, Fast, Integration, Build
+Integrity, and sqlite-vec smoke results and fails unless every evidence job succeeds.
 
 The `full` profile deliberately applies no include or exclude filter. This guarantees that adding
 a new tagged test cannot accidentally remove it from the final gate. `fast` is feedback only; it
@@ -137,20 +139,22 @@ authority/evidence suites or making a vendor the default solely because it is ge
 
 ## PR CI and merge gate
 
-Every pull request targeting `main` runs `.github/workflows/pr-ci.yml` with four complementary
-evidence jobs and one aggregate merge gate:
+Every pull request runs `.github/workflows/pr-ci.yml` with five complementary evidence jobs and one
+aggregate merge gate. A non-`main` stacked PR must carry the explicit metadata exception described
+below; ordinary delivery still targets `main`:
 
 | CI job | Command | Purpose |
 | --- | --- | --- |
+| PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, closing keyword, and same-repository Issue existence with a read-only token |
 | Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
 | Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
 | sqlite-vec JDBC smoke | Pinned Linux archive download, checksum, and `scripts/sqlite-vec-jdbc-smoke.sh` | Linux JDBC/native extension portability evidence with a distinct failure stage |
-| PR Gate | Requires all four jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
+| PR Gate | Requires all five jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
 
-The four evidence jobs retain independent coverage, while `PR Gate` is the stable aggregate PR
-safety gate. It uses the workflow `needs` results and succeeds only when Fast, Integration, Build
-Integrity, and sqlite-vec Smoke all report `success`; an upstream failure, cancellation, or skip
+The five evidence jobs retain independent coverage, while `PR Gate` is the stable aggregate PR
+safety gate. It uses the workflow `needs` results and succeeds only when PR Metadata, Fast,
+Integration, Build Integrity, and sqlite-vec Smoke all report `success`; an upstream failure, cancellation, or skip
 cannot produce a green gate. The Build Integrity job's `clean` phase removes generated build output
 before Maven runs `generate-sources`; the jOOQ generator then applies all published Flyway
 migrations to a fresh temporary SQLite database and the generated sources are compiled into the
@@ -178,14 +182,14 @@ durations and Maven/Surefire counts from the PR workflow in the PR description f
 wall-clock evidence. These figures are observations rather than an SLA because runner load and
 dependency-cache state vary.
 
-`main` branch protection requires a pull request, an up-to-date branch, and the stable `PR Gate`
-status check before merging. `PR Gate` is the sole required check; Fast, Integration, Build
-Integrity, and sqlite-vec Smoke remain required evidence through that aggregate gate. Do not
-remove the Browser Ask UI command from the Fast job or reduce any existing coverage. Branch
-protection is a repository setting that can change independently of this document. If a
-contributor cannot verify its current state because of repository permissions or plan limits, they
-must not claim that `PR Gate` is enforced and must manually confirm that `PR Gate`, Fast,
-Integration, Build Integrity, and sqlite-vec Smoke are all `SUCCESS` before merging.
+The Logical PR Gate always requires a pull request targeting `main` plus successful PR Metadata,
+Fast, Integration, Build Integrity, sqlite-vec Smoke, and aggregate `PR Gate` checks. A GitHub
+branch protection rule or ruleset may additionally make `PR Gate` a server-enforced required check,
+but plan, visibility, or permissions can make that enforcement unavailable or unverifiable. In that
+case, contributors must not claim it is enforced and must explicitly inspect every Logical PR Gate
+check before merging. Do not remove the Browser Ask UI command from the Fast job or reduce any
+existing coverage. See [GitHub delivery governance](github-delivery-governance.md) for the current
+capability evidence and private-repository fallback.
 
 ## Tag/profile smoke checks
 
