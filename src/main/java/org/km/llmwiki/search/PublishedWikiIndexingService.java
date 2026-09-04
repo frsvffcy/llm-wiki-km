@@ -2,6 +2,7 @@ package org.km.llmwiki.search;
 
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
+import org.km.llmwiki.wiki.PublishedWikiValidationException;
 import org.km.llmwiki.wiki.PageStatus;
 import org.km.llmwiki.wiki.StoredPublishedWiki;
 import org.km.llmwiki.wiki.WikiPublishResult;
@@ -58,8 +59,7 @@ public class PublishedWikiIndexingService {
             return new WikiIndexSyncResult(WikiIndexSyncStatus.SYNCED, ledger.workspaceId(),
                     ledger.knowledgePageId(), null);
         } catch (RuntimeException exception) {
-            WikiSearchIndexSyncStatus status = exception.getMessage() != null
-                    && exception.getMessage().contains("content_hash")
+            WikiSearchIndexSyncStatus status = exception instanceof PublishedWikiValidationException
                     ? WikiSearchIndexSyncStatus.DRIFT : WikiSearchIndexSyncStatus.INDEX_PENDING;
             return pending(published, status,
                     "Published Wiki FTS sync failed: " + exception.getClass().getSimpleName()

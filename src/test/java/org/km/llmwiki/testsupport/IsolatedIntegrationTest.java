@@ -57,11 +57,10 @@ public abstract class IsolatedIntegrationTest {
     }
 
     /**
-     * The shared SQLite database cannot be reset while an asynchronous embedding job still
-     * owns references to the rows being deleted. A FIFO barrier drains all jobs submitted by
-     * the preceding test without adding a timing assumption to the isolation contract.
+     * Drains embedding work before a test resets rows or needs exclusive SQLite write access.
+     * A FIFO barrier drains prior work without adding a timing assumption to the isolation contract.
      */
-    private void awaitEmbeddingProjectionTasks() {
+    protected final void awaitEmbeddingProjectionTasks() {
         try {
             embeddingProjectionTaskExecutor.submit(() -> { }).get(30, TimeUnit.SECONDS);
         } catch (InterruptedException interrupted) {
