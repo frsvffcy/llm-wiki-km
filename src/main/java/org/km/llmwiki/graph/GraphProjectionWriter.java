@@ -17,8 +17,19 @@ public interface GraphProjectionWriter {
      */
     void upsertRelation(GraphWorkspaceScope workspace, GraphRelation relation);
 
-    /** Removes or supersedes projection rows absent from the workspace-scoped active set. */
-    void removeStale(GraphProjectionReconciliation reconciliation);
+    /**
+     * Conditionally removes or supersedes projection rows absent from the active set.
+     *
+     * <p>The implementation must atomically compare the workspace's current snapshot proof with
+     * {@code reconciliation.snapshot()} before mutating derived state. If a newer generation is
+     * current, it must return {@link GraphProjectionCleanupStatus#SUPERSEDED} without deleting or
+     * updating any row. A same-generation proof mismatch must fail with
+     * {@link GraphProjectionFailureType#INVALID_PROJECTION_INPUT}; an older current generation
+     * must fail with {@link GraphProjectionFailureType#PROJECTION_STALE}. The compare-and-set may
+     * use any provider-neutral equivalent mechanism; vendor transaction or query primitives must
+     * not cross this boundary.
+     */
+    GraphProjectionCleanupResult removeStale(GraphProjectionReconciliation reconciliation);
 
     /** Deletes all derived graph state for one workspace without touching canonical authority. */
     void clearWorkspace(GraphWorkspaceScope workspace);
