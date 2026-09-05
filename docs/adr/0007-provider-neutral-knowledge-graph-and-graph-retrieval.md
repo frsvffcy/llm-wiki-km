@@ -4,6 +4,12 @@
 - 日期：2026-09-04
 - 範圍：Phase 3 architecture/governance contract；不包含 production graph implementation
 
+> Current status（2026-09-05）：Phase 3A contract 已完成並進入 GO；Phase 3B embedded
+> multi-model feasibility spike 已由 [ADR 0008](0008-arcadedb-embedded-projection-feasibility-spike.md)
+> 完成並取得 `CONDITIONAL GO`。此狀態只讓 ArcadeDB 成為 production projection adapter candidate，
+> 不代表 production adoption，也不授權 bounded Graph Retrieval、`EvidenceBundle` integration 或
+> GraphRAG；下一個 gate 是 production projection lifecycle/readiness/repair 與 operational evidence。
+
 ## Context
 
 Repository-level 文件曾把 Phase 3 簡化成「Neo4j projection 與 GraphRAG」。這會把部署選項誤當成
@@ -75,7 +81,7 @@ Graph backend 只存在 adapter boundary，並依 deployment context 評估：
 
 | Adapter candidate | 定位 | 必要邊界 |
 | --- | --- | --- |
-| ArcadeDB | 目前首選的 embedded multi-model adapter candidate；可作 optional feasibility spike 的第一候選 | 僅承接可重建的 Document / Vector / Graph / Search projection；不是 SQLite replacement、migration target、canonical SoT 或 domain authority |
+| ArcadeDB | 目前首選的 production projection adapter candidate；Phase 3B feasibility spike 已完成並取得 `CONDITIONAL GO`，詳見 ADR 0008 | 僅承接可重建的 Document / Vector / Graph / Search projection；不是 SQLite replacement、migration target、canonical SoT 或 domain authority |
 | Neo4j | Future local-first、低延遲 interactive GraphRAG adapter candidate | 不成為 canonical SoT、唯一 backend 或 domain API；local deployment 與 traversal ergonomics 是主要價值 |
 | RyuGraph | Optional embedded graph comparison candidate | 必須維持可重建 projection 與 provider-neutral boundary；不得因比較而承諾 runtime adoption |
 | BigQuery Graph | Optional cloud / enterprise analytics adapter | 若 canonical data 原本在 local workspace，仍需 local→cloud projection/sync；導入不代表免搬資料 |
@@ -88,9 +94,10 @@ graph scale、GraphRAG developer ergonomics 與 provider lock-in/portability。B
 
 ### Suggested Phase 3 roadmap
 
-- **Phase 3A** — Graph domain / projection contract
-- **Phase 3B** — Optional embedded multi-model feasibility spike：以 SQLite + ArcadeDB adapter 為目前首選方向，並與 Nitrite / RyuGraph 比較；不是 SQLite migration，也不是 Phase 2 或 lexical/vector baseline blocker
-- **Phase 3C** — Graph Retrieval + Evidence integration
+- **Phase 3A / completed / GO** — Graph domain / projection contract
+- **Phase 3B / completed / CONDITIONAL GO** — Embedded multi-model feasibility spike：以 SQLite + ArcadeDB adapter 為目前首選方向，並與 Nitrite / RyuGraph 比較；完成證據與限制見 ADR 0008。這不是 SQLite migration，也不是 Phase 2 或 lexical/vector baseline blocker
+- **Phase 3 production-adoption gate / current next step** — Production Graph projection adapter、lifecycle/readiness/repair、recovery、concurrency/file-locking、failure-path、operational/security/license/CI evidence
+- **Phase 3C / not yet authorized** — Bounded Graph Retrieval + candidate revalidation + Evidence integration；僅在 production projection lifecycle 已被證明後開始
 - **Phase 3D** — Lexical + Vector + Graph hybrid GraphRAG fusion
 - **Phase 3E** — Optional BigQuery Graph cloud analytics adapter spike
 - **Phase 3F** — Future Spanner Graph realtime adapter evaluation

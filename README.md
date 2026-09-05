@@ -57,15 +57,21 @@ readiness: semantic serving additionally requires backend capability configurati
 embedding projection for the requested workspace and corpus, and query-time metadata, freshness,
 and authority validation. SQLite remains the operational/control plane for the relational schema,
 SQLite FTS5, readiness, and authority/provenance enforcement; it is not being migrated or
-replaced. Phase 3A now provides the provider-neutral Knowledge Graph domain/projection contract:
-immutable Graph Entity, Relation, Provenance, stable identity, workspace scope, bounded metadata,
-deterministic rebuild input, projection snapshot/version, and typed projection failures. No graph
-runtime or retrieval surface is part of the current baseline. Phase 3B onward remains reserved for
-an optional adapter feasibility study, bounded Graph Retrieval, and GraphRAG.
-ArcadeDB is the currently preferred embedded multi-model adapter candidate, limited to rebuildable
-Document, Vector, Graph, and Search projections. It is not a SQLite replacement or migration
-target, canonical knowledge store, or domain authority. Neo4j, RyuGraph, BigQuery Graph, and
-Spanner Graph remain future adapter candidates subject to adoption gates. Graph candidates must
+replaced. Phase 3A is complete: it provides the provider-neutral Knowledge Graph domain/projection
+contract, including immutable Graph Entity, Relation, Provenance, stable identity, workspace scope,
+bounded metadata, deterministic rebuild input, projection snapshot/version, and typed projection
+failures. Phase 3B is also complete: the embedded multi-model feasibility spike in #240 is recorded
+as a `CONDITIONAL GO` in [ADR 0008](docs/adr/0008-arcadedb-embedded-projection-feasibility-spike.md).
+The ArcadeDB 26.9.1 version used by that spike is reproducible evidence, not a permanent architecture
+pin. ArcadeDB is the preferred production projection adapter candidate, limited to rebuildable
+Document, Vector, Graph, and Search projections; production runtime has not adopted it. The next
+adoption gate is a production projection adapter with lifecycle, readiness, repair, recovery,
+concurrency/file-locking, failure-path, operational, security, license, and CI evidence. Only after
+that projection lifecycle is proven may Phase 3C bounded Graph Retrieval and Evidence integration
+begin.
+ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
+authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
+subject to adoption gates. Graph candidates must
 pass workspace-scoped authority, provenance, freshness, and eligibility revalidation before
 entering `EvidenceBundle`, then continue through the existing citation and grounded Answer
 contract. If a graph backend is unavailable, the lexical + vector baseline remains in effect; a

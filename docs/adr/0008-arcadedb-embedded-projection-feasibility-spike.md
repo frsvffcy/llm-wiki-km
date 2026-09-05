@@ -128,6 +128,17 @@ rebuild/backup operational evidence，並再次確認 graph candidates 進入 `E
 authority、provenance、freshness、eligibility revalidation。該 story 不得直接修改 canonical
 `archive/`／`vault/` ownership，也不得繞過 SQLite control plane。
 
+### Next adoption gate
+
+下一張候選 Story 為 `[L5][Sprint 8][STORY-803] 建立 production ArcadeDB Graph projection adapter
+與 lifecycle/readiness/repair adoption gate`。它必須限定在 production projection lifecycle，至少
+交付 adapter wiring/configuration、provider-neutral writer/rebuilder implementation、SQLite-backed
+control-plane readiness/lifecycle authority、rebuild/repair/health/diagnostics、process restart/crash
+recovery、concurrency/file-locking/multi-process limitation evidence、backup/delete/rebuild policy、
+dependency/license/security review、Linux CI 與 Apple Silicon/local evidence，以及 backend
+unavailable 時維持 lexical + vector baseline 的 failure/degradation semantics。此 gate 完成前，
+不得開始 bounded Graph Retrieval、candidate-to-`EvidenceBundle` integration 或 GraphRAG。
+
 ## Non-goals
 
 - 不將 ArcadeDB 或 Nitrite 加入 production runtime classpath。
