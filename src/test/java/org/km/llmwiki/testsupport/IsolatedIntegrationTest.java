@@ -77,6 +77,7 @@ public abstract class IsolatedIntegrationTest {
             "embedding_projection",
             "embedding_projection_operation",
             "embedding_projection_readiness",
+            "graph_projection_lifecycle",
             "knowledge_fts",
             "source_fts",
             "search_index_identity",

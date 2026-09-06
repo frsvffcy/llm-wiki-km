@@ -1,8 +1,14 @@
 # ADR 0008：ArcadeDB Embedded Projection Adapter 可行性 Spike
 
-- 狀態：Conditional Go（Issue #240；僅代表下一階段候選，不代表 production adoption）
+- 狀態：Conditional Go（Issue #240 的 historical Phase 3B decision；前置條件已由 Issue #244／ADR 0009 接續完成）
 - 日期：2026-09-05
 - 範圍：Phase 3B embedded multi-model feasibility；不建立 production graph runtime
+
+> Follow-up status（2026-09-07）：
+> [ADR 0009](0009-arcadedb-production-projection-adoption.md) 已完成本 ADR 要求的 production
+> lifecycle/readiness/repair adoption gate，並對該 gate 給出 `GO`。本文件持續保存 Phase 3B
+> feasibility 的 historical evidence 與當時限制；production 現況以 ADR 0009 為準。該 `GO` 仍不
+> 表示 #244 已實作 Graph Retrieval、`EvidenceBundle` integration 或 GraphRAG。
 
 ## Context
 
@@ -107,7 +113,7 @@ native bridge、fork 或長期 wrapper；因此沒有把 RyuGraph 誤列為已�
 - opt-in profile/source-set 保持 default regression 與 Phase 2 runtime 不受 vendor dependency
   污染。
 
-### Limitations and blockers before production adoption
+### Limitations and blockers before production adoption（historical）
 
 - 本 spike 只有 deterministic 小型 fixture；沒有 production-scale benchmark、load test、multi-
   process locking、crash recovery、backup/restore、長時間 background resource 或 CI Linux/Apple
@@ -128,16 +134,18 @@ rebuild/backup operational evidence，並再次確認 graph candidates 進入 `E
 authority、provenance、freshness、eligibility revalidation。該 story 不得直接修改 canonical
 `archive/`／`vault/` ownership，也不得繞過 SQLite control plane。
 
-### Next adoption gate
+### Follow-up adoption gate（已由 Issue #244 完成）
 
-下一張候選 Story 為 `[L5][Sprint 8][STORY-803] 建立 production ArcadeDB Graph projection adapter
-與 lifecycle/readiness/repair adoption gate`。它必須限定在 production projection lifecycle，至少
-交付 adapter wiring/configuration、provider-neutral writer/rebuilder implementation、SQLite-backed
-control-plane readiness/lifecycle authority、rebuild/repair/health/diagnostics、process restart/crash
+後續 Story `[L5][Sprint 8][STORY-803] 建立 production ArcadeDB Graph projection adapter
+與 lifecycle/readiness/repair adoption gate` 已由 Issue #244 與 ADR 0009 完成。它限定在
+production projection lifecycle，交付 adapter wiring/configuration、provider-neutral
+writer/rebuilder implementation、SQLite-backed
+control-plane readiness/lifecycle authority、rebuild/repair/diagnostics、process restart/crash
 recovery、concurrency/file-locking/multi-process limitation evidence、backup/delete/rebuild policy、
 dependency/license/security review、Linux CI 與 Apple Silicon/local evidence，以及 backend
-unavailable 時維持 lexical + vector baseline 的 failure/degradation semantics。此 gate 完成前，
-不得開始 bounded Graph Retrieval、candidate-to-`EvidenceBundle` integration 或 GraphRAG。
+unavailable 時維持 lexical + vector baseline 的 failure/degradation semantics。此 gate 的 `GO`
+只允許下一張 Phase 3C Story 開始規劃／實作；Issue #244 沒有交付 bounded Graph Retrieval、
+candidate-to-`EvidenceBundle` integration 或 GraphRAG。
 
 ## Non-goals
 

@@ -1,4 +1,4 @@
-package org.km.llmwiki.graph.arcadedb;
+package org.km.llmwiki.persistence.graph.arcadedb;
 
 import com.arcadedb.database.Database;
 import com.arcadedb.database.DatabaseFactory;
@@ -22,6 +22,7 @@ import org.km.llmwiki.graph.GraphEntityIdentity;
 import org.km.llmwiki.graph.GraphEntityType;
 import org.km.llmwiki.graph.GraphFreshness;
 import org.km.llmwiki.graph.GraphMetadata;
+import org.km.llmwiki.graph.GraphProjectionBackendProof;
 import org.km.llmwiki.graph.GraphProjectionCleanupResult;
 import org.km.llmwiki.graph.GraphProjectionException;
 import org.km.llmwiki.graph.GraphProjectionFailure;
@@ -53,11 +54,11 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * Test-only ArcadeDB implementation of the provider-neutral projection contract.
+ * Production ArcadeDB implementation of the provider-neutral projection contract.
  *
- * <p>This class deliberately lives in the opt-in spike source set. Its public methods expose only
- * domain objects and application-owned proof; ArcadeDB records and RIDs stay inside this mapping
- * boundary.
+ * <p>Its public methods expose only domain objects and application-owned proof; backend records
+ * stay inside this infrastructure boundary. Generation allocation is deliberately absent and
+ * remains owned by the SQLite control plane.
  */
 public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWriter, AutoCloseable {
 
@@ -109,6 +110,10 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
     private volatile boolean closed;
 
     public ArcadeDbGraphProjectionWriter(Path databasePath) {
+        this(databasePath, true);
+    }
+
+    ArcadeDbGraphProjectionWriter(Path databasePath, boolean createIfMissing) {
         if (databasePath == null) {
             throw new IllegalArgumentException("ArcadeDB database path is required");
         }
@@ -117,6 +122,9 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
         Database openedDatabase = null;
         try {
             openedFactory = new DatabaseFactory(databasePath.toString()).setAutoTransaction(false);
+            if (!openedFactory.exists() && !createIfMissing) {
+                throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_NOT_READY);
+            }
             openedDatabase = openedFactory.exists() ? openedFactory.open() : openedFactory.create();
             openedDatabase.setReadYourWrites(true);
             final Database schemaDatabase = openedDatabase;
@@ -125,9 +133,7 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
             this.database = openedDatabase;
         } catch (RuntimeException exception) {
             closeQuietly(openedDatabase, openedFactory);
-            throw new GraphProjectionException(
-                    new GraphProjectionFailure(GraphProjectionFailureType.CAPABILITY_UNAVAILABLE,
-                            "embedded projection backend could not be opened"), exception);
+            throw ArcadeDbFailureMapper.opening(exception);
         }
     }
 
@@ -267,49 +273,60 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
                                                       GraphProjectionWriteContext context) {
         requireWorkspace(workspace);
         requireContext(context);
-        if (!workspace.equals(context.workspace())) {
+        return clearWorkspace(workspace, context.snapshot());
+    }
+
+    GraphProjectionWriteResult clearWorkspace(GraphWorkspaceScope workspace,
+                                               GraphProjectionSnapshot expectedCurrent) {
+        requireWorkspace(workspace);
+        if (expectedCurrent == null) {
+            throw new IllegalArgumentException("Expected Graph projection snapshot is required");
+        }
+        if (!workspace.equals(expectedCurrent.workspace())) {
             throw new GraphProjectionException(GraphProjectionFailureType.CROSS_WORKSPACE);
         }
         return inTransaction(() -> {
             StoredState state = readState(workspace);
             GraphProjectionSnapshot current = state.currentSnapshot();
-            if (current != null && !context.projectionVersion().equals(current.projectionVersion())) {
+            if (current != null
+                    && !expectedCurrent.projectionVersion().equals(current.projectionVersion())) {
                 throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
             }
             if (current == null) {
-                if (state.isClearedByNewerGeneration(context)) {
-                    return GraphProjectionWriteResult.superseded(context);
+                if (state.isClearedByNewerGeneration(expectedCurrent)) {
+                    return result(expectedCurrent, GraphProjectionWriteStatus.SUPERSEDED);
                 }
-                if (state.clearedSnapshotMatches(context)) {
-                    return GraphProjectionWriteResult.noOp(context);
+                if (state.clearedSnapshotMatches(expectedCurrent)) {
+                    return result(expectedCurrent, GraphProjectionWriteStatus.NO_OP);
                 }
-                if (state.clearedSnapshotConflicts(context)) {
+                if (state.clearedSnapshotConflicts(expectedCurrent)) {
                     throw invalidInput("clear proof conflicts with an applied generation");
                 }
                 if (state.knownVersion() != null
-                        && !state.knownVersion().equals(context.projectionVersion().value())) {
+                        && !state.knownVersion().equals(expectedCurrent.projectionVersion().value())) {
                     throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
                 }
                 throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_NOT_READY);
             }
-            if (context.isSupersededBy(current)) {
-                return GraphProjectionWriteResult.superseded(context);
+            if (current.generation() > expectedCurrent.generation()) {
+                return result(expectedCurrent, GraphProjectionWriteStatus.SUPERSEDED);
             }
-            if (context.conflictsWith(current)) {
+            if (current.generation() == expectedCurrent.generation()
+                    && !current.equals(expectedCurrent)) {
                 throw invalidInput("clear proof conflicts with current generation");
             }
-            if (!context.owns(current)) {
+            if (!expectedCurrent.equals(current)) {
                 throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
             }
 
-            claim(context);
+            claim(expectedCurrent);
             int removedRelations = deleteRowsThroughGeneration(RELATION_TYPE, workspace,
-                    context.generation());
+                    expectedCurrent.generation());
             int removedEntities = deleteRowsThroughGeneration(ENTITY_TYPE, workspace,
-                    context.generation());
-            writeClearedState(state, context.snapshot());
-            deleteOwnersThroughGeneration(workspace, context.generation());
-            return GraphProjectionWriteResult.applied(context);
+                    expectedCurrent.generation());
+            writeClearedState(state, expectedCurrent);
+            deleteOwnersThroughGeneration(workspace, expectedCurrent.generation());
+            return result(expectedCurrent, GraphProjectionWriteStatus.APPLIED);
         });
     }
 
@@ -317,6 +334,16 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
     public Optional<GraphProjectionSnapshot> currentSnapshot(GraphWorkspaceScope workspace) {
         requireWorkspace(workspace);
         return Optional.ofNullable(inTransaction(() -> readState(workspace).currentSnapshot()));
+    }
+
+    /** Returns bounded current/cleared application proof for lifecycle reconciliation. */
+    public GraphProjectionBackendProof readProof(GraphWorkspaceScope workspace) {
+        requireWorkspace(workspace);
+        return inTransaction(() -> {
+            StoredState state = readState(workspace);
+            return new GraphProjectionBackendProof(workspace, state.currentSnapshot(),
+                    state.clearedSnapshot());
+        });
     }
 
     /** Returns one current-visible entity without exposing a backend record identity. */
@@ -359,28 +386,6 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
         }
         return inTransaction(() -> findByKey(ENTITY_TYPE, ROW_KEY,
                 entityRowKey(context.snapshot(), identity.stableId())) != null);
-    }
-
-    /** Allocates a monotonic generation from persistent backend state for the rebuild spike. */
-    long nextGeneration(GraphWorkspaceScope workspace) {
-        requireWorkspace(workspace);
-        return inTransaction(() -> {
-            StoredState state = readState(workspace);
-            long maximum = 0;
-            if (state.currentSnapshot() != null) {
-                maximum = Math.max(maximum, state.currentSnapshot().generation());
-            }
-            if (state.clearedSnapshot() != null) {
-                maximum = Math.max(maximum, state.clearedSnapshot().generation());
-            }
-            maximum = Math.max(maximum, maximumGeneration(OWNER_TYPE, workspace));
-            maximum = Math.max(maximum, maximumGeneration(ENTITY_TYPE, workspace));
-            maximum = Math.max(maximum, maximumGeneration(RELATION_TYPE, workspace));
-            if (maximum == Long.MAX_VALUE) {
-                throw invalidInput("projection generation exhausted");
-            }
-            return maximum + 1;
-        });
     }
 
     @Override
@@ -469,23 +474,37 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
         } catch (GraphProjectionException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            throw backendFailure(exception);
+            throw ArcadeDbFailureMapper.operation(exception);
         }
     }
 
     private StoredState readState(GraphWorkspaceScope workspace) {
         Identifiable record = findByKey(STATE_TYPE, STATE_KEY, stateKey(workspace));
-        return record == null ? StoredState.empty() : StoredState.read(record.asDocument(true));
+        if (record == null) {
+            return StoredState.empty();
+        }
+        try {
+            return StoredState.read(record.asDocument(true));
+        } catch (IllegalArgumentException invalidPersistedProof) {
+            throw new GraphProjectionException(new GraphProjectionFailure(
+                    GraphProjectionFailureType.PROJECTION_CORRUPT,
+                    "projection storage contains an invalid application proof"),
+                    invalidPersistedProof);
+        }
     }
 
     private void claim(GraphProjectionWriteContext context) {
-        String ownerKey = ownerKey(context);
+        claim(context.snapshot());
+    }
+
+    private void claim(GraphProjectionSnapshot snapshot) {
+        String ownerKey = ownerKey(snapshot);
         Identifiable existing = findByKey(OWNER_TYPE, OWNER_KEY, ownerKey);
         if (existing != null) {
             Document owner = existing.asDocument(true);
-            if (!context.projectionVersion().value().equals(owner.getString(PROJECTION_VERSION))
-                    || !context.sourceFingerprint().equals(owner.getString(SOURCE_FINGERPRINT))
-                    || !context.snapshotToken().equals(owner.getString(SNAPSHOT_TOKEN))) {
+            if (!snapshot.projectionVersion().value().equals(owner.getString(PROJECTION_VERSION))
+                    || !snapshot.sourceFingerprint().equals(owner.getString(SOURCE_FINGERPRINT))
+                    || !snapshot.snapshotToken().equals(owner.getString(SNAPSHOT_TOKEN))) {
                 throw invalidInput("generation already has another write proof");
             }
             return;
@@ -493,11 +512,11 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
 
         database.newDocument(OWNER_TYPE)
                 .set(OWNER_KEY, ownerKey)
-                .set(WORKSPACE_ID, context.workspace().id())
-                .set(GENERATION, context.generation())
-                .set(PROJECTION_VERSION, context.projectionVersion().value())
-                .set(SOURCE_FINGERPRINT, context.sourceFingerprint())
-                .set(SNAPSHOT_TOKEN, context.snapshotToken())
+                .set(WORKSPACE_ID, snapshot.workspace().id())
+                .set(GENERATION, snapshot.generation())
+                .set(PROJECTION_VERSION, snapshot.projectionVersion().value())
+                .set(SOURCE_FINGERPRINT, snapshot.sourceFingerprint())
+                .set(SNAPSHOT_TOKEN, snapshot.snapshotToken())
                 .save();
     }
 
@@ -564,20 +583,6 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
     private void deleteOwnersThroughGeneration(GraphWorkspaceScope workspace, long throughGeneration) {
         deleteRows(OWNER_TYPE, document -> workspace.id() == document.getLong(WORKSPACE_ID)
                 && document.getLong(GENERATION) <= throughGeneration);
-    }
-
-    private long maximumGeneration(String type, GraphWorkspaceScope workspace) {
-        long maximum = 0;
-        for (Record record : recordsOfType(type)) {
-            Document document = record.asDocument(true);
-            if (workspace.id() == document.getLong(WORKSPACE_ID)) {
-                Long generation = document.getLong(GENERATION);
-                if (generation != null) {
-                    maximum = Math.max(maximum, generation);
-                }
-            }
-        }
-        return maximum;
     }
 
     private List<Record> recordsOfType(String type) {
@@ -720,8 +725,8 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
         return "workspace|" + workspace.id();
     }
 
-    private static String ownerKey(GraphProjectionWriteContext context) {
-        return context.workspace().id() + "|" + context.generation();
+    private static String ownerKey(GraphProjectionSnapshot snapshot) {
+        return snapshot.workspace().id() + "|" + snapshot.generation();
     }
 
     private static String entityRowKey(GraphProjectionWriteContext context, String stableId) {
@@ -825,10 +830,9 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
                 GraphProjectionFailureType.INVALID_PROJECTION_INPUT, diagnostic));
     }
 
-    private static GraphProjectionException backendFailure(RuntimeException cause) {
-        return new GraphProjectionException(new GraphProjectionFailure(
-                GraphProjectionFailureType.BACKEND_FAILURE,
-                "embedded projection transaction failed"), cause);
+    private static GraphProjectionWriteResult result(GraphProjectionSnapshot snapshot,
+                                                       GraphProjectionWriteStatus status) {
+        return new GraphProjectionWriteResult(status, snapshot.workspace(), snapshot.generation());
     }
 
     private static void closeQuietly(Database database, DatabaseFactory factory) {
@@ -904,20 +908,32 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
         }
 
         boolean clearedSnapshotMatches(GraphProjectionWriteContext context) {
-            return clearedSnapshot != null && clearedSnapshot.equals(context.snapshot());
+            return clearedSnapshotMatches(context.snapshot());
+        }
+
+        boolean clearedSnapshotMatches(GraphProjectionSnapshot snapshot) {
+            return clearedSnapshot != null && clearedSnapshot.equals(snapshot);
         }
 
         boolean isClearedByNewerGeneration(GraphProjectionWriteContext context) {
+            return isClearedByNewerGeneration(context.snapshot());
+        }
+
+        boolean isClearedByNewerGeneration(GraphProjectionSnapshot snapshot) {
             return clearedSnapshot != null
-                    && clearedSnapshot.workspace().equals(context.workspace())
-                    && clearedSnapshot.generation() > context.generation();
+                    && clearedSnapshot.workspace().equals(snapshot.workspace())
+                    && clearedSnapshot.generation() > snapshot.generation();
         }
 
         boolean clearedSnapshotConflicts(GraphProjectionWriteContext context) {
+            return clearedSnapshotConflicts(context.snapshot());
+        }
+
+        boolean clearedSnapshotConflicts(GraphProjectionSnapshot snapshot) {
             return clearedSnapshot != null
-                    && clearedSnapshot.workspace().equals(context.workspace())
-                    && clearedSnapshot.generation() == context.generation()
-                    && !clearedSnapshot.equals(context.snapshot());
+                    && clearedSnapshot.workspace().equals(snapshot.workspace())
+                    && clearedSnapshot.generation() == snapshot.generation()
+                    && !clearedSnapshot.equals(snapshot);
         }
 
         MutableDocument mutableDocument(Database database) {

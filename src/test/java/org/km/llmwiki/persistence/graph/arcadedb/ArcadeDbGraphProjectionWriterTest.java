@@ -1,5 +1,6 @@
-package org.km.llmwiki.graph.arcadedb;
+package org.km.llmwiki.persistence.graph.arcadedb;
 
+import com.arcadedb.database.DatabaseFactory;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -17,9 +18,10 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@Tag("graph-spike")
+@Tag("integration")
 class ArcadeDbGraphProjectionWriterTest {
 
     @TempDir
@@ -191,6 +193,38 @@ class ArcadeDbGraphProjectionWriterTest {
         }
     }
 
+    @Test
+    void invalidPersistedSnapshotProofFailsClosedAsProjectionCorrupt() {
+        var entity = ArcadeDbGraphProjectionFixtures.page(
+                ArcadeDbGraphProjectionFixtures.WORKSPACE, "corrupt", "損壞證據");
+        GraphProjectionInput input = ArcadeDbGraphProjectionFixtures.input(
+                ArcadeDbGraphProjectionFixtures.WORKSPACE, entity);
+        GraphProjectionWriteContext context = GraphProjectionWriteContext.of(input, 1);
+        Path databasePath = tempDir.resolve("corrupt-proof");
+        try (var writer = new ArcadeDbGraphProjectionWriter(databasePath)) {
+            stageAndPublish(writer, context, List.of(entity), List.of());
+        }
+
+        overwriteCurrentToken(databasePath, "not-a-valid-snapshot-token");
+
+        try (var reopened = new ArcadeDbGraphProjectionWriter(databasePath)) {
+            assertThatThrownBy(() -> reopened.readProof(ArcadeDbGraphProjectionFixtures.WORKSPACE))
+                    .isInstanceOf(GraphProjectionException.class)
+                    .extracting(failure -> ((GraphProjectionException) failure).failureType())
+                    .isEqualTo(GraphProjectionFailureType.PROJECTION_CORRUPT);
+        }
+    }
+
+    @Test
+    void repeatedCloseIsIdempotentAndClosedUseRemainsAProgrammingFailure() {
+        var writer = new ArcadeDbGraphProjectionWriter(tempDir.resolve("double-close"));
+
+        assertThatCode(writer::close).doesNotThrowAnyException();
+        assertThatCode(writer::close).doesNotThrowAnyException();
+        assertThatThrownBy(() -> writer.readProof(ArcadeDbGraphProjectionFixtures.WORKSPACE))
+                .isExactlyInstanceOf(IllegalStateException.class);
+    }
+
     private static void stageAndPublish(ArcadeDbGraphProjectionWriter writer,
                                         GraphProjectionWriteContext context,
                                         List<org.km.llmwiki.graph.GraphEntity> entities,
@@ -201,5 +235,25 @@ class ArcadeDbGraphProjectionWriterTest {
                 .isIn(GraphProjectionWriteStatus.APPLIED, GraphProjectionWriteStatus.NO_OP));
         assertThat(writer.publish(context).status())
                 .isIn(GraphProjectionWriteStatus.APPLIED, GraphProjectionWriteStatus.NO_OP);
+    }
+
+    private static void overwriteCurrentToken(Path databasePath, String token) {
+        try (DatabaseFactory factory = new DatabaseFactory(databasePath.toString())
+                .setAutoTransaction(false)) {
+            var database = factory.open().setReadYourWrites(true);
+            try {
+                database.transaction(() -> {
+                    try (var records = database.lookupByKey(
+                            ArcadeDbGraphProjectionWriter.STATE_TYPE,
+                            new String[]{"state_key"}, new Object[]{"workspace|41"})) {
+                        records.next().asDocument(true).modify()
+                                .set("current_token", token)
+                                .save();
+                    }
+                });
+            } finally {
+                database.close();
+            }
+        }
     }
 }

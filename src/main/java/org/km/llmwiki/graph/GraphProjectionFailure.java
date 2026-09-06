@@ -11,6 +11,9 @@ public record GraphProjectionFailure(GraphProjectionFailureType type, String dia
     );
     private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)\\bbearer\\s+[^\\s,;]+");
     private static final Pattern SECRET_KEY = Pattern.compile("\\bsk-[A-Za-z0-9_-]{8,}\\b");
+    private static final Pattern BACKEND_IDENTITY_TOKEN = Pattern.compile(
+            "(?i)(?:\\bRID\\s*)?#\\d+:\\d+\\b"
+    );
     private static final Pattern UNSAFE_INTERNAL = Pattern.compile(
             "(?i)(?:jdbc:|bolt:|cypher|\\bgql\\b|sql-pgq|arcadedb|neo4j|ryugraph|bigquery|spanner|"
                     + "(?:/Users/|/home/|/var/|/tmp/)|[A-Za-z]:\\\\|"
@@ -41,6 +44,7 @@ public record GraphProjectionFailure(GraphProjectionFailureType type, String dia
         sanitized = SECRET_ASSIGNMENT.matcher(sanitized).replaceAll("$1=[REDACTED]");
         sanitized = BEARER_TOKEN.matcher(sanitized).replaceAll("Bearer [REDACTED]");
         sanitized = SECRET_KEY.matcher(sanitized).replaceAll("[REDACTED]");
+        sanitized = BACKEND_IDENTITY_TOKEN.matcher(sanitized).replaceAll("[REDACTED]");
         if (UNSAFE_INTERNAL.matcher(sanitized).find()) {
             return "graph projection operation failed";
         }

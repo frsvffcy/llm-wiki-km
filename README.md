@@ -27,9 +27,10 @@ developer test-tier guidance is in
 mvn clean package
 ```
 
-Pull requests targeting `main` run Fast, Integration, Build Integrity, and sqlite-vec smoke evidence
-jobs, followed by an aggregate `PR Gate` merge-safety job. The clean full regression remains a
-post-merge, nightly, and manually dispatchable canary. Details are in
+Pull requests targeting `main` run Fast, Integration, production ArcadeDB Graph adapter,
+Build Integrity, and sqlite-vec smoke evidence jobs, followed by an aggregate `PR Gate`
+merge-safety job. The clean full regression remains a post-merge, nightly, and manually
+dispatchable canary. Details are in
 [docs/development/testing.md](docs/development/testing.md).
 
 ## Run
@@ -62,13 +63,15 @@ contract, including immutable Graph Entity, Relation, Provenance, stable identit
 bounded metadata, deterministic rebuild input, projection snapshot/version, and typed projection
 failures. Phase 3B is also complete: the embedded multi-model feasibility spike in #240 is recorded
 as a `CONDITIONAL GO` in [ADR 0008](docs/adr/0008-arcadedb-embedded-projection-feasibility-spike.md).
-The ArcadeDB 26.9.1 version used by that spike is reproducible evidence, not a permanent architecture
-pin. ArcadeDB is the preferred production projection adapter candidate, limited to rebuildable
-Document, Vector, Graph, and Search projections; production runtime has not adopted it. The next
-adoption gate is a production projection adapter with lifecycle, readiness, repair, recovery,
-concurrency/file-locking, failure-path, operational, security, license, and CI evidence. Only after
-that projection lifecycle is proven may Phase 3C bounded Graph Retrieval and Evidence integration
-begin.
+The Phase 3 production-adoption gate in #244 then promoted ArcadeDB Engine 26.9.1 into a safe-default
+disabled production Graph projection adapter and received a lifecycle-only `GO` in
+[ADR 0009](docs/adr/0009-arcadedb-production-projection-adoption.md). SQLite remains the authoritative
+control plane for workspace-scoped monotonic generations, lifecycle/readiness, operation ownership,
+and compare-and-set recovery. ArcadeDB stores only application-owned snapshot proof and disposable,
+rebuildable Graph projection data. Missing, stale, incompatible, locked, or unreadable backend state
+fails closed and cannot remain `READY`. This gate permits the next Phase 3C bounded Graph Retrieval
+Story to be planned; it does not implement or authorize Graph Retrieval, Evidence integration,
+Graph Ask modes, REST/UI surfaces, or GraphRAG in #244.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
 subject to adoption gates. Graph candidates must
@@ -79,6 +82,21 @@ vector/backend outage continues to use the existing typed degraded lexical fallb
 backend is canonical, browser-accessible, or the domain contract; vendor APIs, record models,
 Cypher, GQL, SQL-PGQ, and DTOs remain behind adapters. See
 [ADR 0007](docs/adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md).
+
+Graph projection remains opt-in and its path is trusted application configuration, not request
+input:
+
+```text
+GRAPH_PROJECTION_ENABLED=false
+GRAPH_PROJECTION_PROVIDER=arcadedb
+GRAPH_PROJECTION_PATH=data/graph
+```
+
+The supported deployment baseline is embedded, local-first, and single-process. A second writer or
+process-like open fails closed through application/session ownership and ArcadeDB file locking;
+multi-process concurrent writes, a Graph server, cluster, and HA are not supported. The derived
+database may be deleted and rebuilt from authoritative input, so backing it up is optional and is
+never a canonical correctness dependency.
 
 The capability decision, platform matrix, fallback semantics, and dependencies for #183–#185 are
 recorded in [ADR 0003](docs/adr/0003-vector-capability-and-sqlite-vec-feasibility.md). Native

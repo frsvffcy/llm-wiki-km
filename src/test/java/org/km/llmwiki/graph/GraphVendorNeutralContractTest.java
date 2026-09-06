@@ -33,10 +33,14 @@ class GraphVendorNeutralContractTest {
             assertThat(productionSources).isNotEmpty();
             for (String source : productionSources) {
                 for (String forbiddenReference : FORBIDDEN_PRODUCTION_REFERENCES) {
-                    assertThat(source)
+                    var assertion = assertThat(source)
                             .as("graph production source must remain vendor-neutral: %s",
-                                    forbiddenReference)
-                            .doesNotContain(forbiddenReference);
+                                    forbiddenReference);
+                    if ("rid".equals(forbiddenReference)) {
+                        assertion.doesNotMatch("(?s).*\\brid\\b.*");
+                    } else {
+                        assertion.doesNotContain(forbiddenReference);
+                    }
                 }
             }
         }

@@ -1,4 +1,4 @@
-package org.km.llmwiki.graph.arcadedb;
+package org.km.llmwiki.persistence.graph.arcadedb;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -13,7 +13,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Tag("graph-spike")
+@Tag("integration")
 class ArcadeDbGraphProjectionRebuilderTest {
 
     @TempDir
@@ -32,13 +32,16 @@ class ArcadeDbGraphProjectionRebuilderTest {
                 ArcadeDbGraphProjectionFixtures.WORKSPACE, retained);
 
         try (var writer = new ArcadeDbGraphProjectionWriter(tempDir.resolve("rebuild"))) {
-            var rebuilder = new ArcadeDbGraphProjectionRebuilder(writer);
-            GraphProjectionSnapshot firstSnapshot = rebuilder.rebuild(first);
+            GraphProjectionSnapshot firstTarget = GraphProjectionSnapshot.of(first, 1);
+            GraphProjectionSnapshot firstSnapshot =
+                    new ArcadeDbGraphProjectionRebuilder(writer, firstTarget).rebuild(first);
             assertThat(firstSnapshot.generation()).isEqualTo(1);
             assertThat(writer.currentEntity(stale.identity())).contains(stale);
             assertThat(writer.currentRelation(relation.identity())).contains(relation);
 
-            GraphProjectionSnapshot secondSnapshot = rebuilder.rebuild(second);
+            GraphProjectionSnapshot secondTarget = GraphProjectionSnapshot.of(second, 2);
+            GraphProjectionSnapshot secondSnapshot =
+                    new ArcadeDbGraphProjectionRebuilder(writer, secondTarget).rebuild(second);
             assertThat(secondSnapshot.generation()).isEqualTo(2);
             assertThat(secondSnapshot.sourceFingerprint()).isEqualTo(second.sourceFingerprint());
             assertThat(writer.currentEntity(retained.identity())).contains(retained);
@@ -60,21 +63,23 @@ class ArcadeDbGraphProjectionRebuilderTest {
         Path databasePath = tempDir.resolve("disposable");
         GraphProjectionSnapshot original;
         try (var writer = new ArcadeDbGraphProjectionWriter(databasePath)) {
-            original = new ArcadeDbGraphProjectionRebuilder(writer).rebuild(input);
+            GraphProjectionSnapshot target = GraphProjectionSnapshot.of(input, 7);
+            original = new ArcadeDbGraphProjectionRebuilder(writer, target).rebuild(input);
         }
         deleteContents(databasePath);
         assertThat(Files.exists(databasePath)).isFalse();
 
         GraphProjectionSnapshot rebuilt;
         try (var writer = new ArcadeDbGraphProjectionWriter(databasePath)) {
-            rebuilt = new ArcadeDbGraphProjectionRebuilder(writer).rebuild(input);
+            GraphProjectionSnapshot target = GraphProjectionSnapshot.of(input, 8);
+            rebuilt = new ArcadeDbGraphProjectionRebuilder(writer, target).rebuild(input);
             assertThat(writer.currentEntity(first.identity())).contains(first);
             assertThat(writer.currentRelation(relation.identity())).contains(relation);
         }
 
-        assertThat(rebuilt.generation()).isEqualTo(original.generation());
+        assertThat(rebuilt.generation()).isGreaterThan(original.generation());
         assertThat(rebuilt.sourceFingerprint()).isEqualTo(original.sourceFingerprint());
-        assertThat(rebuilt.snapshotToken()).isEqualTo(original.snapshotToken());
+        assertThat(rebuilt.snapshotToken()).isNotEqualTo(original.snapshotToken());
         assertThat(first.identity().stableId()).isEqualTo(
                 ArcadeDbGraphProjectionFixtures.page(
                         ArcadeDbGraphProjectionFixtures.WORKSPACE, "same", "不同顯示名稱").identity().stableId());

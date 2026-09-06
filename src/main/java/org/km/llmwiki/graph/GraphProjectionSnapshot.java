@@ -30,6 +30,16 @@ public record GraphProjectionSnapshot(GraphWorkspaceScope workspace,
                 input.sourceFingerprint(), token);
     }
 
+    /** Reconstructs a snapshot from durable application-owned proof fields. */
+    public static GraphProjectionSnapshot fromProof(GraphWorkspaceScope workspace,
+                                                     GraphProjectionVersion projectionVersion,
+                                                     long generation,
+                                                     String sourceFingerprint) {
+        String token = expectedToken(workspace, projectionVersion, generation, sourceFingerprint);
+        return new GraphProjectionSnapshot(workspace, projectionVersion, generation,
+                sourceFingerprint, token);
+    }
+
     /** Returns the application-owned proof expected for the supplied snapshot fields. */
     static String expectedToken(GraphWorkspaceScope workspace, GraphProjectionVersion projectionVersion,
                                 long generation, String sourceFingerprint) {

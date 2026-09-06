@@ -38,6 +38,11 @@ app:
     normalization:
       repeated-header-footer-enabled: ${EXTRACTION_REPEATED_HEADER_FOOTER_ENABLED:true}
       repeated-header-footer-minimum-occurrences: ${EXTRACTION_REPEATED_HEADER_FOOTER_MINIMUM_OCCURRENCES:2}
+  graph:
+    projection:
+      enabled: ${GRAPH_PROJECTION_ENABLED:false}
+      provider: ${GRAPH_PROJECTION_PROVIDER:arcadedb}
+      path: ${GRAPH_PROJECTION_PATH:data/graph}
   persistence:
     sqlite:
       path: ${KNOWLEDGE_DB_PATH:data/knowledge.db}

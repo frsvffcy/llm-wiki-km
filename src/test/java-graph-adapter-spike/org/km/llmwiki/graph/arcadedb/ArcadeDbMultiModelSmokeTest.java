@@ -27,8 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Focused feasibility evidence for ArcadeDB's embedded document, vector, and graph model.
  *
  * <p>This test intentionally exercises the vendor API only inside the opt-in spike source set.
- * The application-facing projection proof remains covered by
- * {@link ArcadeDbGraphProjectionWriterTest}.
+ * The application-facing projection proof is covered by the production adapter integration suite.
  */
 @Tag("graph-spike")
 class ArcadeDbMultiModelSmokeTest {

@@ -25,6 +25,7 @@ target/
 
 ### Runtime data ###
 data/
+log/
 *.db
 *.db-shm
 *.db-wal

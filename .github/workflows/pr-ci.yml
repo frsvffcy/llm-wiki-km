@@ -69,6 +69,25 @@ jobs:
       - name: Run integration test tier
         run: mvn --batch-mode test -Pintegration
 
+  graph-adapter-smoke:
+    name: Production ArcadeDB graph adapter smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Run production ArcadeDB lifecycle and resource tests on Linux
+        run: >-
+          mvn --batch-mode
+          -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest
+          test
+
   build-integrity:
     name: Build integrity
     runs-on: ubuntu-latest
@@ -130,26 +149,29 @@ jobs:
       - pr-metadata
       - fast-tests
       - integration-tests
+      - graph-adapter-smoke
       - build-integrity
       - sqlite-vec-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Verify required CI jobs succeeded
-        if: ${{ needs.pr-metadata.result == 'success' && needs.fast-tests.result == 'success' && needs.integration-tests.result == 'success' && needs.build-integrity.result == 'success' && needs.sqlite-vec-smoke.result == 'success' }}
-        run: echo "PR Metadata, Fast, Integration, Build Integrity, and sqlite-vec Smoke CI jobs all succeeded."
+        if: ${{ needs.pr-metadata.result == 'success' && needs.fast-tests.result == 'success' && needs.integration-tests.result == 'success' && needs.graph-adapter-smoke.result == 'success' && needs.build-integrity.result == 'success' && needs.sqlite-vec-smoke.result == 'success' }}
+        run: echo "PR Metadata, Fast, Integration, production ArcadeDB Graph Adapter, Build Integrity, and sqlite-vec Smoke CI jobs all succeeded."
       - name: Reject incomplete required CI jobs
-        if: ${{ needs.pr-metadata.result != 'success' || needs.fast-tests.result != 'success' || needs.integration-tests.result != 'success' || needs.build-integrity.result != 'success' || needs.sqlite-vec-smoke.result != 'success' }}
+        if: ${{ needs.pr-metadata.result != 'success' || needs.fast-tests.result != 'success' || needs.integration-tests.result != 'success' || needs.graph-adapter-smoke.result != 'success' || needs.build-integrity.result != 'success' || needs.sqlite-vec-smoke.result != 'success' }}
         env:
           PR_METADATA_RESULT: ${{ needs.pr-metadata.result }}
           FAST_RESULT: ${{ needs.fast-tests.result }}
           INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+          GRAPH_ADAPTER_RESULT: ${{ needs.graph-adapter-smoke.result }}
           BUILD_INTEGRITY_RESULT: ${{ needs.build-integrity.result }}
           SQLITE_VEC_RESULT: ${{ needs.sqlite-vec-smoke.result }}
         run: |
           echo "PR metadata: ${PR_METADATA_RESULT}"
           echo "Fast unit and contract tests: ${FAST_RESULT}"
           echo "Integration tests: ${INTEGRATION_RESULT}"
+          echo "Production ArcadeDB graph adapter smoke: ${GRAPH_ADAPTER_RESULT}"
           echo "Build integrity: ${BUILD_INTEGRITY_RESULT}"
           echo "sqlite-vec JDBC smoke: ${SQLITE_VEC_RESULT}"
           echo "PR Gate requires every upstream CI job to succeed."
