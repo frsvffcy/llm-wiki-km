@@ -30,8 +30,9 @@ not require npm dependencies, a frontend build, a browser automation server, pro
 or network access. The PR workflow pins its runtime to Node.js 22 LTS and runs this suite in the
 `Fast unit and contract tests` job before the Maven fast tier. A failure in either command fails
 that job. The separate PR Metadata job executes the metadata guard regression suite and validates
-the live pull-request event. The `PR Gate` job aggregates PR Metadata, Fast, Integration, Build
-Integrity, and sqlite-vec smoke results and fails unless every evidence job succeeds.
+the live pull-request event. The `PR Gate` job aggregates PR Metadata, Fast, Integration,
+production ArcadeDB Graph adapter, Build Integrity, and sqlite-vec smoke results and fails unless
+every evidence job succeeds.
 
 The `full` profile deliberately applies no include or exclude filter. This guarantees that adding
 a new tagged test cannot accidentally remove it from the final gate. `fast` is feedback only; it
@@ -105,13 +106,16 @@ treating projection data as canonical authority.
 ## Phase 3 Graph capability boundary
 
 Phase 3 is a provider-neutral Knowledge Graph, bounded Graph Retrieval, and GraphRAG capability;
-it is not a commitment to Neo4j or another specific backend. Phase 3A now owns the immutable
-domain/projection contract, while no graph runtime or retrieval surface has been introduced. The
-lexical/vector retrieval baseline and its evidence contracts remain the active product surface.
-The architecture decision is recorded in
-[ADR 0007](../adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md).
+it is not a commitment to a vendor as domain authority. Phase 3A owns the immutable
+domain/projection contract. Issue #244 adds a safe-default disabled production ArcadeDB Graph
+projection adapter plus SQLite-authoritative lifecycle/readiness, but still introduces no Graph
+Retrieval, Evidence integration, Graph REST/UI, or GraphRAG surface. The lexical/vector retrieval
+baseline and its evidence contracts remain the active product surface. The architecture and
+production adoption decisions are recorded in
+[ADR 0007](../adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md) and
+[ADR 0009](../adr/0009-arcadedb-production-projection-adoption.md).
 
-Future graph work must provide evidence at each boundary:
+Graph work must provide evidence at each boundary:
 
 - `org.km.llmwiki.graph.GraphDomainContractTest` and
   `org.km.llmwiki.graph.GraphProjectionContractTest` own the Phase 3A contract for Graph Entity,
@@ -119,15 +123,26 @@ Future graph work must provide evidence at each boundary:
   rebuild input, projection snapshots, and typed failures. The
   `org.km.llmwiki.graph.GraphVendorNeutralContractTest` guards the production package against
   vendor API/query references. Cypher, GQL, SQL-PGQ, and vendor DTOs stay in adapter tests.
-- Projection contract tests prove that an adapter receives deterministic, workspace-scoped input
-  assembled from prevalidated canonical `archive/`/`vault/` content and authoritative metadata;
-  stale/orphan reconciliation is represented without granting the projection canonical authority.
-  Actual source assembly and adapter recovery remain follow-up implementation surfaces.
+- `GraphProjectionLifecycleServiceTest` owns cross-database ordering, interrupted operation
+  reconciliation, readiness degradation, lost-CAS revalidation, typed failure mapping, and
+  generation-owned clear semantics without process-local correctness locks.
+- `JooqGraphProjectionLifecycleRepositoryIntegrationTest` owns SQLite durable monotonic generation,
+  concurrent reservation, stale callback rejection, provider/version drift, migration constraints,
+  and reset completeness. SQLite stores only control/readiness proof, not Graph content.
+- `ArcadeDbGraphProjectionLifecycleIntegrationTest`, `ArcadeDbGraphProjectionBackendFactoryTest`,
+  and the production writer/rebuilder tests own real embedded backend evidence: staged/publish crash
+  windows, restart, repair, clear/rebuild, workspace isolation, missing/incompatible proof,
+  deterministic close/reopen, and same-path lock failure. These tests are integration-tier evidence;
+  Linux also runs the lifecycle/factory subset as a distinct PR job.
+- Projection input remains deterministic and workspace-scoped, assembled from prevalidated
+  canonical `archive/`/`vault/` content and authoritative metadata; adapter recovery may rebuild
+  derived state but never grants projection data canonical authority.
 - Traversal tests assert deterministic bounds for seed count, hop depth, fan-out, node/edge
   candidates, and context/evidence budget. No test may rely on an unbounded traversal or graph
-  explosion being unlikely.
+  explosion being unlikely. These remain Phase 3C requirements; #244 does not add traversal.
 - Retrieval tests prove graph candidates undergo authority, provenance, freshness, and eligibility
   revalidation before `EvidenceBundle` assembly, citation creation, and grounded Answer validation.
+  These also remain Phase 3C requirements.
 - Adapter-unavailable tests prove lexical/vector retrieval remains usable and that operational
   failure is not reported as a false empty graph result. Cloud adapter evaluation must also record
   local-first/offline fit, latency, projection/sync complexity, cost, IAM/security,
@@ -139,7 +154,7 @@ authority/evidence suites or making a vendor the default solely because it is ge
 
 ## PR CI and merge gate
 
-Every pull request runs `.github/workflows/pr-ci.yml` with five complementary evidence jobs and one
+Every pull request runs `.github/workflows/pr-ci.yml` with six complementary evidence jobs and one
 aggregate merge gate. A non-`main` stacked PR must carry the explicit metadata exception described
 below; ordinary delivery still targets `main`:
 
@@ -148,14 +163,16 @@ below; ordinary delivery still targets `main`:
 | PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, closing keyword, and same-repository Issue existence with a read-only token |
 | Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
+| Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest test` | Linux／Java 21 evidence for the production embedded lifecycle, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
 | Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
 | sqlite-vec JDBC smoke | Pinned Linux archive download, checksum, and `scripts/sqlite-vec-jdbc-smoke.sh` | Linux JDBC/native extension portability evidence with a distinct failure stage |
-| PR Gate | Requires all five jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
+| PR Gate | Requires all six jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
 
-The five evidence jobs retain independent coverage, while `PR Gate` is the stable aggregate PR
+The six evidence jobs retain independent coverage, while `PR Gate` is the stable aggregate PR
 safety gate. It uses the workflow `needs` results and succeeds only when PR Metadata, Fast,
-Integration, Build Integrity, and sqlite-vec Smoke all report `success`; an upstream failure, cancellation, or skip
-cannot produce a green gate. The Build Integrity job's `clean` phase removes generated build output
+Integration, production ArcadeDB Graph adapter, Build Integrity, and sqlite-vec Smoke all report
+`success`; an upstream failure, cancellation, or skip cannot produce a green gate. The Build
+Integrity job's `clean` phase removes generated build output
 before Maven runs `generate-sources`; the jOOQ generator then applies all published Flyway
 migrations to a fresh temporary SQLite database and the generated sources are compiled into the
 package. Maven dependency caching only reuses downloaded dependencies and does not replace this
@@ -183,7 +200,8 @@ wall-clock evidence. These figures are observations rather than an SLA because r
 dependency-cache state vary.
 
 The Logical PR Gate always requires a pull request targeting `main` plus successful PR Metadata,
-Fast, Integration, Build Integrity, sqlite-vec Smoke, and aggregate `PR Gate` checks. A GitHub
+Fast, Integration, production ArcadeDB Graph adapter, Build Integrity, sqlite-vec Smoke, and
+aggregate `PR Gate` checks. A GitHub
 branch protection rule or ruleset may additionally make `PR Gate` a server-enforced required check,
 but plan, visibility, or permissions can make that enforcement unavailable or unverifiable. In that
 case, contributors must not claim it is enforced and must explicitly inspect every Logical PR Gate
@@ -209,6 +227,7 @@ Keep these checks in the PR description when changing test tags or Maven configu
 | Workspace isolation | `workspace.WorkspaceApiIntegrationTest`、`workspace.WorkspaceOpenIntegrationTest` | active workspace、目錄邊界、可修復目錄與既有資料保留 |
 | FTS serving freshness / projection version | `search.FtsSearchIndexRepositoryIntegrationTest`、`search.SourceChunkIndexingServiceIntegrationTest`、`search.SearchApiIntegrationTest` | canonical hash／revision／eligibility、workspace scope、provenance 與 projection version |
 | Embedding projection lifecycle / readiness | `search.embedding.EmbeddingProjectionServiceTest`、`search.embedding.EmbeddingProjectionRepositoryIntegrationTest`、`search.embedding.EmbeddingProjectionReadinessRepositoryIntegrationTest` | authority-derived projection、workspace isolation、freshness、partial/ready/stale/failed 狀態與 interrupted recovery |
+| Graph projection lifecycle / readiness | `graph.GraphProjectionLifecycleServiceTest`、`persistence.graph.JooqGraphProjectionLifecycleRepositoryIntegrationTest`、`persistence.graph.arcadedb.ArcadeDbGraphProjectionLifecycleIntegrationTest`、`persistence.graph.arcadedb.ArcadeDbGraphProjectionBackendFactoryTest` | SQLite-authoritative generation/readiness、crash ordering/reconciliation、repair/clear、workspace isolation、proof mismatch、file locking 與 deterministic resource lifecycle |
 | Retrieval failure semantics | `rag.RetrievalServiceIntegrationTest`、`rag.RetrievalServiceTest` | authority drift、workspace scope 與 fail-closed evidence assembly |
 | FTS rebuild / health / restart recovery | `search.FtsRebuildHealthIntegrationTest` | rebuild、missing/stale/orphan、partial failure、queued/running recovery 與 health state |
 | CJK search quality | `search.CjkFtsSearchQualitySpikeTest`、`search.CjkBigramProjectorTest` | CJK 短詞／bigram、技術 token、literal query 與可重現 recall/precision evidence |

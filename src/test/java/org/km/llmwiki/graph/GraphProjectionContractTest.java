@@ -135,6 +135,10 @@ class GraphProjectionContractTest {
         assertThat(new GraphProjectionFailure(GraphProjectionFailureType.BACKEND_FAILURE,
                 "MATCH (node) RETURN node from /Users/private/graph.db").diagnostic())
                 .isEqualTo("graph projection operation failed");
+        assertThat(new GraphProjectionFailure(GraphProjectionFailureType.BACKEND_FAILURE,
+                "record RID #12:0 conflicts with #19:42").diagnostic())
+                .isEqualTo("record [REDACTED] conflicts with [REDACTED]")
+                .doesNotContain("#12:0", "#19:42", "RID");
     }
 
     private static GraphEntity entity(GraphWorkspaceScope workspace, String key, String name,

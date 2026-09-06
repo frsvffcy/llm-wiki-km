@@ -82,6 +82,11 @@
             <groupId>org.jooq</groupId>
             <artifactId>jooq-codegen</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.arcadedb</groupId>
+            <artifactId>arcadedb-engine</artifactId>
+            <version>${arcadedb.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -207,12 +212,6 @@
                 <test.tags.exclude></test.tags.exclude>
             </properties>
             <dependencies>
-                <dependency>
-                    <groupId>com.arcadedb</groupId>
-                    <artifactId>arcadedb-engine</artifactId>
-                    <version>${arcadedb.version}</version>
-                    <scope>test</scope>
-                </dependency>
                 <dependency>
                     <groupId>org.dizitart</groupId>
                     <artifactId>nitrite</artifactId>

@@ -47,12 +47,13 @@ protected branches](https://docs.github.com/en/repositories/configuring-branches
 
 ```text
 latest main → dedicated branch → local final verification → commit → push
-→ PR targeting main → wait for all five evidence jobs and aggregate PR Gate
+→ PR targeting main → wait for all six evidence jobs and aggregate PR Gate
 → merge through the PR → verify main → verify Issue completed
 ```
 
-合併者必須檢查 `gh pr checks <pr>`，並確認 PR Metadata、Fast、Integration、Build Integrity、
-sqlite-vec Smoke 與 `PR Gate` 都成功。Local pre-push guard 可作為 defence in depth，但不能取代
+合併者必須檢查 `gh pr checks <pr>`，並確認 PR Metadata、Fast、Integration、production ArcadeDB
+Graph adapter、Build Integrity、sqlite-vec Smoke 與 `PR Gate` 都成功。Local pre-push guard 可作為
+defence in depth，但不能取代
 PR／Actions evidence，且 Issue #234 不導入此項機制。Push、PR、check、merge 或 post-merge
 verification 任何一步失敗，都仍是必須如實回報的 blocker；owner 權限與 repository privacy 絕非
 提前宣稱 `DONE` 的理由。

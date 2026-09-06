@@ -1,4 +1,4 @@
-package org.km.llmwiki.graph.arcadedb;
+package org.km.llmwiki.persistence.graph.arcadedb;
 
 import org.km.llmwiki.graph.GraphAuthorityEligibility;
 import org.km.llmwiki.graph.GraphAuthorityKind;
@@ -18,7 +18,7 @@ import org.km.llmwiki.graph.GraphWorkspaceScope;
 import java.util.List;
 import java.util.Map;
 
-/** Deterministic, application-owned fixtures for the embedded adapter spike. */
+/** Deterministic, application-owned fixtures for the production embedded adapter. */
 final class ArcadeDbGraphProjectionFixtures {
 
     static final GraphProjectionVersion VERSION = GraphProjectionVersion.initial();
