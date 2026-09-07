@@ -82,10 +82,10 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: 驗證 Linux production ArcadeDB lifecycle、canonical ingress 與資源契約
+      - name: 驗證 Linux production ArcadeDB lifecycle、canonical ingress、bounded traversal 與資源契約
         run: >-
           mvn --batch-mode
-          -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest
+          -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest
           test
 
   build-integrity:

@@ -11,6 +11,7 @@ import com.arcadedb.graph.MutableEdge;
 import com.arcadedb.graph.MutableVertex;
 import com.arcadedb.graph.Vertex;
 import com.arcadedb.index.IndexCursor;
+import com.arcadedb.index.TypeIndex;
 import com.arcadedb.schema.DocumentType;
 import com.arcadedb.schema.Schema;
 import com.arcadedb.schema.Type;
@@ -40,13 +41,19 @@ import org.km.llmwiki.graph.GraphRelation;
 import org.km.llmwiki.graph.GraphRelationIdentity;
 import org.km.llmwiki.graph.GraphRelationType;
 import org.km.llmwiki.graph.GraphWorkspaceScope;
+import org.km.llmwiki.graph.GraphTraversalCandidate;
+import org.km.llmwiki.graph.GraphTraversalLimit;
+import org.km.llmwiki.graph.GraphTraversalQuery;
+import org.km.llmwiki.graph.GraphTraversalResult;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -346,6 +353,127 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
         });
     }
 
+    /** Materializes one bounded deterministic traversal for an exact published snapshot. */
+    public GraphTraversalResult traverse(GraphTraversalQuery query) {
+        if (query == null) {
+            throw new IllegalArgumentException("Graph traversal query is required");
+        }
+        return inTransaction(() -> traverseCurrent(query));
+    }
+
+    private GraphTraversalResult traverseCurrent(GraphTraversalQuery query) {
+        GraphProjectionSnapshot expected = query.expectedSnapshot();
+        if (!query.workspace().equals(expected.workspace())) {
+            throw new GraphProjectionException(GraphProjectionFailureType.CROSS_WORKSPACE);
+        }
+        GraphProjectionSnapshot current = readState(query.workspace()).currentSnapshot();
+        requireExactSnapshot(current, expected);
+
+        LinkedHashSet<String> visitedEntityIds = new LinkedHashSet<>();
+        query.seeds().forEach(seed -> visitedEntityIds.add(seed.stableId()));
+        List<TraversalFrontier> frontier = new ArrayList<>();
+        for (GraphEntityIdentity seed : query.seeds()) {
+            Optional<GraphEntity> entity = readExactEntity(expected, seed);
+            if (entity.isPresent()) {
+                frontier.add(new TraversalFrontier(seed, entity.orElseThrow(), List.of()));
+            }
+        }
+
+        List<GraphTraversalCandidate> candidates = new ArrayList<>();
+        EnumSet<GraphTraversalLimit> reachedLimits = EnumSet.noneOf(GraphTraversalLimit.class);
+        int visitedEdges = 0;
+        boolean traversalStopped = false;
+
+        for (int depth = 1; depth <= query.bounds().maxDepth()
+                && !frontier.isEmpty() && !traversalStopped; depth++) {
+            List<TraversalFrontier> nextFrontier = new ArrayList<>();
+            int hopEdges = 0;
+            for (int sourceIndex = 0; sourceIndex < frontier.size(); sourceIndex++) {
+                TraversalFrontier source = frontier.get(sourceIndex);
+                int hopRemaining = query.bounds().perHopFanOut() - hopEdges;
+                int edgeRemaining = query.bounds().maxVisitedEdges() - visitedEdges;
+                if (hopRemaining == 0) {
+                    reachedLimits.add(GraphTraversalLimit.PER_HOP_FAN_OUT);
+                    break;
+                }
+                if (edgeRemaining == 0) {
+                    reachedLimits.add(GraphTraversalLimit.VISITED_EDGES);
+                    traversalStopped = true;
+                    break;
+                }
+
+                int capacity = Math.min(query.bounds().perNodeFanOut(),
+                        Math.min(hopRemaining, edgeRemaining));
+                List<StoredRelation> outgoing = readOutgoing(expected,
+                        source.entity().identity(), query.allowedRelationTypes(),
+                        query.ordering(), capacity + 1);
+                boolean hasExtra = outgoing.size() > capacity;
+                if (hasExtra) {
+                    if (capacity == query.bounds().perNodeFanOut()) {
+                        reachedLimits.add(GraphTraversalLimit.PER_NODE_FAN_OUT);
+                    }
+                    if (capacity == hopRemaining) {
+                        reachedLimits.add(GraphTraversalLimit.PER_HOP_FAN_OUT);
+                    }
+                    if (capacity == edgeRemaining) {
+                        reachedLimits.add(GraphTraversalLimit.VISITED_EDGES);
+                    }
+                }
+
+                int selected = Math.min(capacity, outgoing.size());
+                for (int relationIndex = 0; relationIndex < selected; relationIndex++) {
+                    StoredRelation stored = outgoing.get(relationIndex);
+                    visitedEdges++;
+                    hopEdges++;
+                    GraphEntity target = stored.target();
+                    if (visitedEntityIds.contains(target.identity().stableId())) {
+                        continue;
+                    }
+                    if (visitedEntityIds.size() == query.bounds().maxVisitedNodes()) {
+                        reachedLimits.add(GraphTraversalLimit.VISITED_NODES);
+                        traversalStopped = true;
+                        break;
+                    }
+                    if (candidates.size() == query.bounds().candidateLimit()) {
+                        reachedLimits.add(GraphTraversalLimit.CANDIDATES);
+                        traversalStopped = true;
+                        break;
+                    }
+
+                    visitedEntityIds.add(target.identity().stableId());
+                    List<GraphRelation> path = new ArrayList<>(source.path());
+                    path.add(stored.relation());
+                    List<GraphRelation> immutablePath = List.copyOf(path);
+                    candidates.add(new GraphTraversalCandidate(source.seed(), target, depth,
+                            immutablePath));
+                    nextFrontier.add(new TraversalFrontier(source.seed(), target, immutablePath));
+                }
+                if (traversalStopped) {
+                    break;
+                }
+                if (hopEdges == query.bounds().perHopFanOut()
+                        && (hasExtra || sourceIndex + 1 < frontier.size())) {
+                    reachedLimits.add(GraphTraversalLimit.PER_HOP_FAN_OUT);
+                    break;
+                }
+                if (visitedEdges == query.bounds().maxVisitedEdges()
+                        && (hasExtra || sourceIndex + 1 < frontier.size())) {
+                    reachedLimits.add(GraphTraversalLimit.VISITED_EDGES);
+                    traversalStopped = true;
+                    break;
+                }
+            }
+            if (depth == query.bounds().maxDepth() && !nextFrontier.isEmpty()) {
+                reachedLimits.add(GraphTraversalLimit.DEPTH);
+            }
+            frontier = nextFrontier;
+        }
+
+        candidates.sort(query.ordering().candidateComparator());
+        return new GraphTraversalResult(expected, candidates, visitedEntityIds.size(),
+                visitedEdges, reachedLimits);
+    }
+
     /** Returns one current-visible entity without exposing a backend record identity. */
     public Optional<GraphEntity> currentEntity(GraphEntityIdentity identity) {
         if (identity == null) {
@@ -437,6 +565,9 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
 
         entity.getOrCreateTypeIndex(Schema.INDEX_TYPE.LSM_TREE, true, ROW_KEY);
         relation.getOrCreateTypeIndex(Schema.INDEX_TYPE.LSM_TREE, true, ROW_KEY);
+        relation.getOrCreateTypeIndex(Schema.INDEX_TYPE.LSM_TREE, false,
+                WORKSPACE_ID, PROJECTION_VERSION, GENERATION, SOURCE_STABLE_ID,
+                RELATION_TYPE_NAME, TARGET_STABLE_ID, STABLE_ID);
         state.getOrCreateTypeIndex(Schema.INDEX_TYPE.LSM_TREE, true, STATE_KEY);
         owner.getOrCreateTypeIndex(Schema.INDEX_TYPE.LSM_TREE, true, OWNER_KEY);
     }
@@ -601,6 +732,141 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
             }
             return null;
         }
+    }
+
+    private List<StoredRelation> readOutgoing(GraphProjectionSnapshot snapshot,
+                                              GraphEntityIdentity source,
+                                              Set<GraphRelationType> allowedTypes,
+                                              org.km.llmwiki.graph.GraphTraversalOrdering ordering,
+                                              int limit) {
+        List<StoredRelation> result = new ArrayList<>();
+        TypeIndex index = database.getSchema().getType(RELATION_TYPE).getIndexByProperties(
+                WORKSPACE_ID, PROJECTION_VERSION, GENERATION, SOURCE_STABLE_ID,
+                RELATION_TYPE_NAME, TARGET_STABLE_ID, STABLE_ID);
+        if (index == null || !index.supportsOrderedIterations()) {
+            throw corruptStorage("projection relation index is unavailable", null);
+        }
+        List<GraphRelationType> orderedTypes = allowedTypes.stream()
+                .sorted(ordering.relationTypeComparator()).toList();
+        for (GraphRelationType relationType : orderedTypes) {
+            Object[] prefix = {snapshot.workspace().id(), snapshot.projectionVersion().value(),
+                    snapshot.generation(), source.stableId(), relationType.name()};
+            try (IndexCursor cursor = index.range(true, prefix, true, prefix, true)) {
+                while (cursor.hasNext() && result.size() < limit) {
+                    Edge edge = cursor.next().asEdge(true);
+                    StoredRelation stored = readExactRelation(snapshot, source, relationType, edge);
+                    if (!result.isEmpty() && ordering.outgoingRelationComparator().compare(
+                            result.getLast().relation(), stored.relation()) > 0) {
+                        throw corruptStorage(
+                                "projection relation index violates application ordering", null);
+                    }
+                    result.add(stored);
+                }
+            } catch (GraphProjectionException exception) {
+                throw exception;
+            } catch (IllegalArgumentException | NullPointerException | ClassCastException exception) {
+                throw corruptStorage("projection relation row is malformed", exception);
+            }
+            if (result.size() == limit) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private StoredRelation readExactRelation(GraphProjectionSnapshot snapshot,
+                                             GraphEntityIdentity expectedSource,
+                                             GraphRelationType expectedType,
+                                             Edge edge) {
+        requireRowSnapshot(edge, snapshot);
+        GraphRelation relation = readRelation(edge);
+        if (!expectedSource.equals(relation.source()) || expectedType != relation.type()
+                || !relationRowKey(snapshot, relation.identity().stableId())
+                .equals(edge.getString(ROW_KEY))) {
+            throw corruptStorage("projection relation identity is inconsistent", null);
+        }
+
+        Identifiable canonicalSource = findByKey(ENTITY_TYPE, ROW_KEY,
+                entityRowKey(snapshot, relation.source().stableId()));
+        Identifiable canonicalTarget = findByKey(ENTITY_TYPE, ROW_KEY,
+                entityRowKey(snapshot, relation.target().stableId()));
+        if (canonicalSource == null || canonicalTarget == null
+                || !canonicalSource.getIdentity().equals(edge.getOut())
+                || !canonicalTarget.getIdentity().equals(edge.getIn())) {
+            throw corruptStorage("projection relation endpoint is inconsistent", null);
+        }
+        GraphEntity source = readExactEntity(snapshot, relation.source()).orElseThrow(() ->
+                corruptStorage("projection relation source is missing", null));
+        GraphEntity target = readExactEntity(snapshot, relation.target()).orElseThrow(() ->
+                corruptStorage("projection relation target is missing", null));
+        if (!source.identity().equals(expectedSource)) {
+            throw corruptStorage("projection relation source does not match traversal", null);
+        }
+        return new StoredRelation(relation, target);
+    }
+
+    private Optional<GraphEntity> readExactEntity(GraphProjectionSnapshot snapshot,
+                                                   GraphEntityIdentity expectedIdentity) {
+        Identifiable record = findByKey(ENTITY_TYPE, ROW_KEY,
+                entityRowKey(snapshot, expectedIdentity.stableId()));
+        if (record == null) {
+            return Optional.empty();
+        }
+        try {
+            Document document = record.asDocument(true);
+            requireRowSnapshot(document, snapshot);
+            GraphEntity entity = readEntity(document);
+            if (!expectedIdentity.equals(entity.identity())
+                    || !entityRowKey(snapshot, entity.identity().stableId())
+                    .equals(document.getString(ROW_KEY))) {
+                throw corruptStorage("projection entity identity is inconsistent", null);
+            }
+            return Optional.of(entity);
+        } catch (GraphProjectionException exception) {
+            throw exception;
+        } catch (IllegalArgumentException | NullPointerException | ClassCastException exception) {
+            throw corruptStorage("projection entity row is malformed", exception);
+        }
+    }
+
+    private static void requireRowSnapshot(Document document,
+                                           GraphProjectionSnapshot snapshot) {
+        Long workspace = document.getLong(WORKSPACE_ID);
+        Long generation = document.getLong(GENERATION);
+        if (workspace == null || workspace != snapshot.workspace().id()
+                || generation == null || generation != snapshot.generation()
+                || !snapshot.projectionVersion().value().equals(document.getString(PROJECTION_VERSION))
+                || !snapshot.sourceFingerprint().equals(document.getString(SOURCE_FINGERPRINT))
+                || !snapshot.snapshotToken().equals(document.getString(SNAPSHOT_TOKEN))) {
+            throw corruptStorage("projection row proof does not match current snapshot", null);
+        }
+    }
+
+    private static void requireExactSnapshot(GraphProjectionSnapshot actual,
+                                             GraphProjectionSnapshot expected) {
+        if (actual == null || actual.generation() != expected.generation()) {
+            throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
+        }
+        if (!actual.projectionVersion().equals(expected.projectionVersion())) {
+            throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+        }
+        if (!actual.equals(expected)) {
+            throw corruptStorage("projection snapshot proof is inconsistent", null);
+        }
+    }
+
+    private static GraphProjectionException corruptStorage(String diagnostic, Throwable cause) {
+        GraphProjectionFailure failure = new GraphProjectionFailure(
+                GraphProjectionFailureType.PROJECTION_CORRUPT, diagnostic);
+        return cause == null ? new GraphProjectionException(failure)
+                : new GraphProjectionException(failure, cause);
+    }
+
+    private record TraversalFrontier(GraphEntityIdentity seed, GraphEntity entity,
+                                     List<GraphRelation> path) {
+    }
+
+    private record StoredRelation(GraphRelation relation, GraphEntity target) {
     }
 
     private static MutableVertex writeEntity(MutableVertex vertex,

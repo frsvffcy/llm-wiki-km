@@ -108,12 +108,14 @@ treating projection data as canonical authority.
 Phase 3 is a provider-neutral Knowledge Graph, bounded Graph Retrieval, and GraphRAG capability;
 it is not a commitment to a vendor as domain authority. Phase 3A owns the immutable
 domain/projection contract. Issue #244 adds a safe-default disabled production ArcadeDB Graph
-projection adapter plus SQLite-authoritative lifecycle/readiness, but still introduces no Graph
-Retrieval, Evidence integration, Graph REST/UI, or GraphRAG surface. The lexical/vector retrieval
-baseline and its evidence contracts remain the active product surface. The architecture and
-production adoption decisions are recorded in
+projection adapter plus SQLite-authoritative lifecycle/readiness. Issue #252 adds the independent
+provider-neutral bounded traversal read contract and query-time exact-snapshot validation, but still
+introduces no Evidence integration, Graph REST/UI, Ask mode, fusion, or GraphRAG surface. The
+lexical/vector retrieval baseline and its evidence contracts remain the active product surface. The
+architecture and production adoption decisions are recorded in
 [ADR 0007](../adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md) and
-[ADR 0009](../adr/0009-arcadedb-production-projection-adoption.md).
+[ADR 0009](../adr/0009-arcadedb-production-projection-adoption.md); bounded traversal is recorded in
+[ADR 0011](../adr/0011-bounded-graph-retrieval-snapshot-currentness.md).
 
 Graph work must provide evidence at each boundary:
 
@@ -137,9 +139,13 @@ Graph work must provide evidence at each boundary:
 - Projection input remains deterministic and workspace-scoped, assembled from prevalidated
   canonical `archive/`/`vault/` content and authoritative metadata; adapter recovery may rebuild
   derived state but never grants projection data canonical authority.
-- Traversal tests assert deterministic bounds for seed count, hop depth, fan-out, node/edge
-  candidates, and context/evidence budget. No test may rely on an unbounded traversal or graph
-  explosion being unlikely. These remain Phase 3C requirements; #244 does not add traversal.
+- `GraphTraversalContractTest`、`GraphTraversalServiceTest` 與
+  `GraphVendorNeutralContractTest` 持有 seed/depth/fan-out/visited/candidate hard caps、read/write port
+  分離、proof ordering、typed failure 與 materialized result validation。`ArcadeDbGraphTraversalTest`
+  持有 deterministic BFS/restart、cycle、每一種 truncation、composite-prefix source/workspace isolation、
+  malformed/orphan relation 與 RID-independent ordering；`CanonicalGraphTraversalIntegrationTest`
+  持有 canonical mutation 後拒絕 A 與 B publish 後拒絕 late A。Context/evidence budget 與 candidate
+  authority revalidation 仍屬後續 Evidence integration Story；不得以 unbounded scan 補滿結果。
 - Retrieval tests prove graph candidates undergo authority, provenance, freshness, and eligibility
   revalidation before `EvidenceBundle` assembly, citation creation, and grounded Answer validation.
   These also remain Phase 3C requirements.
@@ -163,7 +169,7 @@ below; ordinary delivery still targets `main`:
 | PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, closing keyword, and same-repository Issue existence with a read-only token |
 | Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
-| Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
+| Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, canonical ingress/currentness, deterministic bounded traversal, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
 | Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
 | sqlite-vec JDBC smoke | Pinned Linux archive download, checksum, and `scripts/sqlite-vec-jdbc-smoke.sh` | Linux JDBC/native extension portability evidence with a distinct failure stage |
 | PR Gate | Requires all six jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
@@ -362,3 +368,9 @@ Tier inventory 的驗收條件是：unclassified executable tests = 0；`fast` +
 `persistence.graph.CanonicalGraphIngressIntegrationTest` 持有 production assembler/currentness 的 canonical mapping、chunk reextraction identity、freshness、read-time invalidation、restart、workspace isolation、publication ledger 與 SQLite writer reservation、stale/newer operation race、budget 及 unavailable 路徑。使用既有 isolated integration context 與真實 ArcadeDB，納入 integration/full 及 production smoke。底層 lifecycle/CAS/vendor-neutral invariant 繼續由既有 suite 持有，不重複建立等價測試。
 
 `testsupport.AssumedCurrentGraphFixture` 僅供 synthetic input 的低層 lifecycle/backend tests 顯式假設 canonical currentness；production integration 使用實際 `SqliteGraphCanonicalCurrentness`，不得以 fixture 證明 production READY。
+
+## Bounded Graph Retrieval 測試責任（#252）
+
+`graph.GraphTraversalContractTest` 驗證 query/bounds/candidate contract 與 hard maxima；`graph.GraphTraversalServiceTest` 驗證 lifecycle → backend proof → traversal → backend proof → final lifecycle/canonical check 的 ordering、typed drift 與 fail-closed result validation。`persistence.graph.arcadedb.ArcadeDbGraphTraversalTest` 使用真實 production adapter 驗證 deterministic directed BFS、restart、cycle、所有 hard-stop diagnostics、composite index prefix、workspace、row proof 及 orphan/endpoint corruption。`persistence.graph.CanonicalGraphTraversalIntegrationTest` 使用隔離 SQLite、production canonical assembler/lifecycle 與真實 ArcadeDB 重現 canonical mutation A 及 late callback A/B race。
+
+這些 tests 不證明 `EvidenceBundle`、Ask、REST/UI、fusion 或 GraphRAG；Graph candidate 尚未取得 citation authority。L5 challenge 必須另行檢查 stale topology、SQLite/backend generation mismatch、fingerprint/version/workspace drift、RID/vendor ordering leakage 與極端 bounds，並在 PR 記錄 reviewer independence limitation。

@@ -7,6 +7,8 @@ import org.km.llmwiki.graph.GraphProjectionIngressService;
 import org.km.llmwiki.graph.GraphProjectionLifecycleRepository;
 import org.km.llmwiki.graph.GraphProjectionLifecycleService;
 import org.km.llmwiki.graph.GraphProjectionVersion;
+import org.km.llmwiki.graph.GraphTraversalService;
+import org.km.llmwiki.graph.GraphTraversalBackendFactory;
 import org.km.llmwiki.persistence.graph.arcadedb.ArcadeDbGraphProjectionBackendFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationRunner;
@@ -38,6 +40,12 @@ public class GraphProjectionConfiguration {
     }
 
     @Bean
+    GraphTraversalService graphTraversalService(GraphProjectionLifecycleService lifecycle,
+                                                ObjectProvider<GraphTraversalBackendFactory> backendFactory) {
+        return new GraphTraversalService(lifecycle, backendFactory.getIfAvailable());
+    }
+
+    @Bean
     ApplicationRunner graphProjectionRecoveryRunner(GraphProjectionLifecycleService service) {
         return arguments -> service.reconcileInterruptedOperations();
     }
@@ -47,7 +55,7 @@ public class GraphProjectionConfiguration {
             havingValue = "true")
     @ConditionalOnProperty(prefix = "app.graph.projection", name = "provider",
             havingValue = ArcadeDbGraphProjectionBackendFactory.PROVIDER, matchIfMissing = true)
-    GraphProjectionBackendFactory arcadeDbGraphProjectionBackendFactory(
+    ArcadeDbGraphProjectionBackendFactory arcadeDbGraphProjectionBackendFactory(
             GraphProjectionProperties properties) {
         return new ArcadeDbGraphProjectionBackendFactory(properties.getPath(),
                 GraphProjectionVersion.initial());
