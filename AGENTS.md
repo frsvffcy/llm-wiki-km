@@ -33,7 +33,7 @@
 
 * **Model reasoning effort** 是 executor/model 層級的能力設定；只有當目前 Work、runner、API 或其他執行環境確實提供該 profile 時才能指定。`none`、`low`、`medium`、`high`、`xhigh`、`max` 僅作可用時的 effort 名稱範例，不得因某個 UI label、產品模式或未驗證文件而自行推定其語意、成本或等價關係。
 * **Verification rigor** 是 repository governance workflow，不是 model/API 參數。`review`、`challenge`、`independent challenge` 不能寫成或理解成 `review=true`、`challenge=true` 等模型設定，也不能因更換 model 就視為自動完成。
-* Complexity level 決定需要的工程驗證嚴謹度；executor profile 只是在當下能力、成本、latency、tool availability 與 repo-specific evidence 下選擇的執行器。兩者不得互相反推。
+* Complexity level **只決定工程驗證嚴謹度，不決定 executor model**。Executor 應依 task shape、boundedness、ambiguity、correctness risk、成本、latency、tool availability 與 repo-specific evidence 選擇；不得由 Level 反推出固定 model。
 
 | Verification mode | 定義 | 最低要求 |
 | --- | --- | --- |
@@ -48,40 +48,69 @@
   3. runner 只能單一 context 時，執行與 primary 分離的 fresh adversarial second pass。
 * 若實際 Work／runner 無法切換獨立 model 或 fresh reviewer context，回報必須明確寫出「reviewer 不是 model-independent」或等價限制；不得因 AGENTS 要求 independent challenge 就假裝系統已建立第二個模型或 subagent。
 
-#### Cost-aware executor routing
+#### Verification rigor by complexity
 
-* Executor 選擇採 **lowest-sufficient-capability**：先選擇能滿足 correctness、evidence、tool execution 與 review requirements 的最低合理成本 profile，再依實際 finding 升級。不得僅因 Issue 被標示為 L4/L5 就自動使用最高 effort 或最高成本 model。
-* 常態 routing 優先使用目前可用且經 repo-specific calibration 的 5.6 family；高成本 profile 與 Astra 原則上是 escalation，而不是 complexity label 的固定對應。
-* 下表是本專案的 **cost-aware routing baseline**。只有當 Work／runner 當下確實提供對應 model/effort 時才使用；不可用時，應選擇最接近且已驗證的替代 profile，並記錄 limitation。
+| Level | Verification baseline |
+| --- | --- |
+| **L1** | self-check |
+| **L2** | self-review；風險提高時 explicit review |
+| **L3** | explicit correctness review |
+| **L4** | **強烈建議 independent review／challenge** |
+| **L5** | **強制 independent challenge + repository evidence + executable tests + CI evidence + architecture invariant verification** |
 
-| Level | 建議 primary baseline | Verification baseline |
+* 上表只定義 verification rigor，不包含 primary model、reviewer model 或 reasoning effort。即使同一個 Level 的兩個 Issue，也可因 task shape 不同而使用完全不同的 executor profile。
+
+#### Task-shape executor routing
+
+* Executor 選擇採 **lowest-sufficient-capability**：先選擇能滿足 correctness、evidence、tool execution 與 review requirements 的最低合理成本 profile，再依實際 finding 升級。不得因 Issue 被標示為 L3、L4 或 L5 就自動使用特定 model 或最高 effort。
+* 常態 routing 優先使用目前可用、完成 repo-specific calibration 且具有成本優勢的 executor。5.6 Luna／Terra／Sol 與 Astra 僅是目前可用時的 routing reference，不是永久能力排序。
+* routing 先判斷 **task shape**，再選 model；Terra 不是 Luna → Sol 的必經階梯。
+
+| Task shape | 建議 executor routing | 說明 |
 | --- | --- | --- |
-| **L1** | 5.6 Luna `medium` | self-check |
-| **L2** | 5.6 Luna `high` | self-review；風險提高時 explicit review |
-| **L3** | 5.6 Terra `high` | explicit correctness review |
-| **L4** | 5.6 Sol `high` | **強烈建議 independent review／challenge** |
-| **L5** | 5.6 Sol `xhigh` | **強制 independent challenge + evidence**；若能獨立選 reviewer model，優先以 5.6 Terra `max` 作 challenger |
+| Mechanical／high-volume／explicit small change | 5.6 Luna `medium`～`high` 優先 | 文件、metadata、明確 bug、局部測試、mapper／DTO、機械式 refactor、inventory／evidence collection |
+| Bounded implementation | 5.6 Luna `high` 優先 | architecture／contract 已決定、AC 明確、affected files bounded、既有 pattern 可依循；若 correctness evidence 已滿足，不需因 Level 升級 |
+| Stable／repeated／structured professional workflow | 5.6 Terra `high` 可作 bounded specialist | 適合固定 schema、重複性高、tool-calling 穩定、結構化輸出或已定義 contract 的專業工作；Terra 不因 Level 自動成為 default |
+| Bounded task 出現 repeated miss／contract drift／instruction instability | Luna → Terra | 僅當問題仍然 bounded、architecture 已知，而 Luna 在執行穩定性或結構化遵循上反覆失敗時升 Terra |
+| Ambiguous complex coding／architecture discovery／unfamiliar subsystem | 5.6 Sol `high`～`xhigh` | 問題定義、設計選擇或 root cause 尚未收斂時，直接使用 Sol；不必先經 Terra |
+| Race／transaction／concurrency／lifecycle／security invariant／multi-subsystem root cause | 5.6 Sol `high`～`xhigh` | correctness-sensitive hard reasoning；重點是減少錯誤路徑、tool round-trip 與無效 implementation iteration |
+| Exceptional multi-system／long-horizon／competing designs／Sol `max` 仍無法收斂 | Astra | exceptional escalation；不得作日常 default |
 
-* 上表不是能力 benchmark 或永久 model ranking。若較低成本 profile 已完成 acceptance criteria、repository evidence、executable tests、CI 與必要 review，不得為了 Level label 再自動升級。
+* Task shape 可跨 complexity level。例如 L4 Issue 在 architecture 已經確定後，其某個 bounded implementation 子任務仍可由 Luna／Terra 執行，但 L4 的 independent verification rigor 不能因此降低；反之，若原本看似中等 scope 的工作出現 architecture ambiguity 或難解 race，可直接切換 Sol，而不必把 Terra 當作中繼站。
 * Alternative／reviewer 可以使用其他 provider/model，但必須保持 provider-neutral。GLM、DeepSeek、Gemini 或未來 model 名稱只可在實際可用且完成 repo-specific calibration 後成為 baseline；不同供應商甚至同一家族的同名 effort 不得直接視為 correctness、推理深度、成本或 latency 等價。
 * 未經目前產品能力或官方可驗證介面確認的 label，一律不得當成穩定 model taxonomy。特別是 `Ultra`：若某個 Work/UI/產品當下提供名為 Ultra 的 execution mode，應將它視為產品特定、可選且需要另行驗證的 execution capability；不得在 AGENTS 中假設它是所有 model 都具有的固定 reasoning effort，也不得把它永久映射到 L4、L5 或 `L5+`。
 
+#### Reviewer／challenger routing
+
+* Reviewer 與 challenger 同樣採 task-shape + lowest-sufficient-capability；**independent challenge 不要求固定使用 Terra、Sol 或 Astra**。
+* bounded、可由 checklist／tests／repo evidence 驗證的 independent challenge，可先使用較低成本的 5.6 Luna `high`～`max`（若實際可用且 calibration 足夠）。不同 model/fresh context 的目的在降低 correlated error，不代表 reviewer 必須比 primary 更昂貴。
+* 若 cheap challenger 找到 credible counterexample、無法自行證明／推翻 primary、出現結構化 contract drift，或 reviewer task 仍屬 bounded 但需要更穩定的專業判讀，可升至 5.6 Terra `high`～`max` 作 focused reviewer。
+* 若 disagreement 涉及 architecture、race、transaction、lifecycle、security invariant、跨 subsystem root cause，或 Terra／Luna challenge 無法收斂，應直接使用 5.6 Sol `high`～`max`；不得為了維持既定階梯而繼續耗費在不適合的中階 profile。
+* Astra 僅在 reviewer/challenge 本身成為 exceptional multi-system reasoning、Sol `max` 仍無法收斂時使用。
+* 一個常見但非強制的 cost-aware L5 pattern 可為：Sol primary → Luna cheap independent challenge →（有 unresolved finding 時）Terra focused reviewer →（architecture disagreement／hard correctness 時）Sol higher-effort resolution → 最後才考慮 Astra。每一步都必須有 evidence trigger，任何一步已足夠即可停止。
+
 #### Escalation policy
 
-* Escalation 必須由 evidence 觸發，而不是由 complexity label 觸發。可接受的 trigger 至少包括：
+* Escalation 必須由 evidence 與 task-shape 變化觸發，而不是由 complexity label 觸發。可接受的 trigger 至少包括：
   * repository evidence gap 或無法驗證的關鍵假設；
   * unresolved race、transaction、concurrency、lifecycle 或 security invariant；
   * architecture ambiguity 或多個 competing designs 無法以現有 evidence 收斂；
   * primary 與 independent review/challenge 有實質 disagreement；
-  * repeated counterexample failure，且較低成本 profile 無法可靠解釋或修正；
+  * repeated counterexample failure，且目前 profile 無法可靠解釋或修正；
+  * repeated implementation miss／contract drift／instruction instability；
   * runner/tool limitation 使必要 evidence 無法取得，且更高能力 executor 能實際改善該限制。
-* 一般 escalation 順序依實際可用 profile 採最小升級：L4 可由 Sol `high` 升至 Sol `xhigh`；L5 以 Sol `xhigh` 為常態 baseline，必要時再升至 Sol `max`，最後才考慮 Astra。不得跳過中間已足夠的 profile 只為追求更高 effort。
+* Escalation **不是固定 Luna → Terra → Sol → Astra 線性階梯**：
+  * 問題仍 bounded、structured、architecture 已知，但 Luna 執行不穩定時，可升 Terra；
+  * 一旦問題轉成 architecture ambiguity、hard correctness、race/lifecycle 或跨 subsystem root cause，可從 Luna／Terra 直接切 Sol；
+  * Sol 內部依最小充分原則由 `high` → `xhigh` → `max` 升級；
+  * 只有 Sol `max` 仍無法形成可信結論或任務本身已屬 exceptional multi-system work，才考慮 Astra。
 * **Astra 是 exceptional escalation**。只在跨多個 subsystem、long-horizon work、competing designs、極高不確定性、反覆 counterexample failure，或 Sol `max` 仍無法形成可信結論時使用；`independent challenge != Astra`。
 * 每次 escalation 都應記錄 trigger 與預期改善的 evidence gap。若升級後沒有新增可驗證 evidence、finding 或 correctness 改善，不得把「用了更高成本 model」本身當成品質證據。
 
 #### L4 review policy
 
 * L4 強烈建議安排 independent review／challenge，尤其是 race、transaction、concurrency、migration、security boundary 與 lifecycle correctness。Review 必須挑戰 ordering、failure path、recovery、ownership 與 invariant，不能只重述 primary implementation 結論。
+* L4 的 primary/reviewer model 依 task shape 決定，不因 L4 label 固定綁定 Sol；但若實際問題包含 architecture ambiguity、hard race、transaction/lifecycle 或跨 subsystem correctness，Sol 通常是合理的高能力選擇。
 * 若 L4 的 independent reviewer/model 不可用，可以使用 fresh adversarial second pass fallback，但必須如實記錄其不是 model-independent；不得因此省略 executable evidence 或 failure-path test。
 
 #### L5 execution policy
@@ -94,9 +123,9 @@
   5. 實際 CI evidence；
   6. architecture invariant verification。
 * Independent challenge 必須主動尋找反例、遺漏的 failure mode、錯誤假設、evidence gap 與 scope drift，並逐項驗證 primary 結論。Primary 的摘要、GO/NO-GO 結論或自我評價都不是 independent evidence。
-* 若能獨立選 reviewer model，優先以不同 model/fresh context 執行 challenge；本專案 cost-aware baseline 可優先使用 5.6 Terra `max` challenge 5.6 Sol `xhigh` primary。這是降低 correlated error 的 routing 建議，不代表 Terra 比 Sol 更強，也不是 API 保證。
+* L5 primary 與 challenger 都依 task shape 選擇。系統級 architecture／race／readiness audit 通常需要 Sol 等高能力 reasoning；但 bounded evidence collection、mechanical verification 或 cheap counterexample search 可以交給 Luna，Terra 只在 bounded、structured、需要較高穩定性的 reviewer/workflow 中作 optional specialist，**不再是 L5 challenger 的固定 default**。
 * 若獨立 model routing 不可用，必須 fallback 至 fresh adversarial second pass，把第一輪結論視為待驗證主張，直接從 repository evidence、tests、CI 與 architecture invariant 重建判斷，並明確記錄 reviewer 不是 model-independent。不能以自我摘要或「再次閱讀原答案」代替 challenge。
-* 只有出現 escalation trigger 時，L5 才由 Sol `xhigh` 升至 Sol `max`；Astra 僅為 exceptional escalation。較低成本 profile 已滿足 correctness/evidence requirements 時，完成 L5 不要求額外升級。
+* 只有出現 escalation trigger 時才提高 effort 或 model tier；較低成本 profile 已滿足 correctness/evidence requirements 時，完成 L5 不要求額外升級。
 
 #### Repo-specific calibration
 
