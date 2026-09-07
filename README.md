@@ -362,3 +362,9 @@ curl http://127.0.0.1:8765/api/v1/system/status
   }
 }
 ```
+
+### Canonical Graph ingress（#246）
+
+新增 `GraphProjectionIngressService` 作為 application 維護入口，提供 workspace-scoped rebuild、repair 與 readiness。Profile v1 僅投影 WIKI_PAGE、SOURCE_DOCUMENT、SOURCE_CHUNK 及直接 ownership 的 CONTAINS；repair 每次重新讀取 canonical input。READY 必須通過 SQLite lifecycle、backend proof 與目前 canonical fingerprint 三方驗證，canonical drift 會在 readiness check 持久化降級；重啟亦重新驗證。Graph disabled／unavailable 不阻擋 canonical 寫入。
+
+此入口不新增 REST、Graph Retrieval 或 Ask mode。數量／bytes 上限、source archive 可選驗證、publication ledger 與 SQLite writer reservation 的交易邊界，以及外部檔案編輯的時間點限制，見 [ADR 0010](docs/adr/0010-canonical-graph-ingress-currentness.md)。後續 retrieval 必須另行實作 query-time authority revalidation。

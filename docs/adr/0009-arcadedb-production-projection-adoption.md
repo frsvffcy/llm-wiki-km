@@ -4,6 +4,8 @@
 - 日期：2026-09-07
 - 範圍：Phase 3 production-adoption gate；不包含 Graph Retrieval、`EvidenceBundle` integration 或 GraphRAG
 
+> 後續補充：Issue #246 的 [ADR 0010](0010-canonical-graph-ingress-currentness.md) 將本 ADR 的兩方 lifecycle proof 擴充為三方 READY：build、readiness 與 restart reconciliation 均須再通過 canonical fingerprint currentness。下文保留 #244 adoption gate 的歷史決策邊界。
+
 ## Context
 
 ADR 0007 建立 provider-neutral Knowledge Graph boundary，ADR 0008 再以 test-only feasibility

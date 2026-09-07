@@ -38,6 +38,25 @@ public class PublishedWikiContentReader {
     }
 
     public String readSearchableContent(StoredPublishedWiki page) {
+        return readSearchableContent(page, Integer.MAX_VALUE - 1);
+    }
+
+    /** 有界維護工作使用此入口；超限時拒絕，不回傳截斷內容。 */
+    public String readSearchableContent(StoredPublishedWiki page, int maxBytes) {
+        return readCanonical(page, maxBytes).searchableContent();
+    }
+
+    /** 驗證完整 canonical bytes，回傳實際讀取量供 corpus budget 計量。 */
+    public int validateCanonicalContent(StoredPublishedWiki page, int maxBytes) {
+        return readCanonical(page, maxBytes).byteCount();
+    }
+
+    private record CanonicalRead(String searchableContent, int byteCount) { }
+
+    private CanonicalRead readCanonical(StoredPublishedWiki page, int maxBytes) {
+        if (maxBytes < 1 || maxBytes == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Invalid canonical read budget");
+        }
         Path target = resolveTarget(page);
         try {
             BasicFileAttributes attributes = Files.readAttributes(target, BasicFileAttributes.class,
@@ -46,14 +65,20 @@ public class PublishedWikiContentReader {
                 throw new PublishedWikiValidationException(
                         "Published Wiki target must be a regular non-symlink file");
             }
-            byte[] bytes = Files.readAllBytes(target);
+            byte[] bytes;
+            try (var stream = Files.newInputStream(target, LinkOption.NOFOLLOW_LINKS)) {
+                bytes = stream.readNBytes(maxBytes + 1);
+            }
+            if (bytes.length > maxBytes) {
+                throw new PublishedWikiValidationException("Canonical Wiki exceeds read budget");
+            }
             if (!WikiContentHash.sha256(bytes).equals(page.contentHash())) {
                 throw new PublishedWikiValidationException(
                         "Vault Markdown hash differs from knowledge_page.content_hash");
             }
             String markdown = decodeUtf8(bytes);
             validateCanonicalMarkdown(page, markdown);
-            return searchableProjection(markdown);
+            return new CanonicalRead(searchableProjection(markdown), bytes.length);
         } catch (NoSuchFileException exception) {
             throw new PublishedWikiValidationException(
                     "Published Wiki canonical path does not exist", exception);

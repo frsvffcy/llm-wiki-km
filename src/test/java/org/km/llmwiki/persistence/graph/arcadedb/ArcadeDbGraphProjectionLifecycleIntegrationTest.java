@@ -262,7 +262,7 @@ class ArcadeDbGraphProjectionLifecycleIntegrationTest extends IsolatedIntegratio
 
     private GraphProjectionLifecycleService service(Path basePath) {
         return new GraphProjectionLifecycleService(true, PROVIDER, VERSION, repository,
-                factory(basePath));
+                factory(basePath), new org.km.llmwiki.testsupport.AssumedCurrentGraphFixture());
     }
 
     private ArcadeDbGraphProjectionBackendFactory factory(Path basePath) {

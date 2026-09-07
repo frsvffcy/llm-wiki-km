@@ -1,6 +1,9 @@
 package org.km.llmwiki.config;
 
 import org.km.llmwiki.graph.GraphProjectionBackendFactory;
+import org.km.llmwiki.graph.GraphCanonicalCurrentness;
+import org.km.llmwiki.graph.GraphProjectionInputAssembler;
+import org.km.llmwiki.graph.GraphProjectionIngressService;
 import org.km.llmwiki.graph.GraphProjectionLifecycleRepository;
 import org.km.llmwiki.graph.GraphProjectionLifecycleService;
 import org.km.llmwiki.graph.GraphProjectionVersion;
@@ -21,10 +24,17 @@ public class GraphProjectionConfiguration {
     GraphProjectionLifecycleService graphProjectionLifecycleService(
             GraphProjectionProperties properties,
             GraphProjectionLifecycleRepository repository,
+            GraphCanonicalCurrentness currentness,
             ObjectProvider<GraphProjectionBackendFactory> backendFactory) {
         return new GraphProjectionLifecycleService(properties.isEnabled(),
                 properties.getProvider(), GraphProjectionVersion.initial(), repository,
-                backendFactory.getIfAvailable());
+                backendFactory.getIfAvailable(), currentness);
+    }
+
+    @Bean
+    GraphProjectionIngressService graphProjectionIngressService(GraphProjectionInputAssembler assembler,
+                                                               GraphProjectionLifecycleService lifecycle) {
+        return new GraphProjectionIngressService(assembler, lifecycle);
     }
 
     @Bean
