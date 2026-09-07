@@ -8,12 +8,16 @@ import org.km.llmwiki.graph.GraphProjectionInput;
 import org.km.llmwiki.graph.GraphProjectionSnapshot;
 import org.km.llmwiki.graph.GraphProjectionWriteResult;
 import org.km.llmwiki.graph.GraphWorkspaceScope;
+import org.km.llmwiki.graph.GraphTraversalQuery;
+import org.km.llmwiki.graph.GraphTraversalResult;
+import org.km.llmwiki.graph.GraphTraversalBackend;
 
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** One bounded, workspace-owned embedded ArcadeDB session. */
-public final class ArcadeDbGraphProjectionBackend implements GraphProjectionBackend {
+public final class ArcadeDbGraphProjectionBackend
+        implements GraphProjectionBackend, GraphTraversalBackend {
 
     private final GraphWorkspaceScope workspace;
     private final ArcadeDbGraphProjectionWriter writer;
@@ -53,6 +57,12 @@ public final class ArcadeDbGraphProjectionBackend implements GraphProjectionBack
                                                       GraphProjectionSnapshot expectedCurrent) {
         requireWorkspace(requestedWorkspace);
         return writer.clearWorkspace(requestedWorkspace, expectedCurrent);
+    }
+
+    @Override
+    public GraphTraversalResult traverse(GraphTraversalQuery query) {
+        requireWorkspace(query == null ? null : query.workspace());
+        return writer.traverse(query);
     }
 
     @Override

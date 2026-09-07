@@ -69,9 +69,10 @@ disabled production Graph projection adapter and received a lifecycle-only `GO` 
 control plane for workspace-scoped monotonic generations, lifecycle/readiness, operation ownership,
 and compare-and-set recovery. ArcadeDB stores only application-owned snapshot proof and disposable,
 rebuildable Graph projection data. Missing, stale, incompatible, locked, or unreadable backend state
-fails closed and cannot remain `READY`. This gate permits the next Phase 3C bounded Graph Retrieval
-Story to be planned; it does not implement or authorize Graph Retrieval, Evidence integration,
-Graph Ask modes, REST/UI surfaces, or GraphRAG in #244.
+fails closed and cannot remain `READY`. Phase 3C #252 now adds a provider-neutral bounded outgoing
+Graph traversal read contract with deterministic candidates, non-bypassable hard caps, and
+query-time lifecycle/backend/canonical snapshot validation. It still does not add Evidence
+integration, Graph Ask modes, REST/UI surfaces, fusion, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
 subject to adoption gates. Graph candidates must
@@ -368,3 +369,9 @@ curl http://127.0.0.1:8765/api/v1/system/status
 新增 `GraphProjectionIngressService` 作為 application 維護入口，提供 workspace-scoped rebuild、repair 與 readiness。Profile v1 僅投影 WIKI_PAGE、SOURCE_DOCUMENT、SOURCE_CHUNK 及直接 ownership 的 CONTAINS；repair 每次重新讀取 canonical input。READY 必須通過 SQLite lifecycle、backend proof 與目前 canonical fingerprint 三方驗證，canonical drift 會在 readiness check 持久化降級；重啟亦重新驗證。Graph disabled／unavailable 不阻擋 canonical 寫入。
 
 此入口不新增 REST、Graph Retrieval 或 Ask mode。數量／bytes 上限、source archive 可選驗證、publication ledger 與 SQLite writer reservation 的交易邊界，以及外部檔案編輯的時間點限制，見 [ADR 0010](docs/adr/0010-canonical-graph-ingress-currentness.md)。後續 retrieval 必須另行實作 query-time authority revalidation。
+
+### Bounded Graph Retrieval（#252）
+
+`GraphTraversalService` 透過獨立的 provider-neutral read session 執行 directed outgoing BFS。Query 必須帶 exact expected snapshot；service 依序驗證 SQLite／canonical readiness、ArcadeDB proof、bounded traversal、第二次 backend proof，關閉 session 後再做最終 SQLite／canonical currentness check。任何 generation、projection version、fingerprint、token 或 workspace drift 都 fail closed，不回傳先前 materialize 的 topology。
+
+Caller bounds 不得超過 16 seeds、depth 4、per-node 32、per-hop 128、visited nodes 512、visited edges 1,024 與 candidates 200。Candidate 與 path 排序由 application stable identity 決定，不依賴 ArcadeDB RID、record order、vendor query language 或 raw score；觸及界限會回傳 typed truncation diagnostics。詳見 [ADR 0011](docs/adr/0011-bounded-graph-retrieval-snapshot-currentness.md)。本 Story 不包含 `EvidenceBundle`、Ask、REST/UI、fusion、GraphRAG 或 inferred relations；candidate 尚未取得 citation authority。

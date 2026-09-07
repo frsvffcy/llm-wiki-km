@@ -8,9 +8,10 @@
 > multi-model feasibility spike 已由 [ADR 0008](0008-arcadedb-embedded-projection-feasibility-spike.md)
 > 完成並取得 `CONDITIONAL GO`。Issue #244 與
 > [ADR 0009](0009-arcadedb-production-projection-adoption.md) 已完成 production projection
-> lifecycle/readiness/repair adoption gate 並取得 lifecycle-only `GO`。下一張 Phase 3C bounded
-> Graph Retrieval Story 可以開始規劃／實作，但 #244 本身未建立 Graph Retrieval、
-> `EvidenceBundle` integration 或 GraphRAG。
+> lifecycle/readiness/repair adoption gate 並取得 lifecycle-only `GO`。Issue #252 與
+> [ADR 0011](0011-bounded-graph-retrieval-snapshot-currentness.md) 已完成 Phase 3C 的
+> provider-neutral bounded Graph read／traversal 與 query-time snapshot currentness；尚未建立
+> `EvidenceBundle` integration、candidate authority revalidation、Graph Ask/REST/UI、fusion 或 GraphRAG。
 
 ## Context
 
@@ -99,7 +100,7 @@ graph scale、GraphRAG developer ergonomics 與 provider lock-in/portability。B
 - **Phase 3A / completed / GO** — Graph domain / projection contract
 - **Phase 3B / completed / CONDITIONAL GO** — Embedded multi-model feasibility spike：以 SQLite + ArcadeDB adapter 為目前首選方向，並與 Nitrite / RyuGraph 比較；完成證據與限制見 ADR 0008。這不是 SQLite migration，也不是 Phase 2 或 lexical/vector baseline blocker
 - **Phase 3 production-adoption gate / completed / GO** — Issue #244 已交付 production ArcadeDB Graph projection adapter、SQLite-authoritative lifecycle/readiness、recovery、repair/clear、generation/CAS、resource/file-locking、failure/degradation、operational/security/license 與 Linux/Apple Silicon evidence；詳見 ADR 0009
-- **Phase 3C / planning authorized, implementation not yet present** — 可另立 Story 實作 bounded Graph Retrieval + candidate revalidation + Evidence integration；#244 沒有提前建立 traversal、Graph Ask/REST/UI 或 GraphRAG
+- **Phase 3C / bounded traversal completed through #252** — provider-neutral read/session/factory、directed outgoing BFS、hard caps、deterministic ordering 與 query-time lifecycle/backend/canonical snapshot validation 已完成；candidate authority revalidation、Evidence integration、Graph Ask/REST/UI、fusion 與 GraphRAG 尚未實作
 - **Phase 3D** — Lexical + Vector + Graph hybrid GraphRAG fusion
 - **Phase 3E** — Optional BigQuery Graph cloud analytics adapter spike
 - **Phase 3F** — Future Spanner Graph realtime adapter evaluation

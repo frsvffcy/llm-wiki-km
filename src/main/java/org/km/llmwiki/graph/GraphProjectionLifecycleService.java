@@ -12,7 +12,8 @@ import java.util.function.Supplier;
  * session，再以 canonical currentness guard 驗證 fingerprint 並提交 control-plane CAS。
  * 不建立跨資料庫交易，也不從記憶體鎖推論中斷後的 READY。
  */
-public final class GraphProjectionLifecycleService implements AutoCloseable {
+public final class GraphProjectionLifecycleService
+        implements GraphProjectionReadinessReader, AutoCloseable {
 
     private final boolean enabled;
     private final String configuredProvider;
@@ -101,6 +102,7 @@ public final class GraphProjectionLifecycleService implements AutoCloseable {
         }
     }
 
+    @Override
     public GraphProjectionVerification readiness(GraphWorkspaceScope workspace) {
         requireWorkspace(workspace);
         if (!enabled) {

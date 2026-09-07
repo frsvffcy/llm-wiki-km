@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.lang.reflect.Method;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -44,6 +45,22 @@ class GraphVendorNeutralContractTest {
                 }
             }
         }
+    }
+
+    @Test
+    void traversalReadPortUsesOnlyProviderNeutralRequestAndResultTypes() throws Exception {
+        Method traversal = GraphTraversalReader.class.getMethod("traverse",
+                GraphTraversalQuery.class);
+
+        assertThat(traversal.getReturnType()).isEqualTo(GraphTraversalResult.class);
+        assertThat(GraphTraversalReader.class.isAssignableFrom(GraphTraversalBackend.class))
+                .isTrue();
+        assertThat(GraphTraversalReader.class.isAssignableFrom(GraphProjectionBackend.class))
+                .isFalse();
+        assertThat(GraphTraversalQuery.class.getRecordComponents()).extracting(component ->
+                        component.getType().getPackageName())
+                .allMatch(packageName -> packageName.equals("org.km.llmwiki.graph")
+                        || packageName.equals("java.util"));
     }
 
     private String readLowerCase(Path path) {

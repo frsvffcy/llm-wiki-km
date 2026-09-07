@@ -6,6 +6,8 @@ import org.km.llmwiki.graph.GraphProjectionException;
 import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.graph.GraphProjectionVersion;
 import org.km.llmwiki.graph.GraphWorkspaceScope;
+import org.km.llmwiki.graph.GraphTraversalBackend;
+import org.km.llmwiki.graph.GraphTraversalBackendFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,7 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * One in-process session per workspace is allowed; ArcadeDB's own lock remains the cross-process
  * fail-closed boundary.
  */
-public final class ArcadeDbGraphProjectionBackendFactory implements GraphProjectionBackendFactory {
+public final class ArcadeDbGraphProjectionBackendFactory
+        implements GraphProjectionBackendFactory, GraphTraversalBackendFactory {
 
     public static final String PROVIDER = "arcadedb";
 
@@ -69,6 +72,17 @@ public final class ArcadeDbGraphProjectionBackendFactory implements GraphProject
             return Optional.empty();
         }
         return Optional.of(open(workspace, false));
+    }
+
+    @Override
+    public Optional<GraphTraversalBackend> openTraversal(GraphWorkspaceScope workspace) {
+        return openExisting(workspace).map(backend -> {
+            if (backend instanceof GraphTraversalBackend traversal) {
+                return traversal;
+            }
+            backend.close();
+            throw new GraphProjectionException(GraphProjectionFailureType.CAPABILITY_UNAVAILABLE);
+        });
     }
 
     @Override
