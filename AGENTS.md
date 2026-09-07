@@ -75,7 +75,7 @@
   * primary 與 independent review/challenge 有實質 disagreement；
   * repeated counterexample failure，且較低成本 profile 無法可靠解釋或修正；
   * runner/tool limitation 使必要 evidence 無法取得，且更高能力 executor 能實際改善該限制。
-* 一般 escalation 順序依實際可用 profile採最小升級：L4 可由 Sol `high` 升至 Sol `xhigh`；L5 以 Sol `xhigh` 為常態 baseline，必要時再升至 Sol `max`，最後才考慮 Astra。不得跳過中間已足夠的 profile 只為追求更高 effort。
+* 一般 escalation 順序依實際可用 profile 採最小升級：L4 可由 Sol `high` 升至 Sol `xhigh`；L5 以 Sol `xhigh` 為常態 baseline，必要時再升至 Sol `max`，最後才考慮 Astra。不得跳過中間已足夠的 profile 只為追求更高 effort。
 * **Astra 是 exceptional escalation**。只在跨多個 subsystem、long-horizon work、competing designs、極高不確定性、反覆 counterexample failure，或 Sol `max` 仍無法形成可信結論時使用；`independent challenge != Astra`。
 * 每次 escalation 都應記錄 trigger 與預期改善的 evidence gap。若升級後沒有新增可驗證 evidence、finding 或 correctness 改善，不得把「用了更高成本 model」本身當成品質證據。
 
@@ -515,5 +515,5 @@ repository visibility、GitHub plan 或 server-side protection 是否可用都�
 
 ### 8.10 Issue Handoff 與執行證據
 * 每次開始 Issue，工程師先列 affected test surface，依序採 targeted／fast feedback、Feature Ready integration/contract，最後一次 Final full gate。
-* 不因 Issue AC 很長就重跑所有 architecture invariants；只重跑 affected canonical contract suites 與 final full regression。若 scope 是 docs-only，必須明確說明 docs-only verification 及未跑 full tests的理由。
+* 不因 Issue AC 很長就重跑所有 architecture invariants；只重跑 affected canonical contract suites 與 final full regression。若 scope 是 docs-only，必須明確說明 docs-only verification 及未跑 full tests 的理由。
 * Issue／PR body 必須列出實際執行的 targeted、affected、full commands 與結果，不得只寫「tests passed」。Test Architecture 變更還必須核對 tier、full test inventory 與 count；任何未執行的 gate 都要明白標示。
