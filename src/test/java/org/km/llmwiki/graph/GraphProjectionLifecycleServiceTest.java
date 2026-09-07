@@ -76,9 +76,9 @@ class GraphProjectionLifecycleServiceTest {
         ordering.verify(factory).openForWrite(WORKSPACE);
         ordering.verify(backend).rebuild(input, operation.targetSnapshot());
         ordering.verify(backend).readProof(WORKSPACE);
+        ordering.verify(backend).close();
         ordering.verify(repository).markReady(operation, operation.targetSnapshot());
         ordering.verify(repository).find(WORKSPACE);
-        ordering.verify(backend).close();
     }
 
     @Test
@@ -234,7 +234,7 @@ class GraphProjectionLifecycleServiceTest {
                                                            GraphProjectionLifecycleRepository repository,
                                                            GraphProjectionBackendFactory factory) {
         return new GraphProjectionLifecycleService(enabled, PROVIDER, VERSION, repository, factory,
-                () -> "owner");
+                () -> "owner", new org.km.llmwiki.testsupport.AssumedCurrentGraphFixture());
     }
 
     private static GraphProjectionBackendFactory mockFactory() {

@@ -163,7 +163,7 @@ below; ordinary delivery still targets `main`:
 | PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, closing keyword, and same-repository Issue existence with a read-only token |
 | Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
-| Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest test` | Linux／Java 21 evidence for the production embedded lifecycle, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
+| Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
 | Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
 | sqlite-vec JDBC smoke | Pinned Linux archive download, checksum, and `scripts/sqlite-vec-jdbc-smoke.sh` | Linux JDBC/native extension portability evidence with a distinct failure stage |
 | PR Gate | Requires all six jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
@@ -356,3 +356,9 @@ assertions、`EmbeddingRebuildOperationMetadataCodecTest` 的 bounded/allowlist 
 `testsupport.DatabaseCleanupPolicy` 在每次 shared SQLite reset 前查詢 `sqlite_master`，對照 application schema 與 hard-coded cleanup order。新 application／FTS table 未納入 cleanup 時會 fail-fast；`flyway_schema_history`、`sqlite_sequence`、FTS shadow tables，以及 migration-owned immutable `search_index_contract` 會明確保留，不以刪除 metadata 或破壞 FTS isolation 來通過檢查。測試專用 schema probe 必須在自身 `@AfterEach` 清除。
 
 Tier inventory 的驗收條件是：unclassified executable tests = 0；`fast` + `integration` 應覆蓋 full inventory，若日後存在 full-only test，必須有上述 explicit documented whitelist。PR body 應記錄各 tier 與 full 的實際 test count，以及 smoke command 的結果。
+
+## Canonical Graph ingress 測試責任（#246）
+
+`persistence.graph.CanonicalGraphIngressIntegrationTest` 持有 production assembler/currentness 的 canonical mapping、chunk reextraction identity、freshness、read-time invalidation、restart、workspace isolation、publication ledger 與 SQLite writer reservation、stale/newer operation race、budget 及 unavailable 路徑。使用既有 isolated integration context 與真實 ArcadeDB，納入 integration/full 及 production smoke。底層 lifecycle/CAS/vendor-neutral invariant 繼續由既有 suite 持有，不重複建立等價測試。
+
+`testsupport.AssumedCurrentGraphFixture` 僅供 synthetic input 的低層 lifecycle/backend tests 顯式假設 canonical currentness；production integration 使用實際 `SqliteGraphCanonicalCurrentness`，不得以 fixture 證明 production READY。

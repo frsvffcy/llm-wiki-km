@@ -6,12 +6,11 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * Coordinates SQLite-authoritative lifecycle state with a disposable Graph backend.
+ * 協調 SQLite-authoritative lifecycle 與可重建的 Graph backend。
  *
- * <p>There is intentionally no cross-database transaction. SQLite reserves every monotonic
- * generation before backend work, the backend publishes application-owned proof, and SQLite only
- * becomes READY after that exact proof is re-read. Interrupted operations are reconciled from the
- * two durable proofs and never from process-local locks.
+ * <p>SQLite 先保留 monotonic generation，backend 完成寫入並提供 snapshot proof 後關閉
+ * session，再以 canonical currentness guard 驗證 fingerprint 並提交 control-plane CAS。
+ * 不建立跨資料庫交易，也不從記憶體鎖推論中斷後的 READY。
  */
 public final class GraphProjectionLifecycleService implements AutoCloseable {
 
@@ -21,22 +20,22 @@ public final class GraphProjectionLifecycleService implements AutoCloseable {
     private final GraphProjectionLifecycleRepository repository;
     private final GraphProjectionBackendFactory backendFactory;
     private final Supplier<String> ownerTokens;
+    private final GraphCanonicalCurrentness currentness;
 
+    /** 所有 lifecycle 都必須顯式提供 canonical currentness。 */
     public GraphProjectionLifecycleService(boolean enabled, String configuredProvider,
-                                           GraphProjectionVersion projectionVersion,
-                                           GraphProjectionLifecycleRepository repository,
-                                           GraphProjectionBackendFactory backendFactory) {
+            GraphProjectionVersion projectionVersion, GraphProjectionLifecycleRepository repository,
+            GraphProjectionBackendFactory backendFactory, GraphCanonicalCurrentness currentness) {
         this(enabled, configuredProvider, projectionVersion, repository, backendFactory,
-                () -> UUID.randomUUID().toString());
+                () -> UUID.randomUUID().toString(), java.util.Objects.requireNonNull(currentness));
     }
 
     GraphProjectionLifecycleService(boolean enabled, String configuredProvider,
-                                    GraphProjectionVersion projectionVersion,
-                                    GraphProjectionLifecycleRepository repository,
-                                    GraphProjectionBackendFactory backendFactory,
-                                    Supplier<String> ownerTokens) {
+            GraphProjectionVersion projectionVersion, GraphProjectionLifecycleRepository repository,
+            GraphProjectionBackendFactory backendFactory, Supplier<String> ownerTokens,
+            GraphCanonicalCurrentness currentness) {
         if (configuredProvider == null || projectionVersion == null || repository == null
-                || ownerTokens == null) {
+                || ownerTokens == null || currentness == null) {
             throw new IllegalArgumentException("Graph projection lifecycle configuration is incomplete");
         }
         this.enabled = enabled;
@@ -45,6 +44,7 @@ public final class GraphProjectionLifecycleService implements AutoCloseable {
         this.repository = repository;
         this.backendFactory = backendFactory;
         this.ownerTokens = ownerTokens;
+        this.currentness = currentness;
     }
 
     public GraphProjectionVerification rebuild(GraphProjectionInput input) {
@@ -176,21 +176,28 @@ public final class GraphProjectionLifecycleService implements AutoCloseable {
         GraphProjectionOperation operation = repository.reserve(input.workspace(),
                 configuredProvider, projectionVersion, kind, input.sourceFingerprint(),
                 ownerTokens.get());
-        try (GraphProjectionBackend backend = backendFactory.openForWrite(input.workspace())) {
+        try {
             GraphProjectionSnapshot expected = operation.targetSnapshot();
-            GraphProjectionSnapshot rebuilt = backend.rebuild(input, expected);
-            GraphProjectionBackendProof proof = backend.readProof(input.workspace());
-            if (!expected.equals(rebuilt) || !expected.equals(proof.currentSnapshot())
-                    || proof.clearedSnapshot() != null) {
-                throw new GraphProjectionException(
-                        GraphProjectionFailureType.INVALID_PROJECTION_INPUT);
+            try (GraphProjectionBackend backend = backendFactory.openForWrite(input.workspace())) {
+                GraphProjectionSnapshot rebuilt = backend.rebuild(input, expected);
+                GraphProjectionBackendProof proof = backend.readProof(input.workspace());
+                if (!expected.equals(rebuilt) || !expected.equals(proof.currentSnapshot())
+                        || proof.clearedSnapshot() != null) {
+                    throw new GraphProjectionException(GraphProjectionFailureType.INVALID_PROJECTION_INPUT);
+                }
             }
-            if (!repository.markReady(operation, expected)) {
-                throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
-            }
-            GraphProjectionReadiness ready = repository.find(input.workspace()).orElseThrow();
-            return verification(input.workspace(), GraphProjectionVerificationStatus.READY,
-                    ready, null);
+            // 先釋放 backend session，再取得 SQLite writer reservation；較新 operation 由 CAS 防護。
+            return withCurrent(expected, () -> {
+                if (!repository.markReady(operation, expected)) {
+                    throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
+                }
+                GraphProjectionReadiness ready = repository.find(input.workspace()).orElseThrow();
+                if (ready.status() != GraphProjectionReadinessStatus.READY
+                        || !expected.equals(ready.appliedSnapshot())) {
+                    throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
+                }
+                return verification(input.workspace(), GraphProjectionVerificationStatus.READY, ready, null);
+            });
         } catch (GraphProjectionException failure) {
             markFailed(operation, failure.failure());
             throw failure;
@@ -210,22 +217,30 @@ public final class GraphProjectionLifecycleService implements AutoCloseable {
                 return degrade(control, GraphProjectionFailureType.PROJECTION_NOT_READY,
                         GraphProjectionVerificationStatus.REPAIR_REQUIRED, retryAfterLostCas);
             }
+            GraphProjectionBackendProof proof;
             try (GraphProjectionBackend backend = existing.get()) {
-                GraphProjectionBackendProof proof = backend.readProof(control.workspace());
-                if (expected.equals(proof.currentSnapshot()) && proof.clearedSnapshot() == null) {
-                    return verification(control.workspace(), GraphProjectionVerificationStatus.READY,
-                            control, null);
-                }
-                if (proof.currentSnapshot() != null
-                        && !projectionVersion.equals(
-                        proof.currentSnapshot().projectionVersion())) {
-                    return degrade(control, GraphProjectionFailureType.PROJECTION_INCOMPATIBLE,
-                            GraphProjectionVerificationStatus.PROJECTION_INCOMPATIBLE,
-                            retryAfterLostCas);
-                }
-                return degrade(control, GraphProjectionFailureType.PROJECTION_STALE,
-                        GraphProjectionVerificationStatus.STALE, retryAfterLostCas);
+                proof = backend.readProof(control.workspace());
             }
+            if (expected.equals(proof.currentSnapshot()) && proof.clearedSnapshot() == null) {
+                return withCurrent(expected, () -> {
+                    var latest = repository.find(control.workspace()).orElseThrow();
+                    if (latest.status() != GraphProjectionReadinessStatus.READY
+                            || !expected.equals(latest.appliedSnapshot())) {
+                        throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
+                    }
+                    return verification(control.workspace(), GraphProjectionVerificationStatus.READY,
+                            latest, null);
+                });
+            }
+            if (proof.currentSnapshot() != null
+                    && !projectionVersion.equals(
+                    proof.currentSnapshot().projectionVersion())) {
+                return degrade(control, GraphProjectionFailureType.PROJECTION_INCOMPATIBLE,
+                        GraphProjectionVerificationStatus.PROJECTION_INCOMPATIBLE,
+                        retryAfterLostCas);
+            }
+            return degrade(control, GraphProjectionFailureType.PROJECTION_STALE,
+                    GraphProjectionVerificationStatus.STALE, retryAfterLostCas);
         } catch (GraphProjectionException failure) {
             return degrade(control, failure.failureType(), verificationStatus(failure.failureType()),
                     retryAfterLostCas);
@@ -255,27 +270,28 @@ public final class GraphProjectionLifecycleService implements AutoCloseable {
                 }
                 return;
             }
+            GraphProjectionBackendProof proof;
             try (GraphProjectionBackend backend = existing.get()) {
-                GraphProjectionBackendProof proof = backend.readProof(operation.workspace());
-                if (operation.kind() == GraphProjectionOperationKind.CLEAR) {
-                    GraphProjectionSnapshot expected = operation.expectedAppliedSnapshot();
-                    if (proof.currentSnapshot() == null
-                            && (proof.clearedSnapshot() == null
-                            || expected.equals(proof.clearedSnapshot()))) {
-                        repository.markCleared(operation);
-                    } else {
-                        markFailed(operation, GraphProjectionFailure.of(
-                                conflictType(proof.currentSnapshot(), expected)));
-                    }
-                    return;
-                }
-                GraphProjectionSnapshot target = operation.targetSnapshot();
-                if (target.equals(proof.currentSnapshot()) && proof.clearedSnapshot() == null) {
-                    repository.markReady(operation, target);
+                proof = backend.readProof(operation.workspace());
+            }
+            if (operation.kind() == GraphProjectionOperationKind.CLEAR) {
+                GraphProjectionSnapshot expected = operation.expectedAppliedSnapshot();
+                if (proof.currentSnapshot() == null
+                        && (proof.clearedSnapshot() == null
+                        || expected.equals(proof.clearedSnapshot()))) {
+                    repository.markCleared(operation);
                 } else {
                     markFailed(operation, GraphProjectionFailure.of(
-                            conflictType(proof.currentSnapshot(), target)));
+                            conflictType(proof.currentSnapshot(), expected)));
                 }
+                return;
+            }
+            GraphProjectionSnapshot target = operation.targetSnapshot();
+            if (target.equals(proof.currentSnapshot()) && proof.clearedSnapshot() == null) {
+                markCurrentReady(operation, target);
+            } else {
+                markFailed(operation, GraphProjectionFailure.of(
+                        conflictType(proof.currentSnapshot(), target)));
             }
         } catch (GraphProjectionException failure) {
             markFailed(operation, failure.failure());
@@ -301,6 +317,14 @@ public final class GraphProjectionLifecycleService implements AutoCloseable {
             return verifyReady(degraded, false);
         }
         return verification(control.workspace(), status, degraded, failure);
+    }
+
+    private boolean markCurrentReady(GraphProjectionOperation operation, GraphProjectionSnapshot snapshot) {
+        return withCurrent(snapshot, () -> repository.markReady(operation, snapshot));
+    }
+
+    private <T> T withCurrent(GraphProjectionSnapshot snapshot, Supplier<T> action) {
+        return currentness.withCurrent(snapshot.workspace(), snapshot.sourceFingerprint(), action);
     }
 
     private void requireCapability() {

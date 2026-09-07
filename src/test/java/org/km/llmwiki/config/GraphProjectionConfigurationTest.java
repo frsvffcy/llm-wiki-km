@@ -78,6 +78,10 @@ class GraphProjectionConfigurationTest {
         when(repository.find(WORKSPACE)).thenReturn(Optional.empty());
         return new ApplicationContextRunner()
                 .withUserConfiguration(GraphProjectionConfiguration.class)
+                .withBean(org.km.llmwiki.graph.GraphCanonicalCurrentness.class,
+                        () -> mock(org.km.llmwiki.graph.GraphCanonicalCurrentness.class))
+                .withBean(org.km.llmwiki.graph.GraphProjectionInputAssembler.class,
+                        () -> mock(org.km.llmwiki.graph.GraphProjectionInputAssembler.class))
                 .withBean(GraphProjectionLifecycleRepository.class, () -> repository)
                 .withPropertyValues("app.graph.projection.path=" + backendPath);
     }
