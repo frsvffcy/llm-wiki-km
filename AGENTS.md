@@ -16,20 +16,61 @@
 
 ### 0.1 Model Routing Matrix
 
-* `L1`～`L5` 表示任務的難度、複雜度、風險與推理需求；Level 與實際執行的 model + reasoning effort 是兩個不同欄位，不永久綁定單一供應商或模型名稱。
-* Issue complexity title 僅使用 `L1`～`L5`；建議 title prefix 為 `[L1]`、`[L2]`、`[L3]`、`[L4]`、`[L5]`。Level 表示任務的複雜度、風險與推理負擔，不得在 title 綁定特定 model 或 reasoning effort。
-* model + reasoning effort 僅作為下列 Model Routing Matrix 的 executor guidance。OpenAI anchor 欄是目前的 routing reference，不是 Issue title schema；模型可用性、版本或 routing 調整不要求回寫既有 Issue complexity title。
-* 不同供應商的 reasoning effort 名稱只用於 routing，不視為精確等價的 benchmark。Executor 選擇必須以可用模型、任務風險與 repository evidence 為準，並忠實記錄無法採用建議 profile 的限制。
+#### Complexity taxonomy 與 Issue title contract
 
-| Level | 任務定位 | OpenAI anchor | GLM-5.3-Flash | DeepSeek V4 Flash | Gemini 3.7 Flash | Gemini 3.8 Flash |
-| --- | --- | --- | --- | --- | --- | --- |
-| L1 | 明確、小型、低風險 implementation | 5.6 Luna 高 | low | low | low | low |
-| L2 | 一般 implementation、少量跨 class | 5.6 Terra 高 | high | low～high | medium | low～medium |
-| L3 | integration / CI / 多 class correctness | 5.6 Sol 高 | high～max | high | high | medium |
-| L4 | architecture / race / concurrency / multi-surface | 5.6 Luna 極高 | max | max | high | high |
-| L5 | system architecture / Sprint-Phase readiness / global audit | 5.6 Sol 極高 | max reviewer | max reviewer | high reviewer | high reviewer |
+* `L1`～`L5` 永遠只定義任務本身的難度、複雜度、風險與 reasoning burden；它們不代表模型等級，也不得永久綁定單一供應商、model 或 reasoning effort。模型改名、升級、下架或 routing 調整，都不改變既有 Issue 的 complexity level。
+* Issue complexity title 僅使用 `[L1]`、`[L2]`、`[L3]`、`[L4]`、`[L5]`。不得把 model／effort 寫入 complexity prefix，也不得建立 `[L5+]` title；Sprint、Story、Governance 等其他標記可另行存在，但不能改寫 Level 語意。
 
-* **L5 特別規則**：L5 不等於只把 reasoning effort 開到最高。原則上必須包含 primary high-capability analysis、獨立的 second-pass challenge/review、repository evidence、test/CI evidence 與 architecture invariant verification。只有單一模型可用時，仍必須以與第一輪分離的 review pass 挑戰假設與結論。
+| Level | 任務定位 | 典型工作 |
+| --- | --- | --- |
+| L1 | 明確、局部、低風險 | 單一 class bug、小型 test、文件或局部設定 |
+| L2 | 一般 implementation | 少量跨 class feature、API 調整、一般 refactor |
+| L3 | 跨模組 correctness | integration、CI、persistence 或 multi-class contract |
+| L4 | 高複雜度 architecture／correctness | SQLite race、transaction、concurrency、lifecycle、migration 或 multi-surface change |
+| L5 | 系統級推理與審查 | Sprint／Phase readiness、architecture invariant、全 repository audit 或難解 race |
+
+#### Executor routing profiles
+
+* Model Routing Matrix 與 complexity taxonomy 分開維護。Model + reasoning effort 只是可替換的 executor profile；選擇時應依目前可用能力、任務風險、repo-specific calibration 與實際 evidence 調整，不能反向修改 Issue level。
+* 下列 OpenAI family 名稱與 effort 組合是 **hypothetical or future routing catalog**，可容納 Luna／Terra／Sol／Astra × `Low`／`Medium`／`High`／`Max`／`Ultra`，不宣稱未驗證的名稱、版本、effort 或相對能力是官方事實。表中 baseline 只作 routing reference，不是 Issue title schema 或永久能力排序。
+
+| Level | 建議 OpenAI routing baseline |
+| --- | --- |
+| L1 | Luna `High` |
+| L2 | Terra `High`／Luna `Max` |
+| L3 | Sol `High`／Terra `Max` |
+| L4 | Sol `Max`／Astra `High`／Luna `Ultra` |
+| L5 | Sol `Ultra`／Astra `Max`～`Ultra` |
+
+* Alternative／reviewer routing catalog 可包含 GLM-5.3-Flash `low`／`high`／`max`、DeepSeek V4 Flash `low`／`high`／`max`、Gemini 3.7 Flash `low`／`medium`／`high` 與 Gemini 3.8 Flash `low`／`medium`／`high`。這些名稱與 effort 同樣只作 hypothetical or future profile；在 repo-specific calibration 完成前，不得宣稱為已驗證能力或直接升為 baseline。
+* 不同供應商甚至同一家族的 effort 名稱都不是可直接互換的 benchmark；例如兩個 `high` 不代表相同 correctness、推理深度、成本或 latency。Executor 選擇必須以 repository evidence 為準，並忠實記錄建議 profile 不可用、降級或替代 routing 的限制。
+* **L4 review**：L4 強烈建議安排 independent review，尤其是 race、transaction、concurrency、migration 與 lifecycle correctness。Review 必須挑戰 ordering、failure path、recovery、ownership 與 invariant，不能只重述 primary implementation 結論。
+
+#### L5 execution policy
+
+* L5 是一個 evidence-bearing process，不等於只選用最高 effort。完成 L5 判定原則上必須同時包含：
+  1. primary high-capability reasoning；
+  2. 與 primary pass 分離的 independent second-pass challenge／review；
+  3. 可追溯的 repository evidence；
+  4. 與結論對應的 executable tests；
+  5. 實際 CI evidence；
+  6. architecture invariant verification。
+* Independent second-pass 必須主動尋找反例、遺漏的 failure mode、錯誤假設、evidence gap 與 scope drift，並逐項驗證 primary 結論。優先使用不同 reviewer／model 且不繼承未驗證結論；若只有單一模型可用，仍須建立與第一輪分離的 review pass，把第一輪結論視為待驗證主張，從 repository evidence 與 executable checks 重新挑戰，不能以自我摘要代替 review。
+* 可另設 routing-only 的 `L5+` execution policy，例如增加 reviewer、challenge pass、evidence depth 或較高能力 profile；`L5+` 不屬於 complexity taxonomy，不得出現在 Issue title。所有這類工作在 Issue tracking 中仍標示 `[L5]`。
+
+#### Repo-specific calibration
+
+* 新模型、新版本或新 effort 不得直接改動 complexity taxonomy，也不得僅憑供應商命名加入 baseline。先以固定的 repository calibration suite 評估，再依結果調整 Model Routing Matrix：
+
+| Calibration level | Repository task |
+| --- | --- |
+| L1 | 單一 class bug |
+| L2 | multi-class feature |
+| L3 | integration／CI |
+| L4 | SQLite race／lifecycle correctness |
+| L5 | Sprint／Phase readiness／architecture audit |
+
+* Calibration 必須記錄 first-pass correctness、test pass rate、review 發現的 defect、tool execution success、false-positive rate、cost／token 與 latency。比較時應固定 task、acceptance criteria、repository revision、tool boundary 與 evidence requirements；樣本不足或結果未驗證時維持 experimental／reviewer profile，不得宣稱已建立跨供應商等價關係。
 
 ## 1. 專案技術棧與階段劃分 (Project Stack & Phase Gate)
 * **核心框架**：
