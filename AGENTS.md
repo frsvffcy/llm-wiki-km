@@ -32,15 +32,42 @@
 #### Executor routing profiles
 
 * Model Routing Matrix 與 complexity taxonomy 分開維護。Model + reasoning effort 只是可替換的 executor profile；選擇時應依目前可用能力、任務風險、repo-specific calibration 與實際 evidence 調整，不能反向修改 Issue level。
-* 下列 OpenAI family 名稱與 effort 組合是 **hypothetical or future routing catalog**，可容納 Luna／Terra／Sol／Astra × `Low`／`Medium`／`High`／`Max`／`Ultra`，不宣稱未驗證的名稱、版本、effort 或相對能力是官方事實。表中 baseline 只作 routing reference，不是 Issue title schema 或永久能力排序。
+* 下列 OpenAI family 名稱與 effort 組合是 **hypothetical or future routing catalog**，可容納 5.6 Luna／5.6 Terra／5.6 Sol／6 Astra 的已規劃 effort profile；不宣稱未驗證的名稱、版本、effort 或相對能力是官方事實。本專案 routing catalog 將 `5.6 Luna` 的 `Ultra` 設為 `N/A`，因此任何需要 `Ultra` 的 routing 都不得寫成 `5.6 Luna Ultra`。表中 baseline 只作 routing reference，不是 Issue title schema 或永久能力排序。
 
 | Level | 建議 OpenAI routing baseline |
 | --- | --- |
-| L1 | Luna `High` |
-| L2 | Terra `High`／Luna `Max` |
-| L3 | Sol `High`／Terra `Max` |
-| L4 | Sol `Max`／Astra `High`／Luna `Ultra` |
-| L5 | Sol `Ultra`／Astra `Max`～`Ultra` |
+| L1 | 5.6 Luna `High` |
+| L2 | 5.6 Terra `High`／5.6 Luna `Max` |
+| L3 | 5.6 Sol `High`／5.6 Terra `Max` |
+| L4 | 5.6 Sol `Max`／6 Astra `High` |
+| L5 | 5.6 Sol `Ultra`／6 Astra `Max`～`Ultra` |
+
+#### Model／effort calibration reference
+
+下表是 hypothetical／future profile 的粗粒度 calibration reference，用來協助 routing，不是模型能力保證、跨供應商 benchmark 或 Issue title schema。`L1-lite` 只表示低於完整 L1 的 routing 參考標籤；Issue tracking 仍只能使用 `[L1]`～`[L5]`。`L1～L2`、`medium-high` 與 `high-max` 表示 routing band，不代表供應商提供同名的單一 effort 值。
+
+| Model | Low | Medium | High | Max | Ultra |
+| --- | --- | --- | --- | --- | --- |
+| **5.6 Luna** | L1-lite | L1 | **L1** | L2 | **N/A** |
+| **5.6 Terra** | L1 | L1～L2 | **L2** | L3 | L4 |
+| **5.6 Sol** | L1～L2 | L2 | **L3** | L4 | **L5** |
+| **6 Astra** | L2 | L3 | **L4** | **L5** | **L5+** |
+
+`L5+` 只可作 routing-only execution policy；它不是 complexity taxonomy，不能出現在 Issue title，也不能取代 `[L5]`。新模型或 effort 必須先通過 repo-specific calibration suite，才能將這類參考加入 baseline。
+
+#### Level routing policy
+
+下表將 primary、alternative 與 review policy 分開記錄。GLM、DeepSeek 與 Gemini 名稱同樣是 hypothetical／future alternative 或 reviewer profile；不同供應商的同名 effort 不得直接視為等價。
+
+| Level | Preferred primary | Alternatives | Review |
+| --- | --- | --- | --- |
+| **L1** | 5.6 Luna `High` | GLM-5.3-Flash `low`／DeepSeek V4 Flash `low`／Gemini 3.7 Flash `low`／Gemini 3.8 Flash `low` | 不強制 |
+| **L2** | 5.6 Terra `High`／5.6 Luna `Max` | GLM-5.3-Flash `high`／DeepSeek V4 Flash `high`／Gemini 3.7 Flash `medium`／Gemini 3.8 Flash `medium` | 視風險 |
+| **L3** | 5.6 Sol `High`／5.6 Terra `Max` | GLM-5.3-Flash `high-max`／DeepSeek V4 Flash `high`／Gemini 3.7 Flash `high`／Gemini 3.8 Flash `medium-high` | 建議 correctness pass |
+| **L4** | 5.6 Sol `Max`／6 Astra `High` | GLM-5.3-Flash `max`／DeepSeek V4 Flash `max`／Gemini 3.8 Flash `high` | **強烈建議 independent review** |
+| **L5** | **5.6 Sol `Ultra`／6 Astra `Max`～`Ultra`** | Gemini 3.8 Flash `high`、DeepSeek V4 Flash `max`、GLM-5.3-Flash `max` 作 challenger | **強制 independent challenge + evidence** |
+
+因本專案 routing catalog 將 `5.6 Luna Ultra` 設為 `N/A`，L4 與 L5 的 preferred primary 不得填入 `Luna Ultra`；若實際可用 profile 與本表不同，應依 calibration evidence 選擇替代 routing 並記錄限制。
 
 * Alternative／reviewer routing catalog 可包含 GLM-5.3-Flash `low`／`high`／`max`、DeepSeek V4 Flash `low`／`high`／`max`、Gemini 3.7 Flash `low`／`medium`／`high` 與 Gemini 3.8 Flash `low`／`medium`／`high`。這些名稱與 effort 同樣只作 hypothetical or future profile；在 repo-specific calibration 完成前，不得宣稱為已驗證能力或直接升為 baseline。
 * 不同供應商甚至同一家族的 effort 名稱都不是可直接互換的 benchmark；例如兩個 `high` 不代表相同 correctness、推理深度、成本或 latency。Executor 選擇必須以 repository evidence 為準，並忠實記錄建議 profile 不可用、降級或替代 routing 的限制。
