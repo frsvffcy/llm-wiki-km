@@ -43,17 +43,28 @@ public class PublishedWikiContentReader {
 
     /** 有界維護工作使用此入口；超限時拒絕，不回傳截斷內容。 */
     public String readSearchableContent(StoredPublishedWiki page, int maxBytes) {
-        return readCanonical(page, maxBytes).searchableContent();
+        return readCanonicalContent(page, maxBytes).searchableContent();
     }
 
     /** 驗證完整 canonical bytes，回傳實際讀取量供 corpus budget 計量。 */
     public int validateCanonicalContent(StoredPublishedWiki page, int maxBytes) {
-        return readCanonical(page, maxBytes).byteCount();
+        return readCanonicalContent(page, maxBytes).byteCount();
     }
 
-    private record CanonicalRead(String searchableContent, int byteCount) { }
+    /** Hash 與 durable metadata 均已驗證的單次 canonical 讀取結果。 */
+    public record CanonicalContent(String markdown, String searchableContent, int byteCount) {
+        public CanonicalContent {
+            if (markdown == null || searchableContent == null || byteCount < 1) {
+                throw new IllegalArgumentException("Canonical Wiki content is incomplete");
+            }
+        }
+    }
 
-    private CanonicalRead readCanonical(StoredPublishedWiki page, int maxBytes) {
+    /**
+     * 一次讀取並驗證完整 canonical bytes；下游只能從此 snapshot 擷取結構化 evidence，
+     * 不得繞過 content hash 再讀檔案。
+     */
+    public CanonicalContent readCanonicalContent(StoredPublishedWiki page, int maxBytes) {
         if (maxBytes < 1 || maxBytes == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Invalid canonical read budget");
         }
@@ -78,7 +89,7 @@ public class PublishedWikiContentReader {
             }
             String markdown = decodeUtf8(bytes);
             validateCanonicalMarkdown(page, markdown);
-            return new CanonicalRead(searchableProjection(markdown), bytes.length);
+            return new CanonicalContent(markdown, searchableProjection(markdown), bytes.length);
         } catch (NoSuchFileException exception) {
             throw new PublishedWikiValidationException(
                     "Published Wiki canonical path does not exist", exception);

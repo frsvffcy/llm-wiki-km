@@ -13,15 +13,18 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.km.llmwiki.persistence.jooq.generated.Tables.*;
 
-/** 有界、非 LLM profile v1；SQLite metadata 與 canonical bytes 是唯一輸入。 */
+/** 有界、非 LLM profile v2；SQLite metadata 與 hash-verified canonical bytes 是唯一輸入。 */
 @Component
 public class CanonicalGraphProjectionInputAssembler implements GraphProjectionInputAssembler {
     public static final int MAX_ENTITIES = 10_000;
+    public static final int MAX_RELATIONS = 50_000;
     public static final int MAX_CONTENT_BYTES = 1_048_576;
     public static final long MAX_CORPUS_BYTES = 16L * MAX_CONTENT_BYTES;
     private final DSLContext dsl;
@@ -82,14 +85,21 @@ public class CanonicalGraphProjectionInputAssembler implements GraphProjectionIn
         long budget = MAX_CORPUS_BYTES - sourceBytes;
         List<GraphEntity> entities = new ArrayList<>();
         List<GraphRelation> relations = new ArrayList<>();
+        List<WikiSnapshot> wikiSnapshots = new ArrayList<>();
         for (var page : pages.findAllPublished(scope.id())) {
             if (budget < 1) budgetExceeded();
-            budget -= reader.validateCanonicalContent(page, (int) Math.min(budget, MAX_CONTENT_BYTES));
-            entities.add(entity(scope, GraphEntityType.WIKI_PAGE, page.knowledgeId(), page.title(),
+            var content = reader.readCanonicalContent(page, (int) Math.min(budget, MAX_CONTENT_BYTES));
+            budget -= content.byteCount();
+            var wikiEntity = entity(scope, GraphEntityType.WIKI_PAGE, page.knowledgeId(), page.title(),
                     new GraphFreshness(page.revision(), page.contentHash()),
-                    Map.of("profile", "canonical-v1", "type", page.pageType().name())));
+                    Map.of("profile", "canonical-v2", "type", page.pageType().name()));
+            entities.add(wikiEntity);
+            wikiSnapshots.add(new WikiSnapshot(wikiEntity,
+                    CanonicalWikiRelationEvidence.parse(content.markdown())));
         }
-        Map<Integer, GraphEntity> documents = new HashMap<>();
+        Map<String, GraphEntity> uniqueWikiTitles = uniqueWikiTitleIndex(
+                wikiSnapshots.stream().map(WikiSnapshot::entity).toList());
+        Map<Long, GraphEntity> documents = new HashMap<>();
         for (var doc : dsl.selectFrom(DOCUMENT).where(sourceCondition).orderBy(DOCUMENT.ID).fetch()) {
             if (doc.getArchivePath() != null && !doc.getArchivePath().isBlank()) {
                 if (budget < 1) budgetExceeded();
@@ -97,14 +107,14 @@ public class CanonicalGraphProjectionInputAssembler implements GraphProjectionIn
                         (int) Math.min(budget, MAX_CONTENT_BYTES));
             }
             Map<String, String> metadata = new HashMap<>();
-            metadata.put("profile", "canonical-v1");
+            metadata.put("profile", "canonical-v2");
             metadata.put("status", doc.getStatus());
             metadata.put("parse_status", doc.getParseStatus());
             if (doc.getExtractedTextHash() != null) metadata.put("extracted_hash", doc.getExtractedTextHash());
             var entity = entity(scope, GraphEntityType.SOURCE_DOCUMENT, "document:" + doc.getId(),
                     doc.getOriginalFileName() == null ? doc.getFileName() : doc.getOriginalFileName(),
                     GraphFreshness.contentHash(doc.getSha256()), metadata);
-            documents.put(doc.getId(), entity);
+            documents.put(doc.getId().longValue(), entity);
             entities.add(entity);
         }
         for (var chunk : dsl.select(SOURCE_CHUNK.DOCUMENT_ID, SOURCE_CHUNK.CHUNK_NO,
@@ -119,7 +129,7 @@ public class CanonicalGraphProjectionInputAssembler implements GraphProjectionIn
                     || page != null && page < 1
                     || !java.text.Normalizer.isNormalized(content, java.text.Normalizer.Form.NFC)
                     || !WikiContentHash.sha256(content).equals(chunk.get(SOURCE_CHUNK.CONTENT_HASH))) continue;
-            GraphEntity parent = documents.get(chunk.get(SOURCE_CHUNK.DOCUMENT_ID));
+            GraphEntity parent = documents.get(chunk.get(SOURCE_CHUNK.DOCUMENT_ID).longValue());
             if (parent == null) continue;
             var metadata = new HashMap<String, String>();
             metadata.put("chunk_no", number.toString());
@@ -133,10 +143,70 @@ public class CanonicalGraphProjectionInputAssembler implements GraphProjectionIn
                     parent.provenance().authority().stableId() + ":chunk:" + number,
                     "Chunk " + number, GraphFreshness.contentHash(chunk.get(SOURCE_CHUNK.CONTENT_HASH)), metadata);
             entities.add(entity);
-            relations.add(GraphRelation.of(parent.identity(), GraphRelationType.CONTAINS,
+            addRelation(relations, GraphRelation.of(parent.identity(), GraphRelationType.CONTAINS,
                     entity.identity(), entity.provenance(), GraphMetadata.empty()));
         }
+        Map<String, GraphEntity> tags = new HashMap<>();
+        for (WikiSnapshot snapshot : wikiSnapshots) {
+            GraphProvenance provenance = snapshot.entity().provenance();
+            for (String targetTitle : snapshot.evidence().normalizedLinkTargets()) {
+                GraphEntity target = uniqueWikiTitles.get(targetTitle);
+                if (target != null) {
+                    addRelation(relations, relation(snapshot.entity(), GraphRelationType.LINKS_TO,
+                            target, provenance, "wikilink"));
+                }
+            }
+            for (Long documentId : snapshot.evidence().sourceDocumentIds()) {
+                GraphEntity target = documents.get(documentId);
+                if (target != null) {
+                    addRelation(relations, relation(snapshot.entity(),
+                            GraphRelationType.DERIVED_FROM, target, provenance,
+                            "frontmatter.sources"));
+                }
+            }
+            for (String tag : snapshot.evidence().tags()) {
+                GraphEntity target = tags.computeIfAbsent(tag, value -> {
+                    if (entities.size() >= MAX_ENTITIES) budgetExceeded();
+                    GraphEntity created = entity(scope, GraphEntityType.TAG, "tag:" + value, value,
+                            GraphFreshness.contentHash(WikiContentHash.sha256(value)),
+                            Map.of("profile", "canonical-v2", "source", "frontmatter.tags"));
+                    entities.add(created);
+                    return created;
+                });
+                addRelation(relations, relation(snapshot.entity(), GraphRelationType.TAGGED_WITH,
+                        target, provenance, "frontmatter.tags"));
+            }
+        }
+        if (entities.size() > MAX_ENTITIES || relations.size() > MAX_RELATIONS) budgetExceeded();
         return new GraphProjectionInput(scope, GraphProjectionVersion.initial(), entities, relations);
+    }
+
+    private record WikiSnapshot(GraphEntity entity, CanonicalWikiRelationEvidence evidence) { }
+
+    /** Ambiguous normalized titles are deliberately absent so Wikilinks cannot resolve by guesswork. */
+    static Map<String, GraphEntity> uniqueWikiTitleIndex(List<GraphEntity> wikiEntities) {
+        Map<String, GraphEntity> unique = new HashMap<>();
+        Set<String> ambiguous = new HashSet<>();
+        for (GraphEntity entity : wikiEntities) {
+            String title = WikiTargetReference.normalizeTitle(entity.displayName());
+            if (unique.putIfAbsent(title, entity) != null) ambiguous.add(title);
+        }
+        ambiguous.forEach(unique::remove);
+        return Map.copyOf(unique);
+    }
+
+    private static GraphRelation relation(GraphEntity source, GraphRelationType type, GraphEntity target,
+                                          GraphProvenance provenance, String evidence) {
+        if (!CanonicalGraphRelationProfile.admits(type)) {
+            throw new GraphProjectionException(GraphProjectionFailureType.INVALID_PROJECTION_INPUT);
+        }
+        return GraphRelation.of(source.identity(), type, target.identity(), provenance,
+                GraphMetadata.of(Map.of("evidence", evidence)));
+    }
+
+    private static void addRelation(List<GraphRelation> relations, GraphRelation relation) {
+        if (relations.size() >= MAX_RELATIONS) budgetExceeded();
+        relations.add(relation);
     }
 
     static void requireQuiescent(DSLContext dsl, int workspaceId) {

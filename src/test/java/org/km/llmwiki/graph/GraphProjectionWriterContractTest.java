@@ -280,7 +280,7 @@ class GraphProjectionWriterContractTest {
     @Test
     void crossWorkspaceAndIncompatibleVersionWritesFailClosed() {
         GraphProjectionVersion version = GraphProjectionVersion.initial();
-        GraphProjectionVersion incompatibleVersion = new GraphProjectionVersion("graph-projection-v2");
+        GraphProjectionVersion incompatibleVersion = GraphProjectionVersion.legacyV1();
         GraphWorkspaceScope workspace = new GraphWorkspaceScope(43);
         GraphWorkspaceScope otherWorkspace = new GraphWorkspaceScope(44);
         GraphEntity local = entity(workspace, "local", "Local", version);
@@ -500,7 +500,7 @@ class GraphProjectionWriterContractTest {
     void incompatibleProjectionVersionClearFailsClosed() {
         GraphWorkspaceScope workspace = new GraphWorkspaceScope(55);
         GraphProjectionVersion currentVersion = GraphProjectionVersion.initial();
-        GraphProjectionVersion incompatibleVersion = new GraphProjectionVersion("graph-projection-v2");
+        GraphProjectionVersion incompatibleVersion = GraphProjectionVersion.legacyV1();
         GraphEntity first = entity(workspace, "first", "First", currentVersion);
         GraphProjectionInput current = new GraphProjectionInput(workspace, currentVersion,
                 List.of(first), List.of());

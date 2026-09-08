@@ -147,6 +147,90 @@ class CanonicalGraphIngressIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void profileV2ProjectsOnlyCanonicalLinksTagsAndSourcesWithStableIdentities() throws Exception {
+        var scope = workspace("relations");
+        long document = document(scope);
+        wiki(scope, "wiki-target", "Target Page", List.of(), List.of(), "目標內容", 1);
+        wiki(scope, "wiki-source", "Source Page", List.of("RAG", "rag"), List.of(document),
+                "普通文字提到 Other Page 不構成 relation。\n- [[Target Page|目標]]", 1);
+
+        var first = assembler.assemble(scope);
+        assertThat(first.projectionVersion()).isEqualTo(GraphProjectionVersion.current());
+        assertThat(first.entities()).extracting(entity -> entity.identity().type())
+                .contains(GraphEntityType.WIKI_PAGE, GraphEntityType.SOURCE_DOCUMENT, GraphEntityType.TAG);
+        assertThat(first.relations()).extracting(GraphRelation::type)
+                .contains(GraphRelationType.LINKS_TO, GraphRelationType.TAGGED_WITH,
+                        GraphRelationType.DERIVED_FROM)
+                .doesNotContain(GraphRelationType.MENTIONS, GraphRelationType.RELATED_TO);
+        assertThat(first.relations()).filteredOn(relation -> relation.type() != GraphRelationType.CONTAINS)
+                .allSatisfy(relation -> {
+                    assertThat(relation.provenance().authority().stableId()).isEqualTo("wiki-source");
+                    assertThat(relation.metadata().entries()).containsKey("evidence");
+                });
+        var stableRelations = first.relations().stream().map(GraphRelation::identity).toList();
+
+        wiki(scope, "wiki-source", "Source Page", List.of("rag", "RAG"), List.of(document),
+                "- [[Target Page]]", 2);
+        var rebuilt = assembler.assemble(scope);
+        assertThat(rebuilt.relations()).extracting(GraphRelation::identity)
+                .containsExactlyElementsOf(stableRelations);
+        assertThat(rebuilt.sourceFingerprint()).isNotEqualTo(first.sourceFingerprint());
+
+        try (var lifecycle = lifecycle(temp.resolve("relation-graph"))) {
+            var readiness = lifecycle.rebuild(rebuilt);
+            assertThat(readiness.ready()).isTrue();
+            assertThat(lifecycle.readiness(scope).ready()).isTrue();
+        }
+        try (var restarted = lifecycle(temp.resolve("relation-graph"))) {
+            assertThat(restarted.readiness(scope).ready()).isTrue();
+        }
+    }
+
+    @Test
+    void profileV2RemovesRelationsWhenCanonicalAuthorityChanges() throws Exception {
+        var scope = workspace("relation-removal");
+        long document = document(scope);
+        wiki(scope, "wiki-target", "Target", List.of(), List.of(), "目標", 1);
+        wiki(scope, "wiki-source", "Source", List.of("old"), List.of(document), "[[Target]]", 1);
+        var first = assembler.assemble(scope);
+        assertThat(first.relations()).extracting(GraphRelation::type)
+                .contains(GraphRelationType.LINKS_TO, GraphRelationType.TAGGED_WITH,
+                        GraphRelationType.DERIVED_FROM);
+
+        wiki(scope, "wiki-target", "Renamed", List.of(), List.of(), "目標", 2);
+        wiki(scope, "wiki-source", "Source", List.of("new"), List.of(document),
+                "Target 與 [[Missing]] 都不能猜測成舊 target。", 2);
+        db().sql("UPDATE document SET status='DELETED' WHERE id=?").param(document).update();
+        var changed = assembler.assemble(scope);
+        assertThat(changed.relations()).extracting(GraphRelation::type)
+                .doesNotContain(GraphRelationType.LINKS_TO, GraphRelationType.DERIVED_FROM,
+                        GraphRelationType.MENTIONS, GraphRelationType.RELATED_TO)
+                .contains(GraphRelationType.TAGGED_WITH);
+        assertThat(changed.entities()).filteredOn(entity -> entity.identity().type() == GraphEntityType.TAG)
+                .extracting(GraphEntity::displayName).containsExactly("new");
+        assertThat(changed.sourceFingerprint()).isNotEqualTo(first.sourceFingerprint());
+
+        db().sql("UPDATE knowledge_page SET status='DELETED' WHERE workspace_id=? AND knowledge_id=?")
+                .params(scope.id(), "wiki-source").update();
+        var sourceDeleted = assembler.assemble(scope);
+        assertThat(sourceDeleted.relations()).isEmpty();
+        assertThat(sourceDeleted.entities()).noneMatch(entity ->
+                entity.provenance().authority().stableId().equals("wiki-source"));
+    }
+
+    @Test
+    void profileV2NeverResolvesWikiLinksAcrossWorkspace() throws Exception {
+        var sourceScope = workspace("link-source");
+        var otherScope = workspace("link-other");
+        wiki(otherScope, "wiki-target", "Remote Target", List.of(), List.of(), "目標", 1);
+        wiki(sourceScope, "wiki-source", "Source", List.of(), List.of(), "[[Remote Target]]", 1);
+
+        assertThat(assembler.assemble(sourceScope).relations()).isEmpty();
+        assertThat(assembler.assemble(sourceScope).entities())
+                .allSatisfy(entity -> assertThat(entity.identity().workspace()).isEqualTo(sourceScope));
+    }
+
+    @Test
     void malformedOrOversizedAuthorityFailsClosedWithSafeDiagnostics() throws Exception {
         var scope = workspace("invalid");
         wiki(scope, "Large", "x".repeat(CanonicalGraphProjectionInputAssembler.MAX_CONTENT_BYTES), 1);
@@ -455,20 +539,52 @@ class CanonicalGraphIngressIntegrationTest extends IsolatedIntegrationTest {
     }
 
     private void wiki(GraphWorkspaceScope scope, String title, String body, int revision) throws Exception {
-        String content = "---\nid: \"wiki-1\"\ntitle: \"" + title
-                + "\"\ntype: \"CONCEPT\"\nstatus: \"PUBLISHED\"\n---\n\n# " + title + "\n" + body;
-        Path target = wikiPath(scope, title);
+        wiki(scope, "wiki-1", title, List.of(), List.of(), body, revision);
+    }
+
+    private void wiki(GraphWorkspaceScope scope, String knowledgeId, String title, List<String> tags,
+                      List<Long> sources, String body, int revision) throws Exception {
+        wikiAtPath(scope, knowledgeId, title, paths.resolveLogicalPath(WikiPageType.CONCEPT, title),
+                tags, sources, body, revision);
+    }
+
+    private void wikiAtPath(GraphWorkspaceScope scope, String knowledgeId, String title,
+                            String logicalPath, List<String> tags, List<Long> sources,
+                            String body, int revision) throws Exception {
+        StringBuilder contentBuilder = new StringBuilder("---\n")
+                .append("id: \"").append(knowledgeId).append("\"\n")
+                .append("title: \"").append(title).append("\"\n")
+                .append("type: \"CONCEPT\"\nstatus: \"PUBLISHED\"\n")
+                .append(renderList("aliases", List.of()))
+                .append(renderList("tags", tags))
+                .append(renderList("sources", sources.stream().map(id -> "document:" + id).toList()))
+                .append("created_at: \"2026-09-07T00:00:00Z\"\n")
+                .append("updated_at: \"2026-09-07T00:00:00Z\"\n")
+                .append("---\n\n# ").append(title).append('\n').append(body);
+        String content = contentBuilder.toString();
+        Path target = Path.of(workspaces.get(scope.id()).vaultPath())
+                .resolve(logicalPath.substring("vault/".length()));
         Files.createDirectories(target.getParent());
         Files.writeString(target, content);
         db().sql("""
                 INSERT INTO knowledge_page(workspace_id, knowledge_id, title, normalized_title,
                     type, markdown_path, status, content_hash, revision, created_at, updated_at)
-                VALUES(?, 'wiki-1', ?, ?, 'CONCEPT', ?, 'PUBLISHED', ?, ?, '2026-09-07T00:00:00Z', '2026-09-07T00:00:00Z')
+                VALUES(?, ?, ?, ?, 'CONCEPT', ?, 'PUBLISHED', ?, ?, '2026-09-07T00:00:00Z', '2026-09-07T00:00:00Z')
                 ON CONFLICT(workspace_id, knowledge_id) DO UPDATE SET title=excluded.title,
                     normalized_title=excluded.normalized_title, markdown_path=excluded.markdown_path,
-                    content_hash=excluded.content_hash, revision=excluded.revision
-                """).params(scope.id(), title, title.toLowerCase(),
-                paths.resolveLogicalPath(WikiPageType.CONCEPT, title), WikiContentHash.sha256(content), revision).update();
+                    status='PUBLISHED', content_hash=excluded.content_hash, revision=excluded.revision
+                """).params(scope.id(), knowledgeId, title,
+                org.km.llmwiki.wiki.WikiTargetReference.normalizeTitle(title),
+                logicalPath, WikiContentHash.sha256(content), revision).update();
+    }
+
+    private static String renderList(String field, List<String> values) {
+        if (values.isEmpty()) return field + ": []\n";
+        StringBuilder result = new StringBuilder(field).append(":\n");
+        values.forEach(value -> result.append("  - \"")
+                .append(value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n"))
+                .append("\"\n"));
+        return result.toString();
     }
 
     private GraphProjectionLifecycleService lifecycle(Path path) {

@@ -212,8 +212,11 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
         return inTransaction(() -> {
             StoredState state = readState(context.workspace());
             GraphProjectionSnapshot current = state.currentSnapshot();
-            if (current != null && !context.projectionVersion().equals(current.projectionVersion())) {
-                throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+            GraphProjectionWriteStatus currentStatus = validateCurrent(context, state);
+            if (currentStatus != null) {
+                return currentStatus == GraphProjectionWriteStatus.SUPERSEDED
+                        ? GraphProjectionWriteResult.superseded(context)
+                        : GraphProjectionWriteResult.noOp(context);
             }
             if (context.isSupersededBy(current)) {
                 return GraphProjectionWriteResult.superseded(context);
@@ -655,6 +658,17 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
                                                         StoredState state) {
         GraphProjectionSnapshot current = state.currentSnapshot();
         if (current != null && !context.projectionVersion().equals(current.projectionVersion())) {
+            // 只接受核准的 v1 -> v2 且 strictly-newer replacement。已被 v2 取代的
+            // late v1 callback 回報 superseded；降版、跳版與未知版本一律 incompatible。
+            if (context.projectionVersion().permitsMigrationFrom(current.projectionVersion())
+                    && context.generation() > current.generation()) {
+                return null;
+            }
+            if (GraphProjectionVersion.current().equals(current.projectionVersion())
+                    && GraphProjectionVersion.legacyV1().equals(context.projectionVersion())
+                    && current.generation() >= context.generation()) {
+                return GraphProjectionWriteStatus.SUPERSEDED;
+            }
             throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
         }
         if (context.isSupersededBy(current)) {
@@ -689,7 +703,8 @@ public final class ArcadeDbGraphProjectionWriter implements GraphProjectionWrite
                                     Set<String> activeStableIds) {
         return deleteRows(type, document -> workspace.id() == document.getLong(WORKSPACE_ID)
                 && document.getLong(GENERATION) <= throughGeneration
-                && !activeStableIds.contains(document.getString(STABLE_ID)));
+                && (document.getLong(GENERATION) < throughGeneration
+                || !activeStableIds.contains(document.getString(STABLE_ID))));
     }
 
     private int deleteRowsThroughGeneration(String type, GraphWorkspaceScope workspace,

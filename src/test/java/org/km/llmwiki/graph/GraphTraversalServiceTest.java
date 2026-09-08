@@ -135,7 +135,7 @@ class GraphTraversalServiceTest {
         assertMaterializedFailure(new GraphTraversalResult(SNAPSHOT_A,
                 List.of(candidate, candidate), 3, 1, Set.of()));
 
-        GraphProjectionVersion incompatible = new GraphProjectionVersion("graph-projection-v2");
+        GraphProjectionVersion incompatible = GraphProjectionVersion.legacyV1();
         GraphRelation wrongVersion = relation(seed, target, incompatible);
         assertMaterializedFailure(new GraphTraversalResult(SNAPSHOT_A,
                 List.of(new GraphTraversalCandidate(seed.identity(), target, 1,
@@ -185,8 +185,7 @@ class GraphTraversalServiceTest {
                 () -> new GraphTraversalService(lifecycle, null).traverse(query(SNAPSHOT_A)));
 
         GraphTraversalBackendFactory incompatible = mock(GraphTraversalBackendFactory.class);
-        when(incompatible.projectionVersion()).thenReturn(
-                new GraphProjectionVersion("graph-projection-v2"));
+        when(incompatible.projectionVersion()).thenReturn(GraphProjectionVersion.legacyV1());
         assertFailure(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE,
                 () -> new GraphTraversalService(lifecycle, incompatible)
                         .traverse(query(SNAPSHOT_A)));

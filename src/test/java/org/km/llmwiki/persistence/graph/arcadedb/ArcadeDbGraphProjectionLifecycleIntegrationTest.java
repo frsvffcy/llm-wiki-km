@@ -1,5 +1,7 @@
 package org.km.llmwiki.persistence.graph.arcadedb;
 
+import com.arcadedb.database.DatabaseFactory;
+import com.arcadedb.database.Record;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,6 +27,9 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -222,8 +227,7 @@ class ArcadeDbGraphProjectionLifecycleIntegrationTest extends IsolatedIntegratio
     void incompatiblePersistedBackendProofDegradesSqliteReadyState() throws IOException {
         GraphWorkspaceScope workspace = insertWorkspace("incompatible-proof");
         GraphProjectionInput currentInput = input(workspace, "current-page");
-        GraphProjectionVersion incompatibleVersion =
-                new GraphProjectionVersion("graph-projection-v2");
+        GraphProjectionVersion incompatibleVersion = GraphProjectionVersion.legacyV1();
         GraphProjectionInput incompatibleInput = new GraphProjectionInput(workspace,
                 incompatibleVersion, currentInput.entities().stream()
                 .map(entity -> new GraphEntity(entity.identity(), entity.displayName(),
@@ -260,13 +264,63 @@ class ArcadeDbGraphProjectionLifecycleIntegrationTest extends IsolatedIntegratio
         }
     }
 
+    @Test
+    void legacyReadyRequiresV2RebuildAndRestartKeepsOnlyV2Rows() {
+        GraphWorkspaceScope workspace = insertWorkspace("version-migration");
+        GraphProjectionInput currentInput = input(workspace, "versioned-page");
+        GraphProjectionInput legacyInput = versionedInput(currentInput,
+                GraphProjectionVersion.legacyV1());
+        Path basePath = tempDir.resolve("version-migration");
+
+        try (GraphProjectionLifecycleService legacy = service(basePath,
+                GraphProjectionVersion.legacyV1())) {
+            assertThat(legacy.rebuild(legacyInput)).satisfies(verification -> {
+                assertThat(verification.status()).isEqualTo(GraphProjectionVerificationStatus.READY);
+                assertThat(verification.controlPlane().projectionVersion())
+                        .isEqualTo(GraphProjectionVersion.legacyV1());
+                assertThat(verification.controlPlane().targetGeneration()).isEqualTo(1);
+            });
+        }
+
+        try (GraphProjectionLifecycleService current = service(basePath, VERSION)) {
+            assertThat(current.readiness(workspace).status())
+                    .isEqualTo(GraphProjectionVerificationStatus.PROJECTION_INCOMPATIBLE);
+
+            assertThat(current.rebuild(currentInput)).satisfies(verification -> {
+                assertThat(verification.status()).isEqualTo(GraphProjectionVerificationStatus.READY);
+                assertThat(verification.controlPlane().projectionVersion()).isEqualTo(VERSION);
+                assertThat(verification.controlPlane().targetGeneration()).isEqualTo(2);
+                assertThat(verification.controlPlane().appliedGeneration()).isEqualTo(2);
+            });
+        }
+
+        assertOnlyProjectionVersion(factory(basePath).workspacePath(workspace), VERSION);
+        try (GraphProjectionLifecycleService restarted = service(basePath, VERSION)) {
+            assertThat(restarted.readiness(workspace)).satisfies(verification -> {
+                assertThat(verification.status()).isEqualTo(GraphProjectionVerificationStatus.READY);
+                assertThat(verification.controlPlane().projectionVersion()).isEqualTo(VERSION);
+                assertThat(verification.controlPlane().appliedGeneration()).isEqualTo(2);
+            });
+        }
+    }
+
     private GraphProjectionLifecycleService service(Path basePath) {
-        return new GraphProjectionLifecycleService(true, PROVIDER, VERSION, repository,
-                factory(basePath), new org.km.llmwiki.testsupport.AssumedCurrentGraphFixture());
+        return service(basePath, VERSION);
+    }
+
+    private GraphProjectionLifecycleService service(Path basePath, GraphProjectionVersion version) {
+        return new GraphProjectionLifecycleService(true, PROVIDER, version, repository,
+                factory(basePath, version),
+                new org.km.llmwiki.testsupport.AssumedCurrentGraphFixture());
     }
 
     private ArcadeDbGraphProjectionBackendFactory factory(Path basePath) {
-        return new ArcadeDbGraphProjectionBackendFactory(basePath, VERSION);
+        return factory(basePath, VERSION);
+    }
+
+    private ArcadeDbGraphProjectionBackendFactory factory(Path basePath,
+                                                            GraphProjectionVersion version) {
+        return new ArcadeDbGraphProjectionBackendFactory(basePath, version);
     }
 
     private GraphProjectionOperation reserve(GraphProjectionInput input,
@@ -279,6 +333,38 @@ class ArcadeDbGraphProjectionLifecycleIntegrationTest extends IsolatedIntegratio
     private static GraphProjectionInput input(GraphWorkspaceScope workspace, String id) {
         return ArcadeDbGraphProjectionFixtures.input(workspace,
                 ArcadeDbGraphProjectionFixtures.page(workspace, id, "生命週期測試頁"));
+    }
+
+    private static GraphProjectionInput versionedInput(GraphProjectionInput input,
+                                                        GraphProjectionVersion version) {
+        return new GraphProjectionInput(input.workspace(), version,
+                input.entities().stream().map(entity -> new GraphEntity(entity.identity(),
+                        entity.displayName(), entity.provenance(), entity.metadata(), version)).toList(),
+                input.relations().stream().map(relation -> new org.km.llmwiki.graph.GraphRelation(
+                        relation.identity(), relation.source(), relation.type(), relation.target(),
+                        relation.provenance(), relation.metadata(), version)).toList());
+    }
+
+    private static void assertOnlyProjectionVersion(Path databasePath,
+                                                    GraphProjectionVersion expected) {
+        Set<String> versions = new HashSet<>();
+        try (DatabaseFactory factory = new DatabaseFactory(databasePath.toString())
+                .setAutoTransaction(false)) {
+            var database = factory.open().setReadYourWrites(true);
+            try {
+                for (String type : Set.of(ArcadeDbGraphProjectionWriter.ENTITY_TYPE,
+                        ArcadeDbGraphProjectionWriter.RELATION_TYPE)) {
+                    Iterator<Record> rows = database.iterateType(type, false);
+                    while (rows.hasNext()) {
+                        versions.add(rows.next().asDocument(true)
+                                .getString("projection_version"));
+                    }
+                }
+            } finally {
+                database.close();
+            }
+        }
+        assertThat(versions).containsExactly(expected.value());
     }
 
     private GraphWorkspaceScope insertWorkspace(String name) {

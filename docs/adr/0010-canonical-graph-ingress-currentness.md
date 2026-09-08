@@ -61,3 +61,7 @@ L5 獨立 reviewer 第一輪指出 publish-before-metadata race 與 chunk PK ide
 ### 本機驗證證據
 
 環境為 macOS Apple Silicon、Zulu Java 21.0.5。Targeted 9 classes 共 57 項、`mvn test -Pfast` 409 項、`mvn test -Pintegration` 296 項、production ArcadeDB smoke 31 項皆成功；`node --test src/test/js/pr-metadata.test.mjs` 11 項成功。最終 `mvn clean verify -Pfull` 的 705 項完整回歸包含相同 fast + integration inventory，無 skipped test；package/verify 結果及 Linux PR CI／merge Canary 的精確 run evidence 由對應 PR 保存。
+
+## 後續版本決策
+
+本 ADR 的 canonical profile v1 inventory 是 #246 的歷史基線。Issue #253 與 [ADR 0012](0012-deterministic-canonical-graph-relation-profile.md) 已將 current profile 升為 `graph-projection-v2`，並明確納入 deterministic `LINKS_TO`、`TAGGED_WITH` 與 `DERIVED_FROM`。v1 READY proof 不得沿用為 v2 READY；跨版本必須 full rebuild，並由 version/generation/owner ownership 與 backend cleanup 阻止 mixed-version serving。
