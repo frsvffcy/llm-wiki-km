@@ -2,6 +2,8 @@ package org.km.llmwiki.web;
 
 import org.km.llmwiki.ai.ask.AskApiException;
 import org.km.llmwiki.ai.ask.AskFailureType;
+import org.km.llmwiki.graph.GraphProjectionException;
+import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
 import org.km.llmwiki.search.embedding.ProcessingJobNotFoundException;
 import org.km.llmwiki.source.DocumentAlreadyProcessedException;
@@ -113,6 +115,28 @@ public class GlobalExceptionHandler {
             RetrievalUnavailableException exception) {
         return respond(HttpStatus.SERVICE_UNAVAILABLE, "RETRIEVAL_UNAVAILABLE",
                 exception.getMessage());
+    }
+
+    /**
+     * Typed graph projection failure taxonomy for the operational API. Refused-state failures
+     * stay 409, operational infrastructure failures stay 503, and integrity/correctness
+     * violations fail closed as 500 — corruption is never disguised as a retryable
+     * unavailability. Only the stable public code leaves the process; raw causes stay
+     * server-side.
+     */
+    @ExceptionHandler(GraphProjectionException.class)
+    public ResponseEntity<ApiError> handleGraphProjection(GraphProjectionException exception) {
+        GraphProjectionFailureType type = exception.failureType();
+        HttpStatus status = switch (type) {
+            case CAPABILITY_DISABLED, CONFIGURATION_INVALID, PROJECTION_NOT_READY,
+                    PROJECTION_STALE, PROJECTION_INCOMPATIBLE -> HttpStatus.CONFLICT;
+            case CAPABILITY_UNAVAILABLE, BACKEND_LOCKED, FILESYSTEM_UNAVAILABLE,
+                    TRANSACTION_FAILURE, BACKEND_FAILURE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case PROJECTION_CORRUPT, INVALID_PROJECTION_INPUT, INVALID_PROVENANCE,
+                    CROSS_WORKSPACE, INVALID_TRAVERSAL_BOUNDS, LOCAL_VALIDATION ->
+                    HttpStatus.INTERNAL_SERVER_ERROR;
+        };
+        return respond(status, type.publicCode(), "Graph projection operation failed");
     }
 
     @ExceptionHandler(AskApiException.class)
