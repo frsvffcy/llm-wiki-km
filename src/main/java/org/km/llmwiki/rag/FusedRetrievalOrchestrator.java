@@ -1,6 +1,5 @@
 package org.km.llmwiki.rag;
 
-import org.km.llmwiki.graph.GraphProjectionException;
 import org.km.llmwiki.graph.GraphProjectionReadinessReader;
 import org.km.llmwiki.graph.GraphSnapshotCurrentness;
 import org.km.llmwiki.graph.GraphWorkspaceScope;
@@ -43,8 +42,13 @@ import java.util.Set;
  *       degraded graph signal stays a typed diagnostic distinct from a normal empty result.</li>
  * </ol>
  *
- * <p>Infrastructure failures surface as typed {@link RetrievalUnavailableException}s and are
- * never reported as insufficient evidence. This boundary never mutates canonical knowledge.
+ * <p>Graph failures at this boundary follow the shared {@link GraphRetrievalFailurePolicy}:
+ * recognized operational faults degrade the graph modality only (typed diagnostics, baseline
+ * continues), integrity/correctness violations fail closed with a typed
+ * {@link RetrievalUnavailableException}, and unrecognized programming defects propagate
+ * unchanged. Required lexical/vector authority infrastructure failures surface as typed
+ * {@link RetrievalUnavailableException}s and are never reported as insufficient evidence. This
+ * boundary never mutates canonical knowledge.
  */
 @Service
 public class FusedRetrievalOrchestrator {
@@ -74,7 +78,7 @@ public class FusedRetrievalOrchestrator {
 
     private EvidenceBundle assembleBundle(RetrievalRequest request, FusedEvidenceResult result) {
         List<EvidenceItem> items = new ArrayList<>(result.items());
-        boolean graphDegraded = false;
+        ModalityOutcome handoffOutcome = null;
         String graphDetail = null;
         int graphDroppedAtHandoff = 0;
 
@@ -83,7 +87,9 @@ public class FusedRetrievalOrchestrator {
         // so projection drift is diagnosed even when those checks would drop the graph-derived
         // items first. Graph-only evidence loses its only validity chain; cross-modality
         // evidence keeps its independent lexical/vector proof. Like the fusion terminal guard,
-        // the check applies whenever the graph channel actually participated.
+        // the check applies whenever the graph channel actually participated, and the shared
+        // failure policy keeps operational faults optional-modality-degradable while integrity
+        // violations fail closed typed.
         if (result.graphSnapshot() != null
                 && (result.diagnostics().graph() == ModalityOutcome.CONTRIBUTED
                 || hasGraphDerivedEvidence(result))) {
@@ -91,10 +97,19 @@ public class FusedRetrievalOrchestrator {
                 GraphSnapshotCurrentness.requireCurrent(
                         graphReadiness.readiness(new GraphWorkspaceScope(result.workspace().id())),
                         result.graphSnapshot(), true);
-            } catch (GraphProjectionException drift) {
-                graphDegraded = true;
-                graphDetail = "handoff projection currentness drift: "
-                        + drift.failureType().publicCode();
+            } catch (RuntimeException failure) {
+                GraphRetrievalFailurePolicy.NormalizedFailure normalized =
+                        GraphRetrievalFailurePolicy.normalize(failure);
+                switch (normalized.verdict()) {
+                    case FAIL_CLOSED ->
+                            throw GraphRetrievalFailurePolicy.typedFailure(failure);
+                    case PROPAGATE -> throw failure;
+                    case DEGRADE -> {
+                        handoffOutcome = normalized.outcome();
+                        graphDetail = "handoff graph currentness check failed: "
+                                + normalized.detail();
+                    }
+                }
                 Iterator<EvidenceItem> graphIterator = items.iterator();
                 while (graphIterator.hasNext()) {
                     if (isGraphOnly(result, graphIterator.next())) {
@@ -128,9 +143,8 @@ public class FusedRetrievalOrchestrator {
         return new EvidenceBundle(request.query().strip(), request.mode(), result.workspace(),
                 guarded, budget, result.searchedCandidateCount(),
                 result.rejectedCandidateCount() + handoffRejected, guarded.isEmpty(),
-                RetrievalDiagnostics.fused(graphDegraded
-                        ? withHandoffDegradation(result.diagnostics(), graphDetail)
-                        : result.diagnostics()));
+                RetrievalDiagnostics.fused(handoffOutcome == null ? result.diagnostics()
+                        : withHandoffOutcome(result.diagnostics(), handoffOutcome, graphDetail)));
     }
 
     private static boolean hasGraphDerivedEvidence(FusedEvidenceResult result) {
@@ -144,10 +158,12 @@ public class FusedRetrievalOrchestrator {
                 .equals(Set.of(CandidateSignal.GRAPH));
     }
 
-    private static FusedModalityDiagnostics withHandoffDegradation(
-            FusedModalityDiagnostics diagnostics, String handoffDetail) {
+    /** Rebuilds the fusion diagnostics with the typed outcome observed at the Ask handoff. */
+    private static FusedModalityDiagnostics withHandoffOutcome(
+            FusedModalityDiagnostics diagnostics, ModalityOutcome handoffOutcome,
+            String handoffDetail) {
         return new FusedModalityDiagnostics(diagnostics.lexical(), diagnostics.vector(),
-                ModalityOutcome.DEGRADED, diagnostics.vectorDetail(), handoffDetail,
+                handoffOutcome, diagnostics.vectorDetail(), handoffDetail,
                 diagnostics.terminalRejectedCount());
     }
 }

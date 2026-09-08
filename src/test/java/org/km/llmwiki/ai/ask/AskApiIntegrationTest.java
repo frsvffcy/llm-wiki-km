@@ -269,6 +269,36 @@ class AskApiIntegrationTest {
     }
 
     @Test
+    void graphUnavailableBaselineStillAnswersWithValidCitationsWithoutInternalDetails()
+            throws Exception {
+        // Graph operational degradation + sufficient lexical/vector baseline stays ANSWERED
+        // with valid citations; the unavailable signal is typed metadata, never a failure or
+        // an insufficient-evidence masquerade.
+        AskCitation wiki = new AskCitation("E1", EvidenceKind.WIKI, "WIKI:architecture",
+                "hash-wiki", new AnswerContextProvenance.Wiki(
+                "Architecture", "vault/architecture.md", 4));
+        when(askService.ask(any())).thenReturn(new AskResult(AskStatus.ANSWERED,
+                Optional.of("Baseline answer"), List.of(wiki), List.of(wiki),
+                Optional.of(new AnswerProviderMetadata("stub", "offline-model")),
+                Optional.empty(), Optional.empty(), new AskExecutionMetadata(1, 1, 16, false),
+                new org.km.llmwiki.rag.RetrievalDiagnostics(
+                        org.km.llmwiki.rag.RetrievalStrategy.FUSED, true, true, false, false,
+                        null, false, false, true, "graph infrastructure failure")));
+
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("{\"question\":\"question\",\"retrievalMode\":\"HYBRID_GRAPH\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ANSWERED"))
+                .andExpect(jsonPath("$.data.answer").value("Baseline answer"))
+                .andExpect(jsonPath("$.data.citations[0].citationId").value("E1"))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphSignalUsed").value(false))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphUnavailable").value(true))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphDegraded").value(false))
+                .andExpect(content().string(not(containsString("graph infrastructure failure"))))
+                .andExpect(content().string(not(containsString("hash-wiki"))));
+    }
+
+    @Test
     void degradedGraphSignalStaysVisibleToTheBrowserWithoutInternalDetails() throws Exception {
         when(askService.ask(any())).thenReturn(new AskResult(AskStatus.INSUFFICIENT_EVIDENCE,
                 Optional.empty(), List.of(), List.of(), Optional.empty(), Optional.empty(),

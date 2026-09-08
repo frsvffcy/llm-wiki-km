@@ -97,7 +97,12 @@ productizes the mode for Ask REST and the Browser Ask UI: the controller and the
 adapter-only (mode selection/validation, DTO mapping, error mapping, safe diagnostics
 presentation, and citation rendering), the mode selector describes the capability as a
 graph-enhanced retrieval mode without exposing backend implementation, and a degraded graph
-signal renders as a safe notice while the answer and citations remain valid. It still does not
+signal renders as a safe notice while the answer and citations remain valid. Graph failures at
+every optional-graph boundary follow one shared failure normalization policy: operational
+backend/control-plane faults degrade the graph modality with typed diagnostics while the
+lexical + vector baseline continues, integrity/correctness violations fail closed with a typed
+retrieval failure instead of being disguised as degradation, and no silent backfill occurs
+after a drop. It still does not
 add a Graph traversal REST endpoint, graph visualization, inferred relations, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
