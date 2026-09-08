@@ -144,11 +144,20 @@ Graph work must provide evidence at each boundary:
   分離、proof ordering、typed failure 與 materialized result validation。`ArcadeDbGraphTraversalTest`
   持有 deterministic BFS/restart、cycle、每一種 truncation、composite-prefix source/workspace isolation、
   malformed/orphan relation 與 RID-independent ordering；`CanonicalGraphTraversalIntegrationTest`
-  持有 canonical mutation 後拒絕 A 與 B publish 後拒絕 late A。Context/evidence budget 與 candidate
-  authority revalidation 仍屬後續 Evidence integration Story；不得以 unbounded scan 補滿結果。
+  持有 canonical mutation 後拒絕 A 與 B publish 後拒絕 late A。Query-time snapshot currentness 的
+  共用 contract 由 `GraphSnapshotCurrentness` 單一來源持有（traversal serving 與 evidence admission
+  共用），不得複製等價邏輯。
+- `rag.GraphEvidenceAdmissionServiceTest`、`rag.GraphEvidenceVendorNeutralContractTest`、
+  `rag.GraphEvidenceAdmissionBudgetTest` 與 `rag.GraphEvidenceAdmissionIntegrationTest` 持有 Graph
+  candidate → canonical evidence admission boundary：consumption-window snapshot revalidation（含
+  deterministic two-phase readiness stub 與 canonical mutation/rebuild race）、per-candidate
+  workspace/authority/provenance/freshness/eligibility revalidation、admitted relation profile
+  enforcement、non-evidence entity 與 non-citation authority 語意、canonical evidence identity、
+  hard admission budget、deterministic ordering 與 restart 後相等性。
 - Retrieval tests prove graph candidates undergo authority, provenance, freshness, and eligibility
   revalidation before `EvidenceBundle` assembly, citation creation, and grounded Answer validation.
-  These also remain Phase 3C requirements.
+  The admission boundary itself is owned by the Graph evidence admission suites above; lexical +
+  vector + graph fusion ranking remains a later Phase 3D story.
 - Adapter-unavailable tests prove lexical/vector retrieval remains usable and that operational
   failure is not reported as a false empty graph result. Cloud adapter evaluation must also record
   local-first/offline fit, latency, projection/sync complexity, cost, IAM/security,
@@ -374,3 +383,13 @@ Tier inventory 的驗收條件是：unclassified executable tests = 0；`fast` +
 `graph.GraphTraversalContractTest` 驗證 query/bounds/candidate contract 與 hard maxima；`graph.GraphTraversalServiceTest` 驗證 lifecycle → backend proof → traversal → backend proof → final lifecycle/canonical check 的 ordering、typed drift 與 fail-closed result validation。`persistence.graph.arcadedb.ArcadeDbGraphTraversalTest` 使用真實 production adapter 驗證 deterministic directed BFS、restart、cycle、所有 hard-stop diagnostics、composite index prefix、workspace、row proof 及 orphan/endpoint corruption。`persistence.graph.CanonicalGraphTraversalIntegrationTest` 使用隔離 SQLite、production canonical assembler/lifecycle 與真實 ArcadeDB 重現 canonical mutation A 及 late callback A/B race。
 
 這些 tests 不證明 `EvidenceBundle`、Ask、REST/UI、fusion 或 GraphRAG；Graph candidate 尚未取得 citation authority。L5 challenge 必須另行檢查 stale topology、SQLite/backend generation mismatch、fingerprint/version/workspace drift、RID/vendor ordering leakage 與極端 bounds，並在 PR 記錄 reviewer independence limitation。
+
+## Graph Evidence admission 測試責任（#260）
+
+`rag.GraphEvidenceAdmissionServiceTest` 以 deterministic two-phase readiness stub（非 sleep/retry）驗證 consumption-window TOCTOU：traversal 回傳後 canonical/projection drift 於 admission 前 fail closed、authority read 期間 drift 於 final check 丟棄整批、disabled/not-ready/backend unavailable 維持 typed failure、per-candidate workspace/authority/provenance/freshness/eligibility drift 以 typed rejection 拒絕、`MENTIONS`/`RELATED_TO` path 不得成為 evidence path、non-evidence entity 與 SOURCE_DOCUMENT non-citation authority 語意、duplicate identity dedup、hard admission budget、depth-derived deterministic score 與 authority read failure 不得偽裝成 insufficient evidence。
+
+`rag.GraphEvidenceVendorNeutralContractTest` 持有 admission production sources 的 vendor-neutral 掃描、provider-neutral contract surface（record components/package）、canonical `WIKI:`/`SOURCE_CHUNK:` evidence identity contract 與 bounded rejection diagnostics。`rag.GraphEvidenceAdmissionBudgetTest` 持有 hard budget bounds。
+
+`rag.GraphEvidenceAdmissionIntegrationTest` 使用隔離 SQLite、production canonical assembler/lifecycle 與真實 ArcadeDB 驗證 production traversal → admission → canonical evidence：wiki/source chunk canonical identity、canonical mutation race、projection rebuild race、backend restart 後 admission 相等性，以及 graph disabled 時 typed `CAPABILITY_DISABLED` 且 lexical baseline（`RetrievalService`）完全不受影響。納入 integration/full 與 production ArcadeDB graph adapter smoke job。
+
+Admission 產出的是 revalidated canonical `EvidenceItem`，不等於 fusion/Ask/REST 接入；lexical + vector + graph fusion ranking 與 degraded modality contract 屬後續 Phase 3D story。

@@ -94,7 +94,7 @@ class EmbeddingProjectionServiceTest {
         String normalized = "# Heading\n\nCanonical normalized source";
         long chunkId = 31L;
         SourceSearchAuthorityDocument authority = new SourceSearchAuthorityDocument(
-                WORKSPACE_ID, 9L, "source.pdf", "ACTIVE", "PROCESSED",
+                WORKSPACE_ID, 9L, "source.pdf", sha256("document-9"), "ACTIVE", "PROCESSED",
                 List.of(new SourceSearchAuthorityChunk(chunkId, 1, 2, "Heading", "Heading",
                         normalized, sha256(normalized))));
         when(sourceRepository.findDocumentByChunk(WORKSPACE_ID, chunkId))
@@ -150,7 +150,7 @@ class EmbeddingProjectionServiceTest {
         StoredPublishedWiki page = wiki("wiki-rebuild", "wiki rebuild hash");
         String normalized = "# Source heading\n\nCurrent authoritative source";
         SourceSearchAuthorityDocument authority = new SourceSearchAuthorityDocument(
-                WORKSPACE_ID, 12L, "source.md", "ACTIVE", "PROCESSED",
+                WORKSPACE_ID, 12L, "source.md", sha256("document-12"), "ACTIVE", "PROCESSED",
                 List.of(new SourceSearchAuthorityChunk(44L, 1, 1, "Notes", "Notes",
                         normalized, sha256(normalized))));
         when(wikiRepository.findAllPublished(WORKSPACE_ID)).thenReturn(List.of(page));

@@ -10,10 +10,13 @@
  * mismatches are treated as readiness failures; every candidate remains authority-revalidated
  * before use. {@code HYBRID_FTS} remains the Wiki + Source FTS-only strategy, while
  * {@code HYBRID_VECTOR} may expose only a typed, degraded lexical fallback when its vector signal
- * is unavailable. Future Graph Retrieval and GraphRAG may add a provider-neutral graph signal only
- * through bounded seed count, hop depth, fan-out, candidate, and evidence budgets. Graph candidates
- * must pass the same workspace-scoped authority, provenance, freshness, and eligibility
- * revalidation before they can enter {@code EvidenceBundle}; graph backend availability must not
- * invalidate lexical/vector retrieval.
+ * is unavailable. Bounded Graph candidates may enter this package only through
+ * {@code GraphEvidenceAdmissionService}: the returned traversal snapshot must still be current at
+ * admission time, and every candidate must pass workspace-scoped authority, provenance, freshness,
+ * and eligibility revalidation against canonical Wiki/Source authority before it becomes a
+ * canonical {@code EvidenceItem}. Graph topology rows, paths, and vendor identifiers never become
+ * citation authority; graph contribution is bounded by a hard admission budget; graph backend
+ * availability must not invalidate lexical/vector retrieval. Lexical + vector + graph fusion
+ * ranking is a later story and is deliberately not decided here.
  */
 package org.km.llmwiki.rag;

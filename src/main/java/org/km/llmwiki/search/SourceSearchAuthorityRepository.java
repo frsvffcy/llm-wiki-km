@@ -23,7 +23,7 @@ public class SourceSearchAuthorityRepository {
     public Optional<SourceSearchAuthorityDocument> findDocument(long workspaceId, long documentId) {
         var document = dsl.select(DOCUMENT.ID,
                         coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("document_name"),
-                        DOCUMENT.STATUS, DOCUMENT.PARSE_STATUS)
+                        DOCUMENT.SHA256, DOCUMENT.STATUS, DOCUMENT.PARSE_STATUS)
                 .from(DOCUMENT)
                 .where(DOCUMENT.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
                 .and(DOCUMENT.ID.eq(Math.toIntExact(documentId)))
@@ -52,7 +52,8 @@ public class SourceSearchAuthorityRepository {
                         record.get(SOURCE_CHUNK.CONTENT_HASH)));
         return Optional.of(new SourceSearchAuthorityDocument(workspaceId, documentId,
                 document.get("document_name", String.class),
-                document.get(DOCUMENT.STATUS), document.get(DOCUMENT.PARSE_STATUS), chunks));
+                document.get(DOCUMENT.SHA256), document.get(DOCUMENT.STATUS),
+                document.get(DOCUMENT.PARSE_STATUS), chunks));
     }
 
     public Optional<SourceSearchAuthorityDocument> findDocumentByChunk(long workspaceId,

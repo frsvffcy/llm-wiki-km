@@ -74,15 +74,21 @@ Graph traversal read contract with deterministic candidates, non-bypassable hard
 query-time lifecycle/backend/canonical snapshot validation. Issue #253 advances the canonical
 profile to `graph-projection-v2`, admitting deterministic `LINKS_TO`, `TAGGED_WITH`, and
 `DERIVED_FROM` evidence while requiring a full versioned rebuild and mixed-version fail-closed
-serving. It still does not add Evidence integration, Graph Ask modes, REST/UI surfaces, fusion,
+serving. Issue #260 adds the Graph candidate → canonical evidence admission boundary: traversal
+results are revalidated against the projection snapshot at admission time (closing the
+consumption window), and every candidate is revalidated against workspace, provenance, relation
+profile, freshness, and canonical Wiki/Source authority before it becomes an `EvidenceItem` under
+a hard admission budget. It still does not add fusion ranking, Graph Ask modes, REST/UI surfaces,
 inferred relations, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
-subject to adoption gates. Graph candidates must
-pass workspace-scoped authority, provenance, freshness, and eligibility revalidation before
-entering `EvidenceBundle`, then continue through the existing citation and grounded Answer
-contract. If a graph backend is unavailable, the lexical + vector baseline remains in effect; a
-vector/backend outage continues to use the existing typed degraded lexical fallback semantics. No
+subject to adoption gates. Graph candidates reach `EvidenceBundle` only through
+`GraphEvidenceAdmissionService`, which revalidates the traversal snapshot at admission time and
+enforces workspace-scoped authority, provenance, freshness, and eligibility revalidation per
+candidate before producing canonical evidence identity
+(`WIKI:<knowledgeId>` / `SOURCE_CHUNK:<sourceChunkId>`). If a graph backend is unavailable, the
+lexical + vector baseline remains in effect; a vector/backend outage continues to use the existing
+typed degraded lexical fallback semantics. No
 backend is canonical, browser-accessible, or the domain contract; vendor APIs, record models,
 Cypher, GQL, SQL-PGQ, and DTOs remain behind adapters. See
 [ADR 0007](docs/adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md).

@@ -108,8 +108,9 @@ class VectorCandidateSearchServiceTest {
         when(similaritySearch.findNearest(any())).thenReturn(List.of(
                 match(EmbeddingEvidenceKind.SOURCE_CHUNK, "41", hash, 0.88d)));
         when(sourceRepository.findDocumentByChunk(WORKSPACE.id(), 41L)).thenReturn(Optional.of(
-                new SourceSearchAuthorityDocument(WORKSPACE.id(), 9L, "source.md", "PROCESSED",
-                        "PROCESSED", List.of(new SourceSearchAuthorityChunk(41L, 1, 2,
+                new SourceSearchAuthorityDocument(WORKSPACE.id(), 9L, "source.md",
+                        sha256("document"), "PROCESSED", "PROCESSED",
+                        List.of(new SourceSearchAuthorityChunk(41L, 1, 2,
                         "Notes", "Notes", content, hash)))));
 
         SearchCandidatePage page = service.findCandidates(
@@ -161,8 +162,9 @@ class VectorCandidateSearchServiceTest {
         when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE.id(), "page-a"))
                 .thenReturn(Optional.of(wiki("page-a", HASH_B)));
         when(sourceRepository.findDocumentByChunk(WORKSPACE.id(), 41L)).thenReturn(Optional.of(
-                new SourceSearchAuthorityDocument(WORKSPACE.id(), 9L, "source.md", "PROCESSED",
-                        "PENDING", List.of(new SourceSearchAuthorityChunk(41L, 1, 2,
+                new SourceSearchAuthorityDocument(WORKSPACE.id(), 9L, "source.md",
+                        sha256("document"), "PROCESSED", "PENDING",
+                        List.of(new SourceSearchAuthorityChunk(41L, 1, 2,
                         "Notes", "Notes", content, currentHash)))));
 
         assertThat(service.findCandidates(
