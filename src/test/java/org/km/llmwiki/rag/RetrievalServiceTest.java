@@ -414,6 +414,53 @@ class RetrievalServiceTest {
         assertThat(bundle.insufficientEvidence()).isTrue();
     }
 
+    @Test
+    void fusedStrategyDelegatesToTheGraphGroundedOrchestratorWithoutTouchingChannelsDirectly() {
+        FusedRetrievalOrchestrator orchestrator = mock(FusedRetrievalOrchestrator.class);
+        EvidenceBundle fused = new EvidenceBundle("graph question", RetrievalMode.HYBRID_GRAPH,
+                new EvidenceWorkspace(WORKSPACE_ID, "Retrieval workspace"), List.of(),
+                new EvidenceBudget(8, 12_000, 0, 0, 0, false), 0, 0, true,
+                RetrievalDiagnostics.fused());
+        when(orchestrator.retrieveFused(any())).thenReturn(fused);
+        retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
+                wikiContentReader, sourceRepository, null, null, orchestrator);
+
+        EvidenceBundle bundle = retrievalService.retrieve(
+                RetrievalRequest.defaults("graph question", RetrievalMode.HYBRID_GRAPH));
+
+        assertThat(bundle).isSameAs(fused);
+        verify(orchestrator).retrieveFused(any());
+        verify(searchService, never()).findCandidates(any());
+    }
+
+    @Test
+    void fusedStrategyWithoutOrchestrationWiringFailsClosed() {
+        assertThatThrownBy(() -> retrievalService.retrieve(
+                RetrievalRequest.defaults("graph question", RetrievalMode.HYBRID_GRAPH)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("fused retrieval orchestration");
+    }
+
+    @Test
+    void graphGroundedModeIsAdditiveAndNeverRedefinesExistingModeSemantics() {
+        assertThat(RetrievalMode.values()).hasSize(7);
+        assertThat(RetrievalMode.HYBRID_GRAPH.searchCorpus()).isEqualTo(SearchCorpus.ALL);
+        assertThat(RetrievalMode.HYBRID_GRAPH.strategy()).isEqualTo(RetrievalStrategy.FUSED);
+
+        assertThat(RetrievalMode.WIKI_ONLY.searchCorpus()).isEqualTo(SearchCorpus.WIKI);
+        assertThat(RetrievalMode.WIKI_ONLY.strategy()).isEqualTo(RetrievalStrategy.LEXICAL);
+        assertThat(RetrievalMode.SOURCE_ONLY.searchCorpus()).isEqualTo(SearchCorpus.SOURCE);
+        assertThat(RetrievalMode.SOURCE_ONLY.strategy()).isEqualTo(RetrievalStrategy.LEXICAL);
+        assertThat(RetrievalMode.HYBRID_FTS.searchCorpus()).isEqualTo(SearchCorpus.ALL);
+        assertThat(RetrievalMode.HYBRID_FTS.strategy()).isEqualTo(RetrievalStrategy.LEXICAL);
+        assertThat(RetrievalMode.SEMANTIC_WIKI.searchCorpus()).isEqualTo(SearchCorpus.WIKI);
+        assertThat(RetrievalMode.SEMANTIC_WIKI.strategy()).isEqualTo(RetrievalStrategy.SEMANTIC);
+        assertThat(RetrievalMode.SEMANTIC_SOURCE.searchCorpus()).isEqualTo(SearchCorpus.SOURCE);
+        assertThat(RetrievalMode.SEMANTIC_SOURCE.strategy()).isEqualTo(RetrievalStrategy.SEMANTIC);
+        assertThat(RetrievalMode.HYBRID_VECTOR.searchCorpus()).isEqualTo(SearchCorpus.ALL);
+        assertThat(RetrievalMode.HYBRID_VECTOR.strategy()).isEqualTo(RetrievalStrategy.HYBRID);
+    }
+
     private void stubWiki(String knowledgeId, String content) {
         StoredPublishedWiki page = new StoredPublishedWiki(knowledgeId.hashCode() & 0x7fffffff,
                 WORKSPACE_ID, knowledgeId, "Title " + knowledgeId, "title " + knowledgeId,

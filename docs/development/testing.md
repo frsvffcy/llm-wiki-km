@@ -157,7 +157,8 @@ Graph work must provide evidence at each boundary:
 - Retrieval tests prove graph candidates undergo authority, provenance, freshness, and eligibility
   revalidation before `EvidenceBundle` assembly, citation creation, and grounded Answer validation.
   The admission boundary itself is owned by the Graph evidence admission suites above; lexical +
-  vector + graph fusion ranking remains a later Phase 3D story.
+  vector + graph fusion ranking and the Ask-facing orchestration are owned by the Phase 3D (#262)
+  and Phase 3E (#264) suites below.
 - Adapter-unavailable tests prove lexical/vector retrieval remains usable and that operational
   failure is not reported as a false empty graph result. Cloud adapter evaluation must also record
   local-first/offline fit, latency, projection/sync complexity, cost, IAM/security,
@@ -402,4 +403,14 @@ Admission 產出的是 revalidated canonical `EvidenceItem`，不等於 fusion/A
 
 `rag.FusedEvidenceIntegrationTest` 使用隔離 SQLite、真實 FTS serving、production canonical assembler/lifecycle 與真實 ArcadeDB：三模端到端 fusion（lexical-discovered seed + graph-discovered non-seed target）、canonical mutation 以 call-count barrier 發生在 channel revalidation 與 terminal publication 之間並由 terminal guard 拒絕、projection rebuild 後 fusion 僅以 generation B served 且 stale lexical candidates 被 revalidation 拒絕、graph excluded/disabled 時 typed DISABLED 且 lexical baseline 完整。納入 integration/full。
 
-Fusion 輸出 `FusedEvidenceResult`（revalidated、deduped、budget-bounded、terminal-guarded items），刻意不新增 public `RetrievalMode`，也不接 Ask/REST；Graph-grounded Ask mode 依後續 capability story 另行建立。
+Fusion 輸出 `FusedEvidenceResult`（revalidated、deduped、budget-bounded、terminal-guarded items，並攜帶 per-item modality provenance 與 admitted graph snapshot 作為 handoff diagnostics），本身不接 Ask/REST；Graph-grounded Ask surface 由 #264 的 fused retrieval orchestration 接續。
+
+## Graph-grounded Ask orchestration 與 last-mile handoff currentness 測試責任（#264）
+
+`rag.FusedRetrievalOrchestratorTest` 持有 `HYBRID_GRAPH` Ask-facing orchestration 的 unit contract：`FusedEvidenceResult` → `EvidenceBundle` 保留 canonical identity/order/mode/budget、last-mile canonical revision 與 source eligibility drift 於 handoff 被 drop 且 fuse 只呼叫一次（no silent backfill）、last-mile projection drift drop graph-only evidence 且 cross-modality evidence 保留獨立 lexical 證明鏈、graph degradation 不得拖垮 lexical baseline、handoff infrastructure failure 為 typed `RetrievalUnavailableException`（非 insufficient evidence）、cross-workspace identity 於 handoff 被拒、handoff drop 後 budget/counts 反映 survivors 且 selection truncation 保留、重複呼叫 deterministic、graph 未參與時不進行 projection check、`FusedModalityDiagnostics` → `RetrievalDiagnostics` 的 typed degradation mapping（degraded ≠ normal zero result）。
+
+`rag.RetrievalServiceTest` 補上 `FUSED` strategy 分派（delegate 至 orchestrator、不得直接觸碰 channel）、未接線時 fail closed，以及 explicit contract：`HYBRID_GRAPH` 為 additive mode，既有六個 mode 的 corpus/strategy 語意完全不變。`ai.ask.AskServiceTest` 驗證 FUSED retrieval failure 保留 typed failure 與 fused diagnostics；`AskApiContractTest`/`AskApiIntegrationTest` 驗證 `HYBRID_GRAPH` 於 API 邊界被接受、graph signal metadata 可達 Browser 且不含內部 detail。
+
+`rag.FusedRetrievalOrchestrationIntegrationTest` 使用隔離 SQLite、真實 FTS、production canonical assembler/lifecycle 與真實 ArcadeDB：三模端到端 bundle（lexical seed + graph-discovered target、deterministic repeat）、canonical mutation 以 probe + call-count barrier 精確發生在 Ask handoff revalidation 並被 drop（fusion terminal guard 仍見 current state）、projection drift 以 readiness reader barrier 在 handoff 觸發 rebuild 至 generation B，graph-only evidence 被拒而 lexical baseline 存活；shared context 的 disabled projection 經 shared orchestrator 仍服務 lexical baseline。納入 integration/full。
+
+Graph-grounded Ask 仍為 stateless/read-only；`FusedRetrievalOrchestrator` 不寫入 `vault/`/`archive/`，graph evidence 僅能經 STORY-807 admission 進入 bundle，`MENTIONS`/`RELATED_TO` 無法繞過 relation profile。REST productization、Browser mode selector、Graph REST/UI 依後續 story 另行建立。

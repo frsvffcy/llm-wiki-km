@@ -19,7 +19,12 @@
  * availability must not invalidate lexical/vector retrieval. {@code FusedEvidenceService} fuses
  * the lexical, vector, and graph channels deterministically by canonical evidence identity with
  * reciprocal rank fusion, hard global/per-modality budgets, and a terminal publication guard that
- * revalidates every selected item before the result may leave this boundary. This package
- * deliberately introduces no new public retrieval mode and never mutates canonical knowledge.
+ * revalidates every selected item before the result may leave this boundary. The additive
+ * {@code HYBRID_GRAPH} Ask mode is served by {@code FusedRetrievalOrchestrator}, which assembles
+ * the authoritative {@code EvidenceBundle} and applies a last-mile Ask handoff guard that
+ * re-checks the graph projection snapshot and every item's canonical authority in a fresh
+ * consumption window; dropped evidence is never silently backfilled, graph degradation stays a
+ * typed diagnostic, and infrastructure failures stay typed failures. This package never mutates
+ * canonical knowledge.
  */
 package org.km.llmwiki.rag;

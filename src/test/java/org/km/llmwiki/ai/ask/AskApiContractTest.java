@@ -47,6 +47,34 @@ class AskApiContractTest {
     }
 
     @Test
+    void graphGroundedModeIsAcceptedAdditivelyWithoutChangingExistingModes() {
+        AskApiRequest graphGrounded = new AskApiRequest("question", RetrievalMode.HYBRID_GRAPH);
+
+        assertThat(graphGrounded.toApplicationRequest().retrievalMode())
+                .isEqualTo(RetrievalMode.HYBRID_GRAPH);
+        assertThat(graphGrounded.toApplicationRequest().retrievalRequest().strategy())
+                .isEqualTo(org.km.llmwiki.rag.RetrievalStrategy.FUSED);
+
+        // The six pre-existing modes keep their public semantics untouched.
+        assertThat(RetrievalMode.values()).hasSize(7);
+        assertThat(RetrievalMode.HYBRID_FTS.strategy())
+                .isEqualTo(org.km.llmwiki.rag.RetrievalStrategy.LEXICAL);
+        assertThat(RetrievalMode.HYBRID_VECTOR.strategy())
+                .isEqualTo(org.km.llmwiki.rag.RetrievalStrategy.HYBRID);
+    }
+
+    @Test
+    void rejectsUnknownRetrievalModesBeforeTheApplicationService() {
+        com.fasterxml.jackson.databind.JsonNode body =
+                new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(
+                        java.util.Map.of("question", "q", "retrievalMode", "GRAPH_RAG"));
+
+        assertThatThrownBy(() -> AskApiRequest.fromJson(body))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("retrievalMode is invalid");
+    }
+
+    @Test
     void answeredResultRequiresAtLeastOneCitation() {
         assertThatThrownBy(() -> new AskResult(AskStatus.ANSWERED,
                 java.util.Optional.of("ungrounded answer"), java.util.List.of(),

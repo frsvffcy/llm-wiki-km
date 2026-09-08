@@ -123,12 +123,14 @@ public class AskService {
                 case LEXICAL -> RetrievalDiagnostics.lexical();
                 case SEMANTIC -> RetrievalDiagnostics.semantic();
                 case HYBRID -> RetrievalDiagnostics.hybrid();
+                case FUSED -> RetrievalDiagnostics.fused();
             };
         }
         return switch (strategy) {
             case LEXICAL -> RetrievalDiagnostics.lexical();
             case SEMANTIC -> RetrievalDiagnostics.unavailableSemantic(exception.getMessage());
             case HYBRID -> RetrievalDiagnostics.degradedHybrid(exception.getMessage());
+            case FUSED -> RetrievalDiagnostics.fused();
         };
     }
 

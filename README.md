@@ -53,7 +53,10 @@ semantic and lexical/vector hybrid retrieval surface through additive Ask modes.
 the Wiki + Source FTS5 corpus; `SEMANTIC_WIKI`, `SEMANTIC_SOURCE`, and `HYBRID_VECTOR` select the
 semantic strategies defined by the retrieval contract. `HYBRID_VECTOR` may report a safe degraded
 lexical fallback when vector search is unavailable, while `SEMANTIC_*` fails closed with a typed
-unavailable response. These modes describe available retrieval contracts, not semantic corpus
+unavailable response. `HYBRID_GRAPH` composes the lexical, vector, and graph channels through
+application-owned deterministic fusion with a last-mile Ask handoff currentness guard; a degraded
+graph projection is reported as typed response diagnostics without degrading the lexical + vector
+baseline. These modes describe available retrieval contracts, not semantic corpus
 readiness: semantic serving additionally requires backend capability configuration, a `READY`
 embedding projection for the requested workspace and corpus, and query-time metadata, freshness,
 and authority validation. SQLite remains the operational/control plane for the relational schema,
@@ -82,8 +85,14 @@ a hard admission budget. Issue #262 adds the application-owned deterministic fus
 lexical, vector, and graph channels: identity-level reciprocal rank fusion with no raw
 cross-scale score addition, canonical identity dedupe across modalities, hard global and
 per-modality budgets, typed per-modality degradation, and a terminal publication guard that
-revalidates every selected item before results leave the fusion boundary. It still does not add
-a public Graph Ask mode, REST/UI surfaces, inferred relations, or GraphRAG.
+revalidates every selected item before results leave the fusion boundary. Issue #264 connects
+that fusion to Ask through the additive public mode `HYBRID_GRAPH` served by the application-owned
+`FusedRetrievalOrchestrator`: a last-mile Ask handoff guard re-checks the graph projection
+snapshot and every item's canonical authority in a fresh consumption window before the
+`EvidenceBundle` leaves the retrieval boundary, drops are never silently backfilled, a degraded
+graph signal stays typed diagnostics that do not drag down the lexical + vector baseline, and
+infrastructure failures stay typed instead of becoming insufficient evidence. It still does not
+add Graph REST/UI surfaces, inferred relations, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
 subject to adoption gates. Graph candidates reach `EvidenceBundle` only through

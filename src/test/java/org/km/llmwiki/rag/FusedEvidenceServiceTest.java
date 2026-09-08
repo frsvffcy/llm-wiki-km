@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.km.llmwiki.graph.GraphEntityIdentity;
 import org.km.llmwiki.graph.GraphProjectionBackendProof;
 import org.km.llmwiki.graph.GraphProjectionException;
 import org.km.llmwiki.graph.GraphProjectionFailure;
@@ -386,6 +387,70 @@ class FusedEvidenceServiceTest {
         FusedEvidenceResult second = service.fuse(FusedEvidenceRequest.of("query"));
 
         assertThat(second).isEqualTo(first);
+    }
+
+    @Test
+    void fusedResultCarriesModalityProvenanceAndTheAdmittedGraphSnapshot() {
+        stubLexical(List.of(wikiCandidate("wiki-shared", 1.0d, 3)));
+        stubVector(List.of(wikiCandidate("wiki-shared", 0.9d, 3)));
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "wiki-shared"))
+                .thenReturn(Optional.of(wikiPage("wiki-shared", 3, sha256("v3"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("shared content");
+        Mockito.when(graphAdmissionService.admit(any())).thenReturn(admission(SNAPSHOT_A,
+                graphItem("wiki-shared", "shared content", sha256("v3"))));
+
+        FusedEvidenceResult result = service.fuse(FusedEvidenceRequest.of("query"));
+
+        assertThat(result.itemModalities().keySet()).containsExactly("WIKI:wiki-shared");
+        assertThat(result.itemModalities().get("WIKI:wiki-shared"))
+                .containsExactlyInAnyOrder(CandidateSignal.LEXICAL, CandidateSignal.VECTOR,
+                        CandidateSignal.GRAPH);
+        assertThat(result.graphSnapshot()).isEqualTo(SNAPSHOT_A);
+        assertThat(result.items()).singleElement()
+                .satisfies(item -> assertThat(item.stableIdentity()).isEqualTo("WIKI:wiki-shared"));
+    }
+
+    @Test
+    void graphSeedsAreCanonicalHardBoundedAndPermutationInvariant() {
+        List<SearchCandidate> candidates = new java.util.ArrayList<>();
+        for (int index = 1; index <= 20; index++) {
+            candidates.add(wikiCandidate("wiki-" + index, 1.0d, 1));
+        }
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(anyLong(), anyString()))
+                .thenAnswer(invocation -> Optional.of(wikiPage(
+                        invocation.getArgument(1), 1, sha256("v1"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("content");
+
+        // More revalidated candidates than the traversal seed cap: the seed set is hard bounded
+        // and every seed is a canonical workspace-scoped authority identity, never a backend row.
+        stubLexical(candidates);
+        service.fuse(FusedEvidenceRequest.of("query"));
+        ArgumentCaptor<GraphTraversalQuery> bounded = ArgumentCaptor
+                .forClass(GraphTraversalQuery.class);
+        Mockito.verify(graphBackend, Mockito.times(1)).traverse(bounded.capture());
+        assertThat(bounded.getValue().seeds()).hasSize(GraphTraversalQuery.HARD_MAX_SEEDS);
+        assertThat(bounded.getValue().workspace()).isEqualTo(WORKSPACE_SCOPE);
+        assertThat(bounded.getValue().seeds())
+                .allSatisfy(seed -> assertThat(seed.canonicalKey()).startsWith("wiki-page:"));
+
+        // Permuting the same equal-relevance backend hits must not change the canonical seed
+        // identity set or order: reciprocal ranks tie-break on the canonical identity itself.
+        stubLexical(List.of(candidates.get(2), candidates.get(0), candidates.get(1)));
+        stubVector(List.of(candidates.get(1), candidates.get(2), candidates.get(0)));
+        service.fuse(FusedEvidenceRequest.of("query"));
+        stubLexical(List.of(candidates.get(1), candidates.get(2), candidates.get(0)));
+        stubVector(List.of(candidates.get(0), candidates.get(1), candidates.get(2)));
+        service.fuse(FusedEvidenceRequest.of("query"));
+        ArgumentCaptor<GraphTraversalQuery> permuted = ArgumentCaptor
+                .forClass(GraphTraversalQuery.class);
+        Mockito.verify(graphBackend, Mockito.times(3)).traverse(permuted.capture());
+        List<GraphEntityIdentity> firstSeeds = permuted.getAllValues().get(1).seeds();
+        List<GraphEntityIdentity> secondSeeds = permuted.getAllValues().get(2).seeds();
+        assertThat(secondSeeds).isEqualTo(firstSeeds);
+        assertThat(firstSeeds).hasSize(3);
+        assertThat(firstSeeds).extracting(GraphEntityIdentity::canonicalKey)
+                .containsExactlyInAnyOrder("wiki-page:wiki-1", "wiki-page:wiki-2",
+                        "wiki-page:wiki-3");
     }
 
     @Test

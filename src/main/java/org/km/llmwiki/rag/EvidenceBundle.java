@@ -28,6 +28,7 @@ public record EvidenceBundle(
                             case LEXICAL -> RetrievalDiagnostics.lexical();
                             case SEMANTIC -> RetrievalDiagnostics.semantic();
                             case HYBRID -> RetrievalDiagnostics.hybrid();
+                            case FUSED -> RetrievalDiagnostics.fused();
                         });
     }
 

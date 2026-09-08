@@ -122,13 +122,18 @@ public record AskApiResponse(
             boolean lexicalSignalUsed,
             boolean vectorSignalUsed,
             boolean degradedFallback,
-            boolean vectorUnavailable
+            boolean vectorUnavailable,
+            boolean graphSignalUsed,
+            boolean graphDegraded,
+            boolean graphUnavailable
     ) {
         static RetrievalMetadata from(RetrievalDiagnostics diagnostics) {
             if (diagnostics == null) return null;
             return new RetrievalMetadata(diagnostics.strategy().name(),
                     diagnostics.lexicalSignalUsed(), diagnostics.vectorSignalUsed(),
-                    diagnostics.degradedFallback(), diagnostics.vectorUnavailable());
+                    diagnostics.degradedFallback(), diagnostics.vectorUnavailable(),
+                    diagnostics.graphSignalUsed(), diagnostics.graphDegraded(),
+                    diagnostics.graphUnavailable());
         }
     }
 }
