@@ -1,25 +1,31 @@
 # ADR 0007：Provider-neutral Knowledge Graph 與 Graph Retrieval 能力邊界
 
-- 狀態：Accepted（Issue #219 / Post-Sprint 7）
+- 狀態：Accepted（Issue #219 / Post-Sprint 7）；roadmap 於 2026-09-09 對齊實際交付（Issue #270）
 - 日期：2026-09-04
 - 範圍：Phase 3 architecture/governance contract；不包含 production graph implementation
 
-> Current status（2026-09-07）：Phase 3A contract 已完成並進入 `GO`；Phase 3B embedded
+> Current status（2026-09-09）：Phase 3A contract 已完成並進入 `GO`；Phase 3B embedded
 > multi-model feasibility spike 已由 [ADR 0008](0008-arcadedb-embedded-projection-feasibility-spike.md)
-> 完成並取得 `CONDITIONAL GO`。Issue #244 與
+> 完成，其 `CONDITIONAL GO` 已由 production adoption gate 接續。Issue #244 與
 > [ADR 0009](0009-arcadedb-production-projection-adoption.md) 已完成 production projection
-> lifecycle/readiness/repair adoption gate 並取得 lifecycle-only `GO`。Issue #252 與
-> [ADR 0011](0011-bounded-graph-retrieval-snapshot-currentness.md) 已完成 Phase 3C 的
-> provider-neutral bounded Graph read／traversal 與 query-time snapshot currentness；尚未建立
-> `EvidenceBundle` integration、candidate authority revalidation、Graph Ask/REST/UI、fusion 或 GraphRAG。
+> lifecycle/readiness/repair adoption gate 並取得 lifecycle-only `GO`。Phase 3C 已完成
+> provider-neutral bounded Graph read／traversal（Issue #252 /
+> [ADR 0011](0011-bounded-graph-retrieval-snapshot-currentness.md)）、deterministic canonical
+> relation profile v2（Issue #253 / [ADR 0012](0012-deterministic-canonical-graph-relation-profile.md)）
+> 與 graph candidate → canonical evidence admission（Issue #260）。Phase 3D 已完成 lexical +
+> vector + graph deterministic fusion 與 publication currentness（Issue #262）。Phase 3E 已完成
+> `HYBRID_GRAPH` Graph-grounded Ask（Issue #264）、Ask REST / Browser productization（Issue #265）
+> 與 graph retrieval failure normalization stabilization（Issue #268）。
 
 ## Context
 
 Repository-level 文件曾把 Phase 3 簡化成「Neo4j projection 與 GraphRAG」。這會把部署選項誤當成
 domain contract，也容易讓後續實作直接以 Cypher、GQL、SQL-PGQ 或 vendor DTO 作為 application
 authority。Knowledge Graph 應是 application/domain capability；ArcadeDB、Neo4j、RyuGraph、BigQuery
-Graph 與 Spanner Graph 都只是可替換的 adapter 或 deployment choice。ArcadeDB 目前是首選的
-embedded multi-model adapter candidate，但這個偏好不是 vendor commitment。
+Graph 與 Spanner Graph 都只是可替換的 adapter 或 deployment choice。ArcadeDB 目前是 production
+Graph projection adapter（經 ADR 0008 feasibility 與 ADR 0009 adoption gate 採用），但它不是
+canonical authority、SQLite replacement 或 domain API；未來 adapter 評估仍是 evidence-driven
+decision，不是 vendor commitment。
 
 既有 `archive/`、`vault/` 與 authoritative metadata 才是 canonical Source of Truth。FTS、vector
 與未來 graph data 都只能是可重建的 derived projection；既有 lexical/vector Retrieval、
@@ -93,17 +99,52 @@ Graph backend 只存在 adapter boundary，並依 deployment context 評估：
 任何 adapter adoption 都必須評估 local-first compatibility、offline capability、interactive
 latency、data projection/sync complexity、cost、IAM/security、data residency/privacy、operability、
 graph scale、GraphRAG developer ergonomics 與 provider lock-in/portability。BigQuery Graph 不因 GA
-就自動成為 default；選擇結果必須保留可重建 projection 與可替換 adapter boundary。
+就自動成為 default；選擇結果必須保留可重建 projection 與可替換 adapter boundary。Adapter
+evaluation 不綁定任何 Phase 編號：上表 candidate 皆為 optional evaluation candidate，是否以及
+何時啟動任一 spike 由 Phase 3F+ 的 capability-driven 規劃與獨立 adoption gate 決定；目前使用
+ArcadeDB 不得使 domain/application contract vendor-specific 化。
 
-### Suggested Phase 3 roadmap
+### Phase 3 capability roadmap（2026-09-09 對齊）
 
-- **Phase 3A / completed / GO** — Graph domain / projection contract
-- **Phase 3B / completed / CONDITIONAL GO** — Embedded multi-model feasibility spike：以 SQLite + ArcadeDB adapter 為目前首選方向，並與 Nitrite / RyuGraph 比較；完成證據與限制見 ADR 0008。這不是 SQLite migration，也不是 Phase 2 或 lexical/vector baseline blocker
-- **Phase 3 production-adoption gate / completed / GO** — Issue #244 已交付 production ArcadeDB Graph projection adapter、SQLite-authoritative lifecycle/readiness、recovery、repair/clear、generation/CAS、resource/file-locking、failure/degradation、operational/security/license 與 Linux/Apple Silicon evidence；詳見 ADR 0009
-- **Phase 3C / bounded traversal completed through #252** — provider-neutral read/session/factory、directed outgoing BFS、hard caps、deterministic ordering 與 query-time lifecycle/backend/canonical snapshot validation 已完成；candidate authority revalidation、Evidence integration、Graph Ask/REST/UI、fusion 與 GraphRAG 尚未實作
-- **Phase 3D** — Lexical + Vector + Graph hybrid GraphRAG fusion
-- **Phase 3E** — Optional BigQuery Graph cloud analytics adapter spike
-- **Phase 3F** — Future Spanner Graph realtime adapter evaluation
+#### Historical note（superseded）
+
+本 ADR 早期曾附帶一份 **suggested roadmap**，假設 Phase 3C～3F 依序為 Neo4j adapter spike、
+RyuGraph adapter spike、BigQuery Graph adapter spike 與 Spanner Graph adapter evaluation。這是
+Phase 3 尚未落地前的早期假設，**已被下列實際交付的 capability roadmap 取代**（superseded）：
+provider-neutral 原則從不要求依序實作任何特定 vendor adapter，這些 backend 仍是「未來可選的
+evaluation candidate」，不是固定 Phase milestone。保留此註記是為如實記錄決策演進，而非製造
+「早期從未考慮其他 adapter」的假象。
+
+#### 已交付的 capability roadmap
+
+- **Phase 3A / completed / GO** — Graph domain / projection contract：provider-neutral Graph
+  Entity、Relation、Provenance、stable identity、workspace scope、projection snapshot/version
+  與 typed failure contract（本 ADR）
+- **Phase 3B / completed / CONDITIONAL GO** — Embedded multi-model feasibility spike：SQLite +
+  ArcadeDB adapter 為目前方向，並與 Nitrite / RyuGraph 比較；證據與限制見 ADR 0008。不是
+  SQLite migration，也不是 lexical/vector baseline blocker
+- **Phase 3 production-adoption gate / completed / GO** — Issue #244 交付 production ArcadeDB
+  Graph projection adapter、SQLite-authoritative lifecycle/readiness、recovery、repair/clear、
+  generation/CAS、resource/file-locking、failure/degradation、operational/security/license 與
+  Linux/Apple Silicon evidence；詳見 ADR 0009
+- **Phase 3C / completed** — bounded Graph Retrieval 與 canonical evidence admission：
+  provider-neutral read/session/factory、directed outgoing BFS、hard caps、deterministic
+  ordering 與 query-time snapshot validation（Issue #252 / ADR 0011）；deterministic canonical
+  relation profile v2（Issue #253 / ADR 0012）；graph candidate → canonical `EvidenceItem`
+  admission boundary（Issue #260 / STORY-807）
+- **Phase 3D / completed** — lexical + vector + graph deterministic fusion 與 publication
+  currentness：identity 級 reciprocal rank fusion、hard budgets、typed per-modality
+  degradation、terminal publication guard（Issue #262 / STORY-808）
+- **Phase 3E / completed** — Graph-grounded Ask 與 public surface：additive public mode
+  `HYBRID_GRAPH`、last-mile Ask handoff currentness guard（Issue #264 / STORY-809）；Ask REST /
+  Browser productization（Issue #265 / STORY-810）；graph retrieval failure normalization
+  stabilization——optional-modality degrade、integrity fail closed、no silent backfill
+  （Issue #268）
+- **Phase 3F+ / capability-driven follow-up** — 不預先綁定任何固定 Phase 編號或 vendor
+  adapter。後續工作（如 Graph visualization、Graph traversal REST endpoint、GraphRAG 擴充、
+  semantic `MENTIONS` / `RELATED_TO`、或其他 backend adapter evaluation）由屆時的 evidence
+  與 adoption gate 定義，不得引用本 ADR 舊 roadmap 作為「Phase 3F 必為某 cloud adapter
+  spike」的依據。
 
 本 ADR 只建立 tracked architecture boundary，不授權一次導入上述全部 implementation，也不新增
 runtime dependency、schema、REST contract 或 persistent graph table。
