@@ -127,12 +127,16 @@ test("maps typed errors to safe user-facing messages", () => {
   });
 });
 
-test("exposes additive semantic modes without redefining HYBRID_FTS", () => {
+test("exposes additive semantic and graph modes without redefining HYBRID_FTS", () => {
   assert.deepEqual(RETRIEVAL_MODES.map(mode => mode.value), [
     "HYBRID_FTS", "WIKI_ONLY", "SOURCE_ONLY",
-    "SEMANTIC_WIKI", "SEMANTIC_SOURCE", "HYBRID_VECTOR"
+    "SEMANTIC_WIKI", "SEMANTIC_SOURCE", "HYBRID_VECTOR", "HYBRID_GRAPH"
   ]);
   assert.match(RETRIEVAL_MODES[0].label, /全文搜尋/);
+  const graphMode = RETRIEVAL_MODES[RETRIEVAL_MODES.length - 1];
+  assert.equal(graphMode.value, "HYBRID_GRAPH");
+  assert.match(graphMode.label, /圖譜/);
+  assert.doesNotMatch(graphMode.label, /ArcadeDB|sqlite|vendor/i);
 });
 
 test("renders a safe degraded hybrid notice without exposing diagnostics", () => {
@@ -192,8 +196,103 @@ test("sends the selected semantic retrieval mode", async () => {
   assert.equal(requestBody.retrievalMode, "HYBRID_VECTOR");
 });
 
-test("does not add persistence or unsafe HTML APIs to the UI module", async () => {
+test("sends the selected graph-grounded retrieval mode", async () => {
+  const elements = uiElements();
+  elements.question.value = "Explain the graph mode";
+  elements.retrievalMode.value = "HYBRID_GRAPH";
+  let requestBody;
+  const controller = createAskController(elements, async (url, options) => {
+    requestBody = JSON.parse(options.body);
+    return { ok: true, async json() {
+      return { data: { status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true, citations: [] } };
+    } };
+  }, documentRef);
+  await controller.submit(event());
+  assert.equal(requestBody.retrievalMode, "HYBRID_GRAPH");
+});
+
+test("renders a graph-grounded answer with degradation as a safe notice, not a failure", () => {
+  const elements = uiElements();
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED",
+    answer: "graph-grounded answer",
+    citations: [
+      { citationId: "E1", evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } },
+      { citationId: "E2", evidenceKind: "SOURCE_CHUNK", provenance: { type: "SOURCE", documentName: "design.pdf" } }
+    ],
+    retrievalMetadata: {
+      strategy: "FUSED", lexicalSignalUsed: true, vectorSignalUsed: true,
+      degradedFallback: false, vectorUnavailable: false,
+      graphSignalUsed: true, graphDegraded: true, graphUnavailable: false,
+      graphDetail: "internal handoff projection currentness drift: GRAPH_PROJECTION_STALE"
+    }
+  } }, documentRef);
+
+  assert.equal(elements.error.hidden, true);
+  assert.equal(elements.answer.hidden, false);
+  assert.equal(elements.insufficient.hidden, true);
+  assert.equal(elements.citations.children.length, 2);
+  assert.match(elements.metadata.textContent, /知識圖譜訊號已降級/);
+  assert.doesNotMatch(elements.metadata.textContent,
+    /handoff|projection|stale|generation|snapshot|ArcadeDB/i);
+});
+
+test("renders an unavailable graph signal as a safe notice while the answer stays valid", () => {
+  const elements = uiElements();
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED",
+    answer: "baseline answer",
+    citations: [{ citationId: "E1", evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } }],
+    retrievalMetadata: {
+      strategy: "FUSED", lexicalSignalUsed: true, vectorSignalUsed: true,
+      degradedFallback: false, vectorUnavailable: false,
+      graphSignalUsed: false, graphDegraded: false, graphUnavailable: true,
+      graphDetail: "internal readiness status"
+    }
+  } }, documentRef);
+
+  assert.equal(elements.answer.hidden, false);
+  assert.equal(elements.error.hidden, true);
+  assert.match(elements.metadata.textContent, /知識圖譜訊號暫時無法使用/);
+  assert.doesNotMatch(elements.metadata.textContent, /readiness|snapshot|ArcadeDB/i);
+});
+
+test("graph degradation with insufficient evidence still shows the insufficient state, not an error", () => {
+  const elements = uiElements();
+  renderAskResponse(elements, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true, citations: [],
+    retrievalMetadata: {
+      strategy: "FUSED", lexicalSignalUsed: true, vectorSignalUsed: true,
+      degradedFallback: false, vectorUnavailable: false,
+      graphSignalUsed: true, graphDegraded: true, graphUnavailable: false
+    }
+  } }, documentRef);
+  assert.equal(elements.insufficient.hidden, false);
+  assert.equal(elements.error.hidden, true);
+  assert.equal(elements.answer.hidden, true);
+  assert.equal(elements.metadata.hidden, true);
+});
+
+test("keeps server citation order without re-ranking citations in the browser", () => {
+  const elements = uiElements();
+  // The server order is authoritative; the browser must not reorder citations by modality,
+  // vendor score, or any local policy.
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED",
+    answer: "ordered answer",
+    citations: [
+      { citationId: "E2", evidenceKind: "SOURCE_CHUNK", provenance: { type: "SOURCE", documentName: "b.pdf" } },
+      { citationId: "E1", evidenceKind: "WIKI", provenance: { type: "WIKI", title: "a" } }
+    ]
+  } }, documentRef);
+  assert.equal(elements.citations.children[0].children[1].children[0].textContent, "SOURCE");
+  assert.equal(elements.citations.children[1].children[1].children[0].textContent, "WIKI");
+});
+
+test("does not add persistence, unsafe HTML APIs, vendor internals, or graph endpoints to the UI module", async () => {
   const source = await readFile(new URL("../../main/resources/static/ask-ui.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /localStorage|sessionStorage/);
   assert.doesNotMatch(source, /innerHTML/);
+  assert.doesNotMatch(source, /ArcadeDB|sqlite-vec|snapshotToken|sourceFingerprint|vendorScore/i);
+  assert.doesNotMatch(source, /api\/v1\/(?!ask)/);
 });

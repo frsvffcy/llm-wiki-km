@@ -2,6 +2,8 @@ package org.km.llmwiki.ai.ask;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.km.llmwiki.rag.RetrievalMode;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -63,6 +65,30 @@ class AskApiContractTest {
                 .isEqualTo(org.km.llmwiki.rag.RetrievalStrategy.HYBRID);
     }
 
+    @ParameterizedTest
+    @EnumSource(RetrievalMode.class)
+    void everyPublicModeSerializesThroughTheSameJsonBoundary(RetrievalMode mode) {
+        com.fasterxml.jackson.databind.JsonNode body =
+                new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(
+                        java.util.Map.of("question", "q", "retrievalMode", mode.name()));
+
+        assertThat(AskApiRequest.fromJson(body).toApplicationRequest().retrievalMode())
+                .isEqualTo(mode);
+    }
+
+    @Test
+    void omittedRetrievalModeIsRejectedWithoutAnyDefaultInjection() {
+        // The request boundary owns no mode defaulting policy: omitting the mode is a client
+        // error, never a silent switch to the graph-grounded or any other mode.
+        com.fasterxml.jackson.databind.JsonNode body =
+                new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(
+                        java.util.Map.of("question", "q"));
+
+        assertThatThrownBy(() -> AskApiRequest.fromJson(body))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("retrievalMode");
+    }
+
     @Test
     void rejectsUnknownRetrievalModesBeforeTheApplicationService() {
         com.fasterxml.jackson.databind.JsonNode body =
@@ -72,6 +98,20 @@ class AskApiContractTest {
         assertThatThrownBy(() -> AskApiRequest.fromJson(body))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("retrievalMode is invalid");
+    }
+
+    @Test
+    void controllerOwnsNoRetrievalFusionOrGraphPolicy() {
+        // The REST adapter stays thin: mode validation, DTO mapping, and typed error mapping
+        // only. Seed selection, traversal, authority revalidation, fusion, currentness, and
+        // citation identity remain in the application layer.
+        assertThat(java.util.List.of(AskController.class.getDeclaredFields()))
+                .allSatisfy(field -> {
+                    assertThat(field.getType().getSimpleName()).doesNotContain("Fused");
+                    assertThat(field.getType().getSimpleName()).doesNotContain("Graph");
+                    assertThat(field.getType().getPackageName())
+                            .doesNotStartWith("org.km.llmwiki.graph");
+                });
     }
 
     @Test

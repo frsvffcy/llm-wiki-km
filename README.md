@@ -56,7 +56,8 @@ lexical fallback when vector search is unavailable, while `SEMANTIC_*` fails clo
 unavailable response. `HYBRID_GRAPH` composes the lexical, vector, and graph channels through
 application-owned deterministic fusion with a last-mile Ask handoff currentness guard; a degraded
 graph projection is reported as typed response diagnostics without degrading the lexical + vector
-baseline. These modes describe available retrieval contracts, not semantic corpus
+baseline, and the Browser Ask UI offers the mode as “Wiki 與來源文件（圖譜增強）”. These modes describe
+available retrieval contracts, not semantic corpus
 readiness: semantic serving additionally requires backend capability configuration, a `READY`
 embedding projection for the requested workspace and corpus, and query-time metadata, freshness,
 and authority validation. SQLite remains the operational/control plane for the relational schema,
@@ -91,8 +92,13 @@ that fusion to Ask through the additive public mode `HYBRID_GRAPH` served by the
 snapshot and every item's canonical authority in a fresh consumption window before the
 `EvidenceBundle` leaves the retrieval boundary, drops are never silently backfilled, a degraded
 graph signal stays typed diagnostics that do not drag down the lexical + vector baseline, and
-infrastructure failures stay typed instead of becoming insufficient evidence. It still does not
-add Graph REST/UI surfaces, inferred relations, or GraphRAG.
+infrastructure failures stay typed instead of becoming insufficient evidence. Issue #265
+productizes the mode for Ask REST and the Browser Ask UI: the controller and the UI stay
+adapter-only (mode selection/validation, DTO mapping, error mapping, safe diagnostics
+presentation, and citation rendering), the mode selector describes the capability as a
+graph-enhanced retrieval mode without exposing backend implementation, and a degraded graph
+signal renders as a safe notice while the answer and citations remain valid. It still does not
+add a Graph traversal REST endpoint, graph visualization, inferred relations, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
 subject to adoption gates. Graph candidates reach `EvidenceBundle` only through
@@ -144,10 +150,13 @@ boundary are recorded in [ADR 0002](docs/adr/0002-grounded-answer-contract-v2.md
 
 Start the application with the command above, then open
 `http://127.0.0.1:8765/` in a browser. Enter a question, choose a retrieval mode (including
-semantic Wiki/source or `HYBRID_VECTOR`), and submit it. `HYBRID_FTS` is explicitly full-text
+semantic Wiki/source, `HYBRID_VECTOR`, or the graph-enhanced `HYBRID_GRAPH`), and submit it.
+`HYBRID_FTS` is explicitly full-text
 search. Each submission is an independent request; the browser does
 not keep question or answer history. Answers show the returned citation provenance only—no
-local files or provider endpoints are opened by the UI.
+local files or provider endpoints are opened by the UI. When the graph signal is degraded or
+temporarily unavailable, the answer and its citations stay valid and the UI shows a safe
+degradation notice instead of a failure.
 
 The answer provider is disabled by default. For a production answer provider, configure the
 backend with environment variables such as the following placeholder values before startup:

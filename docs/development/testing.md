@@ -264,6 +264,25 @@ Knowledge capability 仍須回到 Proposal → Draft → Human Review → Publis
 | Ask REST request / response / error contract | `ai.ask.AskApiContractTest`、`ai.ask.AskApiIntegrationTest` | request validation、`ApiResponse` shape、error mapping、HTTP boundary 與 provider-disabled behavior |
 | Browser Ask UI rendering / stateless / security behavior | `src/test/js/ask-ui.test.mjs` | citation rendering、independent submissions、safe error display，以及 browser 不接觸 provider credential 或 local files |
 
+### Graph-grounded Ask productization 測試責任（#265）
+
+REST 與 Browser 為 adapter-only：mode selection/validation、DTO mapping、HTTP error mapping、
+safe diagnostics presentation 與 answer/citation rendering；controller/UI 不得重新實作 seed
+selection、traversal、authority revalidation、fusion/ranking、currentness、dedupe 或 citation
+identity。此 invariant 由 `ai.ask.AskApiContractTest.controllerOwnsNoRetrievalFusionOrGraphPolicy`
+（controller declared fields 不得引用 graph/fusion 型別）與 `src/test/js/ask-ui.test.mjs` 的
+static-source guard（不得出現 vendor/internal identifiers、不得呼叫 ask 以外的 `/api/v1` endpoint）
+共同鎖住。
+
+`HYBRID_GRAPH` 的 public surface 覆蓋：`AskApiContractTest` 驗證七個 public mode 走同一 JSON
+boundary、omitted mode 無 default injection、unknown mode 拒絕；`AskApiIntegrationTest` 驗證
+`HYBRID_GRAPH` 200/ANSWERED、Graph degraded 但 lexical/vector baseline 足夠時仍為
+`ANSWERED` + valid citations（degradation 僅為 typed metadata，不得偽裝成整體 failure）、
+internal detail 不外洩。`ask-ui.test.mjs` 驗證 mode selector additive（`HYBRID_FTS` 仍為
+第一個選項且語意不變、label 為圖譜增強且不含 backend 實作詞）、submit 傳送所選 mode、
+graph degraded/unavailable 呈現為 safe notice 而非 failure/insufficient masquerade、
+browser 依 server 順序渲染 citation 不重排。
+
 ### Sprint 7 Embedding canonical ownership
 
 Embedding 是獨立於 Answer 的 provider-neutral boundary。`ai.embedding.EmbeddingContractTest`、
