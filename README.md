@@ -102,7 +102,12 @@ every optional-graph boundary follow one shared failure normalization policy: op
 backend/control-plane faults degrade the graph modality with typed diagnostics while the
 lexical + vector baseline continues, integrity/correctness violations fail closed with a typed
 retrieval failure instead of being disguised as degradation, and no silent backfill occurs
-after a drop. It still does not
+after a drop. The Graph projection also has a provider-neutral operational REST surface
+(`/api/v1/graph/projection/readiness`, `/rebuild`, `/repair`): readiness is a status query,
+rebuild and repair are explicit operator actions that always go through the canonical assembler
+and the SQLite-authoritative lifecycle, the status projection never exposes fingerprints,
+tokens, or backend identities, and the destructive `clear` operation is intentionally not
+public. It still does not
 add a Graph traversal REST endpoint, graph visualization, inferred relations, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates

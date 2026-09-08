@@ -1,7 +1,7 @@
 package org.km.llmwiki.graph;
 
 /** Production 維護入口。每次 rebuild/repair 重新組裝，generation 由 lifecycle 管理。 */
-public final class GraphProjectionIngressService {
+public final class GraphProjectionIngressService implements GraphProjectionOperations {
     private final GraphProjectionInputAssembler assembler;
     private final GraphProjectionLifecycleService lifecycle;
 

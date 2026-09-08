@@ -85,7 +85,7 @@ jobs:
       - name: 驗證 Linux production ArcadeDB lifecycle、canonical ingress、bounded traversal、graph evidence admission 與資源契約
         run: >-
           mvn --batch-mode
-          -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest,GraphEvidenceAdmissionIntegrationTest
+          -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest,GraphEvidenceAdmissionIntegrationTest,GraphProjectionOperationalApiIntegrationTest
           test
 
   build-integrity:
