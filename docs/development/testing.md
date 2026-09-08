@@ -393,3 +393,13 @@ Tier inventory 的驗收條件是：unclassified executable tests = 0；`fast` +
 `rag.GraphEvidenceAdmissionIntegrationTest` 使用隔離 SQLite、production canonical assembler/lifecycle 與真實 ArcadeDB 驗證 production traversal → admission → canonical evidence：wiki/source chunk canonical identity、canonical mutation race、projection rebuild race、backend restart 後 admission 相等性，以及 graph disabled 時 typed `CAPABILITY_DISABLED` 且 lexical baseline（`RetrievalService`）完全不受影響。納入 integration/full 與 production ArcadeDB graph adapter smoke job。
 
 Admission 產出的是 revalidated canonical `EvidenceItem`，不等於 fusion/Ask/REST 接入；lexical + vector + graph fusion ranking 與 degraded modality contract 屬後續 Phase 3D story。
+
+## Modality fusion 與 publication currentness 測試責任（#262）
+
+`rag.ModalityRankFusionTest` 持有 identity 級 reciprocal rank fusion 的數學：per-channel one-based rank、跨 channel 累加、tie-break identity、channel completion order 無關性、per-channel duplicate 不得放大 rank、raw score 完全不在 contract 內。
+
+`rag.FusedEvidenceServiceTest` 以 deterministic two-phase stub 與真實 `GraphTraversalService`（mock ports）驗證三模 fusion：raw score scale 不主導 fused order、cross-modality hit 折疊為單一 canonical identity、terminal projection drift drop graph-only evidence 且保留 lexical baseline、terminal canonical revision/eligibility drift drop stale evidence、terminal reject 不補位、graph disabled/stale/infrastructure failure 的 typed degradation、vector unavailable 保留 lexical、lexical infrastructure failure typed（非 insufficient evidence）、cross-workspace candidate 於 channel revalidation 被拒、duplicate hits 不得繞過 global budget、traversal query 的 relation vocabulary 僅限 admitted profile（`MENTIONS`/`RELATED_TO` 不得進入）、重複呼叫 deterministic。
+
+`rag.FusedEvidenceIntegrationTest` 使用隔離 SQLite、真實 FTS serving、production canonical assembler/lifecycle 與真實 ArcadeDB：三模端到端 fusion（lexical-discovered seed + graph-discovered non-seed target）、canonical mutation 以 call-count barrier 發生在 channel revalidation 與 terminal publication 之間並由 terminal guard 拒絕、projection rebuild 後 fusion 僅以 generation B served 且 stale lexical candidates 被 revalidation 拒絕、graph excluded/disabled 時 typed DISABLED 且 lexical baseline 完整。納入 integration/full。
+
+Fusion 輸出 `FusedEvidenceResult`（revalidated、deduped、budget-bounded、terminal-guarded items），刻意不新增 public `RetrievalMode`，也不接 Ask/REST；Graph-grounded Ask mode 依後續 capability story 另行建立。

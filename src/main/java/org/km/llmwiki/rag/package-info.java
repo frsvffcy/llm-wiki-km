@@ -16,7 +16,10 @@
  * and eligibility revalidation against canonical Wiki/Source authority before it becomes a
  * canonical {@code EvidenceItem}. Graph topology rows, paths, and vendor identifiers never become
  * citation authority; graph contribution is bounded by a hard admission budget; graph backend
- * availability must not invalidate lexical/vector retrieval. Lexical + vector + graph fusion
- * ranking is a later story and is deliberately not decided here.
+ * availability must not invalidate lexical/vector retrieval. {@code FusedEvidenceService} fuses
+ * the lexical, vector, and graph channels deterministically by canonical evidence identity with
+ * reciprocal rank fusion, hard global/per-modality budgets, and a terminal publication guard that
+ * revalidates every selected item before the result may leave this boundary. This package
+ * deliberately introduces no new public retrieval mode and never mutates canonical knowledge.
  */
 package org.km.llmwiki.rag;

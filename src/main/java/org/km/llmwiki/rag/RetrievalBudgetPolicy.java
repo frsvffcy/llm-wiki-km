@@ -14,9 +14,13 @@ final class RetrievalBudgetPolicy {
     }
 
     static ResolvedBudget resolve(RetrievalRequest request) {
-        int maxItems = request.maxItems() == null ? DEFAULT_MAX_ITEMS : request.maxItems();
-        int maxCharacters = request.maxCharacters() == null
-                ? DEFAULT_MAX_CHARACTERS : request.maxCharacters();
+        return resolve(request.maxItems(), request.maxCharacters());
+    }
+
+    static ResolvedBudget resolve(Integer requestedMaxItems, Integer requestedMaxCharacters) {
+        int maxItems = requestedMaxItems == null ? DEFAULT_MAX_ITEMS : requestedMaxItems;
+        int maxCharacters = requestedMaxCharacters == null
+                ? DEFAULT_MAX_CHARACTERS : requestedMaxCharacters;
         if (maxItems < 1 || maxItems > HARD_MAX_ITEMS) {
             throw new IllegalArgumentException("maxItems must be between 1 and " + HARD_MAX_ITEMS);
         }
