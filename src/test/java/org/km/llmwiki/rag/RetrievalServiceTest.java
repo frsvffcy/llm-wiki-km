@@ -161,7 +161,7 @@ class RetrievalServiceTest {
         SourceSearchAuthorityChunk invalidChunk = new SourceSearchAuthorityChunk(
                 30L, 1, null, null, null, "stale", "0".repeat(64));
         SourceSearchAuthorityDocument invalidDocument = new SourceSearchAuthorityDocument(
-                WORKSPACE_ID, 300L, "stale.txt", "PENDING", "PROCESSED",
+                WORKSPACE_ID, 300L, "stale.txt", sha256("stale"), "PENDING", "PROCESSED",
                 List.of(invalidChunk));
         sourceDocuments.put(300L, invalidDocument);
         when(sourceRepository.findDocument(WORKSPACE_ID, 300L)).thenReturn(Optional.of(
@@ -272,8 +272,8 @@ class RetrievalServiceTest {
         SourceSearchAuthorityChunk changedChunk = new SourceSearchAuthorityChunk(40L, 1, 3,
                 "Section", "Root > Section", "source v2", sha256("source v2"));
         when(sourceRepository.findDocument(WORKSPACE_ID, 400L)).thenReturn(Optional.of(
-                new SourceSearchAuthorityDocument(WORKSPACE_ID, 400L, "source.txt", "PENDING",
-                        "PROCESSED", List.of(changedChunk))));
+                new SourceSearchAuthorityDocument(WORKSPACE_ID, 400L, "source.txt",
+                        sha256("source v1"), "PENDING", "PROCESSED", List.of(changedChunk))));
         when(searchService.findCandidates(any())).thenReturn(page(List.of(wiki, source)));
 
         EvidenceBundle bundle = retrievalService.retrieve(
@@ -430,7 +430,7 @@ class RetrievalServiceTest {
         SourceSearchAuthorityChunk chunk = new SourceSearchAuthorityChunk(chunkId, 1, 3,
                 "Section", "Root > Section", content, sha256(content));
         SourceSearchAuthorityDocument document = new SourceSearchAuthorityDocument(WORKSPACE_ID,
-                documentId, "source.txt", "PENDING", "PROCESSED", List.of(chunk));
+                documentId, "source.txt", sha256("document"), "PENDING", "PROCESSED", List.of(chunk));
         sourceDocuments.put(documentId, document);
         when(sourceRepository.findDocument(WORKSPACE_ID, documentId)).thenReturn(Optional.of(document));
     }

@@ -29,7 +29,7 @@ public final class GraphTraversalService {
         }
         GraphProjectionSnapshot expected = query.expectedSnapshot();
         GraphProjectionVerification before = readinessReader.readiness(query.workspace());
-        requireReady(before, expected, false);
+        GraphSnapshotCurrentness.requireCurrent(before, expected, false);
         if (backendFactory == null) {
             throw new GraphProjectionException(GraphProjectionFailureType.CAPABILITY_UNAVAILABLE);
         }
@@ -50,46 +50,8 @@ public final class GraphTraversalService {
         validateResult(query, materialized);
 
         GraphProjectionVerification after = readinessReader.readiness(query.workspace());
-        requireReady(after, expected, true);
+        GraphSnapshotCurrentness.requireCurrent(after, expected, true);
         return materialized;
-    }
-
-    private static void requireReady(GraphProjectionVerification verification,
-                                     GraphProjectionSnapshot expected,
-                                     boolean materialized) {
-        if (verification == null || !expected.workspace().equals(verification.workspace())) {
-            throw corruptProof();
-        }
-        if (!verification.ready()) {
-            GraphProjectionFailureType type = switch (verification.status()) {
-                case DISABLED -> GraphProjectionFailureType.CAPABILITY_DISABLED;
-                case NOT_CONFIGURED -> GraphProjectionFailureType.CONFIGURATION_INVALID;
-                case STALE -> GraphProjectionFailureType.PROJECTION_STALE;
-                case PROJECTION_INCOMPATIBLE ->
-                        GraphProjectionFailureType.PROJECTION_INCOMPATIBLE;
-                case BACKEND_UNAVAILABLE -> verification.failure() == null
-                        ? GraphProjectionFailureType.BACKEND_FAILURE
-                        : verification.failure().type();
-                default -> verification.failure() == null
-                        ? GraphProjectionFailureType.PROJECTION_NOT_READY
-                        : verification.failure().type();
-            };
-            if (materialized && type == GraphProjectionFailureType.PROJECTION_NOT_READY) {
-                type = GraphProjectionFailureType.PROJECTION_STALE;
-            }
-            throw new GraphProjectionException(type);
-        }
-        GraphProjectionSnapshot actual = verification.controlPlane() == null
-                ? null : verification.controlPlane().appliedSnapshot();
-        if (actual == null || expected.generation() != actual.generation()) {
-            throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
-        }
-        if (!expected.projectionVersion().equals(actual.projectionVersion())) {
-            throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
-        }
-        if (!expected.equals(actual)) {
-            throw corruptProof();
-        }
     }
 
     private static void requireProof(GraphProjectionBackendProof proof,
