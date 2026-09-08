@@ -5,8 +5,6 @@ import org.km.llmwiki.graph.GraphEntityIdentity;
 import org.km.llmwiki.graph.GraphAuthorityKind;
 import org.km.llmwiki.graph.GraphAuthorityReference;
 import org.km.llmwiki.graph.GraphEntityType;
-import org.km.llmwiki.graph.GraphProjectionException;
-import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.graph.GraphProjectionReadinessReader;
 import org.km.llmwiki.graph.GraphProjectionSnapshot;
 import org.km.llmwiki.graph.GraphProjectionVerification;
@@ -214,16 +212,27 @@ public class FusedEvidenceService {
                 GraphSnapshotCurrentness.requireCurrent(
                         graphReadiness.readiness(new GraphWorkspaceScope(workspaceId)),
                         graph.snapshot(), true);
-            } catch (GraphProjectionException drift) {
-                graphOutcome = ModalityOutcome.DEGRADED;
-                graphDetail = "terminal projection currentness drift: "
-                        + drift.failureType().publicCode();
+            } catch (RuntimeException failure) {
+                // Terminal graph currentness cannot be re-proven: graph-only evidence loses its
+                // only validity chain and must not be published; cross-modality items keep
+                // their independent lexical/vector proof, which the per-item canonical check
+                // below still verifies. Operational failures degrade the graph modality only;
+                // integrity violations fail closed typed and programming defects propagate.
+                GraphRetrievalFailurePolicy.NormalizedFailure normalized =
+                        GraphRetrievalFailurePolicy.normalize(failure);
+                switch (normalized.verdict()) {
+                    case FAIL_CLOSED ->
+                            throw GraphRetrievalFailurePolicy.typedFailure(failure);
+                    case PROPAGATE -> throw failure;
+                    case DEGRADE -> {
+                        graphOutcome = normalized.outcome();
+                        graphDetail = "terminal graph currentness check failed: "
+                                + normalized.detail();
+                    }
+                }
                 var graphIterator = selected.iterator();
                 while (graphIterator.hasNext()) {
                     SelectedEntry entry = graphIterator.next();
-                    // Graph-only evidence loses its only validity chain. Cross-modality items
-                    // keep their independent lexical/vector proof, which the per-item canonical
-                    // check below still verifies.
                     if (entry.modalities().equals(EnumSet.of(CandidateSignal.GRAPH))) {
                         graphIterator.remove();
                         usedCharacters -= entry.characters();
@@ -297,8 +306,7 @@ public class FusedEvidenceService {
         try {
             readiness = graphReadiness.readiness(new GraphWorkspaceScope(active.id()));
         } catch (RuntimeException readinessFailure) {
-            return GraphChannel.failed(ModalityOutcome.UNAVAILABLE,
-                    "graph readiness check failed");
+            return graphChannelFailure(readinessFailure);
         }
         if (!readiness.ready()) {
             return GraphChannel.failed(classify(readiness), statusDetail(readiness));
@@ -327,10 +335,24 @@ public class FusedEvidenceService {
                             ? ModalityOutcome.EMPTY : ModalityOutcome.CONTRIBUTED,
                     null, snapshot, admitted.evidenceItems(), order,
                     admitted.candidateCount(), admitted.rejectedCandidateCount());
-        } catch (GraphProjectionException failure) {
-            return GraphChannel.failed(classify(failure.failureType()),
-                    failure.failureType().publicCode());
+        } catch (RuntimeException failure) {
+            return graphChannelFailure(failure);
         }
+    }
+
+    /**
+     * Normalizes one failure observed at the graph channel boundary with the shared failure
+     * policy: operational faults degrade the graph modality only, integrity violations fail
+     * closed typed, and unrecognized programming defects propagate unchanged.
+     */
+    private static GraphChannel graphChannelFailure(RuntimeException failure) {
+        GraphRetrievalFailurePolicy.NormalizedFailure normalized =
+                GraphRetrievalFailurePolicy.normalize(failure);
+        return switch (normalized.verdict()) {
+            case DEGRADE -> GraphChannel.failed(normalized.outcome(), normalized.detail());
+            case FAIL_CLOSED -> throw GraphRetrievalFailurePolicy.typedFailure(failure);
+            case PROPAGATE -> throw failure;
+        };
     }
 
     /** Seeds are the fused, authority-revalidated canonical hits; stale seeds simply miss. */
@@ -416,15 +438,6 @@ public class FusedEvidenceService {
             case PROJECTION_INCOMPATIBLE, BACKEND_UNAVAILABLE, REPAIR_REQUIRED ->
                     ModalityOutcome.UNAVAILABLE;
             case READY -> ModalityOutcome.CONTRIBUTED;
-        };
-    }
-
-    private static ModalityOutcome classify(GraphProjectionFailureType type) {
-        return switch (type) {
-            case CAPABILITY_DISABLED -> ModalityOutcome.DISABLED;
-            case PROJECTION_NOT_READY -> ModalityOutcome.NOT_READY;
-            case PROJECTION_STALE -> ModalityOutcome.DEGRADED;
-            default -> ModalityOutcome.UNAVAILABLE;
         };
     }
 

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.km.llmwiki.graph.GraphProjectionException;
 import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.graph.GraphProjectionReadiness;
 import org.km.llmwiki.graph.GraphProjectionReadinessReader;
@@ -173,6 +174,61 @@ class FusedRetrievalOrchestratorTest {
                 .containsExactly("WIKI:wiki-shared", "WIKI:wiki-lexical");
         assertThat(bundle.diagnostics().graphDegraded()).isTrue();
         assertThat(bundle.diagnostics().graphUnavailable()).isFalse();
+    }
+
+    @Test
+    void handoffReadinessInfrastructureFailureDropsGraphOnlyEvidenceAndKeepsTheBaseline() {
+        // Deterministic fault injection: the handoff control-plane read fails operationally
+        // after fusion published. Graph-only evidence loses its only validity chain and is
+        // dropped; cross-modality evidence keeps its independent lexical proof; the baseline
+        // continues instead of raw-propagating a generic runtime failure.
+        stubFusion(result(List.of(
+                        item("wiki-graph", "graph content"),
+                        item("wiki-shared", "shared"),
+                        item("wiki-lexical", "lexical")),
+                Map.of("WIKI:wiki-graph", Set.of(CandidateSignal.GRAPH),
+                        "WIKI:wiki-shared", Set.of(CandidateSignal.LEXICAL, CandidateSignal.GRAPH),
+                        "WIKI:wiki-lexical", Set.of(CandidateSignal.LEXICAL)),
+                SNAPSHOT_A));
+        Mockito.when(graphReadiness.readiness(any()))
+                .thenThrow(new org.jooq.exception.DataAccessException("control plane down"));
+        stubCurrentWiki("wiki-shared", "shared");
+        stubCurrentWiki("wiki-lexical", "lexical");
+
+        EvidenceBundle bundle = orchestrator.retrieveFused(request());
+
+        assertThat(bundle.items()).extracting(EvidenceItem::stableIdentity)
+                .containsExactly("WIKI:wiki-shared", "WIKI:wiki-lexical");
+        assertThat(bundle.insufficientEvidence()).isFalse();
+        assertThat(bundle.diagnostics().graphUnavailable()).isTrue();
+        assertThat(bundle.diagnostics().graphDegraded()).isFalse();
+        assertThat(bundle.diagnostics().graphDetail()).contains("handoff");
+        assertThat(bundle.rejectedCandidateCount()).isEqualTo(1);
+        Mockito.verify(fusedEvidenceService, Mockito.times(1)).fuse(any());
+    }
+
+    @Test
+    void handoffCorruptProjectionProofFailsClosedTypedInsteadOfDegrading() {
+        stubFusion(result(List.of(item("wiki-graph", "graph content")),
+                Map.of("WIKI:wiki-graph", Set.of(CandidateSignal.GRAPH)), SNAPSHOT_A));
+        Mockito.when(graphReadiness.readiness(any())).thenThrow(new GraphProjectionException(
+                GraphProjectionFailureType.PROJECTION_CORRUPT));
+
+        assertThatThrownBy(() -> orchestrator.retrieveFused(request()))
+                .isInstanceOfSatisfying(RetrievalUnavailableException.class, failure ->
+                        assertThat(failure.dependency())
+                                .isEqualTo(RetrievalUnavailableException.Dependency.GRAPH));
+    }
+
+    @Test
+    void handoffUnexpectedRuntimeDefectPropagatesFailClosed() {
+        stubFusion(result(List.of(item("wiki-graph", "graph content")),
+                Map.of("WIKI:wiki-graph", Set.of(CandidateSignal.GRAPH)), SNAPSHOT_A));
+        IllegalStateException defect = new IllegalStateException("programming defect");
+        Mockito.when(graphReadiness.readiness(any())).thenThrow(defect);
+
+        assertThatThrownBy(() -> orchestrator.retrieveFused(request()))
+                .isSameAs(defect);
     }
 
     @Test

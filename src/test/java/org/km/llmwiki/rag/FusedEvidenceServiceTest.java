@@ -107,8 +107,14 @@ class FusedEvidenceServiceTest {
                 .thenReturn(Optional.of(graphBackend));
         Mockito.when(graphBackend.readProof(any())).thenReturn(
                 new GraphProjectionBackendProof(WORKSPACE_SCOPE, SNAPSHOT_A, null));
-        Mockito.when(graphBackend.traverse(any())).thenReturn(
-                new GraphTraversalResult(SNAPSHOT_A, List.of(), 1, 0, Set.of()));
+        // A backend result must stay invariant-consistent with the query it is answering;
+        // visitedNodeCount below the seed count is an impossible result and fails closed.
+        Mockito.when(graphBackend.traverse(any())).thenAnswer(invocation -> {
+            GraphTraversalQuery query = invocation.getArgument(0);
+            int seedCount = query == null ? 1 : query.seeds().size();
+            return new GraphTraversalResult(SNAPSHOT_A, List.of(), Math.max(1, seedCount), 0,
+                    Set.of());
+        });
         graphTraversalService = new GraphTraversalService(graphReadiness, graphBackendFactory);
         service = new FusedEvidenceService(workspaceService, searchService,
                 vectorCandidateSearchService, wikiRepository, wikiContentReader,
@@ -283,6 +289,143 @@ class FusedEvidenceServiceTest {
         assertThat(result.items()).extracting(EvidenceItem::stableId)
                 .containsExactly("wiki-baseline");
         assertThat(result.diagnostics().graph()).isEqualTo(ModalityOutcome.UNAVAILABLE);
+    }
+
+    @Test
+    void initialReadinessInfrastructureFailureDegradesGraphAndKeepsTheBaseline() {
+        stubLexical(List.of(wikiCandidate("wiki-baseline", 1.0d, 1)));
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "wiki-baseline"))
+                .thenReturn(Optional.of(wikiPage("wiki-baseline", 1, sha256("v1"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("content");
+        Mockito.when(graphReadiness.readiness(any()))
+                .thenThrow(new org.jooq.exception.DataAccessException("control plane down"));
+
+        FusedEvidenceResult result = service.fuse(FusedEvidenceRequest.of("query"));
+
+        assertThat(result.items()).extracting(EvidenceItem::stableId)
+                .containsExactly("wiki-baseline");
+        assertThat(result.diagnostics().graph()).isEqualTo(ModalityOutcome.UNAVAILABLE);
+        assertThat(result.diagnostics().graphDetail()).isEqualTo("graph infrastructure failure");
+        assertThat(result.diagnostics().lexical()).isEqualTo(ModalityOutcome.CONTRIBUTED);
+    }
+
+    @Test
+    void traversalReadinessInfrastructureFailureBehavesLikeTheInitialReadinessOne() {
+        stubLexical(List.of(wikiCandidate("wiki-baseline", 1.0d, 1)));
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "wiki-baseline"))
+                .thenReturn(Optional.of(wikiPage("wiki-baseline", 1, sha256("v1"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("content");
+        // The channel readiness check succeeds; the traversal pre-check control-plane read
+        // fails. Both boundaries must normalize identically: typed graph degradation, baseline
+        // untouched.
+        Mockito.when(graphReadiness.readiness(any()))
+                .thenReturn(ready(SNAPSHOT_A))
+                .thenThrow(new org.jooq.exception.DataAccessException("control plane down"));
+
+        FusedEvidenceResult result = service.fuse(FusedEvidenceRequest.of("query"));
+
+        assertThat(result.items()).extracting(EvidenceItem::stableId)
+                .containsExactly("wiki-baseline");
+        assertThat(result.diagnostics().graph()).isEqualTo(ModalityOutcome.UNAVAILABLE);
+        assertThat(result.diagnostics().lexical()).isEqualTo(ModalityOutcome.CONTRIBUTED);
+    }
+
+    @Test
+    void traversalBackendInfrastructureFailureIsTypedDegradation() {
+        stubLexical(List.of(wikiCandidate("wiki-baseline", 1.0d, 1)));
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "wiki-baseline"))
+                .thenReturn(Optional.of(wikiPage("wiki-baseline", 1, sha256("v1"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("content");
+        Mockito.when(graphBackend.traverse(any())).thenThrow(
+                new org.jooq.exception.DataAccessException("backend i/o failure"));
+
+        FusedEvidenceResult result = service.fuse(FusedEvidenceRequest.of("query"));
+
+        assertThat(result.items()).extracting(EvidenceItem::stableId)
+                .containsExactly("wiki-baseline");
+        assertThat(result.diagnostics().graph()).isEqualTo(ModalityOutcome.UNAVAILABLE);
+        assertThat(result.diagnostics().graph()).isNotEqualTo(ModalityOutcome.EMPTY);
+    }
+
+    @Test
+    void traversalBackendUnexpectedRuntimeDefectPropagatesFailClosed() {
+        stubLexical(List.of(wikiCandidate("wiki-baseline", 1.0d, 1)));
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "wiki-baseline"))
+                .thenReturn(Optional.of(wikiPage("wiki-baseline", 1, sha256("v1"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("content");
+        IllegalStateException defect = new IllegalStateException("programming defect");
+        Mockito.when(graphBackend.traverse(any())).thenThrow(defect);
+
+        assertThatThrownBy(() -> service.fuse(FusedEvidenceRequest.of("query")))
+                .isSameAs(defect);
+    }
+
+    @Test
+    void crossWorkspaceTraversalFailureFailsClosedTypedInsteadOfDegrading() {
+        stubLexical(List.of(wikiCandidate("wiki-baseline", 1.0d, 1)));
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "wiki-baseline"))
+                .thenReturn(Optional.of(wikiPage("wiki-baseline", 1, sha256("v1"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("content");
+        Mockito.when(graphAdmissionService.admit(any())).thenThrow(new GraphProjectionException(
+                GraphProjectionFailureType.CROSS_WORKSPACE));
+
+        assertThatThrownBy(() -> service.fuse(FusedEvidenceRequest.of("query")))
+                .isInstanceOfSatisfying(RetrievalUnavailableException.class, failure ->
+                        assertThat(failure.dependency())
+                                .isEqualTo(RetrievalUnavailableException.Dependency.GRAPH));
+    }
+
+    @Test
+    void terminalReadinessInfrastructureFailureDropsGraphOnlyEvidenceAndKeepsTheBaseline() {
+        stubLexical(List.of(wikiCandidate("wiki-lexical", 1.0d, 1)));
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "wiki-lexical"))
+                .thenReturn(Optional.of(wikiPage("wiki-lexical", 1, sha256("v1"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("lexical content");
+        Mockito.when(graphAdmissionService.admit(any())).thenReturn(admission(SNAPSHOT_A,
+                graphItem("wiki-graph", "graph content", sha256("v1"))));
+        // Channel, traversal pre/post checks all see snapshot A; the terminal publication guard
+        // control-plane read fails operationally. Graph-only evidence must not be published,
+        // cross-modality/lexical evidence keeps its independent proof, and the failure is a
+        // typed degradation instead of crashing the fusion.
+        Mockito.when(graphReadiness.readiness(any()))
+                .thenReturn(ready(SNAPSHOT_A), ready(SNAPSHOT_A), ready(SNAPSHOT_A))
+                .thenThrow(new org.jooq.exception.DataAccessException("control plane down"));
+
+        FusedEvidenceResult result = service.fuse(FusedEvidenceRequest.of("query"));
+
+        assertThat(result.items()).extracting(EvidenceItem::stableId)
+                .containsExactly("wiki-lexical");
+        assertThat(result.insufficientEvidence()).isFalse();
+        assertThat(result.diagnostics().graph()).isEqualTo(ModalityOutcome.UNAVAILABLE);
+        assertThat(result.diagnostics().graphDetail()).contains("terminal");
+        assertThat(result.diagnostics().terminalRejectedCount()).isEqualTo(1);
+        assertThat(result.diagnostics().lexical()).isEqualTo(ModalityOutcome.CONTRIBUTED);
+    }
+
+    @Test
+    void terminalCorruptProofFailsClosedTypedInsteadOfDegrading() {
+        stubLexical(List.of(wikiCandidate("wiki-lexical", 1.0d, 1)));
+        Mockito.when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "wiki-lexical"))
+                .thenReturn(Optional.of(wikiPage("wiki-lexical", 1, sha256("v1"))));
+        Mockito.when(wikiContentReader.readSearchableContent(any())).thenReturn("lexical content");
+        Mockito.when(graphAdmissionService.admit(any())).thenReturn(admission(SNAPSHOT_A,
+                graphItem("wiki-graph", "graph content", sha256("v1"))));
+        // Same generation, different fingerprint/token: the terminal guard must classify this
+        // as a corrupt proof and fail the whole request closed, never serve graph-only evidence
+        // or disguise the corruption as an optional-modality degradation.
+        GraphProjectionSnapshot corrupt = GraphProjectionSnapshot.fromProof(WORKSPACE_SCOPE,
+                VERSION, SNAPSHOT_A.generation(), "c".repeat(64));
+        Mockito.when(graphReadiness.readiness(any()))
+                .thenReturn(ready(SNAPSHOT_A), ready(SNAPSHOT_A), ready(SNAPSHOT_A),
+                        ready(corrupt));
+
+        assertThatThrownBy(() -> service.fuse(FusedEvidenceRequest.of("query")))
+                .isInstanceOfSatisfying(RetrievalUnavailableException.class, failure -> {
+                    assertThat(failure.dependency())
+                            .isEqualTo(RetrievalUnavailableException.Dependency.GRAPH);
+                    assertThat(failure.getCause())
+                            .isInstanceOf(GraphProjectionException.class);
+                });
     }
 
     @Test

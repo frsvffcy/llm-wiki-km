@@ -8,7 +8,9 @@ public class RetrievalUnavailableException extends RuntimeException {
         SEARCH_INDEX,
         VECTOR_SEARCH,
         WIKI_AUTHORITY,
-        SOURCE_AUTHORITY
+        SOURCE_AUTHORITY,
+        /** Typed fail-closed vehicle for graph integrity/correctness violations. */
+        GRAPH
     }
 
     private final Dependency dependency;

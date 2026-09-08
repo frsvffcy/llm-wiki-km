@@ -215,6 +215,32 @@ class AskServiceTest {
     }
 
     @Test
+    void graphIntegrityFailClosedSurfacesAsTypedRetrievalFailureNotInsufficientEvidence() {
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenThrow(new RetrievalUnavailableException(
+                RetrievalUnavailableException.Dependency.GRAPH,
+                new IllegalStateException("graph integrity violation")));
+        AtomicInteger calls = new AtomicInteger();
+        AnswerClient provider = request -> {
+            calls.incrementAndGet();
+            throw new AssertionError("provider must not be called");
+        };
+
+        AskResult result = new AskService(retrieval, new AnswerContextAssembler(), provider)
+                .ask(AskRequest.defaults("question", RetrievalMode.HYBRID_GRAPH));
+
+        assertThat(result.status()).isEqualTo(AskStatus.FAILED);
+        assertThat(result.insufficientEvidence()).isFalse();
+        assertThat(result.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.type()).isEqualTo(AskFailureType.RETRIEVAL_UNAVAILABLE);
+            assertThat(failure.retrievalDependency()).contains(
+                    RetrievalUnavailableException.Dependency.GRAPH);
+        });
+        assertThat(calls).hasValue(0);
+        assertThat(result.retrievalDiagnostics()).isEqualTo(RetrievalDiagnostics.fused());
+    }
+
+    @Test
     void hybridDiagnosticsAreCarriedToAskResult() {
         EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")),
                 RetrievalDiagnostics.degradedHybrid("vector unavailable"));
