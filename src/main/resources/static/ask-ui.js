@@ -4,7 +4,8 @@ const RETRIEVAL_MODES = Object.freeze([
   { value: "SOURCE_ONLY", label: "僅來源文件" },
   { value: "SEMANTIC_WIKI", label: "Wiki 語意搜尋" },
   { value: "SEMANTIC_SOURCE", label: "來源文件語意搜尋" },
-  { value: "HYBRID_VECTOR", label: "Wiki 與來源文件（語意混合）" }
+  { value: "HYBRID_VECTOR", label: "Wiki 與來源文件（語意混合）" },
+  { value: "HYBRID_GRAPH", label: "Wiki 與來源文件（圖譜增強）" }
 ]);
 
 const ERROR_MESSAGES = Object.freeze({
@@ -131,6 +132,14 @@ export function renderAskResponse(elements, payload, documentRef = document) {
   }
   if (retrieval && retrieval.degradedFallback === true) {
     metadataParts.push("搜尋提示：語意搜尋暫時不可用，已改用全文搜尋結果");
+  }
+  // Graph signal degradation is a typed diagnostic from the server contract, never a failure:
+  // the answer and its citations remain valid on the lexical/vector baseline.
+  if (retrieval && retrieval.graphDegraded === true) {
+    metadataParts.push("搜尋提示：知識圖譜訊號已降級，此回答仍以全文與語意搜尋結果為依據");
+  }
+  if (retrieval && retrieval.graphUnavailable === true) {
+    metadataParts.push("搜尋提示：知識圖譜訊號暫時無法使用，此回答仍以全文與語意搜尋結果為依據");
   }
   if (metadataParts.length > 0) {
     elements.metadata.hidden = false;

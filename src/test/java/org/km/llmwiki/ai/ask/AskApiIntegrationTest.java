@@ -230,6 +230,45 @@ class AskApiIntegrationTest {
     }
 
     @Test
+    void graphDegradedBaselineStillAnswersWithValidCitationsAndTypedDiagnostics() throws Exception {
+        // Graph degraded + lexical/vector evidence sufficient must stay a normal ANSWERED
+        // response with citations; degradation is typed metadata, never a forced failure.
+        AskCitation wiki = new AskCitation("E1", EvidenceKind.WIKI, "WIKI:architecture",
+                "hash-wiki", new AnswerContextProvenance.Wiki(
+                "Architecture", "vault/architecture.md", 4));
+        when(askService.ask(any())).thenReturn(new AskResult(AskStatus.ANSWERED,
+                Optional.of("Baseline answer"), List.of(wiki), List.of(wiki),
+                Optional.of(new AnswerProviderMetadata("stub", "offline-model")),
+                Optional.empty(), Optional.empty(), new AskExecutionMetadata(1, 1, 16, false),
+                new org.km.llmwiki.rag.RetrievalDiagnostics(
+                        org.km.llmwiki.rag.RetrievalStrategy.FUSED, true, true, false, false,
+                        null, true, true, false, "internal handoff drift detail")));
+
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("{\"question\":\"question\",\"retrievalMode\":\"HYBRID_GRAPH\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ANSWERED"))
+                .andExpect(jsonPath("$.data.answer").value("Baseline answer"))
+                .andExpect(jsonPath("$.data.insufficientEvidence").value(false))
+                .andExpect(jsonPath("$.data.citations[0].citationId").value("E1"))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphDegraded").value(true))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphUnavailable").value(false))
+                .andExpect(content().string(not(containsString("internal handoff drift detail"))))
+                .andExpect(content().string(not(containsString("hash-wiki"))));
+    }
+
+    @Test
+    void omittedRetrievalModeIsRejectedWithoutDefaultingToAnyMode() throws Exception {
+        // Invariant: the request boundary owns no mode defaulting policy — omitting the mode
+        // must stay a client error instead of silently selecting the graph-grounded mode.
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("{\"question\":\"question\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        verifyNoInteractions(askService);
+    }
+
+    @Test
     void degradedGraphSignalStaysVisibleToTheBrowserWithoutInternalDetails() throws Exception {
         when(askService.ask(any())).thenReturn(new AskResult(AskStatus.INSUFFICIENT_EVIDENCE,
                 Optional.empty(), List.of(), List.of(), Optional.empty(), Optional.empty(),
