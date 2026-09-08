@@ -78,8 +78,12 @@ serving. Issue #260 adds the Graph candidate → canonical evidence admission bo
 results are revalidated against the projection snapshot at admission time (closing the
 consumption window), and every candidate is revalidated against workspace, provenance, relation
 profile, freshness, and canonical Wiki/Source authority before it becomes an `EvidenceItem` under
-a hard admission budget. It still does not add fusion ranking, Graph Ask modes, REST/UI surfaces,
-inferred relations, or GraphRAG.
+a hard admission budget. Issue #262 adds the application-owned deterministic fusion of the
+lexical, vector, and graph channels: identity-level reciprocal rank fusion with no raw
+cross-scale score addition, canonical identity dedupe across modalities, hard global and
+per-modality budgets, typed per-modality degradation, and a terminal publication guard that
+revalidates every selected item before results leave the fusion boundary. It still does not add
+a public Graph Ask mode, REST/UI surfaces, inferred relations, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
 subject to adoption gates. Graph candidates reach `EvidenceBundle` only through
