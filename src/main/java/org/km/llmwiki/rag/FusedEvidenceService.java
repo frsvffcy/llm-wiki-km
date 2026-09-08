@@ -249,11 +249,19 @@ public class FusedEvidenceService {
             vectorOutcome = outcome(vector.pairs().size());
         }
         List<EvidenceItem> items = selected.stream().map(SelectedEntry::item).toList();
+        // Modality provenance and the admitted graph snapshot are diagnostics for the Ask-facing
+        // handoff guard; they never become citation identity, authority, or ranking input.
+        Map<String, Set<CandidateSignal>> itemModalities = new java.util.LinkedHashMap<>();
+        for (SelectedEntry entry : selected) {
+            itemModalities.put(entry.item().stableIdentity(),
+                    Set.copyOf(entry.modalities()));
+        }
         return new FusedEvidenceResult(request.query(), workspace, items,
                 new EvidenceBudget(limits.maxItems(), limits.maxCharacters(), items.size(),
                         usedCharacters, (usedCharacters + 3) / 4, truncated),
                 lexicalCandidates.size() + vectorCandidates.size() + graph.candidateCount(),
-                rejectedCount, items.isEmpty(),
+                rejectedCount, items.isEmpty(), graph.snapshot(),
+                Map.copyOf(itemModalities),
                 new FusedModalityDiagnostics(lexicalOutcome, vectorOutcome, graphOutcome,
                         vectorDetail, graphDetail, terminalRejected));
     }

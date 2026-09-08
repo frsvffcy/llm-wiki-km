@@ -132,7 +132,8 @@ class AskServiceTest {
         });
         assertThat(result.retrievalDiagnostics()).isEqualTo(RetrievalDiagnostics.lexical());
         assertThat(AskApiResponse.from(result).retrievalMetadata()).isEqualTo(
-                new AskApiResponse.RetrievalMetadata("LEXICAL", true, false, false, false));
+                new AskApiResponse.RetrievalMetadata("LEXICAL", true, false, false, false,
+                        false, false, false));
     }
 
     @ParameterizedTest
@@ -162,7 +163,8 @@ class AskServiceTest {
                 RetrievalDiagnostics.unavailableSemantic(
                         "Retrieval dependency is unavailable: VECTOR_SEARCH"));
         assertThat(AskApiResponse.from(result).retrievalMetadata()).isEqualTo(
-                new AskApiResponse.RetrievalMetadata("SEMANTIC", false, false, false, true));
+                new AskApiResponse.RetrievalMetadata("SEMANTIC", false, false, false, true,
+                        false, false, false));
     }
 
     @Test
@@ -183,7 +185,33 @@ class AskServiceTest {
                 RetrievalDiagnostics.degradedHybrid(
                         "Retrieval dependency is unavailable: VECTOR_SEARCH"));
         assertThat(AskApiResponse.from(result).retrievalMetadata()).isEqualTo(
-                new AskApiResponse.RetrievalMetadata("HYBRID", true, false, true, true));
+                new AskApiResponse.RetrievalMetadata("HYBRID", true, false, true, true,
+                        false, false, false));
+    }
+
+    @Test
+    void fusedRetrievalUnavailableIsTypedAndRetainsFusedDiagnostics() {
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenThrow(new RetrievalUnavailableException(
+                RetrievalUnavailableException.Dependency.SEARCH_INDEX,
+                new IllegalStateException("database unavailable")));
+
+        AskResult result = new AskService(retrieval, new AnswerContextAssembler(),
+                request -> {
+                    throw new AssertionError("provider must not be called");
+                }).ask(AskRequest.defaults("question", RetrievalMode.HYBRID_GRAPH));
+
+        assertThat(result.status()).isEqualTo(AskStatus.FAILED);
+        assertThat(result.insufficientEvidence()).isFalse();
+        assertThat(result.failure()).hasValueSatisfying(failure -> {
+            assertThat(failure.type()).isEqualTo(AskFailureType.RETRIEVAL_UNAVAILABLE);
+            assertThat(failure.retrievalDependency()).contains(
+                    RetrievalUnavailableException.Dependency.SEARCH_INDEX);
+        });
+        assertThat(result.retrievalDiagnostics()).isEqualTo(RetrievalDiagnostics.fused());
+        assertThat(AskApiResponse.from(result).retrievalMetadata()).isEqualTo(
+                new AskApiResponse.RetrievalMetadata("FUSED", true, true, false, false,
+                        true, false, false));
     }
 
     @Test

@@ -12,7 +12,15 @@ public enum RetrievalMode {
     HYBRID_FTS(SearchCorpus.ALL, RetrievalStrategy.LEXICAL),
     SEMANTIC_WIKI(SearchCorpus.WIKI, RetrievalStrategy.SEMANTIC),
     SEMANTIC_SOURCE(SearchCorpus.SOURCE, RetrievalStrategy.SEMANTIC),
-    HYBRID_VECTOR(SearchCorpus.ALL, RetrievalStrategy.HYBRID);
+    HYBRID_VECTOR(SearchCorpus.ALL, RetrievalStrategy.HYBRID),
+    /**
+     * Explicit Graph-grounded fused mode: lexical + vector + graph authoritative fusion over
+     * the full corpus. Additive only — {@code HYBRID_FTS} remains Wiki + Source FTS-only and
+     * {@code HYBRID_VECTOR} remains the lexical + vector hybrid; neither is redefined by this
+     * mode. Served by the application-owned fused retrieval orchestration, never by a backend
+     * adapter, controller, or provider.
+     */
+    HYBRID_GRAPH(SearchCorpus.ALL, RetrievalStrategy.FUSED);
 
     private final SearchCorpus searchCorpus;
     private final RetrievalStrategy strategy;

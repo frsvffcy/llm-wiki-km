@@ -203,6 +203,49 @@ class AskApiIntegrationTest {
                 .doesNotContain("authorization");
     }
 
+    @Test
+    void graphGroundedModeIsAcceptedAndSurfacesGraphSignalMetadata() throws Exception {
+        AskCitation wiki = new AskCitation("E1", EvidenceKind.WIKI, "WIKI:architecture",
+                "hash-wiki", new AnswerContextProvenance.Wiki(
+                "Architecture", "vault/architecture.md", 4));
+        when(askService.ask(any())).thenReturn(new AskResult(AskStatus.ANSWERED,
+                Optional.of("Grounded answer"), List.of(wiki), List.of(wiki),
+                Optional.of(new AnswerProviderMetadata("stub", "offline-model")),
+                Optional.empty(), Optional.empty(), new AskExecutionMetadata(2, 2, 32, false),
+                org.km.llmwiki.rag.RetrievalDiagnostics.fused()));
+
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("""
+                                {"question":"What is the design?","retrievalMode":"HYBRID_GRAPH"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ANSWERED"))
+                .andExpect(jsonPath("$.data.retrievalMetadata.strategy").value("FUSED"))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphSignalUsed").value(true))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphDegraded").value(false))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphUnavailable").value(false));
+
+        verify(askService).ask(org.mockito.ArgumentMatchers.argThat(
+                request -> request.retrievalMode() == RetrievalMode.HYBRID_GRAPH));
+    }
+
+    @Test
+    void degradedGraphSignalStaysVisibleToTheBrowserWithoutInternalDetails() throws Exception {
+        when(askService.ask(any())).thenReturn(new AskResult(AskStatus.INSUFFICIENT_EVIDENCE,
+                Optional.empty(), List.of(), List.of(), Optional.empty(), Optional.empty(),
+                Optional.empty(), new AskExecutionMetadata(0, 0, 0, false),
+                new org.km.llmwiki.rag.RetrievalDiagnostics(
+                        org.km.llmwiki.rag.RetrievalStrategy.FUSED, true, true, false, false,
+                        null, true, true, false, "internal handoff drift detail")));
+
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("{\"question\":\"unknown\",\"retrievalMode\":\"HYBRID_GRAPH\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("INSUFFICIENT_EVIDENCE"))
+                .andExpect(jsonPath("$.data.retrievalMetadata.graphDegraded").value(true))
+                .andExpect(content().string(not(containsString("internal handoff drift detail"))));
+    }
+
     private static AskResult answered(AskCitation... citations) {
         return new AskResult(AskStatus.ANSWERED, Optional.of("Grounded answer"),
                 List.of(citations), List.of(citations),

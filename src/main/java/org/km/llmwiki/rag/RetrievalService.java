@@ -50,6 +50,7 @@ public class RetrievalService {
     private final CandidateAuthorityRevalidator authorityRevalidator;
     private final VectorCandidateSearchService vectorCandidateSearchService;
     private final FusionRanker fusionRanker;
+    private final FusedRetrievalOrchestrator fusedRetrievalOrchestrator;
 
     public RetrievalService(WorkspaceService workspaceService,
                             SearchService searchService,
@@ -70,7 +71,6 @@ public class RetrievalService {
                 sourceAuthorityRepository, vectorCandidateSearchService, new ReciprocalRankFusion());
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public RetrievalService(WorkspaceService workspaceService,
                             SearchService searchService,
                             PublishedWikiRepository publishedWikiRepository,
@@ -78,12 +78,26 @@ public class RetrievalService {
                             SourceSearchAuthorityRepository sourceAuthorityRepository,
                             VectorCandidateSearchService vectorCandidateSearchService,
                             FusionRanker fusionRanker) {
+        this(workspaceService, searchService, publishedWikiRepository, publishedWikiContentReader,
+                sourceAuthorityRepository, vectorCandidateSearchService, fusionRanker, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RetrievalService(WorkspaceService workspaceService,
+                            SearchService searchService,
+                            PublishedWikiRepository publishedWikiRepository,
+                            PublishedWikiContentReader publishedWikiContentReader,
+                            SourceSearchAuthorityRepository sourceAuthorityRepository,
+                            VectorCandidateSearchService vectorCandidateSearchService,
+                            FusionRanker fusionRanker,
+                            FusedRetrievalOrchestrator fusedRetrievalOrchestrator) {
         this.workspaceService = workspaceService;
         this.searchService = searchService;
         this.authorityRevalidator = new CandidateAuthorityRevalidator(publishedWikiRepository,
                 publishedWikiContentReader, sourceAuthorityRepository);
         this.vectorCandidateSearchService = vectorCandidateSearchService;
         this.fusionRanker = fusionRanker == null ? new ReciprocalRankFusion() : fusionRanker;
+        this.fusedRetrievalOrchestrator = fusedRetrievalOrchestrator;
     }
 
     public EvidenceBundle retrieve(RetrievalRequest request) {
@@ -94,7 +108,21 @@ public class RetrievalService {
             case LEXICAL -> retrieveLexical(request);
             case SEMANTIC -> retrieveSemantic(request);
             case HYBRID -> retrieveHybrid(request);
+            case FUSED -> retrieveFused(request);
         };
+    }
+
+    /**
+     * Graph-grounded fused retrieval entry point. The application-owned fused orchestration
+     * owns the lexical/vector/graph channels, deterministic fusion, and the last-mile Ask
+     * handoff currentness guard; this boundary only dispatches to it.
+     */
+    private EvidenceBundle retrieveFused(RetrievalRequest request) {
+        if (fusedRetrievalOrchestrator == null) {
+            throw new IllegalStateException(
+                    "Graph-grounded fused retrieval orchestration is not configured");
+        }
+        return fusedRetrievalOrchestrator.retrieveFused(request);
     }
 
     private EvidenceBundle retrieveLexical(RetrievalRequest request) {
@@ -201,6 +229,7 @@ public class RetrievalService {
             case LEXICAL -> RetrievalDiagnostics.lexical();
             case SEMANTIC -> RetrievalDiagnostics.semantic();
             case HYBRID -> RetrievalDiagnostics.hybrid();
+            case FUSED -> RetrievalDiagnostics.fused();
         };
         return assembleEvidence(request, active, page, diagnostics);
     }
