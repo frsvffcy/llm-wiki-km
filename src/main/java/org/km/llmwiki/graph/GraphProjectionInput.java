@@ -97,7 +97,7 @@ public record GraphProjectionInput(GraphWorkspaceScope workspace,
                               List<GraphEntity> entities, List<GraphRelation> relations) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            GraphIdentityCodec.update(digest, "graph-projection-input-v1");
+            GraphIdentityCodec.update(digest, "graph-projection-input-v2");
             GraphIdentityCodec.update(digest, Long.toString(workspace.id()));
             GraphIdentityCodec.update(digest, version.value());
             for (GraphEntity entity : entities) {

@@ -5,6 +5,7 @@ public enum GraphEntityType {
     WIKI_PAGE(GraphAuthorityKind.WIKI_PAGE),
     SOURCE_DOCUMENT(GraphAuthorityKind.SOURCE_DOCUMENT),
     SOURCE_CHUNK(GraphAuthorityKind.SOURCE_CHUNK),
+    TAG(GraphAuthorityKind.CANONICAL_METADATA),
     CONCEPT(null);
 
     private final GraphAuthorityKind authorityKind;

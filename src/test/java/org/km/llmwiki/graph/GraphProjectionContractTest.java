@@ -97,7 +97,7 @@ class GraphProjectionContractTest {
         assertThatThrownBy(() -> GraphProjectionReconciliation.from(input, otherSnapshot))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("fingerprint");
-        GraphProjectionVersion otherVersion = new GraphProjectionVersion("graph-projection-v2");
+        GraphProjectionVersion otherVersion = GraphProjectionVersion.legacyV1();
         GraphProjectionInput otherVersionInput = new GraphProjectionInput(workspace, otherVersion,
                 List.of(), List.of());
         assertThatThrownBy(() -> GraphProjectionReconciliation.from(input,

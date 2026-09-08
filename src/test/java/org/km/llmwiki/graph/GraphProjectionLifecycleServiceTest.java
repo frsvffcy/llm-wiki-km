@@ -230,6 +230,23 @@ class GraphProjectionLifecycleServiceTest {
         verify(factory, never()).openExisting(WORKSPACE);
     }
 
+    @Test
+    void legacyProjectionVersionNeverOpensBackendForCurrentReadiness() {
+        GraphProjectionLifecycleRepository repository = mock(GraphProjectionLifecycleRepository.class);
+        GraphProjectionBackendFactory factory = mockFactory();
+        GraphProjectionSnapshot legacySnapshot = GraphProjectionSnapshot.fromProof(WORKSPACE,
+                GraphProjectionVersion.legacyV1(), 1, FIRST_FINGERPRINT);
+        GraphProjectionReadiness legacyReady = new GraphProjectionReadiness(WORKSPACE, PROVIDER,
+                GraphProjectionVersion.legacyV1(), GraphProjectionReadinessStatus.READY, 1, 1,
+                legacySnapshot.sourceFingerprint(), legacySnapshot.snapshotToken(), null, null,
+                null, null, null, null, NOW, NOW);
+        when(repository.find(WORKSPACE)).thenReturn(Optional.of(legacyReady));
+
+        assertThat(service(true, repository, factory).readiness(WORKSPACE).status())
+                .isEqualTo(GraphProjectionVerificationStatus.PROJECTION_INCOMPATIBLE);
+        verify(factory, never()).openExisting(WORKSPACE);
+    }
+
     private static GraphProjectionLifecycleService service(boolean enabled,
                                                            GraphProjectionLifecycleRepository repository,
                                                            GraphProjectionBackendFactory factory) {

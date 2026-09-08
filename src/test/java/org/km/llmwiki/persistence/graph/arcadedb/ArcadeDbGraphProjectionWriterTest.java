@@ -81,7 +81,7 @@ class ArcadeDbGraphProjectionWriterTest {
             var cleanup = writer.removeStale(
                     org.km.llmwiki.graph.GraphProjectionReconciliation.from(generationTwo,
                             secondContext.snapshot()));
-            assertThat(cleanup.removedEntities()).isEqualTo(1);
+            assertThat(cleanup.removedEntities()).isEqualTo(2);
             assertThat(cleanup.removedRelations()).isEqualTo(1);
             assertThat(writer.currentEntity(retained.identity())).contains(retained);
             assertThat(writer.currentEntity(stale.identity())).isEmpty();
@@ -127,6 +127,42 @@ class ArcadeDbGraphProjectionWriterTest {
     }
 
     @Test
+    void versionReplacementAllowsOnlyV1ToV2AndRejectsDowngradeOrUnknownVersion() {
+        var currentEntity = ArcadeDbGraphProjectionFixtures.page(
+                ArcadeDbGraphProjectionFixtures.WORKSPACE, "versioned", "版本頁");
+        GraphProjectionInput currentInput = ArcadeDbGraphProjectionFixtures.input(
+                ArcadeDbGraphProjectionFixtures.WORKSPACE, currentEntity);
+        GraphProjectionInput legacyInput = versionedInput(currentInput,
+                GraphProjectionVersion.legacyV1());
+        GraphProjectionInput unknownInput = versionedInput(currentInput,
+                new GraphProjectionVersion("graph-projection-v3"));
+        GraphProjectionWriteContext legacy = GraphProjectionWriteContext.of(legacyInput, 1);
+        GraphProjectionWriteContext current = GraphProjectionWriteContext.of(currentInput, 2);
+        GraphProjectionWriteContext downgrade = GraphProjectionWriteContext.of(legacyInput, 3);
+        GraphProjectionWriteContext unknown = GraphProjectionWriteContext.of(unknownInput, 3);
+
+        try (var writer = new ArcadeDbGraphProjectionWriter(tempDir.resolve("version-boundary"))) {
+            stageAndPublish(writer, legacy, legacyInput.entities(), List.of());
+            stageAndPublish(writer, current, currentInput.entities(), List.of());
+
+            assertThat(writer.publish(legacy).status())
+                    .isEqualTo(GraphProjectionWriteStatus.SUPERSEDED);
+            assertThatThrownBy(() -> writer.upsertEntity(downgrade,
+                    downgradeInputEntity(legacyInput)))
+                    .isInstanceOf(GraphProjectionException.class)
+                    .extracting(failure -> ((GraphProjectionException) failure).failureType())
+                    .isEqualTo(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+            assertThatThrownBy(() -> writer.upsertEntity(unknown,
+                    downgradeInputEntity(unknownInput)))
+                    .isInstanceOf(GraphProjectionException.class)
+                    .extracting(failure -> ((GraphProjectionException) failure).failureType())
+                    .isEqualTo(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+            assertThat(writer.currentSnapshot(ArcadeDbGraphProjectionFixtures.WORKSPACE))
+                    .contains(current.snapshot());
+        }
+    }
+
+    @Test
     void sameGenerationConflictsAndBoundaryViolationsFailClosed() {
         var first = ArcadeDbGraphProjectionFixtures.page(
                 ArcadeDbGraphProjectionFixtures.WORKSPACE, "same-a", "同代 A");
@@ -153,7 +189,7 @@ class ArcadeDbGraphProjectionWriterTest {
                     .extracting(exception -> ((GraphProjectionException) exception).failureType())
                     .isEqualTo(GraphProjectionFailureType.CROSS_WORKSPACE);
 
-            GraphProjectionVersion incompatibleVersion = new GraphProjectionVersion("graph-projection-v2");
+            GraphProjectionVersion incompatibleVersion = GraphProjectionVersion.legacyV1();
             var incompatible = ArcadeDbGraphProjectionFixtures.page(
                     ArcadeDbGraphProjectionFixtures.WORKSPACE, "incompatible", "不相容頁",
                     incompatibleVersion, ArcadeDbGraphProjectionFixtures.page(
@@ -235,6 +271,19 @@ class ArcadeDbGraphProjectionWriterTest {
                 .isIn(GraphProjectionWriteStatus.APPLIED, GraphProjectionWriteStatus.NO_OP));
         assertThat(writer.publish(context).status())
                 .isIn(GraphProjectionWriteStatus.APPLIED, GraphProjectionWriteStatus.NO_OP);
+    }
+
+    private static GraphProjectionInput versionedInput(GraphProjectionInput input,
+                                                        GraphProjectionVersion version) {
+        return new GraphProjectionInput(input.workspace(), version,
+                input.entities().stream().map(entity -> new org.km.llmwiki.graph.GraphEntity(
+                        entity.identity(), entity.displayName(), entity.provenance(),
+                        entity.metadata(), version)).toList(), List.of());
+    }
+
+    private static org.km.llmwiki.graph.GraphEntity downgradeInputEntity(
+            GraphProjectionInput input) {
+        return input.entities().getFirst();
     }
 
     private static void overwriteCurrentToken(Path databasePath, String token) {

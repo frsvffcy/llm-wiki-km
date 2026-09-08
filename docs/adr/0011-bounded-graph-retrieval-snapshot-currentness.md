@@ -98,3 +98,7 @@ L5 fresh adversarial second pass 必須重新從 repository evidence 挑戰 stal
 SQLite/backend proof mismatch、fingerprint/version/workspace drift、malformed/orphan relation、vendor
 ordering leakage 與極端 bounds；驗證結果與 reviewer limitation 由 PR 保存。GO 只在 targeted、fast、
 integration、production smoke、clean full、PR Gate、main 實際內容與 merge Canary 全部成立後生效。
+
+## 後續 relation profile
+
+Issue #253 與 [ADR 0012](0012-deterministic-canonical-graph-relation-profile.md) 將 canonical profile 升為 v2；bounded traversal 可讀取獲准的 `LINKS_TO`、`TAGGED_WITH` 與 `DERIVED_FROM`。本 ADR 的 exact snapshot double-check、hard bounds、application-owned ordering 與 candidate authority 邊界不變：relation 能被 traversal materialize 不代表已取得 citation authority，也不能繞過後續 workspace-scoped provenance、freshness 與 eligibility revalidation。

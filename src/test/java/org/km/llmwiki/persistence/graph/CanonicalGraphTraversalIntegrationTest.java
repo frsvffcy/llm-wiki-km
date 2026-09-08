@@ -16,6 +16,7 @@ import org.km.llmwiki.graph.GraphProjectionLifecycleRepository;
 import org.km.llmwiki.graph.GraphProjectionLifecycleService;
 import org.km.llmwiki.graph.GraphProjectionSnapshot;
 import org.km.llmwiki.graph.GraphProjectionVersion;
+import org.km.llmwiki.graph.GraphRelation;
 import org.km.llmwiki.graph.GraphRelationType;
 import org.km.llmwiki.graph.GraphTraversalBounds;
 import org.km.llmwiki.graph.GraphTraversalBackend;
@@ -30,10 +31,13 @@ import org.km.llmwiki.source.DocumentRepository;
 import org.km.llmwiki.source.SourceChunkRepository;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.km.llmwiki.wiki.WikiContentHash;
+import org.km.llmwiki.wiki.WikiPageType;
+import org.km.llmwiki.wiki.WikiPathContract;
 import org.km.llmwiki.workspace.CreateWorkspaceRequest;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.List;
@@ -57,6 +61,7 @@ class CanonicalGraphTraversalIntegrationTest extends IsolatedIntegrationTest {
     @Autowired WorkspaceService workspaces;
     @Autowired DocumentRepository documents;
     @Autowired SourceChunkRepository chunks;
+    @Autowired WikiPathContract paths;
 
     @Test
     void canonicalContainsTraversalIsDeterministicAcrossRestartAndWorkspaceScoped() {
@@ -97,6 +102,57 @@ class CanonicalGraphTraversalIntegrationTest extends IsolatedIntegrationTest {
         try (var restarted = lifecycle(restartedFactory)) {
             GraphTraversalResult afterRestart = new GraphTraversalService(restarted,
                     restartedFactory).traverse(firstQuery);
+            assertThat(afterRestart).isEqualTo(beforeRestart);
+        }
+    }
+
+    @Test
+    void canonicalAdmittedRelationsTraverseDeterministicallyAcrossRestart() throws Exception {
+        GraphWorkspaceScope workspace = workspace("relation-restart");
+        long document = document(workspace, "source.txt");
+        wiki(workspace, "wiki-target", "Target Page", List.of(), List.of(), "目標內容");
+        wiki(workspace, "wiki-source", "Source Page", List.of("RAG"), List.of(document),
+                "[[Target Page|目標頁面]]");
+        GraphProjectionInput input = assembler.assemble(workspace);
+        GraphEntityIdentity seed = input.entities().stream()
+                .filter(entity -> entity.identity().type() == GraphEntityType.WIKI_PAGE)
+                .filter(entity -> entity.provenance().authority().stableId().equals("wiki-source"))
+                .findFirst().orElseThrow().identity();
+        Path backendPath = temp.resolve("relation-restart-graph");
+        EnumSet<GraphRelationType> allowed = EnumSet.of(GraphRelationType.LINKS_TO,
+                GraphRelationType.TAGGED_WITH, GraphRelationType.DERIVED_FROM);
+
+        GraphTraversalQuery query;
+        GraphTraversalResult beforeRestart;
+        var firstFactory = factory(backendPath);
+        try (var lifecycle = lifecycle(firstFactory)) {
+            GraphProjectionSnapshot snapshot = lifecycle.rebuild(input)
+                    .controlPlane().appliedSnapshot();
+            query = query(workspace, seed, snapshot, allowed);
+            beforeRestart = new GraphTraversalService(lifecycle, firstFactory).traverse(query);
+
+            assertThat(beforeRestart.candidates()).hasSize(3);
+            assertThat(beforeRestart.candidates()).extracting(candidate ->
+                    candidate.entity().identity().type()).containsExactlyInAnyOrder(
+                    GraphEntityType.WIKI_PAGE, GraphEntityType.TAG,
+                    GraphEntityType.SOURCE_DOCUMENT);
+            assertThat(beforeRestart.candidates()).allSatisfy(candidate -> {
+                assertThat(candidate.depth()).isEqualTo(1);
+                assertThat(candidate.path()).hasSize(1);
+                assertThat(candidate.path().getFirst().source()).isEqualTo(seed);
+                assertThat(candidate.path().getFirst().target())
+                        .isEqualTo(candidate.entity().identity());
+            });
+            assertThat(beforeRestart.candidates()).flatExtracting(candidate -> candidate.path())
+                    .extracting(GraphRelation::type).containsExactlyInAnyOrder(
+                    GraphRelationType.LINKS_TO, GraphRelationType.TAGGED_WITH,
+                    GraphRelationType.DERIVED_FROM);
+        }
+
+        var restartedFactory = factory(backendPath);
+        try (var restarted = lifecycle(restartedFactory)) {
+            GraphTraversalResult afterRestart = new GraphTraversalService(restarted,
+                    restartedFactory).traverse(query);
             assertThat(afterRestart).isEqualTo(beforeRestart);
         }
     }
@@ -176,6 +232,44 @@ class CanonicalGraphTraversalIntegrationTest extends IsolatedIntegrationTest {
                 """).params(document, content, content, WikiContentHash.sha256(content)).update();
     }
 
+    private void wiki(GraphWorkspaceScope workspace, String knowledgeId, String title,
+                      List<String> tags, List<Long> sources, String body) throws Exception {
+        String content = new StringBuilder("---\n")
+                .append("id: \"").append(knowledgeId).append("\"\n")
+                .append("title: \"").append(title).append("\"\n")
+                .append("type: \"CONCEPT\"\nstatus: \"PUBLISHED\"\n")
+                .append(renderList("aliases", List.of()))
+                .append(renderList("tags", tags))
+                .append(renderList("sources", sources.stream()
+                        .map(id -> "document:" + id).toList()))
+                .append("created_at: \"2026-09-07T00:00:00Z\"\n")
+                .append("updated_at: \"2026-09-07T00:00:00Z\"\n")
+                .append("---\n\n# ").append(title).append('\n').append(body).toString();
+        String logicalPath = paths.resolveLogicalPath(WikiPageType.CONCEPT, title);
+        Path target = Path.of(workspaces.get(workspace.id()).vaultPath())
+                .resolve(logicalPath.substring("vault/".length()));
+        Files.createDirectories(target.getParent());
+        Files.writeString(target, content);
+        db().sql("""
+                INSERT INTO knowledge_page(workspace_id, knowledge_id, title, normalized_title,
+                    type, markdown_path, status, content_hash, revision, created_at, updated_at)
+                VALUES(?, ?, ?, ?, 'CONCEPT', ?, 'PUBLISHED', ?, 1,
+                    '2026-09-07T00:00:00Z', '2026-09-07T00:00:00Z')
+                """).params(workspace.id(), knowledgeId, title,
+                org.km.llmwiki.wiki.WikiTargetReference.normalizeTitle(title), logicalPath,
+                WikiContentHash.sha256(content)).update();
+    }
+
+    private static String renderList(String field, List<String> values) {
+        if (values.isEmpty()) return field + ": []\n";
+        StringBuilder result = new StringBuilder(field).append(":\n");
+        values.forEach(value -> result.append("  - \"")
+                .append(value.replace("\\", "\\\\").replace("\"", "\\\"")
+                        .replace("\n", "\\n"))
+                .append("\"\n"));
+        return result.toString();
+    }
+
     private static GraphEntity entity(GraphProjectionInput input, GraphEntityType type) {
         return input.entities().stream().filter(candidate -> candidate.identity().type() == type)
                 .findFirst().orElseThrow();
@@ -184,8 +278,14 @@ class CanonicalGraphTraversalIntegrationTest extends IsolatedIntegrationTest {
     private static GraphTraversalQuery query(GraphWorkspaceScope workspace,
                                              GraphEntityIdentity seed,
                                              GraphProjectionSnapshot snapshot) {
-        return new GraphTraversalQuery(workspace, List.of(seed),
-                EnumSet.of(GraphRelationType.CONTAINS),
+        return query(workspace, seed, snapshot, EnumSet.of(GraphRelationType.CONTAINS));
+    }
+
+    private static GraphTraversalQuery query(GraphWorkspaceScope workspace,
+                                             GraphEntityIdentity seed,
+                                             GraphProjectionSnapshot snapshot,
+                                             EnumSet<GraphRelationType> relationTypes) {
+        return new GraphTraversalQuery(workspace, List.of(seed), relationTypes,
                 new GraphTraversalBounds(2, 8, 16, 32, 32, 16),
                 GraphTraversalOrdering.DEPTH_SEED_ENTITY_PATH_V1, snapshot);
     }

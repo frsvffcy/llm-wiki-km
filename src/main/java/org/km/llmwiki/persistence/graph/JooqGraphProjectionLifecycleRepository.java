@@ -60,8 +60,13 @@ public class JooqGraphProjectionLifecycleRepository implements GraphProjectionLi
                 .where(GRAPH_PROJECTION_LIFECYCLE.WORKSPACE_ID.eq(workspaceId))
                 .execute();
         GraphProjectionReadiness previous = find(workspace).orElse(null);
-        if (previous != null && (!previous.provider().equals(provider.strip())
-                || !previous.projectionVersion().equals(projectionVersion))) {
+        if (previous != null && !previous.provider().equals(provider.strip())) {
+            throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
+        }
+        boolean versionMigration = previous != null
+                && !previous.projectionVersion().equals(projectionVersion);
+        if (versionMigration && (kind != GraphProjectionOperationKind.REBUILD
+                || !projectionVersion.permitsMigrationFrom(previous.projectionVersion()))) {
             throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE);
         }
         if (previous != null && previous.targetGeneration() >= Integer.MAX_VALUE) {
@@ -69,7 +74,11 @@ public class JooqGraphProjectionLifecycleRepository implements GraphProjectionLi
                     GraphProjectionFailureType.INVALID_PROJECTION_INPUT,
                     "graph projection generation is exhausted"));
         }
-        GraphProjectionSnapshot expectedApplied = previous == null ? null : previous.appliedSnapshot();
+        // A version transition is a full replacement, never a repair of or continuation from
+        // the old READY proof. Clearing the applied proof at reservation makes the migration
+        // fail closed even if the process stops before the backend publishes the new version.
+        GraphProjectionSnapshot expectedApplied = previous == null || versionMigration
+                ? null : previous.appliedSnapshot();
         if (kind == GraphProjectionOperationKind.CLEAR
                 && (expectedApplied == null
                 || !expectedApplied.sourceFingerprint().equals(sourceFingerprint))) {
@@ -94,15 +103,29 @@ public class JooqGraphProjectionLifecycleRepository implements GraphProjectionLi
                         sourceFingerprint, timestamp, timestamp)
                 .onConflict(GRAPH_PROJECTION_LIFECYCLE.WORKSPACE_ID)
                 .doUpdate()
+                .set(GRAPH_PROJECTION_LIFECYCLE.PROVIDER, provider.strip())
+                .set(GRAPH_PROJECTION_LIFECYCLE.PROJECTION_VERSION, projectionVersion.value())
                 .set(GRAPH_PROJECTION_LIFECYCLE.STATUS, kind.activeStatus().name())
                 .set(GRAPH_PROJECTION_LIFECYCLE.TARGET_GENERATION,
                         GRAPH_PROJECTION_LIFECYCLE.TARGET_GENERATION.add(1))
+                .set(GRAPH_PROJECTION_LIFECYCLE.APPLIED_GENERATION,
+                        versionMigration ? 0 : previous == null ? 0
+                                : Math.toIntExact(previous.appliedGeneration()))
+                .set(GRAPH_PROJECTION_LIFECYCLE.SOURCE_FINGERPRINT,
+                        versionMigration ? null : previous == null ? null
+                                : previous.sourceFingerprint())
+                .set(GRAPH_PROJECTION_LIFECYCLE.SNAPSHOT_TOKEN,
+                        versionMigration ? null : previous == null ? null
+                                : previous.snapshotToken())
                 .set(GRAPH_PROJECTION_LIFECYCLE.OPERATION_OWNER, ownerToken.strip())
                 .set(GRAPH_PROJECTION_LIFECYCLE.OPERATION_KIND, kind.name())
                 .set(GRAPH_PROJECTION_LIFECYCLE.OPERATION_SOURCE_FINGERPRINT, sourceFingerprint)
                 .set(GRAPH_PROJECTION_LIFECYCLE.OPERATION_STARTED_AT, timestamp)
                 .set(GRAPH_PROJECTION_LIFECYCLE.LAST_FAILURE_TYPE, (String) null)
                 .set(GRAPH_PROJECTION_LIFECYCLE.DIAGNOSTIC_CODE, (String) null)
+                .set(GRAPH_PROJECTION_LIFECYCLE.LAST_SUCCESSFUL_AT,
+                        versionMigration ? null : previous == null ? null
+                                : previous.lastSuccessfulAt())
                 .set(GRAPH_PROJECTION_LIFECYCLE.UPDATED_AT, timestamp)
                 .execute();
 

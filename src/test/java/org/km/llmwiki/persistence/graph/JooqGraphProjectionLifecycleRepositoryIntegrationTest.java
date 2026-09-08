@@ -126,8 +126,45 @@ class JooqGraphProjectionLifecycleRepositoryIntegrationTest extends IsolatedInte
                         GraphProjectionOperationKind.REBUILD, SECOND_FINGERPRINT, "provider-2"));
         assertProjectionFailure(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE,
                 () -> repository.reserve(workspace, PROVIDER,
-                        new GraphProjectionVersion("graph-projection-v2"),
-                        GraphProjectionOperationKind.REBUILD, SECOND_FINGERPRINT, "version-2"));
+                        GraphProjectionVersion.legacyV1(),
+                        GraphProjectionOperationKind.REPAIR, SECOND_FINGERPRINT, "version-1"));
+    }
+
+    @Test
+    void versionMigrationIsFailClosedAndRejectsOldProcessLateCallback() {
+        GraphWorkspaceScope workspace = insertWorkspace("version-migration");
+        GraphProjectionOperation legacy = repository.reserve(workspace, PROVIDER,
+                GraphProjectionVersion.legacyV1(), GraphProjectionOperationKind.REBUILD,
+                FIRST_FINGERPRINT, "legacy-owner");
+        assertThat(repository.markReady(legacy, legacy.targetSnapshot())).isTrue();
+
+        GraphProjectionOperation migration = repository.reserve(workspace, PROVIDER, VERSION,
+                GraphProjectionOperationKind.REBUILD, SECOND_FINGERPRINT, "v2-owner");
+        assertThat(migration.generation()).isEqualTo(2);
+        assertThat(migration.expectedAppliedSnapshot()).isNull();
+        assertThat(repository.find(workspace).orElseThrow()).satisfies(state -> {
+            assertThat(state.status()).isEqualTo(GraphProjectionReadinessStatus.BUILDING);
+            assertThat(state.projectionVersion()).isEqualTo(VERSION);
+            assertThat(state.appliedSnapshot()).isNull();
+        });
+        assertThat(repository.markReady(legacy, legacy.targetSnapshot())).isFalse();
+        assertThat(repository.markFailed(legacy,
+                GraphProjectionFailure.of(GraphProjectionFailureType.BACKEND_FAILURE))).isFalse();
+
+        assertThat(repository.markReady(migration, migration.targetSnapshot())).isTrue();
+        assertThat(repository.find(workspace).orElseThrow()).satisfies(state -> {
+            assertThat(state.status()).isEqualTo(GraphProjectionReadinessStatus.READY);
+            assertThat(state.appliedSnapshot()).isEqualTo(migration.targetSnapshot());
+        });
+        assertProjectionFailure(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE,
+                () -> repository.reserve(workspace, PROVIDER,
+                        GraphProjectionVersion.legacyV1(), GraphProjectionOperationKind.REBUILD,
+                        FIRST_FINGERPRINT, "downgrade-owner"));
+        assertProjectionFailure(GraphProjectionFailureType.PROJECTION_INCOMPATIBLE,
+                () -> repository.reserve(workspace, PROVIDER,
+                        new GraphProjectionVersion("graph-projection-v3"),
+                        GraphProjectionOperationKind.REBUILD, FIRST_FINGERPRINT,
+                        "unknown-version-owner"));
     }
 
     @Test
