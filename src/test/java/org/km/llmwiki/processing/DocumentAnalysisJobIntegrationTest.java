@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -40,9 +41,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -50,11 +55,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         DocumentAnalysisJobIntegrationTest.MultiPageParserConfiguration.class})
 class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
 
+    private static final String CREATED = "2026-09-03T00:00:00Z";
+    private static final String STARTED = "2026-09-03T00:01:00Z";
+    private static final String FINISHED = "2026-09-03T00:02:00Z";
+
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private RecordingLlmClient llmClient;
+
+    @Autowired
+    private ProcessingJobRepository jobs;
+
+    @Autowired
+    private ProcessingLogRepository logs;
 
     @BeforeEach
     void resetFakeProvider() {
@@ -320,6 +335,96 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
         }
     }
 
+    @Test
+    void exposesAnalysisLifecycleCountersAndDeterministicPartialFailure() throws Exception {
+        createWorkspace();
+        long workspaceId = activeWorkspaceId();
+        ProcessingJob queued = jobs.create(workspaceId, "analysis-status-queued", ProcessingJobType.ANALYZE, 3);
+        setCreated(queued.id());
+
+        getJob(queued.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.jobId").value(queued.jobId()))
+                .andExpect(jsonPath("$.data.jobType").value("ANALYZE"))
+                .andExpect(jsonPath("$.data.status").value("QUEUED"))
+                .andExpect(jsonPath("$.data.totalCount").value(3))
+                .andExpect(jsonPath("$.data.processedCount").value(0))
+                .andExpect(jsonPath("$.data.successCount").value(0))
+                .andExpect(jsonPath("$.data.failedCount").value(0))
+                .andExpect(jsonPath("$.data.skippedCount").value(0))
+                .andExpect(jsonPath("$.data.createdAt").value(CREATED))
+                .andExpect(jsonPath("$.data.startedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.completedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.failureCode").doesNotExist());
+
+        setRunning(queued.id());
+        getJob(queued.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("RUNNING"))
+                .andExpect(jsonPath("$.data.startedAt").value(STARTED))
+                .andExpect(jsonPath("$.data.completedAt").doesNotExist());
+
+        setTerminal(queued.id(), ProcessingJobStatus.COMPLETED, 3, 2, 1, 0);
+        getJob(queued.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.processedCount").value(3))
+                .andExpect(jsonPath("$.data.successCount").value(2))
+                .andExpect(jsonPath("$.data.failedCount").value(1))
+                .andExpect(jsonPath("$.data.skippedCount").value(0))
+                .andExpect(jsonPath("$.data.completedAt").value(FINISHED))
+                .andExpect(jsonPath("$.data.failureCode").value("PARTIAL_FAILURE"))
+                .andExpect(jsonPath("$.data.failureSummary")
+                        .value("Document analysis completed with failed items"));
+    }
+
+    @Test
+    void projectsSafeAnalysisFailureDiagnosticsWithoutReturningRawDetails() throws Exception {
+        createWorkspace();
+        long documentId = upload("analysis-failed.txt", "analysis failure fixture");
+        ProcessingJob failed = jobs.create(activeWorkspaceId(), "analysis-status-failed",
+                ProcessingJobType.ANALYZE, 1);
+        db().sql("""
+                INSERT INTO processing_job_item (job_id, document_id, status, error_code, error_message,
+                    started_at, finished_at)
+                VALUES (:job, :document, 'FAILED', 'PROVIDER_TIMEOUT',
+                    'Authorization: Bearer analysis-secret path=/Users/private/sql SELECT * FROM secrets',
+                    :started, :finished)
+                """).param("job", failed.id()).param("document", documentId)
+                .param("started", STARTED).param("finished", FINISHED).update();
+        logs.append(failed.id(), null, documentId, "ANALYZE", "FAILED",
+                "java.lang.IllegalStateException: provider body secret-token path=/Users/private",
+                "{\"detail\":\"SELECT * FROM secrets\"}");
+        setTerminal(failed.id(), ProcessingJobStatus.FAILED, 1, 0, 1, 0);
+
+        getJob(failed.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("FAILED"))
+                .andExpect(jsonPath("$.data.failureCode").value("PROVIDER_TIMEOUT"))
+                .andExpect(jsonPath("$.data.failureSummary")
+                        .value("Document analysis provider timed out"))
+                .andExpect(content().string(not(containsString("analysis-secret"))))
+                .andExpect(content().string(not(containsString("/Users/private"))))
+                .andExpect(content().string(not(containsString("SELECT * FROM secrets"))))
+                .andExpect(content().string(not(containsString("IllegalStateException"))));
+    }
+
+    @Test
+    void hidesUnknownCrossWorkspaceAndWrongTypeAnalysisJobsBehindTheSameNotFound() throws Exception {
+        createWorkspace();
+        long firstWorkspace = activeWorkspaceId();
+        ProcessingJob crossWorkspace = jobs.create(firstWorkspace, "analysis-cross-workspace",
+                ProcessingJobType.ANALYZE, 1);
+
+        createWorkspace();
+        ProcessingJob wrongType = jobs.create(activeWorkspaceId(), "analysis-wrong-type",
+                ProcessingJobType.FTS_REBUILD, 1);
+
+        assertNotFound(getJob(crossWorkspace.jobId()));
+        assertNotFound(getJob(wrongType.jobId()));
+        assertNotFound(getJob("analysis-does-not-exist"));
+    }
+
     private long uploadAndExtract(String filename, String content) throws Exception {
         long documentId = upload(filename, content);
         mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
@@ -367,6 +472,46 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
                 文件：{{document.metadata}}
                 證據：{{evidence}}
                 """);
+    }
+
+    private ResultActions getJob(String jobId) throws Exception {
+        return mockMvc.perform(get("/api/v1/analysis/jobs/{jobId}", jobId));
+    }
+
+    private void assertNotFound(ResultActions result) throws Exception {
+        result.andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("PROCESSING_JOB_NOT_FOUND"));
+    }
+
+    private long activeWorkspaceId() {
+        return db().sql("SELECT id FROM workspace WHERE status = 'ACTIVE'")
+                .query(Long.class).single();
+    }
+
+    private void setCreated(long jobId) {
+        db().sql("UPDATE processing_job SET created_at = :created, updated_at = :created WHERE id = :id")
+                .param("created", CREATED).param("id", jobId).update();
+    }
+
+    private void setRunning(long jobId) {
+        db().sql("""
+                UPDATE processing_job
+                   SET status = 'RUNNING', started_at = :started, updated_at = :started
+                 WHERE id = :id
+                """).param("started", STARTED).param("id", jobId).update();
+    }
+
+    private void setTerminal(long jobId, ProcessingJobStatus status, int processed, int succeeded,
+                             int failed, int skipped) {
+        db().sql("""
+                UPDATE processing_job
+                   SET status = :status, processed_count = :processed, success_count = :succeeded,
+                       failed_count = :failed, skipped_count = :skipped,
+                       started_at = :started, finished_at = :finished, updated_at = :finished
+                 WHERE id = :id
+                """).param("status", status.name()).param("processed", processed)
+                .param("succeeded", succeeded).param("failed", failed).param("skipped", skipped)
+                .param("started", STARTED).param("finished", FINISHED).param("id", jobId).update();
     }
 
     private void awaitCompleted(String jobId) throws Exception {

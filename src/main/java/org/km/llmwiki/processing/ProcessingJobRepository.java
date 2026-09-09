@@ -79,6 +79,28 @@ public class ProcessingJobRepository {
                 .fetchOptional(record -> mapDetails(record));
     }
 
+    /** Finds only an analysis job in the active workspace's scope. */
+    public Optional<ProcessingJobDetails> findAnalysis(long workspaceId, String jobId) {
+        return findByType(workspaceId, jobId, ProcessingJobType.ANALYZE);
+    }
+
+    /** Finds only an FTS rebuild job in the active workspace's scope. */
+    public Optional<ProcessingJobDetails> findFtsRebuild(long workspaceId, String jobId) {
+        return findByType(workspaceId, jobId, ProcessingJobType.FTS_REBUILD);
+    }
+
+    /** Reads only the durable item error code for a safe, allow-listed failure projection. */
+    public Optional<String> findLatestAnalysisFailureCode(long jobId) {
+        return dsl.select(PROCESSING_JOB_ITEM.ERROR_CODE)
+                .from(PROCESSING_JOB_ITEM)
+                .where(PROCESSING_JOB_ITEM.JOB_ID.eq(Math.toIntExact(jobId)))
+                .and(PROCESSING_JOB_ITEM.STATUS.eq("FAILED"))
+                .and(PROCESSING_JOB_ITEM.ERROR_CODE.isNotNull())
+                .orderBy(PROCESSING_JOB_ITEM.ID.desc())
+                .limit(1)
+                .fetchOptional(PROCESSING_JOB_ITEM.ERROR_CODE);
+    }
+
     public void markRunning(long jobId) {
         String now = now();
         dsl.update(PROCESSING_JOB)
@@ -267,5 +289,14 @@ public class ProcessingJobRepository {
 
     private static int valueOrZero(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private Optional<ProcessingJobDetails> findByType(long workspaceId, String jobId,
+                                                       ProcessingJobType jobType) {
+        return dsl.selectFrom(PROCESSING_JOB)
+                .where(PROCESSING_JOB.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(PROCESSING_JOB.JOB_ID.eq(jobId))
+                .and(PROCESSING_JOB.JOB_TYPE.eq(jobType.name()))
+                .fetchOptional(ProcessingJobRepository::mapDetails);
     }
 }

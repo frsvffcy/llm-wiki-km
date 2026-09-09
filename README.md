@@ -377,6 +377,37 @@ this metadata was introduced, or rows with missing/invalid metadata, return no `
 (`null`/unknown in the domain contract). The application never guesses a legacy corpus from
 current readiness state.
 
+## Processing Job 狀態查詢
+
+所有 processing job status endpoint 共用 `QUEUED`、`RUNNING`、`COMPLETED`、`FAILED`、
+`CANCELLED` 與 `PAUSED` 狀態。`COMPLETED` 只代表 runner 已完成該 operation，不代表每個
+item 都成功；`totalCount`、`processedCount`、`successCount`、`failedCount` 與
+`skippedCount` 才是 partial semantics 的 authority。當 persisted status 為 `COMPLETED` 且
+`failedCount > 0` 時，response 會保留 `status: "COMPLETED"`，並以
+`failureCode: "PARTIAL_FAILURE"` 表示部分 item 失敗。
+
+Analysis 與 FTS rebuild 都提供唯讀的 operation tracking endpoint：
+
+```bash
+# Document analysis
+curl 'http://127.0.0.1:8765/api/v1/analysis/jobs/<jobId>'
+
+# FTS rebuild
+curl 'http://127.0.0.1:8765/api/v1/search/index/rebuild/<jobId>'
+```
+
+兩者只查詢 active workspace 內且符合預期 job type 的 processing job。unknown、cross-workspace
+或 wrong-type job id 一律回傳相同的安全 `404 PROCESSING_JOB_NOT_FOUND`，不洩漏 job 是否存在
+或其所屬 workspace。`failureCode` 與 `failureSummary` 只使用穩定、allow-listed 的安全投影；
+raw exception、stack trace、path、SQL、credentials 與 provider/backend detail 只留在
+server-side log。status query 不會 retry、repair、rebuild 或修改任何 canonical／projection
+state。
+
+Operation status 與 `/api/v1/search/index/health` 職責不同：job status 描述單一 operation 的
+生命週期、counters、immutable operation metadata 與 failure projection；health 描述 active
+workspace／corpus 目前是否可供 FTS serving，以及 missing、stale、orphan 等 projection
+問題。不要以 health row 反推歷史 job 的 corpus 或 operation 結果。
+
 ## SQLite
 
 The application uses a **single canonical metadata database** (Global DB model). It stores local data in `data/knowledge.db` by default. Override the location with `KNOWLEDGE_DB_PATH` and the lock timeout with `SQLITE_BUSY_TIMEOUT_MS` (default: `5000`). Every connection enables foreign keys, WAL journal mode, a busy timeout, and `synchronous=NORMAL`.

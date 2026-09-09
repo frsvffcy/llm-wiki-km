@@ -7,6 +7,7 @@ import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
 import org.km.llmwiki.search.FtsRebuildAdmissionConflictException;
 import org.km.llmwiki.search.embedding.ProcessingJobNotFoundException;
+import org.km.llmwiki.processing.ProcessingOperationNotFoundException;
 import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
 import org.km.llmwiki.source.DocumentNotFoundException;
@@ -131,6 +132,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ProcessingJobNotFoundException.class)
     public ResponseEntity<ApiError> handleProcessingJobNotFound(ProcessingJobNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", publicMessage(exception), exception);
+    }
+
+    @ExceptionHandler(ProcessingOperationNotFoundException.class)
+    public ResponseEntity<ApiError> handleProcessingOperationNotFound(
+            ProcessingOperationNotFoundException exception) {
         return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", publicMessage(exception), exception);
     }
 
