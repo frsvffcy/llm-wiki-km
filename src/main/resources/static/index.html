@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/ask-ui.js"></script>
   <script type="module" src="/graph-operations-ui.js"></script>
+  <script type="module" src="/retrieval-inspector-ui.js"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -120,6 +121,58 @@
           <span id="citation-count" class="citation-count"></span>
         </div>
         <ol id="citations" class="citation-list"></ol>
+      </div>
+    </section>
+
+    <section id="retrieval-inspector-panel" class="panel"
+             aria-labelledby="inspector-heading" aria-busy="false">
+      <div class="section-heading">
+        <h2 id="inspector-heading">檢索檢視器</h2>
+        <span class="status-dot" aria-hidden="true"></span>
+      </div>
+      <p class="panel-description">
+        只讀檢視一次檢索的執行過程：各訊號的候選、融合政策與順序、canonical 驗證結果與最終證據。
+        檢視器不會產生回答、也不會修改任何資料。
+      </p>
+      <form id="inspector-form" novalidate>
+        <label for="inspector-question">查詢</label>
+        <textarea id="inspector-question" name="question" rows="3" maxlength="4000"
+                  placeholder="例如：檢索架構原則" required></textarea>
+        <div class="form-row">
+          <div class="field-group">
+            <label for="inspector-mode">檢索模式</label>
+            <select id="inspector-mode" name="retrievalMode">
+              <option value="HYBRID_FTS">Wiki 與來源文件（全文搜尋）</option>
+              <option value="WIKI_ONLY">僅 Wiki</option>
+              <option value="SOURCE_ONLY">僅來源文件</option>
+              <option value="SEMANTIC_WIKI">Wiki 語意搜尋</option>
+              <option value="SEMANTIC_SOURCE">來源文件語意搜尋</option>
+              <option value="HYBRID_VECTOR">Wiki 與來源文件（語意混合）</option>
+              <option value="HYBRID_GRAPH">Wiki 與來源文件（圖譜增強）</option>
+            </select>
+          </div>
+          <button id="inspector-submit" type="submit">檢視檢索過程</button>
+        </div>
+        <p id="inspector-hint" class="form-hint" role="status" aria-live="polite"></p>
+      </form>
+      <div id="inspector-result" class="inspector-result" hidden>
+        <h3>訊號與候選</h3>
+        <ul id="inspector-modalities" class="inspector-modality-list"></ul>
+        <div id="inspector-fusion" hidden>
+          <h3>融合</h3>
+          <div id="inspector-fusion-detail"></div>
+        </div>
+        <h3>驗證結果</h3>
+        <ul id="inspector-selection" class="inspector-selection-list"></ul>
+        <h3>最終證據</h3>
+        <ul id="inspector-final-evidence" class="inspector-final-list"></ul>
+      </div>
+      <div id="inspector-empty" class="empty-state" hidden>
+        <p id="inspector-empty-message"></p>
+      </div>
+      <div id="inspector-error" class="error-state" hidden>
+        <p id="inspector-error-title"></p>
+        <p id="inspector-error-message"></p>
       </div>
     </section>
   </main>

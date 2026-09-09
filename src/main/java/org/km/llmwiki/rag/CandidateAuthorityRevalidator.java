@@ -36,10 +36,10 @@ final class CandidateAuthorityRevalidator {
         this.sourceAuthorityRepository = sourceAuthorityRepository;
     }
 
-    Optional<AuthorityEvidence> revalidate(SearchCandidate candidate, long workspaceId,
+    RevalidationOutcome revalidate(SearchCandidate candidate, long workspaceId,
             Map<Long, Optional<SourceSearchAuthorityDocument>> sourceDocuments) {
         if (candidate.workspace() == null || candidate.workspace().id() != workspaceId) {
-            return Optional.empty();
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.WORKSPACE_MISMATCH);
         }
         return switch (candidate.kind()) {
             case WIKI -> revalidateWiki(candidate, workspaceId);
@@ -48,7 +48,7 @@ final class CandidateAuthorityRevalidator {
     }
 
     /** Terminal publication check: DB-side authority must still match the evidence at publish time. */
-    boolean publicationCurrent(EvidenceItem item, long workspaceId,
+    PublicationOutcome publicationCurrent(EvidenceItem item, long workspaceId,
             Map<Long, Optional<SourceSearchAuthorityDocument>> sourceDocuments) {
         return switch (item.kind()) {
             case WIKI -> wikiPublicationCurrent(item, workspaceId);
@@ -56,10 +56,10 @@ final class CandidateAuthorityRevalidator {
         };
     }
 
-    private Optional<AuthorityEvidence> revalidateWiki(SearchCandidate candidate, long workspaceId) {
+    private RevalidationOutcome revalidateWiki(SearchCandidate candidate, long workspaceId) {
         if (candidate.knowledgeId() == null
                 || !candidate.stableId().equals(candidate.knowledgeId())) {
-            return Optional.empty();
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.IDENTITY_MISMATCH);
         }
         Optional<StoredPublishedWiki> stored;
         try {
@@ -71,20 +71,20 @@ final class CandidateAuthorityRevalidator {
                     infrastructureFailure);
         }
         if (stored.isEmpty()) {
-            return Optional.empty();
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.AUTHORITY_MISSING);
         }
         StoredPublishedWiki page = stored.get();
         if (candidate.indexedContentHash() == null
                 || !candidate.indexedContentHash().equals(page.contentHash())
                 || candidate.revision() == null
                 || candidate.revision() != page.revision()) {
-            return Optional.empty();
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.STALE_REVISION);
         }
         try {
-            return Optional.of(wikiAuthority(page,
+            return RevalidationOutcome.accepted(wikiAuthority(page,
                     publishedWikiContentReader.readSearchableContent(page)));
         } catch (PublishedWikiValidationException expectedDrift) {
-            return Optional.empty();
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.INELIGIBLE);
         } catch (PublishedWikiUnavailableException infrastructureFailure) {
             throw new RetrievalUnavailableException(
                     RetrievalUnavailableException.Dependency.WIKI_AUTHORITY,
@@ -92,13 +92,13 @@ final class CandidateAuthorityRevalidator {
         }
     }
 
-    private Optional<AuthorityEvidence> revalidateSource(
+    private RevalidationOutcome revalidateSource(
             SearchCandidate candidate,
             long workspaceId,
             Map<Long, Optional<SourceSearchAuthorityDocument>> documents) {
         if (candidate.sourceChunkId() == null || candidate.documentId() == null
                 || !candidate.stableId().equals(candidate.sourceChunkId().toString())) {
-            return Optional.empty();
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.IDENTITY_MISMATCH);
         }
         Optional<SourceSearchAuthorityDocument> document;
         try {
@@ -109,9 +109,11 @@ final class CandidateAuthorityRevalidator {
                     RetrievalUnavailableException.Dependency.SOURCE_AUTHORITY,
                     infrastructureFailure);
         }
-        if (document.isEmpty()
-                || !SourceSearchEligibilityPolicy.documentEligible(document.get())) {
-            return Optional.empty();
+        if (document.isEmpty()) {
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.AUTHORITY_MISSING);
+        }
+        if (!SourceSearchEligibilityPolicy.documentEligible(document.get())) {
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.INELIGIBLE);
         }
         var eligible = SourceSearchFreshness.eligibleDocuments(document.get());
         if (candidate.indexedContentHash() == null
@@ -120,17 +122,24 @@ final class CandidateAuthorityRevalidator {
                 || candidate.sourceEligibleChunkCount() != eligible.size()
                 || !candidate.sourceDocumentFingerprint()
                 .equals(SourceSearchFreshness.fingerprint(document.get()))) {
-            return Optional.empty();
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.STALE_REVISION);
         }
-        return document.get().chunks().stream()
+        var chunks = document.get().chunks().stream()
                 .filter(chunk -> chunk.sourceChunkId() == candidate.sourceChunkId())
-                .filter(SourceSearchEligibilityPolicy::chunkEligible)
-                .filter(chunk -> candidate.indexedContentHash().equals(chunk.contentHash()))
-                .findFirst()
-                .map(chunk -> sourceAuthority(document.get(), chunk));
+                .toList();
+        if (chunks.isEmpty()) {
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.AUTHORITY_MISSING);
+        }
+        if (!SourceSearchEligibilityPolicy.chunkEligible(chunks.get(0))) {
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.INELIGIBLE);
+        }
+        if (!candidate.indexedContentHash().equals(chunks.get(0).contentHash())) {
+            return RevalidationOutcome.rejected(AuthorityRejectionReason.STALE_REVISION);
+        }
+        return RevalidationOutcome.accepted(sourceAuthority(document.get(), chunks.get(0)));
     }
 
-    private boolean wikiPublicationCurrent(EvidenceItem item, long workspaceId) {
+    private PublicationOutcome wikiPublicationCurrent(EvidenceItem item, long workspaceId) {
         Optional<StoredPublishedWiki> stored;
         try {
             stored = publishedWikiRepository.findPublishedByKnowledgeId(
@@ -140,18 +149,23 @@ final class CandidateAuthorityRevalidator {
                     RetrievalUnavailableException.Dependency.WIKI_AUTHORITY,
                     infrastructureFailure);
         }
-        if (stored.isEmpty() || item.revision() == null) {
-            return false;
+        if (stored.isEmpty()) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.AUTHORITY_MISSING);
+        }
+        if (item.revision() == null) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.IDENTITY_MISMATCH);
         }
         StoredPublishedWiki page = stored.get();
         return page.contentHash().equals(item.contentHash())
-                && page.revision() == item.revision();
+                && page.revision() == item.revision()
+                ? PublicationOutcome.CURRENT
+                : PublicationOutcome.rejected(AuthorityRejectionReason.STALE_REVISION);
     }
 
-    private boolean sourcePublicationCurrent(EvidenceItem item, long workspaceId,
+    private PublicationOutcome sourcePublicationCurrent(EvidenceItem item, long workspaceId,
             Map<Long, Optional<SourceSearchAuthorityDocument>> sourceDocuments) {
         if (item.documentId() == null || item.sourceChunkId() == null) {
-            return false;
+            return PublicationOutcome.rejected(AuthorityRejectionReason.IDENTITY_MISMATCH);
         }
         Optional<SourceSearchAuthorityDocument> document;
         try {
@@ -162,14 +176,24 @@ final class CandidateAuthorityRevalidator {
                     RetrievalUnavailableException.Dependency.SOURCE_AUTHORITY,
                     infrastructureFailure);
         }
-        if (document.isEmpty()
-                || !SourceSearchEligibilityPolicy.documentEligible(document.get())) {
-            return false;
+        if (document.isEmpty()) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.AUTHORITY_MISSING);
         }
-        return document.get().chunks().stream()
+        if (!SourceSearchEligibilityPolicy.documentEligible(document.get())) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.INELIGIBLE);
+        }
+        var chunks = document.get().chunks().stream()
                 .filter(chunk -> chunk.sourceChunkId() == item.sourceChunkId())
-                .filter(SourceSearchEligibilityPolicy::chunkEligible)
-                .anyMatch(chunk -> chunk.contentHash().equals(item.contentHash()));
+                .toList();
+        if (chunks.isEmpty()) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.AUTHORITY_MISSING);
+        }
+        if (!SourceSearchEligibilityPolicy.chunkEligible(chunks.get(0))) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.INELIGIBLE);
+        }
+        return chunks.get(0).contentHash().equals(item.contentHash())
+                ? PublicationOutcome.CURRENT
+                : PublicationOutcome.rejected(AuthorityRejectionReason.STALE_REVISION);
     }
 
     private static AuthorityEvidence wikiAuthority(StoredPublishedWiki page, String content) {

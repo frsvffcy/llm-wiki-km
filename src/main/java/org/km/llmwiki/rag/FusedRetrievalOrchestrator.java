@@ -70,13 +70,23 @@ public class FusedRetrievalOrchestrator {
 
     /** Retrieval entry point for {@link RetrievalStrategy#FUSED}; budget stays request-bounded. */
     public EvidenceBundle retrieveFused(RetrievalRequest request) {
-        RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
-        FusedEvidenceResult result = fusedEvidenceService.fuse(FusedEvidenceRequest.of(
-                request.query(), limits.maxItems(), limits.maxCharacters(), true));
-        return assembleBundle(request, result);
+        return retrieveFused(request, null);
     }
 
-    private EvidenceBundle assembleBundle(RetrievalRequest request, FusedEvidenceResult result) {
+    /** Retrieval with an optional read-only observation collector; collecting never alters semantics. */
+    public EvidenceBundle retrieveFused(RetrievalRequest request,
+                                        RetrievalInspectionCollector collector) {
+        RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
+        FusedEvidenceRequest fusedRequest = FusedEvidenceRequest.of(
+                request.query(), limits.maxItems(), limits.maxCharacters(), true);
+        FusedEvidenceResult result = collector == null
+                ? fusedEvidenceService.fuse(fusedRequest)
+                : fusedEvidenceService.fuse(fusedRequest, collector);
+        return assembleBundle(request, result, collector);
+    }
+
+    private EvidenceBundle assembleBundle(RetrievalRequest request, FusedEvidenceResult result,
+                                          RetrievalInspectionCollector collector) {
         List<EvidenceItem> items = new ArrayList<>(result.items());
         ModalityOutcome handoffOutcome = null;
         String graphDetail = null;
@@ -112,9 +122,13 @@ public class FusedRetrievalOrchestrator {
                 }
                 Iterator<EvidenceItem> graphIterator = items.iterator();
                 while (graphIterator.hasNext()) {
-                    if (isGraphOnly(result, graphIterator.next())) {
+                    EvidenceItem item = graphIterator.next();
+                    if (isGraphOnly(result, item)) {
                         graphIterator.remove();
                         graphDroppedAtHandoff++;
+                        if (collector != null) {
+                            collector.rejected(item.stableIdentity(), graphDegradationCode(failure));
+                        }
                     }
                 }
             }
@@ -126,10 +140,15 @@ public class FusedRetrievalOrchestrator {
         int handoffRejected = graphDroppedAtHandoff;
         Iterator<EvidenceItem> iterator = items.iterator();
         while (iterator.hasNext()) {
-            if (!authorityRevalidator.publicationCurrent(iterator.next(),
-                    result.workspace().id(), handoffSourceCache)) {
+            EvidenceItem item = iterator.next();
+            PublicationOutcome outcome = authorityRevalidator.publicationCurrent(item,
+                    result.workspace().id(), handoffSourceCache);
+            if (outcome.wasRejected()) {
                 iterator.remove();
                 handoffRejected++;
+                if (collector != null) {
+                    collector.rejected(item.stableIdentity(), outcome.rejectionReason().name());
+                }
             }
         }
 
@@ -156,6 +175,13 @@ public class FusedRetrievalOrchestrator {
     private static boolean isGraphOnly(FusedEvidenceResult result, EvidenceItem item) {
         return result.itemModalities().getOrDefault(item.stableIdentity(), Set.of())
                 .equals(Set.of(CandidateSignal.GRAPH));
+    }
+
+    /** Stable degradation code for a handoff graph failure; projection types keep their codes. */
+    private static String graphDegradationCode(RuntimeException failure) {
+        return failure instanceof org.km.llmwiki.graph.GraphProjectionException projectionFailure
+                ? projectionFailure.failureType().publicCode()
+                : GraphRetrievalFailurePolicy.INFRASTRUCTURE_DEGRADATION_CODE;
     }
 
     /** Rebuilds the fusion diagnostics with the typed outcome observed at the Ask handoff. */
