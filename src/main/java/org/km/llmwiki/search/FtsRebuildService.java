@@ -83,12 +83,18 @@ public class FtsRebuildService {
                 .orElseThrow(NoActiveWorkspaceException::new);
         List<SearchCorpus> physicalCorpora = physicalCorpora(corpus);
         Launch launch = transactionTemplate.execute(status -> {
-            if (rebuildStateRepository.hasInProgress(workspace.id(), physicalCorpora)) {
-                throw new IllegalStateException("An FTS rebuild is already in progress for this workspace and corpus");
-            }
+            // Admission is atomic: the job insert is this transaction's first write, so it
+            // acquires the SQLite write lock against the latest committed state, and the
+            // claim re-evaluates in-progress ownership inside the same lock. A competing
+            // admission therefore always sees the committed owner and rejects here, rolling
+            // the job back with it — never an orphan job, never a stolen owner.
             ProcessingJob job = jobRepository.create(workspace.id(), UUID.randomUUID().toString(),
                     ProcessingJobType.FTS_REBUILD, physicalCorpora.size());
-            rebuildStateRepository.markQueued(workspace.id(), job.id(), physicalCorpora);
+            int claimed = rebuildStateRepository.claimQueued(workspace.id(), job.id(),
+                    physicalCorpora);
+            if (claimed != physicalCorpora.size()) {
+                throw new FtsRebuildAdmissionConflictException(corpus, physicalCorpora);
+            }
             return new Launch(workspace.id(), corpus, physicalCorpora, job);
         });
         if (launch == null) {

@@ -20,39 +20,52 @@ public class FtsRebuildStateRepository {
         this.dsl = dsl;
     }
 
-    public void markQueued(long workspaceId, long processingJobId, List<SearchCorpus> corpora) {
+    /**
+     * Atomically claims QUEUED ownership of the requested corpora for one admitted job. The
+     * claim re-evaluates in-progress ownership inside the caller's write transaction: a
+     * corpus whose row is QUEUED or RUNNING is never re-owned, and a missing row is created
+     * only when no overlapping operation exists. The caller must run this inside the same
+     * transaction that created the processing job and roll back entirely when the returned
+     * count is smaller than the requested corpora.
+     *
+     * @return the number of corpora successfully claimed
+     */
+    public int claimQueued(long workspaceId, long processingJobId, List<SearchCorpus> corpora) {
         String now = now();
+        int claimed = 0;
         for (SearchCorpus corpus : corpora) {
-            dsl.insertInto(SEARCH_INDEX_REBUILD_STATE)
-                    .columns(SEARCH_INDEX_REBUILD_STATE.WORKSPACE_ID,
-                            SEARCH_INDEX_REBUILD_STATE.CORPUS,
-                            SEARCH_INDEX_REBUILD_STATE.STATUS,
-                            SEARCH_INDEX_REBUILD_STATE.PROCESSING_JOB_ID,
-                            SEARCH_INDEX_REBUILD_STATE.INDEXED_COUNT,
-                            SEARCH_INDEX_REBUILD_STATE.FAILED_COUNT,
-                            SEARCH_INDEX_REBUILD_STATE.PROJECTION_VERSION,
-                            SEARCH_INDEX_REBUILD_STATE.FAILURE_DETAIL,
-                            SEARCH_INDEX_REBUILD_STATE.STARTED_AT,
-                            SEARCH_INDEX_REBUILD_STATE.COMPLETED_AT,
-                            SEARCH_INDEX_REBUILD_STATE.UPDATED_AT)
-                    .values(Math.toIntExact(workspaceId), corpus.name(), FtsRebuildStatus.QUEUED.name(),
-                            Math.toIntExact(processingJobId), 0, 0, CjkBigramProjector.VERSION,
-                            null, null, null, now)
-                    .onConflict(SEARCH_INDEX_REBUILD_STATE.WORKSPACE_ID,
-                            SEARCH_INDEX_REBUILD_STATE.CORPUS)
-                    .doUpdate()
+            int requeued = dsl.update(SEARCH_INDEX_REBUILD_STATE)
                     .set(SEARCH_INDEX_REBUILD_STATE.STATUS, FtsRebuildStatus.QUEUED.name())
                     .set(SEARCH_INDEX_REBUILD_STATE.PROCESSING_JOB_ID,
                             Math.toIntExact(processingJobId))
                     .set(SEARCH_INDEX_REBUILD_STATE.INDEXED_COUNT, 0)
                     .set(SEARCH_INDEX_REBUILD_STATE.FAILED_COUNT, 0)
-                    .set(SEARCH_INDEX_REBUILD_STATE.PROJECTION_VERSION, CjkBigramProjector.VERSION)
                     .set(SEARCH_INDEX_REBUILD_STATE.FAILURE_DETAIL, (String) null)
                     .set(SEARCH_INDEX_REBUILD_STATE.STARTED_AT, (String) null)
                     .set(SEARCH_INDEX_REBUILD_STATE.COMPLETED_AT, (String) null)
                     .set(SEARCH_INDEX_REBUILD_STATE.UPDATED_AT, now)
+                    .where(SEARCH_INDEX_REBUILD_STATE.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                    .and(SEARCH_INDEX_REBUILD_STATE.CORPUS.eq(corpus.name()))
+                    .and(SEARCH_INDEX_REBUILD_STATE.STATUS.notIn(
+                            FtsRebuildStatus.QUEUED.name(), FtsRebuildStatus.RUNNING.name()))
                     .execute();
+            if (requeued > 0) {
+                claimed++;
+                continue;
+            }
+            claimed += dsl.execute("""
+                    INSERT INTO search_index_rebuild_state
+                        (workspace_id, corpus, status, processing_job_id, indexed_count,
+                         failed_count, projection_version, updated_at)
+                    SELECT {0}, {1}, 'QUEUED', {2}, 0, 0, {3}, {4}
+                     WHERE NOT EXISTS (
+                        SELECT 1 FROM search_index_rebuild_state
+                         WHERE workspace_id = {0} AND corpus = {1}
+                           AND status IN ('QUEUED', 'RUNNING'))
+                    """, Math.toIntExact(workspaceId), corpus.name(),
+                    Math.toIntExact(processingJobId), CjkBigramProjector.VERSION, now);
         }
+        return claimed;
     }
 
     public void markRunning(long workspaceId, long processingJobId, List<SearchCorpus> corpora) {
@@ -97,14 +110,6 @@ public class FtsRebuildStateRepository {
                 .and(SEARCH_INDEX_REBUILD_STATE.PROCESSING_JOB_ID.eq(Math.toIntExact(processingJobId)))
                 .and(SEARCH_INDEX_REBUILD_STATE.CORPUS.in(corpora.stream().map(Enum::name).toList()))
                 .execute();
-    }
-
-    public boolean hasInProgress(long workspaceId, List<SearchCorpus> corpora) {
-        return dsl.fetchExists(dsl.selectOne().from(SEARCH_INDEX_REBUILD_STATE)
-                .where(SEARCH_INDEX_REBUILD_STATE.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
-                .and(SEARCH_INDEX_REBUILD_STATE.CORPUS.in(corpora.stream().map(Enum::name).toList()))
-                .and(SEARCH_INDEX_REBUILD_STATE.STATUS.in(
-                        FtsRebuildStatus.QUEUED.name(), FtsRebuildStatus.RUNNING.name())));
     }
 
     public List<Long> findInProgressProcessingJobIds() {
