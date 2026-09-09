@@ -74,6 +74,24 @@ public class FusedEvidenceService {
     private final GraphProjectionReadinessReader graphReadiness;
     private final GraphTraversalService graphTraversalService;
     private final GraphEvidenceAdmissionService graphAdmissionService;
+    private final FusionRankingPolicy rankingPolicy;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FusedEvidenceService(WorkspaceService workspaceService,
+                                SearchService searchService,
+                                VectorCandidateSearchService vectorCandidateSearchService,
+                                PublishedWikiRepository publishedWikiRepository,
+                                PublishedWikiContentReader publishedWikiContentReader,
+                                SourceSearchAuthorityRepository sourceAuthorityRepository,
+                                GraphProjectionReadinessReader graphReadiness,
+                                GraphTraversalService graphTraversalService,
+                                GraphEvidenceAdmissionService graphAdmissionService,
+                                FusionRankingPolicyProvider rankingPolicyProvider) {
+        this(workspaceService, searchService, vectorCandidateSearchService,
+                publishedWikiRepository, publishedWikiContentReader, sourceAuthorityRepository,
+                graphReadiness, graphTraversalService, graphAdmissionService,
+                rankingPolicyProvider.policy());
+    }
 
     public FusedEvidenceService(WorkspaceService workspaceService,
                                 SearchService searchService,
@@ -84,6 +102,22 @@ public class FusedEvidenceService {
                                 GraphProjectionReadinessReader graphReadiness,
                                 GraphTraversalService graphTraversalService,
                                 GraphEvidenceAdmissionService graphAdmissionService) {
+        this(workspaceService, searchService, vectorCandidateSearchService,
+                publishedWikiRepository, publishedWikiContentReader, sourceAuthorityRepository,
+                graphReadiness, graphTraversalService, graphAdmissionService,
+                FusionRankingPolicy.production());
+    }
+
+    FusedEvidenceService(WorkspaceService workspaceService,
+                         SearchService searchService,
+                         VectorCandidateSearchService vectorCandidateSearchService,
+                         PublishedWikiRepository publishedWikiRepository,
+                         PublishedWikiContentReader publishedWikiContentReader,
+                         SourceSearchAuthorityRepository sourceAuthorityRepository,
+                         GraphProjectionReadinessReader graphReadiness,
+                         GraphTraversalService graphTraversalService,
+                         GraphEvidenceAdmissionService graphAdmissionService,
+                         FusionRankingPolicy rankingPolicy) {
         this.workspaceService = workspaceService;
         this.searchService = searchService;
         this.vectorCandidateSearchService = vectorCandidateSearchService;
@@ -92,6 +126,7 @@ public class FusedEvidenceService {
         this.graphReadiness = graphReadiness;
         this.graphTraversalService = graphTraversalService;
         this.graphAdmissionService = graphAdmissionService;
+        this.rankingPolicy = rankingPolicy == null ? FusionRankingPolicy.production() : rankingPolicy;
     }
 
     public FusedEvidenceResult fuse(FusedEvidenceRequest request) {
@@ -156,7 +191,7 @@ public class FusedEvidenceService {
         if (!graph.order().isEmpty()) {
             channels.put(CandidateSignal.GRAPH, graph.order());
         }
-        List<ModalityRankFusion.FusedIdentity> fused = ModalityRankFusion.fuse(channels);
+        List<ModalityRankFusion.FusedIdentity> fused = ModalityRankFusion.fuse(channels, rankingPolicy);
 
         Map<String, FusionEntry> entries = mergeEntries(lexical, vector, graph, workspace);
 
@@ -358,9 +393,11 @@ public class FusedEvidenceService {
     /** Seeds are the fused, authority-revalidated canonical hits; stale seeds simply miss. */
     private List<GraphEntityIdentity> graphSeeds(RevalidatedChannel lexical,
                                                  RevalidatedChannel vector, long workspaceId) {
+        // Seed ordering stays on the uniform baseline policy: calibration may re-rank the
+        // fused evidence order, but traversal seeding keeps its canonical uniform semantics.
         List<ModalityRankFusion.FusedIdentity> fusedOrder = ModalityRankFusion.fuse(Map.of(
                 CandidateSignal.LEXICAL, lexical.order(),
-                CandidateSignal.VECTOR, vector.order()));
+                CandidateSignal.VECTOR, vector.order()), FusionRankingPolicy.baseline());
         Map<String, RevalidatedPair> pairs = new LinkedHashMap<>();
         lexical.pairs().forEach(pair -> pairs.putIfAbsent(pair.identity(), pair));
         vector.pairs().forEach(pair -> pairs.putIfAbsent(pair.identity(), pair));

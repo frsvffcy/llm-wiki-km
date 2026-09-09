@@ -49,6 +49,47 @@ final class ModalityRankFusion {
             if (channel.getValue() == null) {
                 continue;
             }
+            Set<String> channelSeen = new HashSet<>();
+            int rank = 0;
+            for (String identity : channel.getValue()) {
+                if (identity == null || identity.isBlank()) {
+                    throw new IllegalArgumentException("Fusion identities must not be blank");
+                }
+                if (!channelSeen.add(identity)) {
+                    continue;
+                }
+                rank++;
+                scores.putIfAbsent(identity, 0.0d);
+                scores.put(identity, scores.get(identity) + 1.0d / (k + rank));
+            }
+        }
+        List<FusedIdentity> fused = new ArrayList<>(scores.size());
+        scores.forEach((identity, score) -> fused.add(new FusedIdentity(identity, score)));
+        fused.sort(Comparator.comparingDouble(FusedIdentity::score).reversed()
+                .thenComparing(FusedIdentity::identity));
+        return List.copyOf(fused);
+    }
+
+    /**
+     * Fuses the channels under an explicit versioned policy: the per-channel contribution of an
+     * identity is {@code policy.weight(signal) / (policy.k() + rank)} with the same one-based
+     * rank, first-rank in-channel dedupe, and identity-ascending tie-break as the baseline.
+     * Weights are fixed policy constants; raw scores, vendor similarities, path counts, and
+     * backend order still never influence the result.
+     */
+    static List<FusedIdentity> fuse(Map<CandidateSignal, List<String>> channels,
+                                    FusionRankingPolicy policy) {
+        if (channels == null || policy == null) {
+            throw new IllegalArgumentException("Fusion channels and policy are required");
+        }
+        Map<String, Double> scores = new LinkedHashMap<>();
+        Map<CandidateSignal, List<String>> orderedChannels = new EnumMap<>(CandidateSignal.class);
+        orderedChannels.putAll(channels);
+        for (Map.Entry<CandidateSignal, List<String>> channel : orderedChannels.entrySet()) {
+            if (channel.getValue() == null) {
+                continue;
+            }
+            double weight = policy.weight(channel.getKey());
             // A repeated identity inside one channel keeps its first rank only: multi-path or
             // duplicate hits must never accumulate extra reciprocal contributions.
             Set<String> channelSeen = new HashSet<>();
@@ -62,7 +103,7 @@ final class ModalityRankFusion {
                 }
                 rank++;
                 scores.putIfAbsent(identity, 0.0d);
-                scores.put(identity, scores.get(identity) + 1.0d / (k + rank));
+                scores.put(identity, scores.get(identity) + weight / (policy.k() + rank));
             }
         }
         List<FusedIdentity> fused = new ArrayList<>(scores.size());

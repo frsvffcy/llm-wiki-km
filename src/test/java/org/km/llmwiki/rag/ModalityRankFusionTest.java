@@ -90,4 +90,97 @@ class ModalityRankFusionTest {
                 CandidateSignal.LEXICAL, List.of("WIKI:a", " ")), 0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void baselinePolicyReproducesTheUniformK60Behavior() {
+        Map<CandidateSignal, List<String>> channels = new LinkedHashMap<>();
+        channels.put(CandidateSignal.LEXICAL, List.of("WIKI:a", "WIKI:b"));
+        channels.put(CandidateSignal.GRAPH, List.of("WIKI:a"));
+
+        assertThat(ModalityRankFusion.fuse(channels, FusionRankingPolicy.baseline()))
+                .isEqualTo(ModalityRankFusion.fuse(channels));
+    }
+
+    @Test
+    void weightedPolicyScalesEachChannelContributionDeterministically() {
+        Map<CandidateSignal, List<String>> channels = new LinkedHashMap<>();
+        channels.put(CandidateSignal.VECTOR, List.of("WIKI:vector-hit"));
+        channels.put(CandidateSignal.GRAPH, List.of("WIKI:graph-hit"));
+        FusionRankingPolicy policy = new FusionRankingPolicy("test-weighted", 60, Map.of(
+                CandidateSignal.LEXICAL, 1.0d,
+                CandidateSignal.VECTOR, 1.0d,
+                CandidateSignal.GRAPH, 0.5d));
+
+        List<ModalityRankFusion.FusedIdentity> fused = ModalityRankFusion.fuse(channels, policy);
+
+        // Same rank in both channels: the weighted contribution decides the order.
+        assertThat(fused).extracting(ModalityRankFusion.FusedIdentity::identity)
+                .containsExactly("WIKI:vector-hit", "WIKI:graph-hit");
+        assertThat(fused.get(0).score()).isEqualTo(1.0d / 61);
+        assertThat(fused.get(1).score()).isEqualTo(0.5d / 61);
+    }
+
+    @Test
+    void weightedPolicyStaysPermutationAndCompletionOrderInvariant() {
+        Map<CandidateSignal, List<String>> forward = new LinkedHashMap<>();
+        forward.put(CandidateSignal.LEXICAL, List.of("WIKI:a", "SOURCE_CHUNK:7"));
+        forward.put(CandidateSignal.VECTOR, List.of("WIKI:b", "WIKI:a"));
+        forward.put(CandidateSignal.GRAPH, List.of("SOURCE_CHUNK:7"));
+        Map<CandidateSignal, List<String>> backward = new LinkedHashMap<>();
+        backward.put(CandidateSignal.GRAPH, List.of("SOURCE_CHUNK:7"));
+        backward.put(CandidateSignal.VECTOR, List.of("WIKI:b", "WIKI:a"));
+        backward.put(CandidateSignal.LEXICAL, List.of("WIKI:a", "SOURCE_CHUNK:7"));
+        FusionRankingPolicy policy = new FusionRankingPolicy("test-weighted", 20, Map.of(
+                CandidateSignal.LEXICAL, 1.0d,
+                CandidateSignal.VECTOR, 0.9d,
+                CandidateSignal.GRAPH, 0.8d));
+
+        assertThat(ModalityRankFusion.fuse(backward, policy))
+                .isEqualTo(ModalityRankFusion.fuse(forward, policy));
+    }
+
+    @Test
+    void weightedPolicyNeverAmplifiesDuplicateOrMultiPathHits() {
+        Map<CandidateSignal, List<String>> multipath = Map.of(
+                CandidateSignal.GRAPH, List.of("WIKI:a", "WIKI:a", "WIKI:a"));
+        FusionRankingPolicy policy = new FusionRankingPolicy("test-weighted", 60, Map.of(
+                CandidateSignal.LEXICAL, 1.0d,
+                CandidateSignal.VECTOR, 1.0d,
+                CandidateSignal.GRAPH, 2.0d));
+
+        // Multi-path or duplicate hits stay a single weighted contribution per channel.
+        assertThat(ModalityRankFusion.fuse(multipath, policy))
+                .extracting(ModalityRankFusion.FusedIdentity::score)
+                .containsExactly(2.0d / 61);
+    }
+
+    @Test
+    void policyBoundsRejectUnboundedParameterizations() {
+        assertThatThrownBy(() -> new FusionRankingPolicy("test", 0, Map.of(
+                CandidateSignal.LEXICAL, 1.0d, CandidateSignal.VECTOR, 1.0d,
+                CandidateSignal.GRAPH, 1.0d))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FusionRankingPolicy("test", 201, Map.of(
+                CandidateSignal.LEXICAL, 1.0d, CandidateSignal.VECTOR, 1.0d,
+                CandidateSignal.GRAPH, 1.0d))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FusionRankingPolicy("test", 60, Map.of(
+                CandidateSignal.LEXICAL, 1.0d, CandidateSignal.VECTOR, 1.0d,
+                CandidateSignal.GRAPH, 0.1d))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FusionRankingPolicy("test", 60, Map.of(
+                CandidateSignal.LEXICAL, 1.0d, CandidateSignal.VECTOR, 1.0d,
+                CandidateSignal.GRAPH, 2.1d))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FusionRankingPolicy("test", 60, Map.of(
+                CandidateSignal.LEXICAL, 1.0d, CandidateSignal.VECTOR, 1.0d)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FusionRankingPolicy(" ", 60, Map.of(
+                CandidateSignal.LEXICAL, 1.0d, CandidateSignal.VECTOR, 1.0d,
+                CandidateSignal.GRAPH, 1.0d))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void versionRegistryResolvesKnownPoliciesAndFailsFastOnUnknown() {
+        assertThat(FusionRankingPolicy.byVersion("fusion-rrf-v1"))
+                .isEqualTo(FusionRankingPolicy.baseline());
+        assertThatThrownBy(() -> FusionRankingPolicy.byVersion("does-not-exist"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

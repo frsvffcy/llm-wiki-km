@@ -52,6 +52,9 @@ app:
       enabled: ${VECTOR_CAPABILITY_ENABLED:false}
       extension-path: ${VECTOR_EXTENSION_PATH:}
       required-extension-version: ${VECTOR_EXTENSION_VERSION:v0.1.9}
+  rag:
+    fusion:
+      policy-version: ${KM_RAG_FUSION_POLICY_VERSION:fusion-rrf-v2-graph-damped}
 
 server:
   address: 127.0.0.1
