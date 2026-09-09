@@ -113,7 +113,12 @@ public REST errors carry stable codes with allowlisted or sanitized messages (HT
 and codes stay typed), persisted failure details carry a stable reason plus a sanitized
 summary with no exception class names, cause chains, paths, secrets, SQL fragments, or
 backend identities, and the full root cause chain stays server-side in the application log.
-A deterministic offline quality gate
+FTS rebuild admission is an atomic contract: a duplicate admission for the same workspace
+with an overlapping physical corpus (`ALL` overlaps both `WIKI` and `SOURCE`; `WIKI` and
+`SOURCE` may run concurrently) is a typed conflict (`FTS_REBUILD_IN_PROGRESS`, HTTP 409),
+the job insert and the ownership claim run inside one SQLite write transaction so a rejected
+admission never leaves an orphan job or a stolen owner, and a late worker completion can
+only complete the state it owns. A deterministic offline quality gate
 (`GraphRetrievalQualityGateTest`, golden corpus `graph-retrieval-golden-v1`) drives the
 production-equivalent pipeline over real FTS, real readiness/authority boundaries, and a real
 ArcadeDB projection, gates identity-level recall@8/MRR/safety floors across

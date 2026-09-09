@@ -5,6 +5,7 @@ import org.km.llmwiki.ai.ask.AskFailureType;
 import org.km.llmwiki.graph.GraphProjectionException;
 import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
+import org.km.llmwiki.search.FtsRebuildAdmissionConflictException;
 import org.km.llmwiki.search.embedding.ProcessingJobNotFoundException;
 import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
@@ -138,6 +139,14 @@ public class GlobalExceptionHandler {
             RetrievalUnavailableException exception) {
         return respond(HttpStatus.SERVICE_UNAVAILABLE, "RETRIEVAL_UNAVAILABLE",
                 publicMessage(exception, "Retrieval service is unavailable"), exception);
+    }
+
+    /** Duplicate FTS rebuild admission is a typed conflict, never a generic 500. */
+    @ExceptionHandler(FtsRebuildAdmissionConflictException.class)
+    public ResponseEntity<ApiError> handleFtsRebuildAdmissionConflict(
+            FtsRebuildAdmissionConflictException exception) {
+        return respond(HttpStatus.CONFLICT, "FTS_REBUILD_IN_PROGRESS",
+                "An FTS rebuild is already in progress for this workspace and corpus", exception);
     }
 
     /**
