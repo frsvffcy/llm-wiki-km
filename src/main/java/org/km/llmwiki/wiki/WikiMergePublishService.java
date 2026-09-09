@@ -1,5 +1,7 @@
 package org.km.llmwiki.wiki;
 
+import org.km.llmwiki.web.DiagnosticRedaction;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.km.llmwiki.ai.LlmProposalAction;
@@ -282,7 +284,8 @@ public class WikiMergePublishService {
 
     private void compensateFailure(long workspaceId, StoredWikiPublishOperation operation,
                                    StagedWikiReplacement staged, RuntimeException cause) {
-        String detail = cause.getClass().getSimpleName() + ": " + nullToEmpty(cause.getMessage());
+        String detail = DiagnosticRedaction.persistedFailure("wiki_publish_recovery_failed",
+                cause, "Wiki publish compensation failed");
         // A failed atomic-replace call may still have moved the staged file before throwing.
         // Always inspect the filesystem rather than trusting an in-memory commit flag.
         boolean fileSafe = fileReplacer.compensate(staged);

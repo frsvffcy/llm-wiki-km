@@ -1,5 +1,7 @@
 package org.km.llmwiki.search;
 
+import org.km.llmwiki.web.DiagnosticRedaction;
+
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiValidationException;
@@ -61,9 +63,9 @@ public class PublishedWikiIndexingService {
         } catch (RuntimeException exception) {
             WikiSearchIndexSyncStatus status = exception instanceof PublishedWikiValidationException
                     ? WikiSearchIndexSyncStatus.DRIFT : WikiSearchIndexSyncStatus.INDEX_PENDING;
-            return pending(published, status,
-                    "Published Wiki FTS sync failed: " + exception.getClass().getSimpleName()
-                            + ": " + safeMessage(exception));
+            return pending(published, status, DiagnosticRedaction.sanitize(
+                    "Published Wiki FTS sync failed: " + safeMessage(exception),
+                    "Published Wiki FTS sync failed", 1000));
         }
     }
 

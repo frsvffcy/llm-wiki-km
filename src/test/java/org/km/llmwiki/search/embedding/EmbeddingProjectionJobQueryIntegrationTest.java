@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.nio.file.Files;
@@ -221,6 +222,25 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
         getJob(unrelated.jobId())
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("PROCESSING_JOB_NOT_FOUND"));
+    }
+
+    @Test
+    void readinessProjectionRedactsLegacyRawFailureDetails() throws Exception {
+        long workspace = insertWorkspace("readiness-redaction");
+        ProcessingJob job = createEmbeddingJob(workspace, "embedding-readiness-redaction",
+                SearchCorpus.WIKI);
+        readiness.markQueued(workspace, job.id(), EmbeddingEvidenceKind.WIKI, 1);
+        readiness.markFailed(workspace, job.id(), EmbeddingEvidenceKind.WIKI,
+                "RuntimeException: /Users/toddyeh/workspace/secret "
+                        + "Authorization: Bearer abc token=abcdef123456 "
+                        + "SELECT * FROM t RID #12:0");
+
+        MvcResult result = mockMvc.perform(get("/api/v1/search/index/embedding/readiness"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String body = result.getResponse().getContentAsString();
+        assertThat(body).doesNotContain("/Users", "toddyeh", "Bearer", "token=abcdef123456",
+                "SELECT", "RID", "#12:0", "RuntimeException");
     }
 
     @Test

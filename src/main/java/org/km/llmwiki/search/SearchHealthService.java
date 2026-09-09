@@ -1,5 +1,6 @@
 package org.km.llmwiki.search;
 
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.km.llmwiki.wiki.StoredPublishedWiki;
@@ -59,9 +60,12 @@ public class SearchHealthService {
                 .stream().collect(Collectors.toMap(FtsRebuildState::corpus, Function.identity()));
         List<SearchCorpusHealth> corpora = new ArrayList<>();
         for (SearchCorpus corpus : FtsRebuildService.physicalCorpora(requested)) {
+            // The public health projection re-applies the operator-safe redaction policy to the
+            // persisted rebuild state: failure details written before the persisted-diagnostic
+            // contract (or by any other writer) must never reach the REST boundary raw.
             corpora.add(corpus == SearchCorpus.WIKI
-                    ? checkWiki(workspace.id(), states.get(corpus))
-                    : checkSource(workspace.id(), states.get(corpus)));
+                    ? checkWiki(workspace.id(), publicRebuildState(states.get(corpus)))
+                    : checkSource(workspace.id(), publicRebuildState(states.get(corpus))));
         }
         SearchHealthSummary summary = new SearchHealthSummary(
                 indexed(corpora, SearchCorpus.WIKI), indexed(corpora, SearchCorpus.SOURCE),
@@ -237,6 +241,19 @@ public class SearchHealthService {
 
     private static long rebuildFailure(FtsRebuildState state) {
         return state != null && state.status() != FtsRebuildStatus.COMPLETED ? 1 : 0;
+    }
+
+    private static FtsRebuildState publicRebuildState(FtsRebuildState state) {
+        if (state == null) {
+            return null;
+        }
+        return new FtsRebuildState(state.workspaceId(), state.corpus(), state.status(),
+                state.processingJobId(), state.indexedCount(), state.failedCount(),
+                state.projectionVersion(),
+                state.failureDetail() == null ? null
+                        : DiagnosticRedaction.publicMessage(state.failureDetail(),
+                        "FTS rebuild failed"),
+                state.startedAt(), state.completedAt(), state.updatedAt());
     }
 
     private static long indexed(List<SearchCorpusHealth> corpora, SearchCorpus corpus) {

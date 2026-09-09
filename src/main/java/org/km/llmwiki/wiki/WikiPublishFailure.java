@@ -1,5 +1,7 @@
 package org.km.llmwiki.wiki;
 
+import org.km.llmwiki.web.DiagnosticRedaction;
+
 record WikiPublishFailure(WikiPublishResultType result, WikiPublishFailureCategory category,
                           WikiPublishFailureStage stage, String code, String detail) {
 
@@ -35,9 +37,6 @@ record WikiPublishFailure(WikiPublishResultType result, WikiPublishFailureCatego
     }
 
     private static String safe(String detail) {
-        if (detail == null || detail.isBlank()) {
-            return "Unspecified publish failure";
-        }
-        return detail.substring(0, Math.min(detail.length(), 1000));
+        return DiagnosticRedaction.sanitize(detail, "Unspecified publish failure", 1000);
     }
 }

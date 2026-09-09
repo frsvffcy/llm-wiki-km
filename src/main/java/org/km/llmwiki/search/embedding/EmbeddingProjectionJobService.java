@@ -2,6 +2,7 @@ package org.km.llmwiki.search.embedding;
 
 import org.km.llmwiki.processing.*;
 import org.km.llmwiki.search.SearchCorpus;
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.slf4j.Logger;
@@ -239,10 +240,13 @@ public class EmbeddingProjectionJobService {
     private void recordFailure(Launch launch, List<EmbeddingEvidenceKind> kinds,
                                String reason, RuntimeException failure,
                                int processed, int succeeded, int failed) {
-        // Exception messages can contain provider bodies, SQL, local paths, or stack details.
-        // The operator-facing readiness surface gets the allow-listed reason and exception type
-        // only; the raw exception remains server-side in the normal application log boundary.
-        String detail = reason + ": " + failure.getClass().getSimpleName();
+        // Operator-safe persisted projection: the allow-listed reason plus the sanitized
+        // top-level message only; exception class names, cause chains, paths, and SQL stay
+        // server-side in the normal application log boundary.
+        String detail = DiagnosticRedaction.persistedFailure(reason, failure,
+                "Embedding projection rebuild failed");
+        log.error("Embedding projection rebuild failed for workspace {} job {}: {}",
+                launch.workspaceId(), launch.job().jobId(), detail, failure);
         tx.executeWithoutResult(status -> {
             for (EmbeddingEvidenceKind kind : kinds) {
                 readiness.markFailed(launch.workspaceId(), launch.job().id(), kind, detail);

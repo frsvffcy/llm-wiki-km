@@ -386,7 +386,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 """, "workspace", workspace.id(), "page", pageId);
         assertThat(pendingLedger).containsEntry("status", "INDEX_PENDING")
                 .containsEntry("indexed_content_hash", null)
-                .containsEntry("failure_detail", "Published Wiki FTS sync failed: IllegalStateException: simulated FTS outage");
+                .containsEntry("failure_detail", "Published Wiki FTS sync failed: simulated FTS outage");
 
         awaitEmbeddingProjectionTasks();
         doCallRealMethod().when(ftsSearchIndexRepository).upsertKnowledge(any());
