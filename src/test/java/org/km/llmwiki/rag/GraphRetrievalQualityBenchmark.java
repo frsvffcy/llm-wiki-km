@@ -39,10 +39,10 @@ final class GraphRetrievalQualityBenchmark {
                          int graphAddedFound, int graphAddedExpected) {
     }
 
-    record Evaluation(String corpusVersion, int k, String graphProjectionVersion,
-                      long graphAppliedGeneration, List<QueryMetrics> metrics,
-                      Map<String, ModeAggregate> aggregates, List<String> safetyViolations,
-                      boolean degradedBaselineRetained) {
+    record Evaluation(String corpusVersion, String rankingPolicyVersion, int k,
+                      String graphProjectionVersion, long graphAppliedGeneration,
+                      List<QueryMetrics> metrics, Map<String, ModeAggregate> aggregates,
+                      List<String> safetyViolations, boolean degradedBaselineRetained) {
 
         String toJson() {
             try {
@@ -56,6 +56,7 @@ final class GraphRetrievalQualityBenchmark {
             StringBuilder report = new StringBuilder();
             report.append("# Graph-grounded retrieval quality report\n\n");
             report.append("- corpus: `").append(corpusVersion).append("`\n");
+            report.append("- ranking policy: `").append(rankingPolicyVersion).append("`\n");
             report.append("- k: ").append(k).append('\n');
             report.append("- graph projection: `").append(graphProjectionVersion).append("` generation ")
                     .append(graphAppliedGeneration).append('\n');
@@ -101,7 +102,8 @@ final class GraphRetrievalQualityBenchmark {
      * must be production-equivalent application contracts; this engine never re-ranks or
      * re-validates anything by itself.
      */
-    static Evaluation evaluate(String corpusVersion, List<GraphRetrievalGoldenCorpus.GoldenQuery> queries,
+    static Evaluation evaluate(String corpusVersion, String rankingPolicyVersion,
+                               List<GraphRetrievalGoldenCorpus.GoldenQuery> queries,
                                Map<String, Function<String, EvidenceBundle>> modeRunners, int k,
                                String graphProjectionVersion, long graphAppliedGeneration,
                                List<String> forbiddenIdentities,
@@ -171,9 +173,9 @@ final class GraphRetrievalQualityBenchmark {
                 && new java.util.LinkedHashSet<>(degradedGraphOutcome.retrieved())
                 .equals(degradedBaselineExpectation);
 
-        return new Evaluation(corpusVersion, k, graphProjectionVersion, graphAppliedGeneration,
-                List.copyOf(metrics), Map.copyOf(aggregates), List.copyOf(safetyViolations),
-                degradedBaselineRetained);
+        return new Evaluation(corpusVersion, rankingPolicyVersion, k, graphProjectionVersion,
+                graphAppliedGeneration, List.copyOf(metrics), Map.copyOf(aggregates),
+                List.copyOf(safetyViolations), degradedBaselineRetained);
     }
 
     static void writeReports(Evaluation evaluation, Path directory) {

@@ -113,8 +113,11 @@ production-equivalent pipeline over real FTS, real readiness/authority boundarie
 ArcadeDB projection, gates identity-level recall@8/MRR/safety floors across
 `HYBRID_FTS`/`HYBRID_VECTOR`/`HYBRID_GRAPH`, and proves the graph channel adds graph-only
 discovery while stale, foreign, and `MENTIONS`-only material stays un-retrievable in every
-mode. It still does not
-add a Graph traversal REST endpoint, graph visualization, inferred relations, or GraphRAG.
+mode. The fused ordering itself is a versioned, bounded ranking policy calibrated offline
+against the golden corpus plus an isolated holdout set, leave-one-query-out folds, and a
+sensitivity neighborhood (the selected `fusion-rrf-v2-graph-damped` policy improves fused MRR
+from 0.833 to 1.000 on the golden corpus without touching the non-fused modes). It still does
+not add a Graph traversal REST endpoint, graph visualization, inferred relations, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
 subject to adoption gates. Graph candidates reach `EvidenceBundle` only through
