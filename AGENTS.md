@@ -159,7 +159,7 @@
     * **型別映射注意**：SQLite `REAL` 被 jOOQ 映射為 `Float`；需用 `cast(field, Double.class)` 或 `r.get("col", Double.class)` 取回正確精度
     * **ID 型別**：SQLite `INTEGER PRIMARY KEY AUTOINCREMENT` 映射為 `Integer`，Domain 使用時需 `.longValue()`
     * **ON CONFLICT**：用 `.onConflict(...).doUpdate().set(..., excluded(...))` 實作 UPSERT
-  * **連線設定**：每個連線必須啟用 `PRAGMA foreign_keys = ON; journal_mode = WAL; synchronous = NORMAL; busy_timeout = 5000`
+  * **連線設定**：每個連線必須啟用 `PRAGMA foreign_keys = ON; journal_mode = WAL; synchronous = NORMAL; busy_timeout = <configured positive value>`；預設值為 `5000`，設定 `<= 0` 必須在 property binding／application startup boundary fail fast。
 * **樣式庫**：
   * 原生 CSS（不引入 Tailwind / Bootstrap 等 CSS 框架）
 * **套件管理**：
