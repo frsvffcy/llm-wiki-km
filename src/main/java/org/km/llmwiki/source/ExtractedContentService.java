@@ -41,6 +41,7 @@ public class ExtractedContentService {
     private final SourceChunkRepository sourceChunkRepository;
     private final SourceChunkIndexingService sourceChunkIndexingService;
     private final EmbeddingProjectionJobService embeddingProjectionJobService;
+    private final ExtractionResourceProperties extractionResourceProperties;
 
     public ExtractedContentService(WorkspaceService workspaceService, DocumentRepository documentRepository,
                                    DocumentParserRegistry parserRegistry,
@@ -50,7 +51,8 @@ public class ExtractedContentService {
                                    SourceChunker sourceChunker,
                                    SourceChunkRepository sourceChunkRepository,
                                    SourceChunkIndexingService sourceChunkIndexingService,
-                                   EmbeddingProjectionJobService embeddingProjectionJobService) {
+                                   EmbeddingProjectionJobService embeddingProjectionJobService,
+                                   ExtractionResourceProperties extractionResourceProperties) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
         this.parserRegistry = parserRegistry;
@@ -61,6 +63,7 @@ public class ExtractedContentService {
         this.sourceChunkRepository = sourceChunkRepository;
         this.sourceChunkIndexingService = sourceChunkIndexingService;
         this.embeddingProjectionJobService = embeddingProjectionJobService;
+        this.extractionResourceProperties = extractionResourceProperties;
     }
 
     @Transactional(noRollbackFor = DocumentExtractionException.class)
@@ -76,7 +79,10 @@ public class ExtractedContentService {
 
         try {
             Path source = resolveSource(workspace, document.sourcePath());
-            ParsedDocument parsed = parser.parse(source);
+            DocumentParserLimits limits = extractionResourceProperties.limits();
+            validateInputSize(source, limits);
+            ParsedDocument parsed = parser.parse(source, limits);
+            validateParsedDocument(parsed, limits);
             String parserError = parsed.metadata().get("parseError");
             if (parserError != null && !parserError.isBlank()) {
                 throw extractionFailure(document, DocumentStatus.FAILED,
@@ -85,6 +91,7 @@ public class ExtractedContentService {
             ExtractedContentNormalizer.CanonicalNormalization canonicalNormalization =
                     extractedContentNormalizer.canonicalize(parsed.content());
             String normalizedContent = canonicalNormalization.content();
+            validateOutputSize(normalizedContent, limits);
             if (scannedPdfDetector.requiresOcr(source, document.mimeType(), document.fileName(), normalizedContent)) {
                 extractedContentRepository.deleteByDocumentId(document.documentId());
                 sourceChunkRepository.deleteByDocumentId(document.documentId());
@@ -100,6 +107,9 @@ public class ExtractedContentService {
             documentRepository.markExtractionSucceeded(document.documentId(), sha256(normalizedContent));
             return new ExtractionResponse(document.documentId(), DocumentStatus.PROCESSED.name(), chunkCount,
                     null, null);
+        } catch (DocumentParserResourceLimitException exception) {
+            throw extractionFailure(document, DocumentStatus.FAILED,
+                    "EXTRACTION_RESOURCE_LIMIT", "文件抽取超過同步資源上限");
         } catch (IOException exception) {
             throw extractionFailure(document, DocumentStatus.FAILED,
                     "EXTRACTION_SOURCE_UNAVAILABLE", "無法讀取待抽取的文件");
@@ -191,6 +201,39 @@ public class ExtractedContentService {
             throw new IOException("document source escapes the workspace");
         }
         return realSource;
+    }
+
+    private static void validateInputSize(Path source, DocumentParserLimits limits) throws IOException {
+        if (Files.size(source) > limits.maxInputBytes()) {
+            throw new DocumentParserResourceLimitException(
+                    DocumentParserResourceLimitException.Resource.INPUT_BYTES);
+        }
+    }
+
+    private static void validateParsedDocument(ParsedDocument parsed, DocumentParserLimits limits)
+            throws DocumentParserResourceLimitException {
+        validateOutputSize(parsed.content(), limits);
+        if (metadataCharacters(parsed.metadata()) > limits.maxMetadataCharacters()) {
+            throw new DocumentParserResourceLimitException(
+                    DocumentParserResourceLimitException.Resource.METADATA_CHARACTERS);
+        }
+    }
+
+    private static void validateOutputSize(String content, DocumentParserLimits limits)
+            throws DocumentParserResourceLimitException {
+        if (content.length() > limits.maxOutputCharacters()) {
+            throw new DocumentParserResourceLimitException(
+                    DocumentParserResourceLimitException.Resource.OUTPUT_CHARACTERS);
+        }
+    }
+
+    private static long metadataCharacters(java.util.Map<String, String> metadata) {
+        long characters = 0;
+        for (var entry : metadata.entrySet()) {
+            characters = Math.addExact(characters, entry.getKey().length());
+            characters = Math.addExact(characters, entry.getValue().length());
+        }
+        return characters;
     }
 
     private static int chunkCount(String content) {

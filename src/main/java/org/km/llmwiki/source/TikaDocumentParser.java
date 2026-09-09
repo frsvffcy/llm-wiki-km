@@ -1,6 +1,7 @@
 package org.km.llmwiki.source;
 
 import org.apache.tika.exception.TikaException;
+import org.apache.tika.exception.WriteLimitReachedException;
 import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
@@ -11,10 +12,12 @@ import org.springframework.stereotype.Component;
 import org.xml.sax.SAXException;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -32,7 +35,10 @@ public class TikaDocumentParser implements DocumentParser {
             "text/plain");
     private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
             "doc", "docx", "html", "htm", "md", "markdown", "pdf", "txt");
-    private static final int UNLIMITED_CONTENT_LENGTH = -1;
+    private static final DocumentParserLimits DEFAULT_LIMITS = new DocumentParserLimits(
+            ExtractionResourceProperties.ABSOLUTE_MAX_INPUT_BYTES,
+            ExtractionResourceProperties.ABSOLUTE_MAX_OUTPUT_CHARACTERS,
+            ExtractionResourceProperties.ABSOLUTE_MAX_METADATA_CHARACTERS);
 
     @Override
     public boolean supportsMimeType(String mimeType) {
@@ -46,18 +52,42 @@ public class TikaDocumentParser implements DocumentParser {
 
     @Override
     public ParsedDocument parse(Path source) throws IOException {
-        Metadata metadata = new Metadata();
-        metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, source.getFileName().toString());
-        BodyContentHandler contentHandler = new BodyContentHandler(UNLIMITED_CONTENT_LENGTH);
+        return parse(source, DEFAULT_LIMITS);
+    }
 
-        try (TikaInputStream input = TikaInputStream.get(source)) {
+    @Override
+    public ParsedDocument parse(Path source, DocumentParserLimits limits) throws IOException {
+        Objects.requireNonNull(source, "source must not be null");
+        Objects.requireNonNull(limits, "limits must not be null");
+        if (java.nio.file.Files.size(source) > limits.maxInputBytes()) {
+            throw new DocumentParserResourceLimitException(
+                    DocumentParserResourceLimitException.Resource.INPUT_BYTES);
+        }
+
+        Metadata metadata = new Metadata();
+        metadata.setMetadataWriteFilter(new BoundedMetadataWriteFilter(limits.maxMetadataCharacters()));
+        try {
+            metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, source.getFileName().toString());
+        } catch (MetadataLimitExceededException exception) {
+            throw new DocumentParserResourceLimitException(
+                    DocumentParserResourceLimitException.Resource.METADATA_CHARACTERS);
+        }
+        BodyContentHandler contentHandler = new BodyContentHandler(limits.maxOutputCharacters());
+
+        try (InputStream file = java.nio.file.Files.newInputStream(source);
+             TikaInputStream input = TikaInputStream.get(new BoundedInputStream(file, limits.maxInputBytes()))) {
             new AutoDetectParser().parse(input, contentHandler, metadata, new ParseContext());
             return new ParsedDocument(contentHandler.toString(), copyMetadata(metadata));
+        } catch (MetadataLimitExceededException exception) {
+            throw new DocumentParserResourceLimitException(
+                    DocumentParserResourceLimitException.Resource.METADATA_CHARACTERS);
         } catch (TikaException | SAXException exception) {
+            if (WriteLimitReachedException.isWriteLimitReached(exception)) {
+                throw new DocumentParserResourceLimitException(
+                        DocumentParserResourceLimitException.Resource.OUTPUT_CHARACTERS);
+            }
             Map<String, String> failedMetadata = copyMetadata(metadata);
-            failedMetadata.put("parseError", exception.getMessage() == null
-                    ? exception.getClass().getSimpleName()
-                    : exception.getMessage());
+            failedMetadata.put("parseError", "parser failure");
             return new ParsedDocument("", failedMetadata);
         }
     }

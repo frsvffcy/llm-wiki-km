@@ -19,6 +19,7 @@ import java.util.Base64;
 import java.util.zip.GZIPInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Tag("integration")
 class TikaDocumentParserIntegrationTest {
@@ -75,6 +76,16 @@ class TikaDocumentParserIntegrationTest {
 
         assertThat(parsed.content()).isEmpty();
         assertThat(parsed.metadata()).containsKey("parseError");
+    }
+
+    @Test
+    void rejectsTextExpansionWithATypedOutputResourceLimit() throws Exception {
+        Path source = write("large.txt", "0123456789");
+
+        assertThatThrownBy(() -> parser.parse(source, new DocumentParserLimits(100, 5, 10_000)))
+                .isInstanceOf(DocumentParserResourceLimitException.class)
+                .extracting(exception -> ((DocumentParserResourceLimitException) exception).resource())
+                .isEqualTo(DocumentParserResourceLimitException.Resource.OUTPUT_CHARACTERS);
     }
 
     private void assertParsed(Path source, String expectedContent, String expectedMimeType) throws Exception {

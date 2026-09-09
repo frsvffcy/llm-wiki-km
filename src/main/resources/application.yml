@@ -35,6 +35,10 @@ app:
       max-output-tokens: ${ANSWER_PROVIDER_MAX_OUTPUT_TOKENS:4000}
       temperature: ${ANSWER_PROVIDER_TEMPERATURE:0.0}
   extraction:
+    resource:
+      max-input-bytes: ${EXTRACTION_MAX_INPUT_BYTES:52428800}
+      max-output-characters: ${EXTRACTION_MAX_OUTPUT_CHARACTERS:5000000}
+      max-metadata-characters: ${EXTRACTION_MAX_METADATA_CHARACTERS:100000}
     scanned-pdf:
       minimum-text-characters: ${EXTRACTION_SCANNED_PDF_MINIMUM_TEXT_CHARACTERS:50}
     normalization:
