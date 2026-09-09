@@ -76,13 +76,52 @@ class TikaDocumentParserIntegrationTest {
 
         assertThat(parsed.content()).isEmpty();
         assertThat(parsed.metadata()).containsKey("parseError");
+        assertThat(parsed.parserId()).isEqualTo(TikaDocumentParser.PARSER_ID);
+        assertThat(parsed.parserVersion()).isEqualTo(TikaDocumentParser.PARSER_VERSION);
+        assertThat(parsed.blocks()).isEmpty();
+    }
+
+    @Test
+    void producesTypedStructuralBlocksWithParserProvenanceAndNeverFabricatesRichKindsOrBoundingBoxes()
+            throws Exception {
+        Path source = write("structured.txt",
+                "# Overview\n\nIntro paragraph.\n\n## Details\n\nDetail paragraph.");
+
+        ParsedDocument parsed = parser.parse(source);
+
+        assertThat(parsed.parserId()).isEqualTo(TikaDocumentParser.PARSER_ID);
+        assertThat(parsed.parserVersion()).isEqualTo(TikaDocumentParser.PARSER_VERSION);
+        assertThat(parsed.blocks()).extracting(ParsedBlock::kind).containsExactly(
+                ParsedBlockKind.HEADING,
+                ParsedBlockKind.PARAGRAPH,
+                ParsedBlockKind.HEADING,
+                ParsedBlockKind.PARAGRAPH);
+        assertThat(parsed.blocks()).extracting(ParsedBlock::stableOrdinal).containsExactly(1, 2, 3, 4);
+        assertThat(parsed.blocks()).extracting(ParsedBlock::pageNo).containsExactly(1, 1, 1, 1);
+        assertThat(parsed.blocks()).extracting(ParsedBlock::headingTitle)
+                .containsExactly("Overview", null, "Details", null);
+        assertThat(parsed.blocks()).allSatisfy(block -> {
+            assertThat(block.boundingBox()).isNull();
+            assertThat(block.kind()).isNotIn(ParsedBlockKind.TABLE, ParsedBlockKind.FIGURE,
+                    ParsedBlockKind.CAPTION);
+        });
+    }
+
+    @Test
+    void throwsTypedStructureBlockResourceLimitWhenBlocksExceedTheCap() throws Exception {
+        Path source = write("many-blocks.txt", "one\n\ntwo\n\nthree");
+
+        assertThatThrownBy(() -> parser.parse(source, new DocumentParserLimits(100, 10_000, 10_000, 2)))
+                .isInstanceOf(DocumentParserResourceLimitException.class)
+                .extracting(exception -> ((DocumentParserResourceLimitException) exception).resource())
+                .isEqualTo(DocumentParserResourceLimitException.Resource.STRUCTURE_BLOCKS);
     }
 
     @Test
     void rejectsTextExpansionWithATypedOutputResourceLimit() throws Exception {
         Path source = write("large.txt", "0123456789");
 
-        assertThatThrownBy(() -> parser.parse(source, new DocumentParserLimits(100, 5, 10_000)))
+        assertThatThrownBy(() -> parser.parse(source, new DocumentParserLimits(100, 5, 10_000, 1_000)))
                 .isInstanceOf(DocumentParserResourceLimitException.class)
                 .extracting(exception -> ((DocumentParserResourceLimitException) exception).resource())
                 .isEqualTo(DocumentParserResourceLimitException.Resource.OUTPUT_CHARACTERS);

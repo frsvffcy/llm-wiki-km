@@ -19,13 +19,15 @@ class DocumentParserResourceContractTest {
     @Test
     void limitsRequireFinitePositiveValues() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new DocumentParserLimits(0, 1, 1));
+                .isThrownBy(() -> new DocumentParserLimits(0, 1, 1, 1));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new DocumentParserLimits(1, 0, 1));
+                .isThrownBy(() -> new DocumentParserLimits(1, 0, 1, 1));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new DocumentParserLimits(1, 1, 0));
+                .isThrownBy(() -> new DocumentParserLimits(1, 1, 0, 1));
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new DocumentParserLimits(1, 1, -1));
+                .isThrownBy(() -> new DocumentParserLimits(1, 1, -1, 1));
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new DocumentParserLimits(1, 1, 1, 0));
     }
 
     @Test
@@ -38,11 +40,14 @@ class DocumentParserResourceContractTest {
         assertThatIllegalArgumentException().isThrownBy(() -> properties.setMaxOutputCharacters(Integer.MAX_VALUE));
         assertThatIllegalArgumentException().isThrownBy(() -> properties.setMaxMetadataCharacters(0));
         assertThatIllegalArgumentException().isThrownBy(() -> properties.setMaxMetadataCharacters(Integer.MAX_VALUE));
+        assertThatIllegalArgumentException().isThrownBy(() -> properties.setMaxStructureBlocks(0));
+        assertThatIllegalArgumentException().isThrownBy(() -> properties.setMaxStructureBlocks(Integer.MAX_VALUE));
 
         assertThat(properties.limits()).isEqualTo(new DocumentParserLimits(
                 ExtractionResourceProperties.ABSOLUTE_MAX_INPUT_BYTES,
                 ExtractionResourceProperties.ABSOLUTE_MAX_OUTPUT_CHARACTERS,
-                ExtractionResourceProperties.ABSOLUTE_MAX_METADATA_CHARACTERS));
+                ExtractionResourceProperties.ABSOLUTE_MAX_METADATA_CHARACTERS,
+                100_000));
     }
 
     @Test

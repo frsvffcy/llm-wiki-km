@@ -14,10 +14,12 @@ public class ExtractionResourceProperties {
     public static final long ABSOLUTE_MAX_INPUT_BYTES = 50L * 1024 * 1024;
     public static final int ABSOLUTE_MAX_OUTPUT_CHARACTERS = 5_000_000;
     public static final int ABSOLUTE_MAX_METADATA_CHARACTERS = 100_000;
+    public static final int ABSOLUTE_MAX_STRUCTURE_BLOCKS = 1_000_000;
 
     private long maxInputBytes = ABSOLUTE_MAX_INPUT_BYTES;
     private int maxOutputCharacters = ABSOLUTE_MAX_OUTPUT_CHARACTERS;
     private int maxMetadataCharacters = ABSOLUTE_MAX_METADATA_CHARACTERS;
+    private int maxStructureBlocks = 100_000;
 
     public long getMaxInputBytes() {
         return maxInputBytes;
@@ -41,6 +43,16 @@ public class ExtractionResourceProperties {
         return maxMetadataCharacters;
     }
 
+    public int getMaxStructureBlocks() {
+        return maxStructureBlocks;
+    }
+
+    public void setMaxStructureBlocks(int maxStructureBlocks) {
+        requireWithinCeiling("最大結構區塊數", maxStructureBlocks,
+                ABSOLUTE_MAX_STRUCTURE_BLOCKS);
+        this.maxStructureBlocks = maxStructureBlocks;
+    }
+
     public void setMaxMetadataCharacters(int maxMetadataCharacters) {
         requireWithinCeiling("最大 metadata 字元數", maxMetadataCharacters,
                 ABSOLUTE_MAX_METADATA_CHARACTERS);
@@ -48,7 +60,8 @@ public class ExtractionResourceProperties {
     }
 
     public DocumentParserLimits limits() {
-        return new DocumentParserLimits(maxInputBytes, maxOutputCharacters, maxMetadataCharacters);
+        return new DocumentParserLimits(maxInputBytes, maxOutputCharacters, maxMetadataCharacters,
+                maxStructureBlocks);
     }
 
     private static void requireWithinCeiling(String name, long value, long ceiling) {

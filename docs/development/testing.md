@@ -263,6 +263,7 @@ evidence；若要保存 tracked summary，必須說明用途，且不得取代�
 | --- | --- | --- |
 | Workspace isolation | `workspace.WorkspaceApiIntegrationTest`、`workspace.WorkspaceOpenIntegrationTest` | active workspace、目錄邊界、可修復目錄與既有資料保留 |
 | FTS serving freshness / projection version | `search.FtsSearchIndexRepositoryIntegrationTest`、`search.SourceChunkIndexingServiceIntegrationTest`、`search.SearchApiIntegrationTest` | canonical hash／revision／eligibility、workspace scope、provenance 與 projection version |
+| Structure-preserving parse 與 chunking policy version | `source.FlatTextStructureSegmenterTest`、`source.SourceChunkerTest`、`source.HeadingAnchoredChunkingPolicyTest`、`source.ChunkingPolicyRegistryTest`、`source.ParsedDocumentTest`、`source.SourceChunkIntegrationTest`、`source.TikaDocumentParserIntegrationTest` | application-owned block ordinals／provenance、v1 byte-equivalence、policy version stamping 與 stale-version hook、parser/chunking 分離 |
 | Embedding projection lifecycle / readiness | `search.embedding.EmbeddingProjectionServiceTest`、`search.embedding.EmbeddingProjectionRepositoryIntegrationTest`、`search.embedding.EmbeddingProjectionReadinessRepositoryIntegrationTest` | authority-derived projection、workspace isolation、freshness、partial/ready/stale/failed 狀態與 interrupted recovery |
 | Graph projection lifecycle / readiness | `graph.GraphProjectionLifecycleServiceTest`、`persistence.graph.JooqGraphProjectionLifecycleRepositoryIntegrationTest`、`persistence.graph.arcadedb.ArcadeDbGraphProjectionLifecycleIntegrationTest`、`persistence.graph.arcadedb.ArcadeDbGraphProjectionBackendFactoryTest` | SQLite-authoritative generation/readiness、crash ordering/reconciliation、repair/clear、workspace isolation、proof mismatch、file locking 與 deterministic resource lifecycle |
 | Retrieval failure semantics | `rag.RetrievalServiceIntegrationTest`、`rag.RetrievalServiceTest` | authority drift、workspace scope 與 fail-closed evidence assembly |
@@ -575,6 +576,62 @@ path、SQL、credentials、provider/backend detail 不得越過 REST boundary。
 mvn -Dtest=DocumentAnalysisJobIntegrationTest test -Pintegration
 mvn -Dtest=FtsRebuildHealthIntegrationTest test -Pintegration
 mvn -Dtest=FtsRebuildOperationMetadataCodecTest test -Pfast
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
+
+## Structure-preserving ingestion 與 versioned chunking policy 測試責任（#291）
+
+`source.ParsedDocument` 除既有 `content`/`metadata` 外，攜帶 application-owned typed
+structure（`source.ParsedBlock`：stable ordinal、`ParsedBlockKind` 最小集合
+`HEADING`/`PARAGRAPH`/`TABLE`/`FIGURE`/`CAPTION`、heading level、page no、heading title、
+optional nullable `boundingBox`）與 parser provenance（`parserId`/`parserVersion`）。
+Block ordinal 由 application 在 parse order 內指派（1-based、gapless），vendor block id、
+layout metadata 與 raw score 一律不跨 parser boundary；Tika baseline 永遠不虛構
+`TABLE`/`FIGURE`/`CAPTION` 或 bounding box，weak parser 必須輸出 null locator。
+
+`source.FlatTextStructureSegmenter`（unit tier）持有 flat text → typed blocks 的單一
+segmentation rules contract：`\f` 頁界（1-based page no）、blank-line paragraph 邊界、
+Markdown heading 偵測（含 trailing `#` 與 no-space 非標題負向）、boundary whitespace trim、
+whitespace-only block 跳過、gapless ordinals，以及 `STRUCTURE_BLOCKS` typed resource
+limit（超過 `maxStructureBlocks` 即 fail，不 silent truncate）。
+
+Chunking 與 parser 真分離：`source.ChunkingPolicy` 為 versioned policy interface，policy
+消費 typed blocks 而非從 flat text 反推結構。`source.SourceChunkerTest`（unit tier）以
+測試內獨立保存的 legacy flat-text reference 實作，鎖定 v1 block-driven policy
+（`chunk-policy-v1-current`）在 headings/paragraphs/pages、oversized paragraph、trailing
+hash、level skip、CRLF、whitespace-only、`\f` 邊界等 fixtures 上與重構前行為
+byte-equivalent；v1 亦為 production 預設。`source.HeadingAnchoredChunkingPolicy`
+（`chunk-policy-v2-heading-anchor`，非 default）的 structure-aware 語意由
+`source.HeadingAnchoredChunkingPolicyTest` 持有：heading 綁定其後第一個 paragraph（不因
+純字數 boundary 分離）、`TABLE`/`FIGURE`/`CAPTION` 為 standalone atomic chunk、heading
+context 跨 atomic chunk 與 page flush 仍可追溯、單一 oversized block 永不被切割、輸出
+deterministic。`source.ChunkingPolicyRegistryTest` 鎖定 unknown version fail-fast 與
+duplicate version 拒絕；active version 由 `app.source.chunking.policy-version`
+（default `chunk-policy-v1-current`）選擇。
+
+Versioned provenance 與下游重建契約：`source_chunk.chunk_policy_version`（V29 migration，
+既有 rows backfill 為 v1-current）由 `SourceChunkDraft` → repository 寫入，並隨
+`SourceChunk` read model 經 REST 暴露；`source.SourceChunkIntegrationTest` 驗證每次
+extraction 皆以 active version 蓋章、manual stale version 經
+`SourceChunkRepository.findDocumentIdsWithStaleChunkPolicy` 可偵測、重新 extraction 後
+hook 回空且全部 rows 回到 active version。此 hook 是下游 invalidation 的 executable
+entry point：policy version 變更要求重新 extraction（重寫 chunks 與 content hash 並沿既有
+FTS sync／embedding 路徑更新 projection），不得靜默混用多個 policy version 的 chunks。
+FTS eligibility fingerprint、canonical authority 與 chunk 推導性質（parsed structure 與
+chunks 皆為 derived、可重建，永遠不是 citation authority）不因本契約改變。
+`source.TikaDocumentParserIntegrationTest` 另鎖定 baseline parser 的 block 產出、parser
+provenance、null bounding box、parse-failure path 的空 blocks，以及
+`STRUCTURE_BLOCKS` resource limit。`source.DocumentParserResourceContractTest` 鎖定
+`maxStructureBlocks` 的 limits 契約與 property ceiling。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='SourceChunkerTest,FlatTextStructureSegmenterTest,HeadingAnchoredChunkingPolicyTest,ChunkingPolicyRegistryTest,ParsedDocumentTest' test -Pfast
+mvn -Dtest='TikaDocumentParserIntegrationTest,SourceChunkIntegrationTest' test -Pintegration
 mvn test -Pfast
 mvn test -Pintegration
 mvn clean verify -Pfull

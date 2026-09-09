@@ -8,7 +8,7 @@ package org.km.llmwiki.source;
  * request path from parser expansion as well as upload size.</p>
  */
 public record DocumentParserLimits(long maxInputBytes, int maxOutputCharacters,
-                                   int maxMetadataCharacters) {
+                                   int maxMetadataCharacters, int maxStructureBlocks) {
 
     public DocumentParserLimits {
         if (maxInputBytes < 1) {
@@ -19,6 +19,9 @@ public record DocumentParserLimits(long maxInputBytes, int maxOutputCharacters,
         }
         if (maxMetadataCharacters < 1) {
             throw new IllegalArgumentException("文件抽取的最大 metadata 字元數必須大於零");
+        }
+        if (maxStructureBlocks < 1) {
+            throw new IllegalArgumentException("文件抽取的最大結構區塊數必須大於零");
         }
     }
 }

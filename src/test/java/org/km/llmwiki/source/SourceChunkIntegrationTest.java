@@ -45,6 +45,9 @@ class SourceChunkIntegrationTest extends IsolatedIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private SourceChunkRepository chunkRepository;
+
     @Test
     void persistsTraceableChunksAndExposesBothChunkEndpoints() throws Exception {
         createWorkspace();
@@ -72,6 +75,7 @@ class SourceChunkIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data[1].content").value(org.hamcrest.Matchers.containsString("First-page detail.")))
                 .andExpect(jsonPath("$.data[1].normalizedContent").value(org.hamcrest.Matchers.containsString("First-page detail.")))
                 .andExpect(jsonPath("$.data[1].contentHash").isNotEmpty())
+                .andExpect(jsonPath("$.data[1].chunkPolicyVersion").value("chunk-policy-v1-current"))
                 .andReturn().getResponse().getContentAsString();
         long chunkId = Long.parseLong(chunksResponse.replaceAll(".*\\\"id\\\":(\\d+).*", "$1"));
 
@@ -87,6 +91,40 @@ class SourceChunkIntegrationTest extends IsolatedIntegrationTest {
                 .param("id", documentId).query(String.class).single()).isEqualTo("1,2");
         assertThat(db().sql("SELECT content_hash FROM source_chunk WHERE document_id = :id AND chunk_no = 2")
                 .param("id", documentId).query(String.class).single()).hasSize(64);
+        assertThat(db().sql("SELECT chunk_policy_version FROM source_chunk WHERE document_id = :id AND chunk_no = 1")
+                .param("id", documentId).query(String.class).single()).isEqualTo("chunk-policy-v1-current");
+    }
+
+    @Test
+    void stampsActivePolicyVersionOnEveryExtractionAndExposesStaleVersionDocuments() throws Exception {
+        String workspaceResponse = createWorkspaceWithResponse();
+        long workspaceId = Long.parseLong(workspaceResponse.replaceAll(".*\\\"id\\\":(\\d+).*", "$1"));
+        long documentId = upload("policy-version.md", """
+                # Overview
+
+                First paragraph.
+                """);
+
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isOk());
+
+        assertThat(chunkRepository.findDocumentIdsWithStaleChunkPolicy(workspaceId,
+                "chunk-policy-v1-current")).isEmpty();
+
+        db().sql("UPDATE source_chunk SET chunk_policy_version = :version WHERE document_id = :id")
+                .param("version", "chunk-policy-v2-heading-anchor")
+                .param("id", documentId).update();
+
+        assertThat(chunkRepository.findDocumentIdsWithStaleChunkPolicy(workspaceId,
+                "chunk-policy-v1-current")).containsExactly(documentId);
+
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isOk());
+
+        assertThat(chunkRepository.findDocumentIdsWithStaleChunkPolicy(workspaceId,
+                "chunk-policy-v1-current")).isEmpty();
+        assertThat(db().sql("SELECT group_concat(DISTINCT chunk_policy_version) FROM source_chunk")
+                .query(String.class).single()).isEqualTo("chunk-policy-v1-current");
     }
 
     @Test
@@ -167,13 +205,18 @@ class SourceChunkIntegrationTest extends IsolatedIntegrationTest {
     }
 
     private void createWorkspace() throws Exception {
+        createWorkspaceWithResponse();
+    }
+
+    private String createWorkspaceWithResponse() throws Exception {
         Path root = Path.of("target/test-data/source-chunk-root-" + UUID.randomUUID()).toAbsolutePath();
-        mockMvc.perform(post("/api/v1/workspaces")
+        return mockMvc.perform(post("/api/v1/workspaces")
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {"name": "Source Chunk Test", "rootPath": "%s"}
                                 """.formatted(root)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
     }
 
     private static String sha256(String content) {
@@ -202,7 +245,7 @@ class SourceChunkIntegrationTest extends IsolatedIntegrationTest {
                 }
 
                 @Override
-                public ParsedDocument parse(Path source) {
+                public ParsedDocument parse(Path source) throws java.io.IOException {
                     return new ParsedDocument(MULTI_PAGE_CONTENT, Map.of());
                 }
             };

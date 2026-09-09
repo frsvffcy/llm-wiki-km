@@ -43,6 +43,7 @@ public class SourceChunkRepository {
                             SOURCE_CHUNK.CONTENT,
                             SOURCE_CHUNK.NORMALIZED_CONTENT,
                             SOURCE_CHUNK.CONTENT_HASH,
+                            SOURCE_CHUNK.CHUNK_POLICY_VERSION,
                             SOURCE_CHUNK.CREATED_AT,
                             SOURCE_CHUNK.UPDATED_AT
                     )
@@ -55,6 +56,7 @@ public class SourceChunkRepository {
                             chunk.content(),
                             chunk.normalizedContent(),
                             chunk.contentHash(),
+                            chunk.chunkPolicyVersion(),
                             now,
                             now
                     )
@@ -75,8 +77,19 @@ public class SourceChunkRepository {
                         r.getHeadingPath(),
                         r.getContent(),
                         r.getNormalizedContent(),
-                        r.getContentHash()
+                        r.getContentHash(),
+                        r.getChunkPolicyVersion()
                 ));
+    }
+
+    public List<Long> findDocumentIdsWithStaleChunkPolicy(long workspaceId, String activeChunkPolicyVersion) {
+        return dsl.selectDistinct(SOURCE_CHUNK.DOCUMENT_ID)
+                .from(SOURCE_CHUNK)
+                .join(DOCUMENT).on(DOCUMENT.ID.eq(SOURCE_CHUNK.DOCUMENT_ID))
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(SOURCE_CHUNK.CHUNK_POLICY_VERSION.ne(activeChunkPolicyVersion))
+                .orderBy(SOURCE_CHUNK.DOCUMENT_ID.asc())
+                .fetch(r -> r.get(SOURCE_CHUNK.DOCUMENT_ID).longValue());
     }
 
     public Optional<SourceChunk> findByIdAndWorkspaceId(long chunkId, long workspaceId) {
@@ -89,7 +102,8 @@ public class SourceChunkRepository {
                         SOURCE_CHUNK.HEADING_PATH,
                         SOURCE_CHUNK.CONTENT,
                         SOURCE_CHUNK.NORMALIZED_CONTENT,
-                        SOURCE_CHUNK.CONTENT_HASH
+                        SOURCE_CHUNK.CONTENT_HASH,
+                        SOURCE_CHUNK.CHUNK_POLICY_VERSION
                 )
                 .from(SOURCE_CHUNK)
                 .join(DOCUMENT).on(DOCUMENT.ID.eq(SOURCE_CHUNK.DOCUMENT_ID))
@@ -105,7 +119,8 @@ public class SourceChunkRepository {
                         r.get(SOURCE_CHUNK.HEADING_PATH),
                         r.get(SOURCE_CHUNK.CONTENT),
                         r.get(SOURCE_CHUNK.NORMALIZED_CONTENT),
-                        r.get(SOURCE_CHUNK.CONTENT_HASH)
+                        r.get(SOURCE_CHUNK.CONTENT_HASH),
+                        r.get(SOURCE_CHUNK.CHUNK_POLICY_VERSION)
                 ));
     }
 

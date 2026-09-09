@@ -54,7 +54,8 @@ class KnowledgeCandidateValidatorTest {
     }
 
     private static SourceChunk chunk(long id, long documentId, String content, String normalizedContent) {
-        return new SourceChunk(id, documentId, 1, null, null, null, content, normalizedContent, "hash");
+        return new SourceChunk(id, documentId, 1, null, null, null, content, normalizedContent, "hash",
+                "chunk-policy-v1-current");
     }
 
     private static org.assertj.core.groups.Tuple tuple(Object... values) {
