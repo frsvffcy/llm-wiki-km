@@ -18,6 +18,7 @@ as a fast-only run. The explicit profiles are:
 
 ```text
 node --test src/test/js/ask-ui.test.mjs # Browser Ask UI contract regression suite
+node --test src/test/js/graph-operations-ui.test.mjs # Browser Graph operations UI contract suite
 node --test src/test/js/pr-metadata.test.mjs # PR metadata guard regression suite
 mvn test -Pfast         # unit + contract; no Spring context tests
 mvn test -Pintegration  # integration-tagged tests
@@ -177,7 +178,7 @@ below; ordinary delivery still targets `main`:
 | CI job | Command | Purpose |
 | --- | --- | --- |
 | PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, closing keyword, and same-repository Issue existence with a read-only token |
-| Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask UI contract regression plus quick feedback for pure Java and contract coverage |
+| Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`node --test src/test/js/graph-operations-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask and Graph projection operations UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
 | Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, canonical ingress/currentness, deterministic bounded traversal, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
 | Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
@@ -263,6 +264,7 @@ Knowledge capability 仍須回到 Proposal → Draft → Human Review → Publis
 | Ask orchestration / insufficient evidence / provider failure mapping | `ai.ask.AskServiceTest` | retrieval-to-answer orchestration、insufficient evidence、provider failure 與 stateless result mapping |
 | Ask REST request / response / error contract | `ai.ask.AskApiContractTest`、`ai.ask.AskApiIntegrationTest` | request validation、`ApiResponse` shape、error mapping、HTTP boundary 與 provider-disabled behavior |
 | Browser Ask UI rendering / stateless / security behavior | `src/test/js/ask-ui.test.mjs` | citation rendering、independent submissions、safe error display，以及 browser 不接觸 provider credential 或 local files |
+| Browser Graph projection operations UI adapter / security behavior | `src/test/js/graph-operations-ui.test.mjs` | readiness rendering、explicit rebuild/repair、typed operation errors、double-submit protection、unknown-on-readiness-failure，以及 browser 不接觸 graph backend internals 或 destructive controls |
 
 ### Graph-grounded Ask productization 測試責任（#265）
 
@@ -449,6 +451,16 @@ Graph-grounded Ask 仍為 stateless/read-only；`FusedRetrievalOrchestrator` 不
 `graph.GraphProjectionApiIntegrationTest` 持有 operational REST contract：readiness 為純 status query（DISABLED 亦回 200）、rebuild/repair 成功回 READY DTO、disabled/not-configured 操作拒絕為 409 typed（非 fake success）、superseded → 409、backend locked/filesystem → 503、corrupt → 500（不得偽裝成 unavailable）、無 active workspace → 404、controller 以 active workspace 為 target、controller declared fields 不得引用 backend/persistence 型別。
 
 `persistence.graph.GraphProjectionOperationalApiIntegrationTest` 使用隔離 SQLite 與真實 ArcadeDB：rebuild → READY（DTO 不含 canonical fingerprint/vault path）→ canonical 刪除 → STALE + repair recommendation → repair → READY generation monotonic；late rebuild completion 經 operations port 仍被 lifecycle CAS 拒絕且最終 READY 為較新 generation；併發 rebuild 一律 typed（不得 untyped fault）且事後 sequential rebuild 收斂 READY；planted active operation 呈現 BUILDING/operation kind 而非 READY；HYBRID_GRAPH retrieval 在 NOT_READY 下僅 typed degradation、generation 不變（Ask 不得自動 rebuild）。此 suite 納入 PR CI 的 production ArcadeDB smoke 清單。
+
+## Browser Graph projection operations UI 測試責任（#277）
+
+`src/test/js/graph-operations-ui.test.mjs` 持有 Browser Graph projection operations 的 adapter 與安全 contract：readiness lifecycle label、projection version／generation／operation／failure 的 safe DTO rendering、明確 `Rebuild`／`Repair` POST、操作後 readiness refresh、pending double-submit lock、409／503／500 typed error、malformed／network response 的 `UNKNOWN` fallback，以及不提供 destructive controls、不接觸 Graph backend internals、path、RID、token 或 raw exception。Browser 不持有 Graph lifecycle/currentness policy；REST status、failure taxonomy 與 SQLite-authoritative correctness 仍由 #271 的 Java contract/integration suites 負責。
+
+重跑命令：
+
+```bash
+node --test src/test/js/graph-operations-ui.test.mjs
+```
 
 ## Graph-grounded retrieval quality gate 測試責任（#272）
 

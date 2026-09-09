@@ -177,6 +177,15 @@ local files or provider endpoints are opened by the UI. When the graph signal is
 temporarily unavailable, the answer and its citations stay valid and the UI shows a safe
 degradation notice instead of a failure.
 
+## Graph projection 操作
+
+Browser UI 也提供 active workspace 的 Graph projection readiness 面板，以及明確的
+`Rebuild`／`Repair` 操作。操作只呼叫既有本機 REST API，不上傳 entities／relations，也不在
+Browser 重實作 lifecycle、currentness 或 generation policy。作業進行中 controls 會鎖定，完成後
+會重新讀取 readiness；typed failure、malformed response 與 network failure 會以安全文字呈現，
+不外洩 backend identity、path、RID、token 或 raw exception。`clear`、`reset`、`delete` 與
+backend console 不屬於 Browser public surface。
+
 The answer provider is disabled by default. For a production answer provider, configure the
 backend with environment variables such as the following placeholder values before startup:
 
