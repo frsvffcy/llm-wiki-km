@@ -201,12 +201,19 @@ backend with environment variables such as the following placeholder values befo
 ANSWER_PROVIDER_ENABLED=true
 ANSWER_PROVIDER=openai-compatible
 ANSWER_PROVIDER_BASE_URL=https://provider.example/v1
+ANSWER_PROVIDER_ALLOW_INSECURE_TRANSPORT=false
 ANSWER_PROVIDER_MODEL=<model-name>
 OPENAI_API_KEY=<provider-secret>
 ```
 
 When the provider is not configured, Ask displays a safe `尚未設定回答服務` error. Provider
 credentials are backend configuration only and are never entered into or sent from the browser.
+Provider base URLs should use HTTPS. For local development, plain HTTP is allowed by default only
+for the exact loopback hosts `localhost`, `127.0.0.0/8`, and `[::1]`; a hostname such as
+`localhost.evil.example` is not loopback. A non-loopback `http://` URL is rejected before any
+request is sent. It requires the explicit backend opt-in
+`ANSWER_PROVIDER_ALLOW_INSECURE_TRANSPORT=true`, which exposes the provider credential and request
+content to the network and should not be enabled for production.
 
 ## Semantic projection operations
 
@@ -235,12 +242,19 @@ Configure the embedding/vector boundary only on the backend (never in Browser re
 EMBEDDING_PROVIDER_ENABLED=false
 EMBEDDING_PROVIDER=openai-compatible
 EMBEDDING_PROVIDER_BASE_URL=https://provider.example/v1
+EMBEDDING_PROVIDER_ALLOW_INSECURE_TRANSPORT=false
 EMBEDDING_PROVIDER_MODEL=<model-name>
 EMBEDDING_PROVIDER_API_KEY=<provider-secret>
 EMBEDDING_PROVIDER_DIMENSION=1536
 VECTOR_CAPABILITY_ENABLED=false
 VECTOR_EXTENSION_PATH=/absolute/path/to/vec0.dylib
 ```
+
+Embedding provider URLs follow the same backend transport policy as the Answer provider: HTTPS is
+the normal deployment setting, exact loopback HTTP is the local-development exception, and remote
+plain HTTP requires the explicit `EMBEDDING_PROVIDER_ALLOW_INSECURE_TRANSPORT=true` opt-in. The
+opt-in is disabled by default and should be treated as a security risk because embedding inputs
+and the provider credential would cross the network without TLS.
 
 For an existing workspace, start an asynchronous initial/full rebuild for `ALL`, `WIKI`, or `SOURCE`,
 then inspect the active workspace's per-corpus state:

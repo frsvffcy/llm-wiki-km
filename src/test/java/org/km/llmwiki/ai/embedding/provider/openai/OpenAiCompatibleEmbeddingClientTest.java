@@ -210,6 +210,43 @@ class OpenAiCompatibleEmbeddingClientTest {
         assertThat(calls).hasValue(0);
     }
 
+    @Test
+    void rejectsNonLoopbackHttpByDefaultBeforeCallingProvider() {
+        AtomicInteger calls = new AtomicInteger();
+        OpenAiCompatibleEmbeddingProperties properties = properties();
+        properties.setBaseUrl("http://provider.example/v1");
+        OpenAiCompatibleEmbeddingClient client = client(properties, (uri, connect, read, key, body) -> {
+            calls.incrementAndGet();
+            return response(200, envelope("model", List.of(VECTOR), null, null));
+        });
+
+        assertThatThrownBy(() -> client.embed(EmbeddingRequest.single("hello")))
+                .isInstanceOf(EmbeddingClientException.class)
+                .satisfies(thrown -> {
+                    EmbeddingClientException exception = (EmbeddingClientException) thrown;
+                    assertThat(exception.failureType()).isEqualTo(
+                            EmbeddingFailureType.CONFIGURATION_UNAVAILABLE_OR_DISABLED);
+                    assertThat(exception.getMessage()).doesNotContain("provider.example");
+                });
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void allowsNonLoopbackHttpOnlyWithExplicitOptIn() {
+        AtomicReference<String> endpoint = new AtomicReference<>();
+        OpenAiCompatibleEmbeddingProperties properties = properties();
+        properties.setBaseUrl("http://provider.example/v1");
+        properties.setAllowInsecureTransport(true);
+        OpenAiCompatibleEmbeddingClient client = client(properties, (uri, connect, read, key, body) -> {
+            endpoint.set(uri.toString());
+            return response(200, envelope("model", List.of(VECTOR), null, null));
+        });
+
+        client.embed(EmbeddingRequest.single("hello"));
+
+        assertThat(endpoint).hasValue("http://provider.example/v1/embeddings");
+    }
+
     private void assertInvalid(String body, int dimension) {
         assertInvalid(body, dimension, EmbeddingRequest.single("hello"));
     }

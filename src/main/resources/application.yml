@@ -17,6 +17,7 @@ app:
       enabled: ${EMBEDDING_PROVIDER_ENABLED:false}
       provider: ${EMBEDDING_PROVIDER:openai-compatible}
       base-url: ${EMBEDDING_PROVIDER_BASE_URL:https://api.openai.com/v1}
+      allow-insecure-transport: ${EMBEDDING_PROVIDER_ALLOW_INSECURE_TRANSPORT:false}
       model: ${EMBEDDING_PROVIDER_MODEL:}
       api-key: ${EMBEDDING_PROVIDER_API_KEY:}
       connect-timeout: ${EMBEDDING_PROVIDER_CONNECT_TIMEOUT:2s}
@@ -26,6 +27,7 @@ app:
       enabled: ${ANSWER_PROVIDER_ENABLED:false}
       provider: ${ANSWER_PROVIDER:openai-compatible}
       base-url: ${ANSWER_PROVIDER_BASE_URL:https://api.openai.com/v1}
+      allow-insecure-transport: ${ANSWER_PROVIDER_ALLOW_INSECURE_TRANSPORT:false}
       model: ${ANSWER_PROVIDER_MODEL:}
       api-key: ${OPENAI_API_KEY:}
       connect-timeout: ${ANSWER_PROVIDER_CONNECT_TIMEOUT:2s}

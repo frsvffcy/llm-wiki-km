@@ -277,6 +277,43 @@ class OpenAiCompatibleAnswerClientTest {
     }
 
     @Test
+    void rejectsNonLoopbackHttpByDefaultBeforeCallingTransport() {
+        AtomicInteger calls = new AtomicInteger();
+        OpenAiCompatibleAnswerProperties properties = properties();
+        properties.setBaseUrl("http://provider.example/v1");
+        OpenAiCompatibleAnswerClient client = client(properties, (uri, connect, read, key, body) -> {
+            calls.incrementAndGet();
+            return response(200, envelope("model", STRUCTURED_RESPONSE, null, null, null, null));
+        });
+
+        assertThatThrownBy(() -> client.generate(request()))
+                .isInstanceOf(AnswerClientException.class)
+                .satisfies(thrown -> {
+                    AnswerClientException exception = (AnswerClientException) thrown;
+                    assertThat(exception.failureType()).isEqualTo(
+                            AnswerFailureType.CONFIGURATION_UNAVAILABLE_OR_DISABLED);
+                    assertThat(exception.getMessage()).doesNotContain("provider.example");
+                });
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void allowsNonLoopbackHttpOnlyWithExplicitOptIn() {
+        AtomicReference<String> endpoint = new AtomicReference<>();
+        OpenAiCompatibleAnswerProperties properties = properties();
+        properties.setBaseUrl("http://provider.example/v1");
+        properties.setAllowInsecureTransport(true);
+        OpenAiCompatibleAnswerClient client = client(properties, (uri, connect, read, key, body) -> {
+            endpoint.set(uri.toString());
+            return response(200, envelope("model", STRUCTURED_RESPONSE, null, null, null, null));
+        });
+
+        client.generate(request());
+
+        assertThat(endpoint).hasValue("http://provider.example/v1/chat/completions");
+    }
+
+    @Test
     void rejectsUnsupportedConfigurationAndBoundsBeforeTransport() {
         OpenAiCompatibleAnswerProperties properties = properties();
         properties.setProvider("another-provider");
@@ -300,8 +337,13 @@ class OpenAiCompatibleAnswerClientTest {
     }
 
     private static OpenAiCompatibleAnswerClient client(OpenAiCompatibleHttpTransport transport) {
+        return client(properties(), transport);
+    }
+
+    private static OpenAiCompatibleAnswerClient client(OpenAiCompatibleAnswerProperties properties,
+                                                       OpenAiCompatibleHttpTransport transport) {
         ObjectMapper mapper = new ObjectMapper();
-        return new OpenAiCompatibleAnswerClient(properties(), transport, mapper,
+        return new OpenAiCompatibleAnswerClient(properties, transport, mapper,
                 new org.km.llmwiki.ai.answer.GroundedAnswerPromptContract(),
                 new org.km.llmwiki.ai.answer.GroundedAnswerResponseContract(mapper));
     }

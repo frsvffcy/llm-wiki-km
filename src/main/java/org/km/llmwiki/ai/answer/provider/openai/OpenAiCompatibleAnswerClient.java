@@ -16,10 +16,10 @@ import org.km.llmwiki.ai.answer.GroundedAnswerPromptContract;
 import org.km.llmwiki.ai.answer.GroundedAnswerResponse;
 import org.km.llmwiki.ai.answer.GroundedAnswerResponseContract;
 import org.km.llmwiki.ai.answer.GroundedAnswerValidationException;
+import org.km.llmwiki.ai.provider.ProviderEndpointSecurityPolicy;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -34,7 +34,6 @@ import java.util.Optional;
 public final class OpenAiCompatibleAnswerClient implements AnswerClient {
 
     public static final String PROVIDER = "openai-compatible";
-    private static final int MAX_BASE_URL_LENGTH = 2_048;
     private static final int MAX_MODEL_LENGTH = 128;
     private static final int MAX_API_KEY_LENGTH = 4_096;
     private static final int MAX_RESPONSE_CODE_POINTS = 160_000;
@@ -80,8 +79,8 @@ public final class OpenAiCompatibleAnswerClient implements AnswerClient {
         try {
             prompt = promptContract.render(request);
             requestBody = objectMapper.writeValueAsString(requestPayload(prompt, request.options()));
-            endpoint = endpoint(properties.getBaseUrl());
-        } catch (JsonProcessingException | IllegalArgumentException | URISyntaxException exception) {
+            endpoint = endpoint(properties.getBaseUrl(), properties.isAllowInsecureTransport());
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
             throw failure(AnswerFailureType.LOCAL_VALIDATION,
                     "answer provider request configuration or encoding is invalid");
         }
@@ -166,8 +165,8 @@ public final class OpenAiCompatibleAnswerClient implements AnswerClient {
                     "answer provider temperature is invalid");
         }
         try {
-            endpoint(properties.getBaseUrl());
-        } catch (URISyntaxException | IllegalArgumentException exception) {
+            endpoint(properties.getBaseUrl(), properties.isAllowInsecureTransport());
+        } catch (IllegalArgumentException exception) {
             throw failure(AnswerFailureType.CONFIGURATION_UNAVAILABLE_OR_DISABLED,
                     "answer provider endpoint is invalid or unavailable");
         }
@@ -193,18 +192,9 @@ public final class OpenAiCompatibleAnswerClient implements AnswerClient {
         return payload;
     }
 
-    private static URI endpoint(String baseUrl) throws URISyntaxException {
-        if (baseUrl == null || baseUrl.isBlank() || baseUrl.length() > MAX_BASE_URL_LENGTH) {
-            throw new IllegalArgumentException("base URL is invalid");
-        }
-        URI base = new URI(baseUrl.trim());
-        if (!("https".equalsIgnoreCase(base.getScheme()) || "http".equalsIgnoreCase(base.getScheme()))
-                || base.getHost() == null || base.getUserInfo() != null
-                || base.getQuery() != null || base.getFragment() != null) {
-            throw new IllegalArgumentException("base URL is invalid");
-        }
-        String normalized = base.toString().replaceFirst("/+$", "");
-        return URI.create(normalized + "/chat/completions");
+    private static URI endpoint(String baseUrl, boolean allowInsecureTransport) {
+        return ProviderEndpointSecurityPolicy.validateAndAppend(baseUrl, "/chat/completions",
+                allowInsecureTransport);
     }
 
     private void mapHttpFailure(int statusCode) {

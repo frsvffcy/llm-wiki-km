@@ -12,10 +12,10 @@ import org.km.llmwiki.ai.embedding.EmbeddingRequest;
 import org.km.llmwiki.ai.embedding.EmbeddingResult;
 import org.km.llmwiki.ai.embedding.EmbeddingUsageMetadata;
 import org.km.llmwiki.ai.embedding.EmbeddingVector;
+import org.km.llmwiki.ai.provider.ProviderEndpointSecurityPolicy;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,7 +32,6 @@ import java.util.Optional;
 public final class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
 
     public static final String PROVIDER = "openai-compatible";
-    private static final int MAX_BASE_URL_LENGTH = 2_048;
     private static final int MAX_MODEL_LENGTH = 128;
     private static final int MAX_API_KEY_LENGTH = 4_096;
     private static final int MAX_RESPONSE_CODE_POINTS = 2_000_000;
@@ -67,9 +66,9 @@ public final class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         URI endpoint;
         String requestBody;
         try {
-            endpoint = endpoint(properties.getBaseUrl());
+            endpoint = endpoint(properties.getBaseUrl(), properties.isAllowInsecureTransport());
             requestBody = objectMapper.writeValueAsString(requestPayload(request));
-        } catch (JsonProcessingException | IllegalArgumentException | URISyntaxException exception) {
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
             throw failure(EmbeddingFailureType.LOCAL_VALIDATION,
                     "embedding provider request configuration or encoding is invalid");
         }
@@ -128,8 +127,8 @@ public final class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
                     "embedding provider dimension is outside the allowed bound");
         }
         try {
-            endpoint(properties.getBaseUrl());
-        } catch (URISyntaxException | IllegalArgumentException exception) {
+            endpoint(properties.getBaseUrl(), properties.isAllowInsecureTransport());
+        } catch (IllegalArgumentException exception) {
             throw failure(EmbeddingFailureType.CONFIGURATION_UNAVAILABLE_OR_DISABLED,
                     "embedding provider endpoint is invalid or unavailable");
         }
@@ -149,18 +148,9 @@ public final class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         return payload;
     }
 
-    private static URI endpoint(String baseUrl) throws URISyntaxException {
-        if (baseUrl == null || baseUrl.isBlank() || baseUrl.length() > MAX_BASE_URL_LENGTH) {
-            throw new IllegalArgumentException("base URL is invalid");
-        }
-        URI base = new URI(baseUrl.trim());
-        if (!("https".equalsIgnoreCase(base.getScheme()) || "http".equalsIgnoreCase(base.getScheme()))
-                || base.getHost() == null || base.getUserInfo() != null
-                || base.getQuery() != null || base.getFragment() != null) {
-            throw new IllegalArgumentException("base URL is invalid");
-        }
-        String normalized = base.toString().replaceFirst("/+$", "");
-        return URI.create(normalized + "/embeddings");
+    private static URI endpoint(String baseUrl, boolean allowInsecureTransport) {
+        return ProviderEndpointSecurityPolicy.validateAndAppend(baseUrl, "/embeddings",
+                allowInsecureTransport);
     }
 
     private void mapHttpFailure(int statusCode) {

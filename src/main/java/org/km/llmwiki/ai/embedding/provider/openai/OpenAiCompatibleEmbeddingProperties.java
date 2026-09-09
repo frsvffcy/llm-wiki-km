@@ -11,6 +11,7 @@ public class OpenAiCompatibleEmbeddingProperties {
     private boolean enabled;
     private String provider = "openai-compatible";
     private String baseUrl = "https://api.openai.com/v1";
+    private boolean allowInsecureTransport;
     private String model = "";
     private String apiKey = "";
     private Duration connectTimeout = Duration.ofSeconds(2);
@@ -39,6 +40,15 @@ public class OpenAiCompatibleEmbeddingProperties {
 
     public void setBaseUrl(String baseUrl) {
         this.baseUrl = baseUrl;
+    }
+
+    /** Plain HTTP to a non-loopback host is disabled unless explicitly opted in. */
+    public boolean isAllowInsecureTransport() {
+        return allowInsecureTransport;
+    }
+
+    public void setAllowInsecureTransport(boolean allowInsecureTransport) {
+        this.allowInsecureTransport = allowInsecureTransport;
     }
 
     public String getModel() {
