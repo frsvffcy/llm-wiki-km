@@ -23,12 +23,10 @@ public class SQLiteProperties {
     }
 
     public void setBusyTimeout(int busyTimeout) {
-        // Issue #283: the FTS rebuild admission contract never trades atomicity for waiting,
-        // so a zero (or negative) busy timeout must not silently disable SQLite's lock wait.
-        // Full configuration validation (non-zero invariant and startup evidence) is tracked
-        // as a follow-up in Issue #288; raising the timeout is never a race fix.
-        if (busyTimeout < 0) {
-            throw new IllegalArgumentException("SQLite busy timeout must not be negative");
+        // Issue #283: the FTS rebuild admission contract never trades atomicity for waiting;
+        // this timeout only bounds SQLite's lock wait and is never a race fix.
+        if (busyTimeout <= 0) {
+            throw new IllegalArgumentException("SQLite busy timeout must be greater than zero");
         }
         this.busyTimeout = busyTimeout;
     }
