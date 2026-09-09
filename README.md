@@ -107,7 +107,13 @@ after a drop. The Graph projection also has a provider-neutral operational REST 
 rebuild and repair are explicit operator actions that always go through the canonical assembler
 and the SQLite-authoritative lifecycle, the status projection never exposes fingerprints,
 tokens, or backend identities, and the destructive `clear` operation is intentionally not
-public. It still does not
+public. A deterministic offline quality gate
+(`GraphRetrievalQualityGateTest`, golden corpus `graph-retrieval-golden-v1`) drives the
+production-equivalent pipeline over real FTS, real readiness/authority boundaries, and a real
+ArcadeDB projection, gates identity-level recall@8/MRR/safety floors across
+`HYBRID_FTS`/`HYBRID_VECTOR`/`HYBRID_GRAPH`, and proves the graph channel adds graph-only
+discovery while stale, foreign, and `MENTIONS`-only material stays un-retrievable in every
+mode. It still does not
 add a Graph traversal REST endpoint, graph visualization, inferred relations, or GraphRAG.
 ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
 authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
