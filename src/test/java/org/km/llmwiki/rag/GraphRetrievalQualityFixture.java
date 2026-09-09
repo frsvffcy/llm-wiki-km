@@ -121,14 +121,34 @@ final class GraphRetrievalQualityFixture {
             throws Exception {
         GraphWorkspaceScope active = workspace(temp, activeWorkspaceName);
         GraphWorkspaceScope foreign = workspace(temp, activeWorkspaceName + "-foreign");
-        workspaces.open(active.id());
-        Map<String, String> pageHashes = new HashMap<>();
-        for (org.km.llmwiki.rag.GraphRetrievalGoldenCorpus.GoldenPage page : pageGroups) {
-            pageHashes.put(page.knowledgeId(), wiki(active, page));
-        }
+        openWorkspace(active);
+        writeForeignGoldenPages(foreign);
+        return materializeInto(active, foreign, pageGroups);
+    }
+
+    void openWorkspace(GraphWorkspaceScope scope) {
+        workspaces.open(scope.id());
+    }
+
+    void writeForeignGoldenPages(GraphWorkspaceScope foreign) throws Exception {
         for (org.km.llmwiki.rag.GraphRetrievalGoldenCorpus.GoldenPage page
                 : new GraphRetrievalGoldenCorpus().foreignWorkspacePages()) {
             wiki(foreign, page);
+        }
+    }
+
+    /**
+     * Writes the corpus pages into an already-created workspace pair and indexes embeddings for
+     * the embedded pages. Corpora whose pages depend on runtime-resolved identities (for
+     * example source-document ids) create the workspace and dependent entities first, then
+     * materialize pages through this method.
+     */
+    CorpusMaterialization materializeInto(GraphWorkspaceScope active, GraphWorkspaceScope foreign,
+                                          List<org.km.llmwiki.rag.GraphRetrievalGoldenCorpus.GoldenPage> pageGroups)
+            throws Exception {
+        Map<String, String> pageHashes = new HashMap<>();
+        for (org.km.llmwiki.rag.GraphRetrievalGoldenCorpus.GoldenPage page : pageGroups) {
+            pageHashes.put(page.knowledgeId(), wiki(active, page));
         }
         indexEmbeddings(active.id(), pageHashes,
                 pageGroups.stream().filter(
@@ -150,7 +170,7 @@ final class GraphRetrievalQualityFixture {
                 .append("type: \"CONCEPT\"\nstatus: \"PUBLISHED\"\n")
                 .append("aliases: []\n")
                 .append(renderList("tags", page.tags()))
-                .append("sources: []\n")
+                .append(renderSources(page.sources()))
                 .append("created_at: \"").append(NOW).append("\"\n")
                 .append("updated_at: \"").append(NOW).append("\"\n")
                 .append("---\n\n# ").append(page.title()).append('\n')
@@ -202,7 +222,7 @@ final class GraphRetrievalQualityFixture {
         return embedder;
     }
 
-    private GraphWorkspaceScope workspace(Path temp, String name) {
+    GraphWorkspaceScope workspace(Path temp, String name) {
         return new GraphWorkspaceScope(workspaces.create(new CreateWorkspaceRequest(name,
                 temp.resolve(name).toString())).id());
     }
@@ -216,7 +236,7 @@ final class GraphRetrievalQualityFixture {
                 .append("type: \"CONCEPT\"\nstatus: \"PUBLISHED\"\n")
                 .append("aliases: []\n")
                 .append(renderList("tags", page.tags()))
-                .append("sources: []\n")
+                .append(renderSources(page.sources()))
                 .append("created_at: \"").append(NOW).append("\"\n")
                 .append("updated_at: \"").append(NOW).append("\"\n")
                 .append("---\n\n# ").append(page.title()).append('\n').append(page.body())
@@ -290,6 +310,35 @@ final class GraphRetrievalQualityFixture {
                 expected, expected, 0, DeterministicConceptEmbeddingClient.PROVIDER,
                 DeterministicConceptEmbeddingClient.MODEL,
                 DeterministicConceptEmbeddingClient.DIMENSION, true, "fixture-snapshot-proof");
+    }
+
+    /**
+     * Inserts a deterministic extraction chunk for an already-created document. Chunks are
+     * written with the same hash discipline the canonical graph assembler enforces; the fixture
+     * deliberately leaves them out of the FTS and embedding projections so they stay graph-only
+     * evidence candidates.
+     */
+    void insertChunk(long documentId, int chunkNo, String content) {
+        db.sql("""
+                INSERT INTO source_chunk(document_id, chunk_no, content, normalized_content,
+                    content_hash, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?)
+                """).params(documentId, chunkNo, content, content,
+                WikiContentHash.sha256(content.getBytes(StandardCharsets.UTF_8)), NOW, NOW).update();
+    }
+
+    long sourceChunkId(long documentId, int chunkNo) {
+        return db.sql("SELECT id FROM source_chunk WHERE document_id = :documentId AND chunk_no = :chunkNo")
+                .param("documentId", documentId).param("chunkNo", chunkNo)
+                .query(Long.class).single();
+    }
+
+    private static String renderSources(List<Long> sources) {
+        if (sources == null || sources.isEmpty()) {
+            return "sources: []\n";
+        }
+        StringBuilder result = new StringBuilder("sources:\n");
+        sources.forEach(source -> result.append("  - \"document:").append(source).append("\"\n"));
+        return result.toString();
     }
 
     private static String renderList(String field, List<String> values) {

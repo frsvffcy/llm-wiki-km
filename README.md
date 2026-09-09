@@ -113,7 +113,15 @@ production-equivalent pipeline over real FTS, real readiness/authority boundarie
 ArcadeDB projection, gates identity-level recall@8/MRR/safety floors across
 `HYBRID_FTS`/`HYBRID_VECTOR`/`HYBRID_GRAPH`, and proves the graph channel adds graph-only
 discovery while stale, foreign, and `MENTIONS`-only material stays un-retrievable in every
-mode. The fused ordering itself is a versioned, bounded ranking policy calibrated offline
+mode. A second versioned generalization corpus
+(`GraphRetrievalEvaluationCorpusV2`, `graph-retrieval-evaluation-v2`) extends the same
+production-equivalent gate to every admitted relation path — `LINKS_TO` 1-hop with a
+cross-modality duplicate, 2-hop through an intermediate hub, multi-target discovery,
+`DERIVED_FROM`→`CONTAINS` to a `SOURCE_CHUNK` citation authority (the intermediate
+`SOURCE_DOCUMENT` node is rejected as non-citation authority), a `MENTIONS` plain-text NO-GO
+negative, and a dead-end `TAGGED_WITH` node — and runs the calibrated production policy
+against the baseline policy with per-class diagnostics and a GO/NO-GO decision recorded in
+`target/quality-reports/`. The fused ordering itself is a versioned, bounded ranking policy calibrated offline
 against the golden corpus plus an isolated holdout set, leave-one-query-out folds, and a
 sensitivity neighborhood (the selected `fusion-rrf-v2-graph-damped` policy improves fused MRR
 from 0.833 to 1.000 on the golden corpus without touching the non-fused modes). It still does

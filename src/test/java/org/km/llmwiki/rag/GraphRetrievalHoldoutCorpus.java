@@ -4,11 +4,16 @@ import java.util.List;
 
 /**
  * Versioned holdout scenarios ({@code graph-retrieval-holdout-v1}) for the fusion ranking
- * calibration. The holdout runs in its own isolated workspace: same construction rules as the
- * golden corpus (lexical query appears verbatim in the target, semantic target shares no
- * surface token with its query, graph-only target is neither embedded nor lexically reachable),
- * but with different pages, query classes, and relation paths so the calibrated policy must
- * generalize beyond the queries it was tuned against. It is deliberately separate from
+ * calibration. The holdout runs in its own isolated workspace. It deliberately reuses the same
+ * high-level query classes as the golden corpus ({@code LEXICAL_EXACT}, {@code
+ * SEMANTIC_PARAPHRASE}, {@code GRAPH_ADDED}) with different pages and content, and its graph
+ * scenario intentionally reproduces the same targeted tie-break failure mechanism as the golden
+ * corpus's graph-added-discovery query (a graph-only noise identity that sorts ahead of the
+ * relevant vector hit). Its purpose is to
+ * verify that the selected policy generalizes across fresh data for the measured failure
+ * mechanism — not to cover different relation types, hops, or topology shapes; the diversified
+ * relation/query-shape coverage lives in the versioned generalization evaluation corpus
+ * ({@code GraphRetrievalEvaluationCorpusV2}, Issue #280). It is deliberately separate from
  * {@link GraphRetrievalGoldenCorpus}: golden corpora gate floors, holdout corpora challenge
  * selection decisions.
  */

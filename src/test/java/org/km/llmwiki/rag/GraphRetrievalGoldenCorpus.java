@@ -43,7 +43,18 @@ final class GraphRetrievalGoldenCorpus {
     static final String VERSION = "graph-retrieval-golden-v1";
 
     record GoldenPage(String knowledgeId, String title, String body, List<String> tags,
-                      boolean embedded) {
+                      boolean embedded, List<Long> sources) {
+
+        GoldenPage {
+            tags = List.copyOf(tags);
+            sources = List.copyOf(sources);
+        }
+
+        /** Compatibility view for corpora that only model wiki-to-wiki scenarios. */
+        GoldenPage(String knowledgeId, String title, String body, List<String> tags,
+                   boolean embedded) {
+            this(knowledgeId, title, body, tags, embedded, List.of());
+        }
     }
 
     record GoldenQuery(String id, String queryClass, String text, Set<String> relevant,
