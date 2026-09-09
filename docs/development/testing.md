@@ -260,7 +260,7 @@ Knowledge capability 仍須回到 Proposal → Draft → Human Review → Publis
 | --- | --- | --- |
 | Grounded prompt / response contract | `ai.answer.GroundedAnswerPromptContractTest`、`ai.answer.GroundedAnswerResponseContractTest` | `grounded-answer@v2` prompt/schema、unknown-field rejection、escaped/untrusted evidence boundary、grounded answer 與 citation validation |
 | Evidence-to-context / citation identity | `ai.answer.AnswerContextAssemblerTest` | bounded context、evidence identity、citation mapping 與 evidence ordering |
-| Provider transport / failure taxonomy | `ai.answer.provider.openai.OpenAiCompatibleAnswerClientTest`、`ai.answer.provider.openai.OpenAiCompatibleAnswerClientHttpIntegrationTest`、`ai.answer.AnswerFailureTest` | request transport、response mapping、timeout/HTTP/parse failure 與 typed failure semantics |
+| Provider transport / failure taxonomy | `ai.provider.ProviderEndpointSecurityPolicyTest`、`ai.answer.provider.openai.OpenAiCompatibleAnswerClientTest`、`ai.answer.provider.openai.OpenAiCompatibleAnswerClientHttpIntegrationTest`、`ai.answer.AnswerFailureTest` | 共用 endpoint security policy、request transport、response mapping、timeout/HTTP/parse failure 與 typed failure semantics |
 | Ask orchestration / insufficient evidence / provider failure mapping | `ai.ask.AskServiceTest` | retrieval-to-answer orchestration、insufficient evidence、provider failure 與 stateless result mapping |
 | Ask REST request / response / error contract | `ai.ask.AskApiContractTest`、`ai.ask.AskApiIntegrationTest` | request validation、`ApiResponse` shape、error mapping、HTTP boundary 與 provider-disabled behavior |
 | Browser Ask UI rendering / stateless / security behavior | `src/test/js/ask-ui.test.mjs` | citation rendering、independent submissions、safe error display，以及 browser 不接觸 provider credential 或 local files |
@@ -291,7 +291,9 @@ Embedding 是獨立於 Answer 的 provider-neutral boundary。`ai.embedding.Embe
 `ai.embedding.EmbeddingFailureTest` 與
 `ai.embedding.provider.openai.OpenAiCompatibleEmbeddingClientTest` 負責 input identity、bounded
 single/batch contract、finite/dimension/cardinality/order validation、authoritative metadata、
-usage 與 typed failure taxonomy。`OpenAiCompatibleEmbeddingClientHttpIntegrationTest` 使用
+usage 與 typed failure taxonomy。`ProviderEndpointSecurityPolicyTest` 與兩個 provider adapter
+共同驗證 HTTPS、loopback HTTP、remote HTTP explicit opt-in 與 fail-closed 行為。
+`OpenAiCompatibleEmbeddingClientHttpIntegrationTest` 使用
 localhost deterministic fixture 驗證 `/embeddings` transport 與 credential boundary；不使用真實
 provider/network/key。
 
