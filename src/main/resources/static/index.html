@@ -8,6 +8,7 @@
   <title>Local Knowledge Ask</title>
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/ask-ui.js"></script>
+  <script type="module" src="/graph-operations-ui.js"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -47,6 +48,46 @@
         </div>
         <p id="form-hint" class="form-hint" role="status" aria-live="polite"></p>
       </form>
+    </section>
+
+    <section id="graph-projection-panel" class="panel graph-panel"
+             aria-labelledby="graph-projection-heading" aria-busy="false">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">GRAPH PROJECTION</p>
+          <h2 id="graph-projection-heading">知識圖譜投影</h2>
+        </div>
+        <span id="graph-status-badge" class="graph-status-badge graph-status--unknown"
+              data-status="UNKNOWN">無法確認</span>
+      </div>
+      <p id="graph-status-message" class="graph-status-message" role="status" aria-live="polite">
+        目前尚未讀取 Graph projection 狀態。
+      </p>
+      <dl class="graph-details">
+        <div>
+          <dt>Projection version</dt>
+          <dd id="graph-projection-version">—</dd>
+        </div>
+        <div>
+          <dt>Generation（applied / target）</dt>
+          <dd id="graph-generation">—</dd>
+        </div>
+        <div>
+          <dt>Operation</dt>
+          <dd id="graph-operation">—</dd>
+        </div>
+        <div>
+          <dt>Failure</dt>
+          <dd id="graph-failure">—</dd>
+          <p id="graph-failure-diagnostic" class="graph-failure-diagnostic"></p>
+        </div>
+      </dl>
+      <div class="graph-actions" aria-label="Graph projection 操作">
+        <button id="graph-refresh" type="button" class="secondary-button">Refresh</button>
+        <button id="graph-rebuild" type="button">Rebuild</button>
+        <button id="graph-repair" type="button">Repair</button>
+      </div>
+      <p id="graph-feedback" class="graph-feedback" role="status" aria-live="polite" hidden></p>
     </section>
 
     <section id="ask-result" class="panel result-panel" aria-live="polite" aria-busy="false">

@@ -95,6 +95,24 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .insufficient-state .state-label { color: var(--warning); }
 .answer-heading { align-items: start; }
 .answer-badge { padding: 6px 10px; border-radius: 999px; color: var(--accent-dark); background: var(--accent-soft); font-size: 0.78rem; font-weight: 750; }
+.graph-status-badge { padding: 6px 10px; border-radius: 999px; color: var(--muted); background: #eef1f2; font-size: 0.78rem; font-weight: 750; white-space: nowrap; }
+.graph-status--ready { color: var(--accent-dark); background: var(--accent-soft); }
+.graph-status--building, .graph-status--repairing, .graph-status--clearing { color: var(--warning); background: var(--warning-soft); }
+.graph-status--stale, .graph-status--repair_required, .graph-status--failed, .graph-status--degraded { color: var(--danger); background: var(--danger-soft); }
+.graph-status-message { margin: -8px 0 22px; color: var(--muted); line-height: 1.6; }
+.graph-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.graph-details > div { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.graph-details dt { color: var(--muted); font-size: 0.78rem; }
+.graph-details dd { margin: 5px 0 0; font-weight: 750; overflow-wrap: anywhere; }
+.graph-failure-diagnostic { margin: 8px 0 0; color: var(--muted); font-size: 0.82rem; line-height: 1.5; overflow-wrap: anywhere; }
+.graph-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.graph-actions button { min-width: 108px; }
+.secondary-button { color: var(--accent-dark); background: var(--accent-soft); }
+.secondary-button:hover { background: #d4eee9; }
+.graph-feedback { min-height: 1.35em; margin: 14px 0 0; font-size: 0.88rem; line-height: 1.5; }
+.graph-feedback--pending { color: var(--muted); }
+.graph-feedback--success { color: var(--accent-dark); }
+.graph-feedback--error { color: var(--danger); }
 .answer-text { margin: 24px 0 26px; white-space: pre-wrap; line-height: 1.75; }
 .provider-metadata { margin: -8px 0 26px; color: var(--muted); font-size: 0.82rem; }
 .citation-heading { margin-bottom: 12px; }
@@ -111,4 +129,6 @@ button:disabled { cursor: wait; opacity: 0.62; }
   .form-row { align-items: stretch; flex-direction: column; }
   .field-group { width: 100%; }
   button { width: 100%; }
+  .graph-details { grid-template-columns: 1fr; }
+  .graph-actions { align-items: stretch; flex-direction: column; }
 }

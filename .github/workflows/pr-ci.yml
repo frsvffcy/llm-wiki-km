@@ -50,6 +50,8 @@ jobs:
           node-version: '22'
       - name: Run Browser Ask UI contract tests
         run: node --test src/test/js/ask-ui.test.mjs
+      - name: Run Browser Graph operations UI contract tests
+        run: node --test src/test/js/graph-operations-ui.test.mjs
       - name: Run fast test tier
         run: mvn --batch-mode test -Pfast
 
