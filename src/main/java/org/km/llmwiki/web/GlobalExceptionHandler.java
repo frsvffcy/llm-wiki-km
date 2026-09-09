@@ -18,6 +18,8 @@ import org.km.llmwiki.wiki.WikiPublishException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -26,53 +28,71 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+/**
+ * Public REST error boundary: stable codes and HTTP statuses are decided by the typed
+ * exception, and every message is an {@link DiagnosticRedaction} operator-safe projection —
+ * the raw exception message never crosses the REST boundary by default. Curated messages
+ * that survive redaction (safe resource identifiers, validation wording) travel to the
+ * caller; anything carrying a path, secret, SQL fragment, or backend identity collapses to
+ * the type's fixed fallback. The full exception and its cause chain stay server-side in the
+ * application log.
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException exception) {
-        return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getMessage());
+        return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",
+                DiagnosticRedaction.publicMessage(exception.getMessage(),
+                        "Request validation failed"), exception);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException exception) {
-        return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Request body is not readable");
+        return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Request body is not readable", exception);
     }
 
     @ExceptionHandler(DuplicateWorkspaceException.class)
     public ResponseEntity<ApiError> handleDuplicateWorkspace(DuplicateWorkspaceException exception) {
-        return respond(HttpStatus.CONFLICT, "WORKSPACE_ALREADY_EXISTS", exception.getMessage());
+        // The raw message embeds the workspace root path; the public projection stays fixed.
+        return respond(HttpStatus.CONFLICT, "WORKSPACE_ALREADY_EXISTS",
+                "A workspace already exists for this root path", exception);
     }
 
     @ExceptionHandler(DocumentNotFoundException.class)
     public ResponseEntity<ApiError> handleDocumentNotFound(DocumentNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "DOCUMENT_NOT_FOUND", exception.getMessage());
+        return respond(HttpStatus.NOT_FOUND, "DOCUMENT_NOT_FOUND", publicMessage(exception), exception);
     }
 
     @ExceptionHandler(SourceChunkNotFoundException.class)
     public ResponseEntity<ApiError> handleSourceChunkNotFound(SourceChunkNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "SOURCE_CHUNK_NOT_FOUND", exception.getMessage());
+        return respond(HttpStatus.NOT_FOUND, "SOURCE_CHUNK_NOT_FOUND", publicMessage(exception), exception);
     }
 
     @ExceptionHandler(KnowledgeProposalNotFoundException.class)
-    public ResponseEntity<ApiError> handleKnowledgeProposalNotFound(KnowledgeProposalNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "KNOWLEDGE_PROPOSAL_NOT_FOUND", exception.getMessage());
+    public ResponseEntity<ApiError> handleKnowledgeProposalNotFound(
+            KnowledgeProposalNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "KNOWLEDGE_PROPOSAL_NOT_FOUND",
+                publicMessage(exception), exception);
     }
 
     @ExceptionHandler(WikiDraftNotFoundException.class)
     public ResponseEntity<ApiError> handleWikiDraftNotFound(WikiDraftNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "WIKI_DRAFT_NOT_FOUND", exception.getMessage());
+        return respond(HttpStatus.NOT_FOUND, "WIKI_DRAFT_NOT_FOUND", publicMessage(exception), exception);
     }
 
     @ExceptionHandler(WikiDraftLifecycleException.class)
     public ResponseEntity<ApiError> handleWikiDraftLifecycle(WikiDraftLifecycleException exception) {
-        return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_LIFECYCLE_CONFLICT", exception.getMessage());
+        return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_LIFECYCLE_CONFLICT",
+                publicMessage(exception, "Wiki draft is in a conflicting lifecycle state"), exception);
     }
 
     @ExceptionHandler(WikiDraftTargetException.class)
     public ResponseEntity<ApiError> handleWikiDraftTarget(WikiDraftTargetException exception) {
         return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_TARGET_" + exception.reason().name(),
-                exception.getMessage());
+                publicMessage(exception, "Wiki draft target validation failed"), exception);
     }
 
     @ExceptionHandler(WikiPublishException.class)
@@ -82,39 +102,42 @@ public class GlobalExceptionHandler {
                     HttpStatus.INTERNAL_SERVER_ERROR;
             default -> HttpStatus.CONFLICT;
         };
-        return respond(status, "WIKI_PUBLISH_" + exception.reason().name(), exception.getMessage());
+        return respond(status, "WIKI_PUBLISH_" + exception.reason().name(),
+                publicMessage(exception, "Wiki publish operation failed"), exception);
     }
 
     @ExceptionHandler(DocumentAlreadyProcessedException.class)
-    public ResponseEntity<ApiError> handleDocumentAlreadyProcessed(DocumentAlreadyProcessedException exception) {
-        return respond(HttpStatus.CONFLICT, "DOCUMENT_ALREADY_PROCESSED", exception.getMessage());
+    public ResponseEntity<ApiError> handleDocumentAlreadyProcessed(
+            DocumentAlreadyProcessedException exception) {
+        return respond(HttpStatus.CONFLICT, "DOCUMENT_ALREADY_PROCESSED", publicMessage(exception), exception);
     }
 
     @ExceptionHandler(DocumentExtractionException.class)
     public ResponseEntity<ApiError> handleDocumentExtraction(DocumentExtractionException exception) {
-        return respond(HttpStatus.UNPROCESSABLE_ENTITY, exception.errorCode(), exception.getMessage());
+        return respond(HttpStatus.UNPROCESSABLE_ENTITY, exception.errorCode(),
+                publicMessage(exception, "Document extraction failed"), exception);
     }
 
     @ExceptionHandler(WorkspaceNotFoundException.class)
     public ResponseEntity<ApiError> handleWorkspaceNotFound(WorkspaceNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "WORKSPACE_NOT_FOUND", exception.getMessage());
+        return respond(HttpStatus.NOT_FOUND, "WORKSPACE_NOT_FOUND", publicMessage(exception), exception);
     }
 
     @ExceptionHandler(NoActiveWorkspaceException.class)
     public ResponseEntity<ApiError> handleNoActiveWorkspace(NoActiveWorkspaceException exception) {
-        return respond(HttpStatus.NOT_FOUND, "NO_ACTIVE_WORKSPACE", exception.getMessage());
+        return respond(HttpStatus.NOT_FOUND, "NO_ACTIVE_WORKSPACE", publicMessage(exception), exception);
     }
 
     @ExceptionHandler(ProcessingJobNotFoundException.class)
     public ResponseEntity<ApiError> handleProcessingJobNotFound(ProcessingJobNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", exception.getMessage());
+        return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", publicMessage(exception), exception);
     }
 
     @ExceptionHandler(RetrievalUnavailableException.class)
     public ResponseEntity<ApiError> handleRetrievalUnavailable(
             RetrievalUnavailableException exception) {
         return respond(HttpStatus.SERVICE_UNAVAILABLE, "RETRIEVAL_UNAVAILABLE",
-                exception.getMessage());
+                publicMessage(exception, "Retrieval service is unavailable"), exception);
     }
 
     /**
@@ -136,7 +159,7 @@ public class GlobalExceptionHandler {
                     CROSS_WORKSPACE, INVALID_TRAVERSAL_BOUNDS, LOCAL_VALIDATION ->
                     HttpStatus.INTERNAL_SERVER_ERROR;
         };
-        return respond(status, type.publicCode(), "Graph projection operation failed");
+        return respond(status, type.publicCode(), "Graph projection operation failed", exception);
     }
 
     @ExceptionHandler(AskApiException.class)
@@ -165,25 +188,36 @@ public class GlobalExceptionHandler {
             case PROVIDER_INVALID_RESPONSE -> "Answer provider returned an invalid response";
             case LOCAL_VALIDATION -> "Ask request was rejected";
         };
-        return respond(status, type.publicCode(), message);
+        return respond(status, type.publicCode(), message, exception);
     }
 
     @ExceptionHandler({NoResourceFoundException.class, MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiError> handleNotFound(Exception exception) {
-        return respond(HttpStatus.NOT_FOUND, "NOT_FOUND", "Resource not found");
+        return respond(HttpStatus.NOT_FOUND, "NOT_FOUND", "Resource not found", exception);
     }
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ApiError> handleIllegalState(IllegalStateException exception) {
-        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error");
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error", exception);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception exception) {
-        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error");
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error", exception);
     }
 
-    private static ResponseEntity<ApiError> respond(HttpStatus status, String code, String message) {
+    private static ResponseEntity<ApiError> respond(HttpStatus status, String code, String message,
+                                                    Exception exception) {
+        // The full cause chain stays server-side; only the sanitized projection responds.
+        log.debug("REST error mapped to {} ({}): {}", code, status, message, exception);
         return ResponseEntity.status(status).body(ApiError.of(code, message));
+    }
+
+    private static String publicMessage(Exception exception) {
+        return DiagnosticRedaction.publicMessage(exception.getMessage(), "Request failed");
+    }
+
+    private static String publicMessage(Exception exception, String fallback) {
+        return DiagnosticRedaction.publicMessage(exception.getMessage(), fallback);
     }
 }

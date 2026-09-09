@@ -1,5 +1,7 @@
 package org.km.llmwiki.wiki;
 
+import org.km.llmwiki.web.DiagnosticRedaction;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.km.llmwiki.ai.LlmProposalAction;
@@ -152,7 +154,8 @@ public class WikiCreatePublishService {
         } catch (RuntimeException exception) {
             try {
                 publicationRepository.markReconciliationRequired(draft.workspaceId(), operation.id(),
-                        "CREATE recovery DB finalization failed: " + nullToEmpty(exception.getMessage()));
+                        safeRecoveryDetail("CREATE recovery DB finalization failed: "
+                                + exception.getMessage()));
             } catch (RuntimeException ledgerFailure) {
                 exception.addSuppressed(ledgerFailure);
             }
@@ -232,7 +235,8 @@ public class WikiCreatePublishService {
 
     private void compensateFailure(long workspaceId, StoredWikiPublishOperation operation, Path target,
                                    boolean finalFileCommitted, RuntimeException cause) {
-        String detail = cause.getClass().getSimpleName() + ": " + nullToEmpty(cause.getMessage());
+        String detail = DiagnosticRedaction.persistedFailure("wiki_publish_recovery_failed",
+                cause, "Wiki publish compensation failed");
         boolean fileSafe = !finalFileCommitted || filePublisher.compensate(target, operation.contentHash());
         try {
             if (fileSafe) {
@@ -288,5 +292,10 @@ public class WikiCreatePublishService {
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String safeRecoveryDetail(String rawDetail) {
+        return DiagnosticRedaction.sanitize(rawDetail, "Unspecified publish recovery failure",
+                1000);
     }
 }

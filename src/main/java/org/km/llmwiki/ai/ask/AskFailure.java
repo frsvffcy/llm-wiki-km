@@ -1,6 +1,7 @@
 package org.km.llmwiki.ai.ask;
 
 import org.km.llmwiki.rag.RetrievalUnavailableException;
+import org.km.llmwiki.web.DiagnosticRedaction;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -41,15 +42,6 @@ public record AskFailure(
     }
 
     private static String sanitize(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-        String bounded = value.replaceAll("[\\r\\n\\t]+", " ").trim();
-        bounded = bounded.replaceAll("(?i)(api[-_ ]?key|authorization|token|secret|password)\\s*[:=]\\s*(?:bearer\\s+)?[^\\s,;]+",
-                "$1=[REDACTED]");
-        bounded = bounded.replaceAll("(?i)\\bbearer\\s+[^\\s,;]+", "Bearer [REDACTED]");
-        bounded = bounded.replaceAll("\\bsk-[A-Za-z0-9_-]{8,}\\b", "[REDACTED]");
-        return bounded.length() <= MAX_DIAGNOSTIC_LENGTH
-                ? bounded : bounded.substring(0, MAX_DIAGNOSTIC_LENGTH);
+        return DiagnosticRedaction.sanitize(value, "", MAX_DIAGNOSTIC_LENGTH);
     }
 }

@@ -197,6 +197,88 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void persistsOnlyAnOperatorSafeFailureProjectionWhenRebuildFailsWithHostileDetail()
+            throws Exception {
+        WorkspaceFixture workspace = insertWorkspace("redaction", "ACTIVE");
+        insertWiki(workspace, "wiki-redaction", "Redaction", "redaction indexed content", 1);
+        insertSource(workspace.id(), "redaction.pdf", "PROCESSED",
+                "redaction raw evidence", "redaction normalized evidence");
+        awaitJob(startRebuild("ALL"), "COMPLETED");
+
+        db().sql("""
+                CREATE TRIGGER fail_redaction_rebuild
+                BEFORE INSERT ON search_index_identity
+                WHEN NEW.corpus = 'KNOWLEDGE'
+                BEGIN
+                    SELECT RAISE(ABORT, 'path /Users/x/y/vault token=abcdef123456
+                        Authorization: Bearer abc.def SELECT * FROM t RID #12:0');
+                END
+                """).update();
+        String jobId;
+        try {
+            jobId = startRebuild("WIKI");
+            awaitJob(jobId, "FAILED");
+        } finally {
+            db().sql("DROP TRIGGER IF EXISTS fail_redaction_rebuild").update();
+        }
+
+        String persisted = db().sql("""
+                SELECT failure_detail FROM search_index_rebuild_state
+                 WHERE workspace_id = :workspace AND corpus = 'WIKI'
+                """).param("workspace", workspace.id()).query(String.class).single();
+        assertThat(persisted).startsWith("fts_rebuild_failed: ");
+        assertThat(persisted).doesNotContain("/Users", "toddyeh", "token=abcdef123456",
+                "Bearer", "SELECT", "RID", "#12:0", "sqlite");
+
+        String logMetadata = db().sql("""
+                SELECT metadata_json FROM processing_log
+                 WHERE job_id = (SELECT id FROM processing_job WHERE job_id = :jobId)
+                   AND status = 'FAILED'
+                """).param("jobId", jobId).query(String.class).single();
+        assertThat(logMetadata).doesNotContain("/Users", "token=abcdef123456", "Bearer",
+                "SELECT", "RID", "#12:0");
+
+        mockMvc.perform(get("/api/v1/search/index/health").param("corpus", "WIKI"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"))
+                .andExpect(jsonPath("$.data.corpora[0].rebuildState.failureDetail")
+                        .value(persisted));
+    }
+
+    @Test
+    void healthProjectionRedactsLegacyRawFailureDetails() throws Exception {
+        WorkspaceFixture workspace = insertWorkspace("legacy-detail", "ACTIVE");
+        insertWiki(workspace, "wiki-legacy", "Legacy Detail", "legacy indexed content", 1);
+        insertSource(workspace.id(), "legacy.pdf", "PROCESSED",
+                "legacy raw evidence", "legacy normalized evidence");
+        awaitJob(startRebuild("ALL"), "COMPLETED");
+
+        String hostile = "SQLiteException: /Users/toddyeh/workspace/secret "
+                + "Authorization: Bearer abc token=abcdef123456 SELECT * FROM t RID #12:0";
+        String pathOnly = "authority mismatch while reading /Users/toddyeh/workspace/secret";
+        db().sql("""
+                UPDATE search_index_rebuild_state
+                   SET status = 'FAILED', failed_count = 1, failure_detail = :detail
+                 WHERE workspace_id = :workspace AND corpus = 'WIKI'
+                """).param("detail", hostile).param("workspace", workspace.id()).update();
+        db().sql("""
+                UPDATE search_index_rebuild_state
+                   SET status = 'FAILED', failed_count = 1, failure_detail = :detail
+                 WHERE workspace_id = :workspace AND corpus = 'SOURCE'
+                """).param("detail", pathOnly).param("workspace", workspace.id()).update();
+
+        MvcResult result = mockMvc.perform(get("/api/v1/search/index/health")
+                        .param("corpus", "ALL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"))
+                .andReturn();
+        String body = result.getResponse().getContentAsString();
+        assertThat(body).doesNotContain("/Users", "toddyeh", "Bearer", "token=abcdef123456",
+                "SELECT", "RID", "#12:0", "SQLiteException");
+        assertThat(body).contains("authority mismatch while reading [REDACTED]");
+    }
+
+    @Test
     void rollsBackAllProjectionChangesWhenAllRebuildPartiallyFails() throws Exception {
         WorkspaceFixture workspace = insertWorkspace("partial", "ACTIVE");
         insertWiki(workspace, "wiki-old", "Old Wiki", "old wiki projection", 1);

@@ -107,7 +107,13 @@ after a drop. The Graph projection also has a provider-neutral operational REST 
 rebuild and repair are explicit operator actions that always go through the canonical assembler
 and the SQLite-authoritative lifecycle, the status projection never exposes fingerprints,
 tokens, or backend identities, and the destructive `clear` operation is intentionally not
-public. A deterministic offline quality gate
+public. Every diagnostic that crosses a persistence or REST boundary is an operator-safe
+projection under one shared application-owned redaction policy (`DiagnosticRedaction`):
+public REST errors carry stable codes with allowlisted or sanitized messages (HTTP statuses
+and codes stay typed), persisted failure details carry a stable reason plus a sanitized
+summary with no exception class names, cause chains, paths, secrets, SQL fragments, or
+backend identities, and the full root cause chain stays server-side in the application log.
+A deterministic offline quality gate
 (`GraphRetrievalQualityGateTest`, golden corpus `graph-retrieval-golden-v1`) drives the
 production-equivalent pipeline over real FTS, real readiness/authority boundaries, and a real
 ArcadeDB projection, gates identity-level recall@8/MRR/safety floors across

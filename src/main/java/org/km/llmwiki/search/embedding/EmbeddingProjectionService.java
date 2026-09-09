@@ -8,6 +8,7 @@ import org.km.llmwiki.ai.embedding.EmbeddingVector;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
 import org.km.llmwiki.search.SourceSearchFreshness;
 import org.km.llmwiki.search.SearchCorpus;
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.springframework.stereotype.Service;
@@ -439,7 +440,9 @@ public class EmbeddingProjectionService {
     }
 
     private static String safeDetail(RuntimeException failure) {
-        String message = failure.getMessage();
-        return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
+        // Operator-safe persisted projection: sanitized message only — no exception class
+        // name, no nested cause chain; the full failure stays in the server-side log.
+        return DiagnosticRedaction.sanitize(failure.getMessage(),
+                "Embedding projection failed", DiagnosticRedaction.MAX_LENGTH);
     }
 }

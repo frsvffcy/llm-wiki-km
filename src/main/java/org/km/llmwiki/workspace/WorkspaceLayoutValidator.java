@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -33,7 +34,9 @@ public class WorkspaceLayoutValidator {
                     Files.createDirectories(directory);
                     repaired.add(directoryName);
                 } catch (Exception exception) {
-                    problems.add("could not create directory '" + directoryName + "': " + exception.getMessage());
+                    problems.add("could not create directory '" + directoryName + "': "
+                            + DiagnosticRedaction.publicMessage(exception.getMessage(),
+                            "filesystem rejected the operation"));
                 }
             } else if (!Files.isDirectory(directory)) {
                 problems.add("'" + directoryName + "' exists but is not a directory");

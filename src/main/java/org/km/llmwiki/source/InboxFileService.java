@@ -1,5 +1,6 @@
 package org.km.llmwiki.source;
 
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
@@ -65,7 +66,9 @@ public class InboxFileService {
                 }
                 documents.add(uploadIn(workspace, sanitizeFileName(fileName), file));
             } catch (RuntimeException exception) {
-                failures.add(new BatchUploadResponse.FailedFile(fileName, exception.getMessage()));
+                failures.add(new BatchUploadResponse.FailedFile(fileName,
+                        DiagnosticRedaction.publicMessage(exception.getMessage(),
+                                "Uploaded file was rejected")));
             }
         }
 

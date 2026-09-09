@@ -14,6 +14,9 @@ import org.km.llmwiki.wiki.StoredPublishedWiki;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceResponse;
 import org.km.llmwiki.workspace.WorkspaceService;
+import org.km.llmwiki.web.DiagnosticRedaction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
@@ -29,6 +32,8 @@ import java.util.UUID;
 /** Asynchronous, atomic rebuild of workspace-scoped FTS projections from canonical authority. */
 @Service
 public class FtsRebuildService {
+
+    private static final Logger log = LoggerFactory.getLogger(FtsRebuildService.class);
 
     private final WorkspaceService workspaceService;
     private final PublishedWikiRepository publishedWikiRepository;
@@ -189,7 +194,14 @@ public class FtsRebuildService {
     }
 
     private void recordFailure(Launch launch, RuntimeException failure) {
-        String detail = failure.getClass().getSimpleName() + ": " + safeMessage(failure);
+        // The persisted diagnostic is an operator-safe projection: a stable application-owned
+        // reason plus the sanitized top-level message only. Exception class names, nested
+        // cause chains, paths, secrets, and SQL fragments stay server-side in the log, where
+        // the full root cause chain remains available for debugging.
+        String detail = DiagnosticRedaction.persistedFailure("fts_rebuild_failed", failure,
+                "FTS rebuild failed");
+        log.error("FTS rebuild failed for workspace {} job {}: {}",
+                launch.workspaceId(), launch.job().jobId(), detail, failure);
         transactionTemplate.executeWithoutResult(status -> {
             rebuildStateRepository.markFailed(launch.workspaceId(), launch.job().id(),
                     launch.physicalCorpora(), detail);
@@ -222,11 +234,6 @@ public class FtsRebuildService {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Could not serialize FTS rebuild diagnostics", exception);
         }
-    }
-
-    private static String safeMessage(Exception exception) {
-        String message = exception.getMessage();
-        return message == null || message.isBlank() ? "unspecified failure" : message;
     }
 
     private record Launch(long workspaceId, SearchCorpus corpus, List<SearchCorpus> physicalCorpora,

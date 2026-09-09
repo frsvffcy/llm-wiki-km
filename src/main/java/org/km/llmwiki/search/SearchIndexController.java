@@ -1,6 +1,7 @@
 package org.km.llmwiki.search;
 
 import org.km.llmwiki.web.ApiResponse;
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -69,6 +70,27 @@ public class SearchIndexController {
     @GetMapping("/embedding/readiness")
     public ApiResponse<java.util.List<EmbeddingProjectionReadiness>> embeddingReadiness() {
         long workspaceId = workspaceService.findActiveWithoutValidation().orElseThrow(NoActiveWorkspaceException::new).id();
-        return new ApiResponse<>(embeddingReadiness.findAll(workspaceId));
+        return new ApiResponse<>(embeddingReadiness.findAll(workspaceId).stream()
+                .map(this::withSafeFailureDetail).toList());
+    }
+
+    /**
+     * The readiness projection re-applies the operator-safe redaction policy before the
+     * response leaves the REST boundary: persisted failure details written before the
+     * diagnostic contract must never reach the caller raw.
+     */
+    private EmbeddingProjectionReadiness withSafeFailureDetail(EmbeddingProjectionReadiness state) {
+        if (state.failureDetail() == null) {
+            return state;
+        }
+        return new EmbeddingProjectionReadiness(state.workspaceId(), state.corpus(),
+                state.status(), state.processingJobId(), state.indexedCount(),
+                state.expectedCount(), state.failedCount(), state.provider(), state.model(),
+                state.dimension(), state.projectionVersion(),
+                DiagnosticRedaction.publicMessage(state.failureDetail(),
+                        "Embedding projection rebuild failed"),
+                state.startedAt(), state.completedAt(), state.updatedAt(),
+                state.targetGeneration(), state.appliedGeneration(),
+                state.projectionSnapshotToken());
     }
 }
