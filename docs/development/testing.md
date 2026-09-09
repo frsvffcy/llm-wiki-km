@@ -542,3 +542,41 @@ Hard gates：兩次 evaluation 的 safety violations 恆為空；`HYBRID_FTS`/`H
 ## FTS rebuild atomic admission 測試責任（#283）
 
 `search.FtsRebuildAdmissionIntegrationTest`（integration tier）持有 FTS rebuild 的 deterministic 並發 admission contract。Duplicate semantics 為 **typed reject**：同一 workspace 的 physical corpora（`ALL` = `WIKI`+`SOURCE`）與任何 QUEUED/RUNNING 的 row 相 overlapping 即拒絕，HTTP 409 + stable code `FTS_REBUILD_IN_PROGRESS`（`FtsRebuildAdmissionConflictException`，不再以 generic `IllegalStateException` 500 作 conflict 語意）；`WIKI` 與 `SOURCE` 可並行 admission，`ALL` 與兩者皆互斥。Atomic ownership：`FtsRebuildService.start` 在單一 transaction 內先 `processing_job` INSERT（交易首個寫入語句，於 SQLite write lock 取得最新 committed snapshot），再由 `FtsRebuildStateRepository.claimQueued` 於同一寫入鎖內對每個 corpus 執行「terminal row re-queue UPDATE；否則 guarded `INSERT … WHERE NOT EXISTS (in-progress)`」——claim 回傳數少於請求 corpus 數即 typed conflict 並整體 rollback（被拒 admission 不留 orphan job、不偷走 owner）。可觀察的 SQLite 行為由兩條 two-connection 測試鎖定：legacy check-then-create 的 stale-snapshot write 以 `SQLITE_BUSY` typed-fail（不會 silent double-admit），未 commit owner 讓 competitor 的首個寫入等待 busy_timeout 後 lock-fail 且不留下任何 ledger 殘留。Ownership 完整性：`markRunning`/`markCompleted`/`markFailed` 皆以 `processing_job_id` 為條件，late callback 對已換手的 state 更新 0 rows。Startup reconciler 只 recover QUEUED/RUNNING（reconcile 後 COMPLETED owner 不動、health 維持 HEALTHY）。Busy timeout 角色：timeout 不是 race fix；非零 invariant 的完整設定驗證為 Issue #288 的 follow-up，本 issue 僅在 `SQLiteProperties` 記錄該關係。極端鎖競爭（admission 交易超過對手連線的 busy_timeout）會以 SQLite busy failure fail-closed（交易 rollback、無 ledger 殘留），該路徑為基礎設施層 observable 而非 duplicate-admission decision，不屬於 typed 409 語意。重跑命令：`mvn test -Dtest=FtsRebuildAdmissionIntegrationTest -Pintegration`。
+
+## Processing Job status query 測試責任（#286）
+
+Processing job status 的共用 public projection 只允許
+`QUEUED`／`RUNNING`／`COMPLETED`／`FAILED`／`CANCELLED`／`PAUSED` 六種 persisted status。
+`COMPLETED` 的語意是 runner 完成，不是所有 item 成功；`totalCount`、`processedCount`、
+`successCount`、`failedCount` 與 `skippedCount` 是 partial semantics authority。當
+`COMPLETED + failedCount > 0` 時，status 保持 `COMPLETED`，另以 `PARTIAL_FAILURE` failure
+code 表示部分失敗。Analysis 與 FTS rebuild status query 都是 read-only，不得觸發 retry、
+repair、rebuild、enqueue 或任何 canonical／projection mutation。
+
+`processing.DocumentAnalysisJobIntegrationTest`（integration tier）驗證
+`GET /api/v1/analysis/jobs/{jobId}` 的 accepted lifecycle、counters、partial failure、safe
+failure code／summary，以及 unknown、cross-workspace、wrong-type job id 統一為
+`404 PROCESSING_JOB_NOT_FOUND`。`search.FtsRebuildHealthIntegrationTest` 擴充驗證
+`GET /api/v1/search/index/rebuild/{jobId}` 的相同 lifecycle／partial semantics、immutable
+FTS corpus metadata、safe failure projection 與 workspace/type isolation；legacy 或 malformed
+metadata 必須回報 unknown corpus，不得從目前 `/api/v1/search/index/health` 狀態猜測。
+`search.FtsRebuildOperationMetadataCodecTest`（unit tier）則鎖定 bounded canonical metadata
+的 allow-list、canonical encoding 與 legacy／malformed rejection。
+
+Operation status 與 `/api/v1/search/index/health` 的 ownership 必須分離：status endpoint
+描述單一 processing job 的生命週期與 counters，health endpoint 描述 active
+workspace／corpus 的 current serving readiness 與 missing／stale／orphan projection health。
+兩個 endpoint 都只能回傳 operator-safe failure code／summary；raw exception、stack trace、
+path、SQL、credentials、provider/backend detail 不得越過 REST boundary。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest=DocumentAnalysisJobIntegrationTest test -Pintegration
+mvn -Dtest=FtsRebuildHealthIntegrationTest test -Pintegration
+mvn -Dtest=FtsRebuildOperationMetadataCodecTest test -Pfast
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```

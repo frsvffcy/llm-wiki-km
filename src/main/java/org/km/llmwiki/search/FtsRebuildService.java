@@ -89,7 +89,8 @@ public class FtsRebuildService {
             // admission therefore always sees the committed owner and rejects here, rolling
             // the job back with it — never an orphan job, never a stolen owner.
             ProcessingJob job = jobRepository.create(workspace.id(), UUID.randomUUID().toString(),
-                    ProcessingJobType.FTS_REBUILD, physicalCorpora.size());
+                    ProcessingJobType.FTS_REBUILD, physicalCorpora.size(),
+                    FtsRebuildOperationMetadataCodec.encode(corpus));
             int claimed = rebuildStateRepository.claimQueued(workspace.id(), job.id(),
                     physicalCorpora);
             if (claimed != physicalCorpora.size()) {

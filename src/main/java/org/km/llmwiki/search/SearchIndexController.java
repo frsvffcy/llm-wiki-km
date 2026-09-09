@@ -5,6 +5,7 @@ import org.km.llmwiki.web.DiagnosticRedaction;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,18 +28,21 @@ public class SearchIndexController {
     private final EmbeddingProjectionJobService embeddingJobs;
     private final EmbeddingProjectionReadinessRepository embeddingReadiness;
     private final EmbeddingProjectionJobQueryService embeddingJobQuery;
+    private final FtsRebuildJobQueryService rebuildJobQuery;
     private final WorkspaceService workspaceService;
 
     public SearchIndexController(FtsRebuildService rebuildService, SearchHealthService healthService,
                                  EmbeddingProjectionJobService embeddingJobs,
                                  EmbeddingProjectionReadinessRepository embeddingReadiness,
                                  EmbeddingProjectionJobQueryService embeddingJobQuery,
+                                 FtsRebuildJobQueryService rebuildJobQuery,
                                  WorkspaceService workspaceService) {
         this.rebuildService = rebuildService;
         this.healthService = healthService;
         this.embeddingJobs = embeddingJobs;
         this.embeddingReadiness = embeddingReadiness;
         this.embeddingJobQuery = embeddingJobQuery;
+        this.rebuildJobQuery = rebuildJobQuery;
         this.workspaceService = workspaceService;
     }
 
@@ -47,6 +51,12 @@ public class SearchIndexController {
             @RequestBody(required = false) FtsRebuildRequest request) {
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(new ApiResponse<>(rebuildService.start(request)));
+    }
+
+    @GetMapping("/rebuild/{jobId}")
+    public ApiResponse<FtsRebuildJobStatusResponse> rebuildStatus(
+            @PathVariable String jobId) {
+        return new ApiResponse<>(rebuildJobQuery.find(jobId));
     }
 
     @GetMapping("/health")
@@ -63,7 +73,7 @@ public class SearchIndexController {
 
     @GetMapping("/embedding/rebuild/{jobId}")
     public ApiResponse<EmbeddingProjectionJobStatusResponse> embeddingRebuildStatus(
-            @org.springframework.web.bind.annotation.PathVariable String jobId) {
+            @PathVariable String jobId) {
         return new ApiResponse<>(embeddingJobQuery.find(jobId));
     }
 

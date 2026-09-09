@@ -4,6 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.km.llmwiki.processing.ProcessingJob;
+import org.km.llmwiki.processing.ProcessingJobRepository;
+import org.km.llmwiki.processing.ProcessingJobStatus;
+import org.km.llmwiki.processing.ProcessingJobType;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.km.llmwiki.wiki.WikiContentHash;
 import org.km.llmwiki.wiki.WikiPageType;
@@ -14,6 +18,7 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -32,6 +37,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
 
     private static final String NOW = "2026-08-31T00:00:00Z";
+    private static final String CREATED = "2026-09-03T00:00:00Z";
+    private static final String STARTED = "2026-09-03T00:01:00Z";
+    private static final String FINISHED = "2026-09-03T00:02:00Z";
 
     @Autowired
     private MockMvc mockMvc;
@@ -51,6 +59,9 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
     @Autowired
     private FtsRebuildStartupReconciler startupReconciler;
 
+    @Autowired
+    private ProcessingJobRepository jobs;
+
     @TempDir
     Path tempDirectory;
 
@@ -61,7 +72,13 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
         insertWiki(workspace, "wiki-a", "Alpha Guide", "deterministic rebuild marker", 3);
 
         assertHealth("WIKI", "REBUILD_REQUIRED", 2, 2, 0);
-        awaitJob(startRebuild("WIKI"), "COMPLETED");
+        String firstJobId = startRebuild("WIKI");
+        awaitJob(firstJobId, "COMPLETED");
+        getFtsJob(firstJobId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.jobType").value("FTS_REBUILD"))
+                .andExpect(jsonPath("$.data.corpus").value("WIKI"))
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
         assertHealth("WIKI", "HEALTHY", 0, 0, 0);
 
         List<String> order = searchService.search("deterministic rebuild marker", "WIKI",
@@ -447,6 +464,108 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
         assertThat(restartLogSnapshot(linkedJobId, linkedJobId)).hasSize(1);
     }
 
+    @Test
+    void exposesFtsLifecycleCountersAndPartialFailureFromImmutableOperationMetadata()
+            throws Exception {
+        WorkspaceFixture workspace = insertWorkspace("fts-job-status", "ACTIVE");
+        ProcessingJob job = createFtsJob(workspace.id(), "fts-status-job", SearchCorpus.SOURCE, 3);
+        setCreated(job.id());
+
+        getFtsJob(job.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.jobId").value(job.jobId()))
+                .andExpect(jsonPath("$.data.jobType").value("FTS_REBUILD"))
+                .andExpect(jsonPath("$.data.corpus").value("SOURCE"))
+                .andExpect(jsonPath("$.data.status").value("QUEUED"))
+                .andExpect(jsonPath("$.data.totalCount").value(3))
+                .andExpect(jsonPath("$.data.processedCount").value(0))
+                .andExpect(jsonPath("$.data.successCount").value(0))
+                .andExpect(jsonPath("$.data.failedCount").value(0))
+                .andExpect(jsonPath("$.data.skippedCount").value(0))
+                .andExpect(jsonPath("$.data.createdAt").value(CREATED))
+                .andExpect(jsonPath("$.data.startedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.completedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.failureCode").doesNotExist());
+
+        setRunning(job.id());
+        getFtsJob(job.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("RUNNING"))
+                .andExpect(jsonPath("$.data.startedAt").value(STARTED))
+                .andExpect(jsonPath("$.data.completedAt").doesNotExist());
+
+        setTerminal(job.id(), ProcessingJobStatus.COMPLETED, 3, 2, 1, 0);
+        getFtsJob(job.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.processedCount").value(3))
+                .andExpect(jsonPath("$.data.successCount").value(2))
+                .andExpect(jsonPath("$.data.failedCount").value(1))
+                .andExpect(jsonPath("$.data.skippedCount").value(0))
+                .andExpect(jsonPath("$.data.completedAt").value(FINISHED))
+                .andExpect(jsonPath("$.data.failureCode").value("PARTIAL_FAILURE"))
+                .andExpect(jsonPath("$.data.failureSummary")
+                        .value("FTS rebuild completed with failed items"));
+
+        // A later operation does not change the corpus captured by this historical job.
+        createFtsJob(workspace.id(), "fts-status-later-job", SearchCorpus.WIKI, 1);
+        getFtsJob(job.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.corpus").value("SOURCE"));
+    }
+
+    @Test
+    void projectsSafeFtsFailureDiagnosticsAndDoesNotExposeProcessingDetails() throws Exception {
+        WorkspaceFixture workspace = insertWorkspace("fts-job-failure", "ACTIVE");
+        ProcessingJob job = createFtsJob(workspace.id(), "fts-failed-job", SearchCorpus.WIKI, 1);
+        db().sql("""
+                INSERT INTO processing_log (job_id, document_id, step, status, message, metadata_json,
+                    created_at)
+                VALUES (:job, NULL, 'FTS_REBUILD', 'FAILED',
+                    'java.lang.IllegalStateException: /Users/private SELECT * FROM secrets token=secret',
+                    '{"detail":"Authorization: Bearer secret"}', :now)
+                """).param("job", job.id()).param("now", NOW).update();
+        setTerminal(job.id(), ProcessingJobStatus.FAILED, 1, 0, 1, 0);
+
+        getFtsJob(job.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("FAILED"))
+                .andExpect(jsonPath("$.data.failureCode").value("REBUILD_FAILED"))
+                .andExpect(jsonPath("$.data.failureSummary").value("FTS rebuild failed"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("/Users/private"))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("SELECT * FROM secrets"))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret"))));
+    }
+
+    @Test
+    void returnsUnknownCorpusForLegacyMetadataWithoutGuessingFromCurrentHealthState() throws Exception {
+        WorkspaceFixture workspace = insertWorkspace("fts-legacy-metadata", "ACTIVE");
+        ProcessingJob legacy = jobs.create(workspace.id(), "fts-legacy-job",
+                ProcessingJobType.FTS_REBUILD, 1);
+
+        getFtsJob(legacy.jobId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.jobType").value("FTS_REBUILD"))
+                .andExpect(jsonPath("$.data.corpus").doesNotExist());
+    }
+
+    @Test
+    void hidesUnknownCrossWorkspaceAndWrongTypeFtsJobsBehindTheSameNotFound() throws Exception {
+        WorkspaceFixture inactive = insertWorkspace("fts-cross-workspace", "INACTIVE");
+        WorkspaceFixture active = insertWorkspace("fts-active", "ACTIVE");
+        ProcessingJob crossWorkspace = createFtsJob(inactive.id(), "fts-cross-workspace-job",
+                SearchCorpus.WIKI, 1);
+        ProcessingJob wrongType = jobs.create(active.id(), "fts-wrong-type-job",
+                ProcessingJobType.ANALYZE, 1);
+
+        assertFtsNotFound(getFtsJob(crossWorkspace.jobId()));
+        assertFtsNotFound(getFtsJob(wrongType.jobId()));
+        assertFtsNotFound(getFtsJob("fts-does-not-exist"));
+    }
+
     private String startRebuild(String corpus) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/search/index/rebuild")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -456,6 +575,45 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
                 .andReturn();
         JsonNode json = objectMapper.readTree(result.getResponse().getContentAsString());
         return json.path("data").path("jobId").asText();
+    }
+
+    private ResultActions getFtsJob(String jobId) throws Exception {
+        return mockMvc.perform(get("/api/v1/search/index/rebuild/{jobId}", jobId));
+    }
+
+    private void assertFtsNotFound(ResultActions result) throws Exception {
+        result.andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("PROCESSING_JOB_NOT_FOUND"));
+    }
+
+    private ProcessingJob createFtsJob(long workspaceId, String jobId, SearchCorpus corpus,
+                                       int totalCount) {
+        return jobs.create(workspaceId, jobId, ProcessingJobType.FTS_REBUILD, totalCount,
+                FtsRebuildOperationMetadataCodec.encode(corpus));
+    }
+
+    private void setCreated(long jobId) {
+        db().sql("UPDATE processing_job SET created_at = :created, updated_at = :created WHERE id = :id")
+                .param("created", CREATED).param("id", jobId).update();
+    }
+
+    private void setRunning(long jobId) {
+        db().sql("UPDATE processing_job SET status = 'RUNNING', started_at = :started, updated_at = :started "
+                        + "WHERE id = :id")
+                .param("started", STARTED).param("id", jobId).update();
+    }
+
+    private void setTerminal(long jobId, ProcessingJobStatus jobStatus, int processed, int succeeded,
+                             int failed, int skipped) {
+        db().sql("""
+                UPDATE processing_job
+                   SET status = :status, processed_count = :processed, success_count = :succeeded,
+                       failed_count = :failed, skipped_count = :skipped,
+                       started_at = :started, finished_at = :finished, updated_at = :finished
+                 WHERE id = :id
+                """).param("status", jobStatus.name()).param("processed", processed)
+                .param("succeeded", succeeded).param("failed", failed).param("skipped", skipped)
+                .param("started", STARTED).param("finished", FINISHED).param("id", jobId).update();
     }
 
     private void awaitJob(String jobId, String expectedStatus) throws InterruptedException {
