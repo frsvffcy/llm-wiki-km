@@ -130,7 +130,17 @@ byte-equivalent to the previous flat-text chunker; the structure-aware
 tables/figures/captions as standalone atomic chunks), every persisted chunk is stamped with
 that version (`source_chunk.chunk_policy_version`), and a policy switch requires re-extraction
 to rebuild chunks along the existing FTS sync and embedding paths. Parsed structure and
-chunks remain derived, rebuildable projections and never become citation authority. A deterministic offline quality gate
+chunks remain derived, rebuildable projections and never become citation authority. A
+read-only Retrieval Inspector (`GET /api/v1/retrieval/inspect` and a Browser panel) lets you
+see exactly one retrieval execution through the production path itself — per-modality
+candidates with modality-local ordinals, the active fusion policy version and fused order,
+canonical authority admission with typed rejection codes (lexical/vector
+`AuthorityRejectionReason`; graph reusing the graph evidence/projection taxonomies), typed
+modality degradation, and the final evidence order, which is identical to the Ask handoff
+because it is the same execution observed by an optional collector. The inspector never calls
+an answer provider, never mutates canonical state, exposes no raw backend scores, RIDs,
+tokens, fingerprints, or exception details, offers no ranking sliders, and adds no eighth
+ranking semantics beyond the existing seven public modes. A deterministic offline quality gate
 (`GraphRetrievalQualityGateTest`, golden corpus `graph-retrieval-golden-v1`) drives the
 production-equivalent pipeline over real FTS, real readiness/authority boundaries, and a real
 ArcadeDB projection, gates identity-level recall@8/MRR/safety floors across

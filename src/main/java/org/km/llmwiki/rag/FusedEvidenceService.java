@@ -130,6 +130,12 @@ public class FusedEvidenceService {
     }
 
     public FusedEvidenceResult fuse(FusedEvidenceRequest request) {
+        return fuse(request, null);
+    }
+
+    /** Fusion with an optional read-only observation collector; collecting never alters semantics. */
+    public FusedEvidenceResult fuse(FusedEvidenceRequest request,
+                                    RetrievalInspectionCollector collector) {
         if (request == null) {
             throw new IllegalArgumentException("Fusion request is required");
         }
@@ -174,15 +180,24 @@ public class FusedEvidenceService {
         }
 
         Map<Long, Optional<SourceSearchAuthorityDocument>> channelSourceCache = new HashMap<>();
+        if (collector != null) {
+            collector.ensureChannel(CandidateSignal.LEXICAL);
+            if (!vectorCandidates.isEmpty()) {
+                collector.ensureChannel(CandidateSignal.VECTOR);
+            }
+        }
         RevalidatedChannel lexical = revalidateChannel(lexicalCandidates, workspaceId,
-                channelSourceCache);
+                channelSourceCache, CandidateSignal.LEXICAL, collector);
         RevalidatedChannel vector = revalidateChannel(vectorCandidates, workspaceId,
-                channelSourceCache);
+                channelSourceCache, CandidateSignal.VECTOR, collector);
         int rejectedCount = lexical.rejected() + vector.rejected();
 
         GraphChannel graph = request.includeGraph()
                 ? runGraphChannel(active, workspace, limits, lexical, vector)
                 : GraphChannel.excluded();
+        if (collector != null && request.includeGraph()) {
+            collector.ensureChannel(CandidateSignal.GRAPH);
+        }
         rejectedCount += graph.rejectedCount();
 
         Map<CandidateSignal, List<String>> channels = new EnumMap<>(CandidateSignal.class);
@@ -190,8 +205,24 @@ public class FusedEvidenceService {
         channels.put(CandidateSignal.VECTOR, vector.order());
         if (!graph.order().isEmpty()) {
             channels.put(CandidateSignal.GRAPH, graph.order());
+            if (collector != null) {
+                for (EvidenceItem graphItem : graph.items()) {
+                    collector.channelCandidate(CandidateSignal.GRAPH,
+                            graphItem.stableIdentity());
+                }
+            }
+        }
+        if (collector != null && !graph.rejections().isEmpty()) {
+            for (GraphCandidateRejection rejection : graph.rejections()) {
+                collector.channelRejected(CandidateSignal.GRAPH,
+                        rejection.entity().canonicalKey(), rejection.reason().name());
+            }
         }
         List<ModalityRankFusion.FusedIdentity> fused = ModalityRankFusion.fuse(channels, rankingPolicy);
+        if (collector != null) {
+            collector.fusedOrder(fused.stream().map(ModalityRankFusion.FusedIdentity::identity)
+                    .toList());
+        }
 
         Map<String, FusionEntry> entries = mergeEntries(lexical, vector, graph, workspace);
 
@@ -204,16 +235,28 @@ public class FusedEvidenceService {
         boolean truncated = false;
         for (ModalityRankFusion.FusedIdentity identity : fused) {
             FusionEntry entry = entries.get(identity.identity());
-            if (entry == null || !selectedIdentities.add(identity.identity())) {
+            if (entry == null) {
+                continue;
+            }
+            if (!selectedIdentities.add(identity.identity())) {
+                if (collector != null) {
+                    collector.duplicateFolded(identity.identity());
+                }
                 continue;
             }
             if (selected.size() >= limits.maxItems()
                     || usedCharacters >= limits.maxCharacters()) {
                 truncated = true;
+                if (collector != null) {
+                    collector.budgetExcluded(identity.identity());
+                }
                 break;
             }
             CandidateSignal primary = primaryModality(entry.modalities());
             if (contributions.getOrDefault(primary, 0) >= limits.maxItems()) {
+                if (collector != null) {
+                    collector.budgetExcluded(identity.identity());
+                }
                 continue;
             }
             contributions.merge(primary, 1, Integer::sum);
@@ -221,12 +264,18 @@ public class FusedEvidenceService {
             CandidateAuthorityRevalidator.BoundedText bounded =
                     CandidateAuthorityRevalidator.bound(entry.item().content(), remaining);
             if (bounded.text().isBlank()) {
+                if (collector != null) {
+                    collector.budgetExcluded(identity.identity());
+                }
                 continue;
             }
             boolean contentTruncated = entry.contentTruncated() || bounded.truncated();
             EvidenceItem item = rebuilt(entry.item(), identity.score(), entry.snippet(),
                     bounded.text(), contentTruncated);
             selected.add(new SelectedEntry(item, entry.modalities(), bounded.characters()));
+            if (collector != null) {
+                collector.selected(identity.identity());
+            }
             usedCharacters += bounded.characters();
             if (bounded.truncated()) {
                 truncated = true;
@@ -272,6 +321,10 @@ public class FusedEvidenceService {
                         graphIterator.remove();
                         usedCharacters -= entry.characters();
                         terminalRejected++;
+                        if (collector != null) {
+                            collector.rejected(entry.item().stableIdentity(),
+                                    graphDegradationCode(failure));
+                        }
                     }
                 }
             }
@@ -280,11 +333,16 @@ public class FusedEvidenceService {
         var iterator = selected.iterator();
         while (iterator.hasNext()) {
             SelectedEntry entry = iterator.next();
-            if (!authorityRevalidator.publicationCurrent(entry.item(), workspaceId,
-                    terminalSourceCache)) {
+            PublicationOutcome outcome = authorityRevalidator.publicationCurrent(entry.item(),
+                    workspaceId, terminalSourceCache);
+            if (outcome.wasRejected()) {
                 iterator.remove();
                 usedCharacters -= entry.characters();
                 terminalRejected++;
+                if (collector != null) {
+                    collector.rejected(entry.item().stableIdentity(),
+                            outcome.rejectionReason().name());
+                }
             }
         }
 
@@ -300,6 +358,9 @@ public class FusedEvidenceService {
             itemModalities.put(entry.item().stableIdentity(),
                     Set.copyOf(entry.modalities()));
         }
+        if (collector != null) {
+            collector.itemModalities(itemModalities);
+        }
         return new FusedEvidenceResult(request.query(), workspace, items,
                 new EvidenceBudget(limits.maxItems(), limits.maxCharacters(), items.size(),
                         usedCharacters, (usedCharacters + 3) / 4, truncated),
@@ -313,7 +374,9 @@ public class FusedEvidenceService {
     private RevalidatedChannel revalidateChannel(List<SearchCandidate> candidates,
                                                  long workspaceId,
                                                  Map<Long, Optional<SourceSearchAuthorityDocument>>
-                                                         sourceCache) {
+                                                         sourceCache,
+                                                 CandidateSignal modality,
+                                                 RetrievalInspectionCollector collector) {
         List<RevalidatedPair> pairs = new ArrayList<>();
         Set<String> seen = new java.util.HashSet<>();
         int rejected = 0;
@@ -322,16 +385,30 @@ public class FusedEvidenceService {
             if (!seen.add(identity)) {
                 continue;
             }
-            Optional<CandidateAuthorityRevalidator.AuthorityEvidence> revalidated =
+            if (collector != null) {
+                collector.channelCandidate(modality, identity);
+            }
+            RevalidationOutcome outcome =
                     authorityRevalidator.revalidate(candidate, workspaceId, sourceCache);
-            if (revalidated.isEmpty()) {
+            if (outcome.wasRejected()) {
                 rejected++;
+                if (collector != null) {
+                    collector.channelRejected(modality, identity,
+                            outcome.rejectionReason().name());
+                }
                 continue;
             }
-            pairs.add(new RevalidatedPair(identity, candidate, revalidated.get()));
+            pairs.add(new RevalidatedPair(identity, candidate, outcome.evidence().get()));
         }
         List<String> order = pairs.stream().map(RevalidatedPair::identity).toList();
         return new RevalidatedChannel(pairs, order, rejected);
+    }
+
+    /** Stable degradation code for a graph boundary failure; projection types keep their codes. */
+    private static String graphDegradationCode(RuntimeException failure) {
+        return failure instanceof org.km.llmwiki.graph.GraphProjectionException projectionFailure
+                ? projectionFailure.failureType().publicCode()
+                : GraphRetrievalFailurePolicy.INFRASTRUCTURE_DEGRADATION_CODE;
     }
 
     private GraphChannel runGraphChannel(WorkspaceResponse active, EvidenceWorkspace workspace,
@@ -369,7 +446,8 @@ public class FusedEvidenceService {
                     admitted.evidenceItems().isEmpty()
                             ? ModalityOutcome.EMPTY : ModalityOutcome.CONTRIBUTED,
                     null, snapshot, admitted.evidenceItems(), order,
-                    admitted.candidateCount(), admitted.rejectedCandidateCount());
+                    admitted.candidateCount(), admitted.rejectedCandidateCount(),
+                    admitted.rejections());
         } catch (RuntimeException failure) {
             return graphChannelFailure(failure);
         }
@@ -530,15 +608,17 @@ public class FusedEvidenceService {
 
     private record GraphChannel(ModalityOutcome outcome, String detail,
                                 GraphProjectionSnapshot snapshot, List<EvidenceItem> items,
-                                List<String> order, int candidateCount, int rejectedCount) {
+                                List<String> order, int candidateCount, int rejectedCount,
+                                List<org.km.llmwiki.rag.GraphCandidateRejection> rejections) {
 
         private GraphChannel {
             items = List.copyOf(items);
             order = List.copyOf(order);
+            rejections = List.copyOf(rejections);
         }
 
         static GraphChannel failed(ModalityOutcome outcome, String detail) {
-            return new GraphChannel(outcome, detail, null, List.of(), List.of(), 0, 0);
+            return new GraphChannel(outcome, detail, null, List.of(), List.of(), 0, 0, List.of());
         }
 
         static GraphChannel excluded() {
@@ -547,7 +627,7 @@ public class FusedEvidenceService {
 
         static GraphChannel empty(GraphProjectionSnapshot snapshot) {
             return new GraphChannel(ModalityOutcome.EMPTY, null, snapshot, List.of(), List.of(),
-                    0, 0);
+                    0, 0, List.of());
         }
     }
 }

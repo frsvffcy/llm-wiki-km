@@ -33,6 +33,9 @@ import org.km.llmwiki.graph.GraphProjectionFailureType;
  */
 final class GraphRetrievalFailurePolicy {
 
+    /** Stable code for graph infrastructure faults without a typed projection failure type. */
+    static final String INFRASTRUCTURE_DEGRADATION_CODE = "GRAPH_BACKEND_UNAVAILABLE";
+
     private GraphRetrievalFailurePolicy() {
     }
 

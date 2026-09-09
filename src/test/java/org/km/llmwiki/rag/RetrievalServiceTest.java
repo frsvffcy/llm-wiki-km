@@ -43,6 +43,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -421,6 +422,7 @@ class RetrievalServiceTest {
                 new EvidenceWorkspace(WORKSPACE_ID, "Retrieval workspace"), List.of(),
                 new EvidenceBudget(8, 12_000, 0, 0, 0, false), 0, 0, true,
                 RetrievalDiagnostics.fused());
+        when(orchestrator.retrieveFused(any(), any())).thenReturn(fused);
         when(orchestrator.retrieveFused(any())).thenReturn(fused);
         retrievalService = new RetrievalService(workspaceService, searchService, wikiRepository,
                 wikiContentReader, sourceRepository, null, null, orchestrator);
@@ -429,7 +431,7 @@ class RetrievalServiceTest {
                 RetrievalRequest.defaults("graph question", RetrievalMode.HYBRID_GRAPH));
 
         assertThat(bundle).isSameAs(fused);
-        verify(orchestrator).retrieveFused(any());
+        verify(orchestrator).retrieveFused(any(), isNull());
         verify(searchService, never()).findCandidates(any());
     }
 

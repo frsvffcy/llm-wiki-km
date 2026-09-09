@@ -101,14 +101,24 @@ public class RetrievalService {
     }
 
     public EvidenceBundle retrieve(RetrievalRequest request) {
+        return retrieve(request, null);
+    }
+
+    /**
+     * Retrieval with an optional read-only observation collector. The Ask flow passes no
+     * collector; only the Retrieval Inspector observes. Collecting never influences selection,
+     * ordering, or currentness semantics.
+     */
+    public EvidenceBundle retrieve(RetrievalRequest request,
+                                   RetrievalInspectionCollector collector) {
         if (request == null) {
             throw new IllegalArgumentException("retrieval request must not be null");
         }
         return switch (request.strategy()) {
-            case LEXICAL -> retrieveLexical(request);
-            case SEMANTIC -> retrieveSemantic(request);
-            case HYBRID -> retrieveHybrid(request);
-            case FUSED -> retrieveFused(request);
+            case LEXICAL -> retrieveLexical(request, collector);
+            case SEMANTIC -> retrieveSemantic(request, collector);
+            case HYBRID -> retrieveHybrid(request, collector);
+            case FUSED -> retrieveFused(request, collector);
         };
     }
 
@@ -117,15 +127,17 @@ public class RetrievalService {
      * owns the lexical/vector/graph channels, deterministic fusion, and the last-mile Ask
      * handoff currentness guard; this boundary only dispatches to it.
      */
-    private EvidenceBundle retrieveFused(RetrievalRequest request) {
+    private EvidenceBundle retrieveFused(RetrievalRequest request,
+                                         RetrievalInspectionCollector collector) {
         if (fusedRetrievalOrchestrator == null) {
             throw new IllegalStateException(
                     "Graph-grounded fused retrieval orchestration is not configured");
         }
-        return fusedRetrievalOrchestrator.retrieveFused(request);
+        return fusedRetrievalOrchestrator.retrieveFused(request, collector);
     }
 
-    private EvidenceBundle retrieveLexical(RetrievalRequest request) {
+    private EvidenceBundle retrieveLexical(RetrievalRequest request,
+                                           RetrievalInspectionCollector collector) {
         RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
         WorkspaceResponse active;
         try {
@@ -146,7 +158,8 @@ public class RetrievalService {
                     RetrievalUnavailableException.Dependency.SEARCH_INDEX,
                     infrastructureFailure);
         }
-        return assembleEvidence(request, active, page, RetrievalDiagnostics.lexical());
+        recordChannelCandidates(page, CandidateSignal.LEXICAL, collector);
+        return assembleEvidence(request, active, page, RetrievalDiagnostics.lexical(), collector);
     }
 
     /**
@@ -154,6 +167,11 @@ public class RetrievalService {
      * is assembled through the same authority revalidation path as FTS retrieval.
      */
     public EvidenceBundle retrieveSemantic(RetrievalRequest request) {
+        return retrieveSemantic(request, null);
+    }
+
+    private EvidenceBundle retrieveSemantic(RetrievalRequest request,
+                                            RetrievalInspectionCollector collector) {
         if (vectorCandidateSearchService == null) {
             throw new RetrievalUnavailableException(
                     RetrievalUnavailableException.Dependency.VECTOR_SEARCH,
@@ -171,30 +189,60 @@ public class RetrievalService {
             throw new RetrievalUnavailableException(
                     RetrievalUnavailableException.Dependency.VECTOR_SEARCH, unavailable);
         }
-        return assembleEvidence(request, active, page, RetrievalDiagnostics.semantic());
+        recordChannelCandidates(page, CandidateSignal.VECTOR, collector);
+        return assembleEvidence(request, active, page, RetrievalDiagnostics.semantic(), collector);
     }
 
-    private EvidenceBundle retrieveHybrid(RetrievalRequest request) {
+    private EvidenceBundle retrieveHybrid(RetrievalRequest request,
+                                          RetrievalInspectionCollector collector) {
         RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
         WorkspaceResponse active = activeWorkspace();
         SearchCandidatePage lexical = findLexicalCandidates(request, limits);
         if (vectorCandidateSearchService == null) {
+            recordChannelCandidates(lexical, CandidateSignal.LEXICAL, collector);
             return assembleEvidence(request, active, lexical,
-                    RetrievalDiagnostics.degradedHybrid("vector candidate search is not configured"));
+                    RetrievalDiagnostics.degradedHybrid("vector candidate search is not configured"),
+                    collector);
+        }
+        if (collector != null) {
+            collector.ensureChannel(CandidateSignal.LEXICAL);
         }
         try {
             SearchCandidatePage vector = vectorCandidateSearchService.findCandidates(
                     new VectorCandidateSearchQuery(request.query(), request.corpus(),
                             limits.candidateLimit()),
                     new org.km.llmwiki.search.SearchWorkspaceProvenance(active.id(), active.name()));
+            if (collector != null) {
+                collector.ensureChannel(CandidateSignal.VECTOR);
+            }
+            recordChannelCandidates(lexical, CandidateSignal.LEXICAL, collector);
+            recordChannelCandidates(vector, CandidateSignal.VECTOR, collector);
             List<SearchCandidate> fused = fusionRanker.fuse(lexical.items(), vector.items(),
                     limits.candidateLimit());
             SearchCandidatePage fusedPage = new SearchCandidatePage(fused, 0,
                     limits.candidateLimit(), fused.size());
-            return assembleEvidence(request, active, fusedPage, RetrievalDiagnostics.hybrid());
+            return assembleEvidence(request, active, fusedPage, RetrievalDiagnostics.hybrid(),
+                    collector);
         } catch (VectorCandidateSearchUnavailableException unavailable) {
+            recordChannelCandidates(lexical, CandidateSignal.LEXICAL, collector);
             return assembleEvidence(request, active, lexical,
-                    RetrievalDiagnostics.degradedHybrid(unavailable.getMessage()));
+                    RetrievalDiagnostics.degradedHybrid(unavailable.getMessage()), collector);
+        }
+    }
+
+    /** Records the fusion-input candidates of one modality in candidate order (dedup by identity). */
+    private static void recordChannelCandidates(SearchCandidatePage page,
+                                                CandidateSignal modality,
+                                                RetrievalInspectionCollector collector) {
+        if (collector == null) {
+            return;
+        }
+        Set<String> seen = new HashSet<>();
+        for (SearchCandidate candidate : page.items().stream().sorted(CANDIDATE_ORDER).toList()) {
+            String identity = candidate.kind().name() + ":" + candidate.stableId();
+            if (seen.add(identity)) {
+                collector.channelCandidate(modality, identity);
+            }
         }
     }
 
@@ -236,6 +284,12 @@ public class RetrievalService {
 
     EvidenceBundle assembleEvidence(RetrievalRequest request, WorkspaceResponse active,
                                     SearchCandidatePage page, RetrievalDiagnostics diagnostics) {
+        return assembleEvidence(request, active, page, diagnostics, null);
+    }
+
+    EvidenceBundle assembleEvidence(RetrievalRequest request, WorkspaceResponse active,
+                                    SearchCandidatePage page, RetrievalDiagnostics diagnostics,
+                                    RetrievalInspectionCollector collector) {
         RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
         EvidenceWorkspace workspace = new EvidenceWorkspace(active.id(), active.name());
         List<SearchCandidate> ordered = page.items().stream().sorted(CANDIDATE_ORDER).toList();
@@ -251,30 +305,46 @@ public class RetrievalService {
             SearchCandidate candidate = ordered.get(index);
             String identity = candidate.kind().name() + ":" + candidate.stableId();
             if (!identities.add(identity)) {
+                if (collector != null) {
+                    collector.duplicateFolded(identity);
+                }
                 continue;
             }
             if (evidence.size() >= limits.maxItems() || usedCharacters >= limits.maxCharacters()) {
                 budgetTruncated = true;
+                if (collector != null) {
+                    collector.budgetExcluded(identity);
+                }
                 break;
             }
 
-            Optional<CandidateAuthorityRevalidator.AuthorityEvidence> authority = authorityRevalidator
+            RevalidationOutcome outcome = authorityRevalidator
                     .revalidate(candidate, active.id(), sourceDocuments);
-            if (authority.isEmpty()) {
+            if (outcome.wasRejected()) {
                 rejected++;
+                if (collector != null) {
+                    collector.rejected(identity, outcome.rejectionReason().name());
+                }
                 continue;
             }
 
             int remaining = limits.maxCharacters() - usedCharacters;
             CandidateAuthorityRevalidator.BoundedText bounded =
-                    CandidateAuthorityRevalidator.bound(authority.get().content(), remaining);
+                    CandidateAuthorityRevalidator.bound(outcome.evidence().get().content(),
+                            remaining);
             if (bounded.text().isBlank()) {
                 budgetTruncated = true;
+                if (collector != null) {
+                    collector.budgetExcluded(identity);
+                }
                 break;
             }
-            CandidateAuthorityRevalidator.AuthorityEvidence trusted = authority.get();
+            CandidateAuthorityRevalidator.AuthorityEvidence trusted = outcome.evidence().get();
             evidence.add(trusted.toItem(workspace, candidate.score(), candidate.snippet(),
                     bounded.text(), bounded.truncated()));
+            if (collector != null) {
+                collector.selected(identity);
+            }
             usedCharacters += bounded.characters();
             budgetTruncated |= bounded.truncated();
             if (bounded.truncated() || evidence.size() >= limits.maxItems()) {

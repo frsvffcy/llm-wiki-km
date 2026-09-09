@@ -637,3 +637,25 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Retrieval Inspector 測試責任（#292）
+
+Read-only Retrieval Inspector 是**觀察器，不是第二套 retrieval engine**：`rag.RetrievalInspectorService` 重用 production retrieval boundary（`RetrievalService.retrieve(request, collector)` 的 optional collector overload），Ask path 傳 null collector、行為零改變；Inspector 永不呼叫 Answer provider、不 rebuild/repair、不寫 canonical state。觀察到的 final evidence order 與 production Ask handoff **by construction 一致**（同一 execution）。
+
+Authority rejection 的 typed taxonomy：lexical/vector 的 `CandidateAuthorityRevalidator` 改為 typed outcome（`rag.RevalidationOutcome` / `rag.PublicationOutcome` + `rag.AuthorityRejectionReason`：`WORKSPACE_MISMATCH`/`IDENTITY_MISMATCH`/`AUTHORITY_MISSING`/`STALE_REVISION`/`INELIGIBLE`），由明確的 canonical 比較點產生、不從 exception message 推論；graph rejections 重用既有 `GraphEvidenceRejectionReason`，graph drift 重用 `GraphProjectionFailureType.publicCode()`。
+
+Public 投影安全：`web.RetrievalInspectorController`（`GET /api/v1/retrieval/inspect?question&mode`，adapter-only）與 `web.RetrievalInspectionResponse` 只含 canonical identity、modality-local ordinal、typed outcome、disposition/reason code 與 budget counts；**raw score、RRF score、exception detail、graph/vector detail 文字、RID、snapshot token、fingerprint、path 一律不出現**（`RetrievalInspectorApiTest` 以負向斷言鎖定，含 ArcadeDB RID 格式 regex）。無 ranking slider、無 mutation endpoint、不呼叫 ask。
+
+`rag.RetrievalInspectorServiceTest`（unit tier）持有 trace/collector 組裝、policy version（僅 FUSED）、typed degradation mapping（degradedFallback→DEGRADED、unavailable→UNAVAILABLE、disabled、candidates presence）、report invariant 的正向與拒絕路徑（final evidence 與倖存 selection 數不一致即 fail-fast），以及 terminal/handoff drift-drop（SELECTED 後被 REJECTED）的 report 可觀察性。`web.RetrievalInspectorApiTest`（integration tier）持有 REST 投影契約（mode 驗證、safe DTO、error mapping）。`rag.RetrievalInspectorIntegrationTest`（integration tier，真 FTS + 真 embedding readiness fixture + 真 ArcadeDB lifecycle）持有七種 public mode 的 representative cases：WIKI_ONLY/SOURCE_ONLY/HYBRID_FTS（lexical candidates、vault-drift INELIGIBLE rejection、final evidence）、SEMANTIC_WIKI/SEMANTIC_SOURCE/HYBRID_VECTOR（embedding-backed candidates、disabled graph）、HYBRID_GRAPH（graph channel、fusedOrder、policy version）、graph disabled（typed DISABLED/UNAVAILABLE + lexical baseline 保留）、**production 一致性**（inspect final == production retrieve 順序）、repeated determinism 與 inspect 前後 canonical row counts 不變。`src/test/js/retrieval-inspector-ui.test.mjs`（Node 內建 runner，PR Fast job）持有 Browser 契約：safe text rendering、typed degradation notice（非 failure）、repeated inspection 清除 stale previous trace、error/network 後不保留舊結果、靜態禁令（無 ask endpoint、無 POST/mutation、無 slider、無 raw score/similarity/fingerprint 字樣、無 innerHTML/localStorage/eval）。
+
+受影響測試與完整 gate：
+
+```bash
+node --test src/test/js/retrieval-inspector-ui.test.mjs
+mvn -Dtest='RetrievalInspectorServiceTest' test -Pfast
+mvn -Dtest='RetrievalInspectorApiTest,RetrievalInspectorIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```

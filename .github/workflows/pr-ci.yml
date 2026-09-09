@@ -52,6 +52,8 @@ jobs:
         run: node --test src/test/js/ask-ui.test.mjs
       - name: Run Browser Graph operations UI contract tests
         run: node --test src/test/js/graph-operations-ui.test.mjs
+      - name: Run Browser Retrieval Inspector UI contract tests
+        run: node --test src/test/js/retrieval-inspector-ui.test.mjs
       - name: Run fast test tier
         run: mvn --batch-mode test -Pfast
 
