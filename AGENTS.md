@@ -165,6 +165,7 @@
 * **套件管理**：
   * **建置工具**：Maven 3.9+（單一 `pom.xml`，不拆 multi-module）
   * **版本控管**：Git
+* **Design authority hierarchy**：`.ai_llm_wiki_km/` 內的 v0.1 local design documents 是 historical design input，不是目前新增 schema、endpoint 或 module 的強制契約。現行權威依序由 published ADR、Flyway migrations、runtime REST／application contracts，以及本文件與 `docs/development/testing.md` 的 current ownership 定義共同持有；若歷史文字與已發布契約衝突，應遵循目前可驗證的契約，不得以早期設計恢復不存在的 production capability。
 * **階段邊界與防護欄（Phase Gate）**：
   * **Phase 1 / baseline completed through Sprint 6**：Foundation、Inbox/Archive、Tika Extraction、Job Engine、LLM Proposal/Review、Wiki Publish、SQLite FTS5、FTS-backed Retrieval、Evidence Assembly、provider-neutral Answer contract、grounded prompt/response validation、第一個 production provider adapter、stateless Ask orchestration、Ask REST API 與 Browser Ask UI。這些 Ask/Answer surface 是目前已完成的 ephemeral MVP，不直接寫入 `vault/`、`archive/` 或改變 canonical knowledge state；持久知識變更仍遵守 Proposal → Draft → Human Review → Publish。
   * **Phase 2 / current through Sprint 7**：Embedding、Vector Candidate Search、semantic retrieval 與 lexical + vector Hybrid RAG 已建立 provider-neutral contract，並由 Ask 的 `SEMANTIC_WIKI`、`SEMANTIC_SOURCE`、`HYBRID_VECTOR` additive modes 安全接入；`HYBRID_FTS` 仍是 Wiki + Source FTS-only。Phase 2 的可操作性必須區分三層：backend embedding/vector capability 是否已配置、每個 workspace／corpus 的 embedding projection 是否 `READY`，以及 query-time 的 metadata／freshness／authority revalidation 是否通過；mode 存在不代表 semantic corpus 已 ready。可透過 `POST /api/v1/search/index/embedding/rebuild?corpus=ALL|WIKI|SOURCE` 非同步建立或重建 projection，並以 `GET /api/v1/search/index/embedding/readiness` 查看 `WIKI`／`SOURCE` readiness。Vector unavailable 與 hybrid degraded fallback 維持 typed/diagnostic semantics，不得繞過 authority revalidation 或 grounded Answer contract。
@@ -186,7 +187,7 @@
   * **禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/sqlite-vec/semantic rerank、Knowledge Graph、Graph Retrieval、GraphRAG 或特定 graph backend 技術，不得阻擋既有的 FTS-backed Retrieval、Evidence Assembly 或其必要修正。不得因架構願景而新增不存在的 milestone 或 Issue 作為規範依據。
 
 ## 2. 核心執行指令 (Build & Test Commands)
-> 測試選擇採風險導向：coding loop 預設 targeted-test-first；Browser Ask UI / Vanilla JS contract tests 使用 Node.js 內建 test runner；`mvn test` 是完整 regression 的安全預設；本機 PR Ready 的 final gate 是 `mvn clean verify -Pfull`。PR CI 則以 Fast、Integration、production ArcadeDB Graph adapter、Build Integrity 與 sqlite-vec Smoke 的互補證據組成 merge safety；`-DskipTests` 只能作 preliminary verification，不得作為 final gate。
+> 測試選擇採風險導向：coding loop 預設 targeted-test-first；Browser Ask UI 與 Graph operations UI 的 Vanilla JS contract tests 使用 Node.js 內建 test runner；`mvn test` 是完整 Maven regression 的安全預設；本機 PR Ready 的 final gate 是 `mvn clean verify -Pfull`。PR CI 則以 PR Metadata、Fast、Integration、production ArcadeDB Graph adapter、Build Integrity 與 sqlite-vec Smoke 的互補證據組成 merge safety；`-DskipTests` 只能作 preliminary verification，不得作為 final gate。
 * **完整 regression 預設**：
   ```bash
   mvn test
@@ -196,11 +197,12 @@
   mvn test -Pfast
   ```
   執行 `unit` + `contract`，排除 `integration`。
-* **Browser Ask UI / Vanilla JS contract tests**：
+* **Browser Ask UI / Graph operations UI Vanilla JS contract tests**：
   ```bash
   node --test src/test/js/ask-ui.test.mjs
+  node --test src/test/js/graph-operations-ui.test.mjs
   ```
-  執行 Browser Ask UI contract regression suite，直接使用 Node.js 內建 test runner；不需要 npm、`package.json`、前端 framework 或額外 build toolchain。此 suite 是 Maven `fast`、`integration`、`full` 之外的補充，不取代任何 Maven tier。
+  兩個 suite 直接使用 Node.js 內建 test runner；不需要 npm、`package.json`、前端 framework 或額外 build toolchain。它們是 Maven `fast`、`integration`、`full` 之外的補充，不取代任何 Maven tier。Touched JavaScript 必須執行受影響的 suite；`mvn clean verify -Pfull` 不包含也不取代 Browser JavaScript regression。
 * **PR metadata guard tests**：
   ```bash
   node --test src/test/js/pr-metadata.test.mjs
@@ -230,32 +232,34 @@
   # 啟動於 http://127.0.0.1:8765（僅綁定 localhost）
   curl http://127.0.0.1:8765/api/v1/system/status
   ```
-* **Coding loop**：先依 changed surface 執行受影響的 class／suite；Browser Ask UI / Vanilla JS 變更執行 `node --test src/test/js/ask-ui.test.mjs`；純 Java 變更可使用 targeted unit/contract tests，或使用 `mvn test -Pfast` 取得 unit + contract feedback。Node suite 不取代 Maven `fast`、`integration` 或 `full`；`mvn compile` 只代表 compilation smoke check，不代表測試或 final gate。
+* **Coding loop**：先依 changed surface 執行受影響的 class／suite；Ask UI 變更執行 `node --test src/test/js/ask-ui.test.mjs`，Graph operations UI 變更執行 `node --test src/test/js/graph-operations-ui.test.mjs`；純 Java 變更可使用 targeted unit/contract tests，或使用 `mvn test -Pfast` 取得 unit + contract feedback。Node suite 不取代 Maven `fast`、`integration` 或 `full`；`mvn compile` 只代表 compilation smoke check，不代表測試或 final gate。
 * **Feature Ready**：至少執行受影響的 contract／integration suite；需要 Spring、SQLite、Flyway、jOOQ、REST、transaction、filesystem 或 FTS 時，必須涵蓋對應 integration tests。
 * **PR Ready / Final**：本機除 `mvn clean verify -Pfull` 外，執行 `git diff --check`。PR CI 使用 Build Integrity profile 另行驗證 clean Flyway/jOOQ/package，而完整 `-Pfull` 保留在 main push、nightly、manual canary 與本機 final verification。`-Pfull` 會依目前 `pom.xml` 的 generate-sources lifecycle 重新產生 jOOQ sources；不需在 AGENTS 中維護另一套手動 codegen 流程。`mvn clean package` 可作中途 package smoke check，但不得取代此 final gate。
 
 ## 3. 架構與設計約束 (Architecture Constraints)
 * **目錄結構**：
-  * Java production code 必須放在 `src/main/java/org/km/llmwiki/` 底下；Java tests 放在 `src/test/java/`。Browser Ask UI / Vanilla JS contract tests 使用既有的 `src/test/js/`，不套用 Java test path 規範。
+  * Java production code 必須放在 `src/main/java/org/km/llmwiki/` 底下；Java tests 放在 `src/test/java/`。Browser Ask UI 與 Graph operations UI 的 Vanilla JS contract tests 使用既有的 `src/test/js/`，不套用 Java test path 規範。
   * Package 分層必須遵循既有骨架與設計文件的模組規劃：
     ```
     org.km.llmwiki
-    ├── system/        # 系統狀態、健康檢查、Workspace 管理
-    ├── web/           # 共用 Controller 元件（如 ApiResponse, ApiError）、REST API Controller
-    ├── source/        # inbox 掃描、檔案上傳、SHA-256、archive 歸檔
-    ├── extraction/    # 文件解析 (Tika)、文字正規化、(未來) OCR
+    ├── ai/            # LLM analysis、provider adapter、Ask/Answer orchestration
+    ├── config/        # Spring、SQLite、Vector、Graph 設定
+    ├── graph/         # provider-neutral Graph domain、projection、traversal 與 adapter boundary
+    ├── persistence/   # jOOQ repository、Flyway migration 與 Graph backend adapter
     ├── processing/    # 非同步 Job 引擎、Pipeline 流程、processing_log 記錄
-    ├── ai/            # LLM 分析、生成、Prompt 管理（必須走介面抽象）
-    ├── review/        # LLM Proposal 審查、比對、審批
+    ├── rag/           # Lexical/semantic/hybrid Retrieval、Evidence Assembly 與 fusion
+    ├── search/        # Metadata、SQLite FTS5、Embedding projection 與 vector candidates
+    ├── source/        # inbox 掃描、檔案上傳、SHA-256、Tika extraction、archive 歸檔
+    ├── system/        # 系統狀態與健康檢查
+    ├── web/           # 共用 Controller 元件（如 ApiResponse, ApiError）、REST API Controller
     ├── wiki/          # Wiki Page (Markdown+YAML Frontmatter)、Taxonomy、Alias、Citation 關聯
-    ├── search/        # Metadata 搜尋、SQLite FTS5、provider-neutral vector candidates
-    ├── rag/           # Lexical/semantic/hybrid Retrieval、Evidence Assembly
-    ├── graph/         # 未來 provider-neutral Graph projection、Traversal 與 adapter boundary
-    ├── quality/       # 知識庫品質檢測（矛盾、重複、孤立頁面）
-    ├── backup/        # 知識庫備份、還原與 SQLite Rebuild
-    ├── persistence/   # Repository、Flyway migration
-    └── config/        # Spring 設定
+    └── workspace/     # active workspace、layout validation、workspace lifecycle
     ```
+    這是目前 `src/main/java/org/km/llmwiki/` 的 production package tree。v0.1 design input 中的
+    `extraction/`、`review/`、`quality/` 與 `backup/` 僅保留為 historical/planned responsibilities：
+    文件 extraction 現由 `source/` 持有，Proposal review／publish 由 `ai/` 與 `wiki/` 持有；目前沒有
+    production `quality/` package，也沒有 backup/restore package 或 public API。不得因歷史模組圖而
+    自行建立不存在的 package、backup/restore 能力或 endpoint。
   * Knowledge Root 的執行期目錄結構固定為 `inbox/ archive/ vault/ data/ config/ logs/ temp/`，程式不得任意變更其語意。
   * Flyway migration 放在 `src/main/resources/db/migration/`，命名 `V{n}__{description}.sql`，已套用的 migration 檔案**禁止修改**。
   * 每一個新增 persistent application table 的 migration，都必須同步檢查 integration-test reset strategy（`testsupport.IsolatedIntegrationTest` 的 reset hook 需涵蓋新 table，確保測試隔離不因 schema 演進而失效）。
@@ -494,7 +498,7 @@ repository visibility、GitHub plan 或 server-side protection 是否可用都�
 * 每次 Issue 開始先列出 affected test surface；coding loop 預設 targeted-test-first，不得因每個小修改而反覆執行 full regression。
 * 先依 changed surface 判斷 affected scope，再選擇測試：
   * pure logic、projector、policy、validator、mapper、comparator、budget、fingerprint、snippet helper、value-object rules：targeted `unit`／`contract`。
-  * Browser Ask UI／Vanilla JS contract：`node --test src/test/js/ask-ui.test.mjs`；這是 Browser Ask UI contract regression suite，不取代 Maven `fast`／`integration`／`full`。
+  * Browser Ask UI／Graph operations UI Vanilla JS contract：依 changed surface 執行 `node --test src/test/js/ask-ui.test.mjs` 或 `node --test src/test/js/graph-operations-ui.test.mjs`；兩者都不取代 Maven `fast`／`integration`／`full`。
   * REST、API shape、service wiring：受影響的 contract 與 REST integration suite。
   * persistence、transaction、Flyway、jOOQ、migration、generated sources：受影響 integration tests，並在 final 執行 clean full gate。
   * filesystem、workspace boundary：受影響 filesystem/workspace integration suite。
@@ -542,7 +546,7 @@ repository visibility、GitHub plan 或 server-side protection 是否可用都�
 * local final full gate 仍保留，不得宣告本機 full 可以完全取消；server-side protection 是否存在不改變 Logical PR Gate 與完整 PR workflow。
 
 ### 8.8 CI、Branch Protection 與 Merge Safety
-* PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 PR Metadata、Fast unit and contract tests、Integration tests、production ArcadeDB Graph adapter smoke、Build Integrity、sqlite-vec JDBC Smoke 六個 evidence jobs，以及依賴六者的 `PR Gate` aggregate job。完整 `mvn --batch-mode clean verify -Pfull` 由 `.github/workflows/full-regression-canary.yml` 在 main push、nightly 與 manual dispatch 執行。
+* PR targeting `main` 必須通過目前 `.github/workflows/pr-ci.yml` 的 PR Metadata、Fast unit and contract tests、Integration tests、production ArcadeDB Graph adapter smoke、Build Integrity、sqlite-vec JDBC Smoke 六個 evidence jobs，以及依賴六者的 `PR Gate` aggregate job。完整 `mvn --batch-mode clean verify -Pfull` 由 `.github/workflows/full-regression-canary.yml` 在 main push、nightly 與 manual dispatch 執行；此 Full Regression Canary 是 Maven-only，Browser JavaScript regression 由 PR Fast job 持有，不屬於 `-Pfull` 或 canary。
 * **Logical PR Gate** 是本文件定義、永遠適用的 merge safety contract；`PR Gate` aggregate job 只有在上述六個 evidence jobs 都為 `success` 時才能成功。任一 upstream job `failure`、`cancelled` 或 `skipped` 都不得讓 gate 綠燈。
 * **Server-Enforced PR Gate** 是 GitHub branch protection／ruleset 的 required check enforcement，只是額外的 server-side protection layer。若 repository plan／visibility 支援，`main` 應要求 PR、up-to-date branch、`PR Gate` required status check，並限制 bypass；若無法設定或無權驗證，禁止宣稱 GitHub 正在強制，合併者仍須透過 `gh pr checks` 明確確認 Logical PR Gate 的六個 evidence jobs 全部成功。
 * public/private 與 GitHub plan 不得改變 correctness、testing、PR、merge、main verification 或 Definition of Done。Visibility 切換屬獨立 destructive/governance mutation，必須先取得人類明確確認，並檢查 protection/ruleset、Actions、GitHub App 與 connector access；細節見 `docs/development/github-delivery-governance.md`。
@@ -553,7 +557,12 @@ repository visibility、GitHub plan 或 server-side protection 是否可用都�
 * 正式 performance/timing before/after 比較應盡量使用 Java 21、相近 test inventory 與相同 command；不同 Java 版本、runner、dependency-cache 狀態或 command 的結果只能作方向性 evidence，不得宣稱單一優化造成差異。
 * 量測結果不是固定 SLA；報告應記錄環境、command、inventory 與變異限制。
 
-### 8.10 Issue Handoff 與執行證據
+### 8.10 Evaluation report convention
+* 評測報告檔名採 `<topic>-YYYYMMDD.md`；內容至少記錄 branch、HEAD SHA 與當時 `origin/main` SHA，並標示此次是 read-only review 還是實際執行測試／benchmark。
+* 報告必須列出 evidence sources、finding priority、residual risk 與 non-goal；benchmark／metric 是帶有 corpus、policy 或 revision 脈絡的 versioned observation，不是 universal guarantee 或固定 SLA。
+* `.ai_llm_wiki_km/` 若為 local-only／git-ignored，只能在 tracked 文件中描述其 authority 與保存邊界，不得宣稱已透過 PR 更新私人檔案。`target/quality-reports/` 是 git-ignored runtime evidence；若要保存 tracked summary，必須說明用途，且不得取代 `docs/development/testing.md` 的 canonical test ownership。
+
+### 8.11 Issue Handoff 與執行證據
 * 每次開始 Issue，工程師先列 affected test surface，依序採 targeted／fast feedback、Feature Ready integration/contract，最後一次 Final full gate。
 * 不因 Issue AC 很長就重跑所有 architecture invariants；只重跑 affected canonical contract suites 與 final full regression。若 scope 是 docs-only，必須明確說明 docs-only verification 及未跑 full tests 的理由。
 * Issue／PR body 必須列出實際執行的 targeted、affected、full commands 與結果，不得只寫「tests passed」。Test Architecture 變更還必須核對 tier、full test inventory 與 count；任何未執行的 gate 都要明白標示。
