@@ -10,7 +10,8 @@ public class DocumentParserResourceLimitException extends IOException {
     public enum Resource {
         INPUT_BYTES,
         OUTPUT_CHARACTERS,
-        METADATA_CHARACTERS
+        METADATA_CHARACTERS,
+        STRUCTURE_BLOCKS
     }
 
     private final Resource resource;

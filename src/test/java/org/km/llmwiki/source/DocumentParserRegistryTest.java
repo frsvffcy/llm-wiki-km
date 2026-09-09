@@ -51,7 +51,7 @@ class DocumentParserRegistryTest {
     @Test
     void makesMetadataImmutable() {
         Map<String, String> metadata = Map.of("title", "設計文件");
-        ParsedDocument document = new ParsedDocument("內容", metadata);
+        ParsedDocument document = new ParsedDocument("內容", metadata, List.of(), "test-parser", "v1");
 
         assertThat(document.content()).isEqualTo("內容");
         assertThat(document.metadata()).containsEntry("title", "設計文件");

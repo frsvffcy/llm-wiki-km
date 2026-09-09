@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -38,7 +39,10 @@ public class TikaDocumentParser implements DocumentParser {
     private static final DocumentParserLimits DEFAULT_LIMITS = new DocumentParserLimits(
             ExtractionResourceProperties.ABSOLUTE_MAX_INPUT_BYTES,
             ExtractionResourceProperties.ABSOLUTE_MAX_OUTPUT_CHARACTERS,
-            ExtractionResourceProperties.ABSOLUTE_MAX_METADATA_CHARACTERS);
+            ExtractionResourceProperties.ABSOLUTE_MAX_METADATA_CHARACTERS,
+            ExtractionResourceProperties.ABSOLUTE_MAX_STRUCTURE_BLOCKS);
+    static final String PARSER_ID = "tika-autodetect";
+    static final String PARSER_VERSION = "structure-v1";
 
     @Override
     public boolean supportsMimeType(String mimeType) {
@@ -77,7 +81,9 @@ public class TikaDocumentParser implements DocumentParser {
         try (InputStream file = java.nio.file.Files.newInputStream(source);
              TikaInputStream input = TikaInputStream.get(new BoundedInputStream(file, limits.maxInputBytes()))) {
             new AutoDetectParser().parse(input, contentHandler, metadata, new ParseContext());
-            return new ParsedDocument(contentHandler.toString(), copyMetadata(metadata));
+            return new ParsedDocument(contentHandler.toString(), copyMetadata(metadata),
+                    FlatTextStructureSegmenter.segment(contentHandler.toString(),
+                            limits.maxStructureBlocks()), PARSER_ID, PARSER_VERSION);
         } catch (MetadataLimitExceededException exception) {
             throw new DocumentParserResourceLimitException(
                     DocumentParserResourceLimitException.Resource.METADATA_CHARACTERS);
@@ -88,7 +94,7 @@ public class TikaDocumentParser implements DocumentParser {
             }
             Map<String, String> failedMetadata = copyMetadata(metadata);
             failedMetadata.put("parseError", "parser failure");
-            return new ParsedDocument("", failedMetadata);
+            return new ParsedDocument("", failedMetadata, List.of(), PARSER_ID, PARSER_VERSION);
         }
     }
 

@@ -37,7 +37,7 @@ public class ExtractedContentService {
     private final ExtractedContentRepository extractedContentRepository;
     private final ExtractedContentNormalizer extractedContentNormalizer;
     private final ScannedPdfDetector scannedPdfDetector;
-    private final SourceChunker sourceChunker;
+    private final ChunkingPolicyRegistry chunkingPolicies;
     private final SourceChunkRepository sourceChunkRepository;
     private final SourceChunkIndexingService sourceChunkIndexingService;
     private final EmbeddingProjectionJobService embeddingProjectionJobService;
@@ -48,7 +48,7 @@ public class ExtractedContentService {
                                    ExtractedContentRepository extractedContentRepository,
                                    ExtractedContentNormalizer extractedContentNormalizer,
                                    ScannedPdfDetector scannedPdfDetector,
-                                   SourceChunker sourceChunker,
+                                   ChunkingPolicyRegistry chunkingPolicies,
                                    SourceChunkRepository sourceChunkRepository,
                                    SourceChunkIndexingService sourceChunkIndexingService,
                                    EmbeddingProjectionJobService embeddingProjectionJobService,
@@ -59,7 +59,7 @@ public class ExtractedContentService {
         this.extractedContentRepository = extractedContentRepository;
         this.extractedContentNormalizer = extractedContentNormalizer;
         this.scannedPdfDetector = scannedPdfDetector;
-        this.sourceChunker = sourceChunker;
+        this.chunkingPolicies = chunkingPolicies;
         this.sourceChunkRepository = sourceChunkRepository;
         this.sourceChunkIndexingService = sourceChunkIndexingService;
         this.embeddingProjectionJobService = embeddingProjectionJobService;
@@ -103,7 +103,7 @@ public class ExtractedContentService {
             int chunkCount = chunkCount(normalizedContent);
             extractedContentRepository.save(document.documentId(), normalizedContent, chunkCount);
             sourceChunkRepository.replaceForDocument(document.documentId(),
-                    sourceChunker.chunk(parsed.content(), canonicalNormalization));
+                    chunkingPolicies.active().chunk(parsed, canonicalNormalization));
             documentRepository.markExtractionSucceeded(document.documentId(), sha256(normalizedContent));
             return new ExtractionResponse(document.documentId(), DocumentStatus.PROCESSED.name(), chunkCount,
                     null, null);

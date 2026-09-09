@@ -10,6 +10,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
@@ -129,7 +130,7 @@ class ExtractedContentResourceLimitIntegrationTest extends IsolatedIntegrationTe
                 }
 
                 @Override
-                public ParsedDocument parse(Path source) {
+                public ParsedDocument parse(Path source) throws IOException {
                     String fileName = source.getFileName().toString();
                     if (fileName.startsWith("expansion")) {
                         return new ParsedDocument("x".repeat(13), Map.of());

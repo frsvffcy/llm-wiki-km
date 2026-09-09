@@ -26,6 +26,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -567,7 +568,7 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
                 }
 
                 @Override
-                public ParsedDocument parse(Path source) {
+                public ParsedDocument parse(Path source) throws IOException {
                     return new ParsedDocument("""
                             文件標頭
 

@@ -119,7 +119,18 @@ with an overlapping physical corpus (`ALL` overlaps both `WIKI` and `SOURCE`; `W
 `SOURCE` may run concurrently) is a typed conflict (`FTS_REBUILD_IN_PROGRESS`, HTTP 409),
 the job insert and the ownership claim run inside one SQLite write transaction so a rejected
 admission never leaves an orphan job or a stolen owner, and a late worker completion can
-only complete the state it owns. A deterministic offline quality gate
+only complete the state it owns. Document ingestion is structure-preserving and versioned:
+parsers return typed structural blocks (application-owned gapless ordinals, a minimal
+`HEADING`/`PARAGRAPH`/`TABLE`/`FIGURE`/`CAPTION` kind set, heading levels, page numbers, and
+optional nullable bounding boxes) plus parser provenance, so the chunking policy never
+reverse-engineers structure from flat text. The active chunking policy is selected by
+`app.source.chunking.policy-version` (the default `chunk-policy-v1-current` stays
+byte-equivalent to the previous flat-text chunker; the structure-aware
+`chunk-policy-v2-heading-anchor` keeps a heading bound to its first paragraph and emits
+tables/figures/captions as standalone atomic chunks), every persisted chunk is stamped with
+that version (`source_chunk.chunk_policy_version`), and a policy switch requires re-extraction
+to rebuild chunks along the existing FTS sync and embedding paths. Parsed structure and
+chunks remain derived, rebuildable projections and never become citation authority. A deterministic offline quality gate
 (`GraphRetrievalQualityGateTest`, golden corpus `graph-retrieval-golden-v1`) drives the
 production-equivalent pipeline over real FTS, real readiness/authority boundaries, and a real
 ArcadeDB projection, gates identity-level recall@8/MRR/safety floors across
