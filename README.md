@@ -409,7 +409,11 @@ Returns `201 Created`. The root path must be absolute and must not be the filesy
 
 ## Opening an existing workspace
 
-On every startup the application automatically loads the active workspace, validates its directory layout, and safely re-creates missing rebuildable directories (existing data is never overwritten). Additional endpoints:
+應用程式每次啟動時會載入 active workspace 並驗證 directory layout，不會建立或刪除任何檔案。
+`GET /api/v1/workspaces/current` 與開啟 workspace 的 `PUT` 具有相同的唯讀 layout 語意：缺少的
+rebuildable directories 會回報為 invalid，且 `layout.repairedDirectories` 維持空白。啟動時仍會在
+SQLite 修復 single-active workspace invariant；filesystem layout repair 則是獨立的明確操作。
+其他 endpoint 如下：
 
 ```bash
 curl http://127.0.0.1:8765/api/v1/workspaces              # list all workspaces
@@ -418,7 +422,14 @@ curl http://127.0.0.1:8765/api/v1/workspaces/1            # single workspace
 curl -X PUT http://127.0.0.1:8765/api/v1/workspaces/current \
   -H "Content-Type: application/json" \
   -d '{"workspaceId": 2}'                                 # switch the active workspace
+curl -X POST http://127.0.0.1:8765/api/v1/workspaces/current/repair # 修復 active workspace layout
+curl -X POST http://127.0.0.1:8765/api/v1/workspaces/1/repair       # 修復已註冊的 workspace 1
 ```
+
+Repair 是明確的 mutation，只能作用於 active workspace，或依 database ID 選取的 registered
+workspace；endpoint 不接受 arbitrary root path。它只會在既有 root 下建立缺少的 rebuildable child
+directories（`inbox/ archive/ vault/ data/ config/ logs/ temp/`），不會建立 missing root，也不會
+修改 canonical `archive/` 或 `vault/` 的內容。
 
 `GET /api/v1/system/status` reports overall state: `READY` (workspace loaded and root valid), `DEGRADED` (workspace registered but root directory missing), `NOT_INITIALIZED` (no workspace registered), or `ERROR` (database unavailable).
 

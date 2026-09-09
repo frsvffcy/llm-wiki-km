@@ -71,14 +71,34 @@ public class WorkspaceService {
         return statusOf(requireRow(id));
     }
 
+    /** Repairs the active workspace only after an explicit maintenance request. */
+    public WorkspaceStatusResponse repairCurrent() {
+        return repair(requireActiveRow());
+    }
+
+    /** Repairs a registered workspace selected by its database identity. */
+    public WorkspaceStatusResponse repair(long id) {
+        return repair(requireRow(id));
+    }
+
     public Optional<WorkspaceResponse> findActiveWithoutValidation() {
         return repository.findActive().map(WorkspaceRow::toResponse);
     }
 
     private WorkspaceStatusResponse statusOf(WorkspaceRow row) {
         WorkspaceLayoutValidator.LayoutReport report =
-                validator.validateAndRepair(Path.of(row.rootPath()));
+                validator.validate(Path.of(row.rootPath()));
         return new WorkspaceStatusResponse(row.toResponse(), report);
+    }
+
+    private WorkspaceStatusResponse repair(WorkspaceRow row) {
+        WorkspaceLayoutValidator.LayoutReport report =
+                validator.repair(Path.of(row.rootPath()));
+        return new WorkspaceStatusResponse(row.toResponse(), report);
+    }
+
+    private WorkspaceRow requireActiveRow() {
+        return repository.findActive().orElseThrow(NoActiveWorkspaceException::new);
     }
 
     private WorkspaceRow requireRow(long id) {

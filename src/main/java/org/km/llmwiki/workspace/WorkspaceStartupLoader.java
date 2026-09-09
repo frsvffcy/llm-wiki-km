@@ -29,11 +29,11 @@ public class WorkspaceStartupLoader implements ApplicationRunner {
         }
         try {
             WorkspaceStatusResponse current = workspaceService.current();
-            log.info("Loaded existing workspace '{}' at root {} (layout valid: {}, repaired directories: {})",
+            log.info("Loaded existing workspace '{}' at root {} (layout valid: {}, problems: {})",
                     current.workspace().name(),
                     current.workspace().rootPath(),
                     current.layout().valid(),
-                    current.layout().repairedDirectories());
+                    current.layout().problems());
         } catch (NoActiveWorkspaceException exception) {
             log.info("No existing workspace registered yet; waiting for initialization");
         } catch (Exception exception) {

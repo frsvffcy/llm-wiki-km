@@ -48,7 +48,7 @@ class WorkspaceOpenIntegrationTest extends IsolatedIntegrationTest {
         assertThat(lastOpenedAt).isNotBlank();
     }
     @Test
-    void repairsMissingRebuildableDirectoriesWithoutTouchingExistingData() throws Exception {
+    void currentOnlyReportsMissingDirectoriesWithoutChangingFilesystem() throws Exception {
         Path root = tempRoot();
         long workspaceId = createWorkspace(root);
         Files.writeString(root.resolve("vault").resolve("keep.md"), "# do not delete");
@@ -57,13 +57,82 @@ class WorkspaceOpenIntegrationTest extends IsolatedIntegrationTest {
 
         mockMvc.perform(get("/api/v1/workspaces/current"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.workspace.id").value((int) workspaceId))
+                .andExpect(jsonPath("$.data.layout.valid").value(false))
+                .andExpect(jsonPath("$.data.layout.repairedDirectories").isEmpty())
+                .andExpect(jsonPath("$.data.layout.problems").value(
+                        org.hamcrest.Matchers.hasItems(
+                                "'logs' directory does not exist",
+                                "'temp' directory does not exist")));
+
+        mockMvc.perform(get("/api/v1/workspaces/current"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.layout.valid").value(false))
+                .andExpect(jsonPath("$.data.layout.repairedDirectories").isEmpty());
+
+        assertThat(root.resolve("logs")).doesNotExist();
+        assertThat(root.resolve("temp")).doesNotExist();
+        assertThat(root.resolve("vault").resolve("keep.md"))
+                .content().isEqualTo("# do not delete");
+    }
+
+    @Test
+    void explicitRepairRecreatesOnlyMissingRebuildableDirectories() throws Exception {
+        Path root = tempRoot();
+        long workspaceId = createWorkspace(root);
+        Files.writeString(root.resolve("vault").resolve("keep.md"), "# do not delete");
+        deleteRecursively(root.resolve("logs"));
+        deleteRecursively(root.resolve("temp"));
+
+        mockMvc.perform(post("/api/v1/workspaces/current/repair"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.workspace.id").value((int) workspaceId))
                 .andExpect(jsonPath("$.data.layout.valid").value(true))
-                .andExpect(jsonPath("$.data.layout.repairedDirectories").isArray());
+                .andExpect(jsonPath("$.data.layout.repairedDirectories").value(
+                        org.hamcrest.Matchers.containsInAnyOrder("logs", "temp")));
 
         assertThat(root.resolve("logs")).isDirectory();
         assertThat(root.resolve("temp")).isDirectory();
         assertThat(root.resolve("vault").resolve("keep.md"))
                 .content().isEqualTo("# do not delete");
+    }
+
+    @Test
+    void openDoesNotRepairMissingDirectories() throws Exception {
+        Path root = tempRoot();
+        long workspaceId = createWorkspace(root);
+        deleteRecursively(root.resolve("logs"));
+
+        mockMvc.perform(put("/api/v1/workspaces/current")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"workspaceId": %d}
+                                """.formatted(workspaceId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.layout.valid").value(false))
+                .andExpect(jsonPath("$.data.layout.repairedDirectories").isEmpty());
+
+        assertThat(root.resolve("logs")).doesNotExist();
+    }
+
+    @Test
+    void explicitRepairTargetsRegisteredWorkspaceWithoutAcceptingArbitraryRoot() throws Exception {
+        Path registeredRoot = tempRoot();
+        long registeredId = createWorkspace(registeredRoot);
+        Path arbitraryRoot = tempRoot().resolve("arbitrary");
+        Files.createDirectories(arbitraryRoot);
+        deleteRecursively(registeredRoot.resolve("logs"));
+
+        mockMvc.perform(post("/api/v1/workspaces/{id}/repair", registeredId)
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"rootPath":"%s"}
+                                """.formatted(arbitraryRoot)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.workspace.id").value((int) registeredId));
+
+        assertThat(registeredRoot.resolve("logs")).isDirectory();
+        assertThat(arbitraryRoot.resolve("logs")).doesNotExist();
     }
     @Test
     void returnsDegradedWhenRootDirectoryDisappears() throws Exception {
@@ -128,6 +197,19 @@ class WorkspaceOpenIntegrationTest extends IsolatedIntegrationTest {
                 .query(Integer.class)
                 .single();
         assertThat(activeRows).isEqualTo(1);
+    }
+
+    @Test
+    void startupLoaderOnlyValidatesAndDoesNotRepairLayout() throws Exception {
+        Path root = tempRoot();
+        createWorkspace(root);
+        deleteRecursively(root.resolve("logs"));
+        deleteRecursively(root.resolve("temp"));
+
+        startupLoader.run(null);
+
+        assertThat(root.resolve("logs")).doesNotExist();
+        assertThat(root.resolve("temp")).doesNotExist();
     }
 
 

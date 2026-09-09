@@ -249,6 +249,29 @@ Keep these checks in the PR description when changing test tags or Maven configu
 | FTS rebuild / health / restart recovery | `search.FtsRebuildHealthIntegrationTest` | rebuild、missing/stale/orphan、partial failure、queued/running recovery 與 health state |
 | CJK search quality | `search.CjkFtsSearchQualitySpikeTest`、`search.CjkBigramProjectorTest` | CJK 短詞／bigram、技術 token、literal query 與可重現 recall/precision evidence |
 
+## Workspace layout 驗證／explicit repair 測試責任（#284）
+
+`workspace.WorkspaceLayoutValidatorTest` 負責驗證 layout validator 的副作用邊界：
+`validate(Path)` 只能讀取 root 與七個 rebuildable child directories；缺少目錄、普通檔案、
+root 不存在與 filesystem unavailable 都必須以 deterministic、經 `DiagnosticRedaction` 處理的
+問題回報，且 `repairedDirectories` 必須保持空白。只有明確呼叫 `repair(Path)` 才可建立缺少的
+child directories；root 本身不由 repair 建立。
+
+`workspace.WorkspaceOpenIntegrationTest` 持有 application/API contract：workspace create 仍
+建立完整 layout；startup、`GET /api/v1/workspaces/current` 與 `PUT /api/v1/workspaces/current`
+只做 read-only validation，不因重複讀取或 open 而改變 filesystem；`POST
+/api/v1/workspaces/current/repair` 與 registered workspace ID repair 才是 mutation，且不得
+接受 arbitrary root path、不得改動 `archive/`／`vault/` canonical content，也不得破壞
+single-active workspace invariant。Controller 只轉送 workspace authority，repair policy 由
+`WorkspaceService`／`WorkspaceLayoutValidator` 持有。
+
+重跑命令：
+
+```bash
+mvn test -Dtest=WorkspaceLayoutValidatorTest -Pfast
+mvn test -Dtest=WorkspaceOpenIntegrationTest -Pintegration
+```
+
 ### Sprint 6 Ask/Answer canonical ownership
 
 Sprint 6 的 Ask/Answer 是 stateless、ephemeral response surface；以下 suites 負責其跨 Story
