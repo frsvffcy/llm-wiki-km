@@ -6,7 +6,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({
         ExtractedContentNormalizationProperties.class,
-        ScannedPdfDetectionProperties.class
+        ScannedPdfDetectionProperties.class,
+        ExtractionResourceProperties.class
 })
 class ExtractedContentNormalizationConfiguration {
 }

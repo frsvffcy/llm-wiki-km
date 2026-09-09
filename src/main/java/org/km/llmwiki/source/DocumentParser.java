@@ -22,4 +22,15 @@ public interface DocumentParser {
      * Extracts the document text and metadata from a source file.
      */
     ParsedDocument parse(Path source) throws IOException;
+
+    /**
+     * Extracts a document under an application-owned bounded resource contract.
+     *
+     * <p>The default keeps existing parser implementations source-compatible. Implementations
+     * that can bound work while parsing should override this method; callers still validate the
+     * returned value before it can reach persistence.</p>
+     */
+    default ParsedDocument parse(Path source, DocumentParserLimits limits) throws IOException {
+        return parse(source);
+    }
 }

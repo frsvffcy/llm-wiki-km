@@ -156,6 +156,25 @@ class ExtractedContentIntegrationTest extends IsolatedIntegrationTest {
                 .param("id", documentId).query(Integer.class).single()).isEqualTo(1);
     }
 
+    @Test
+    void marksParserFailureAsFailedWithoutPersistingPartialContent() throws Exception {
+        createWorkspace();
+        long documentId = upload("broken.pdf", "application/pdf", "%PDF-not-a-valid-document");
+
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("EXTRACTION_PARSE_FAILED"));
+
+        assertThat(db().sql("SELECT parse_status FROM document WHERE id = :id")
+                .param("id", documentId).query(String.class).single()).isEqualTo("FAILED");
+        assertThat(db().sql("SELECT error_code FROM document WHERE id = :id")
+                .param("id", documentId).query(String.class).single()).isEqualTo("EXTRACTION_PARSE_FAILED");
+        assertThat(db().sql("SELECT COUNT(*) FROM document_extracted_content WHERE document_id = :id")
+                .param("id", documentId).query(Integer.class).single()).isZero();
+        assertThat(db().sql("SELECT COUNT(*) FROM source_chunk WHERE document_id = :id")
+                .param("id", documentId).query(Integer.class).single()).isZero();
+    }
+
     private long upload(String fileName, String content) throws Exception {
         return upload(fileName, "text/plain", content);
     }
