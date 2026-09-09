@@ -8,7 +8,7 @@ test-class boundary so a test cannot silently move tiers because its class name 
 | L1 Unit / Fast | `unit` | Pure Java tests with no Spring application context | Every coding iteration |
 | L2 Feature / Contract | `contract` | Stable domain, API-shape, and search-behavior contracts | Feature-ready changes |
 | L3 Integration | `integration` | Spring, SQLite, Flyway, jOOQ, REST, filesystem, transaction, parser, and FTS tests | Affected feature validation |
-| L4 Full regression | all tests (no tag filter) | Complete regression coverage plus clean Maven lifecycle/code generation | Local final verification and main/nightly/manual canary |
+| L4 Full regression | all Maven tests (no tag filter) | Complete Java regression coverage plus clean Maven lifecycle/code generation | Local final verification and main/nightly/manual canary |
 | Build Integrity | test execution intentionally omitted | Clean Maven lifecycle, Flyway/jOOQ code generation, compilation, package, and verify | Pull-request evidence |
 
 ## Commands and default behavior
@@ -26,12 +26,12 @@ mvn clean verify -Pbuild-integrity # clean build evidence; test execution intent
 mvn clean verify -Pfull # all tests plus clean package/build-integrity checks
 ```
 
-The Browser Ask UI contract suite runs directly with the Node.js built-in test runner. It does
-not require npm dependencies, a frontend build, a browser automation server, provider credentials,
-or network access. The PR workflow pins its runtime to Node.js 22 LTS and runs this suite in the
-`Fast unit and contract tests` job before the Maven fast tier. A failure in either command fails
-that job. The separate PR Metadata job executes the metadata guard regression suite and validates
-the live pull-request event. The `PR Gate` job aggregates PR Metadata, Fast, Integration,
+The Browser Ask UI and Graph operations UI contract suites run directly with the Node.js built-in
+test runner. They do not require npm dependencies, a frontend build, a browser automation server,
+provider credentials, or network access. The PR workflow pins its runtime to Node.js 22 LTS and
+runs both suites in the `Fast unit and contract tests` job before the Maven fast tier. A failure in
+either suite fails that job. The separate PR Metadata job executes the metadata guard regression
+suite and validates the live pull-request event. The `PR Gate` job aggregates PR Metadata, Fast, Integration,
 production ArcadeDB Graph adapter, Build Integrity, and sqlite-vec smoke results and fails unless
 every evidence job succeeds.
 
@@ -46,6 +46,10 @@ intentionally omitted. `mvn clean verify -Pbuild-integrity` consequently retains
 Maven lifecycle: Flyway-backed jOOQ generation, compilation, Spring Boot packaging, and verify. It
 is complementary to—not a replacement for—the Fast and Integration test inventories or the local
 and canary `full` gate.
+
+The `full` profile and the Full Regression Canary are Maven-only. They do not run the Browser
+JavaScript suites; `src/test/js/ask-ui.test.mjs` and `src/test/js/graph-operations-ui.test.mjs`
+are owned by the PR Fast job and must be run locally whenever their JavaScript surface is touched.
 
 ## Local verification by change type
 
@@ -180,7 +184,7 @@ below; ordinary delivery still targets `main`:
 | PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, closing keyword, and same-repository Issue existence with a read-only token |
 | Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`node --test src/test/js/graph-operations-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask and Graph projection operations UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
-| Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, canonical ingress/currentness, deterministic bounded traversal, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
+| Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest,GraphEvidenceAdmissionIntegrationTest,GraphProjectionOperationalApiIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, canonical ingress/currentness, deterministic bounded traversal, graph evidence admission, operational API lifecycle, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
 | Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
 | sqlite-vec JDBC smoke | Pinned Linux archive download, checksum, and `scripts/sqlite-vec-jdbc-smoke.sh` | Linux JDBC/native extension portability evidence with a distinct failure stage |
 | PR Gate | Requires all six jobs above to succeed | Stable aggregate merge gate; fails on any upstream failure, cancellation, or skip |
@@ -205,9 +209,11 @@ same source with the official macOS aarch64 archive. See
 exact checksums.
 
 `.github/workflows/full-regression-canary.yml` retains `mvn --batch-mode clean verify -Pfull` as
-clean end-to-end evidence on every push to `main`, daily at 02:17 Asia/Taipei, and on manual
-dispatch. This separates the complete regression canary from the PR's complementary evidence jobs
-without removing the full safety net.
+Maven-only clean end-to-end evidence on every push to `main`, daily at 02:17 Asia/Taipei, and on
+manual dispatch. It intentionally does not run Browser JavaScript; `ask-ui.test.mjs` and
+`graph-operations-ui.test.mjs` are regression evidence owned by the PR Fast job. This separates the
+complete Maven regression canary from the PR's complementary evidence jobs without removing the
+full safety net.
 
 Before this split, PR #216 recorded Fast 339 + Integration 249 = Full 588 Java test executions,
 so the PR workflow repeated the Java regression inventory. After this split, Fast and Integration
@@ -222,18 +228,32 @@ aggregate `PR Gate` checks. A GitHub
 branch protection rule or ruleset may additionally make `PR Gate` a server-enforced required check,
 but plan, visibility, or permissions can make that enforcement unavailable or unverifiable. In that
 case, contributors must not claim it is enforced and must explicitly inspect every Logical PR Gate
-check before merging. Do not remove the Browser Ask UI command from the Fast job or reduce any
+check before merging. Do not remove either Browser UI command from the Fast job or reduce any
 existing coverage. See [GitHub delivery governance](github-delivery-governance.md) for the current
 capability evidence and private-repository fallback.
 
 ## Tag/profile smoke checks
 
-The frontend command must report the complete Browser Ask UI contract suite passing. When recording
-smoke evidence, report the actual test count from `src/test/js/ask-ui.test.mjs` rather than relying
-on a hard-coded count. Profile selection is verified by running each Maven command and inspecting
-the Surefire summary. The fast run must report zero skipped integration classes; the integration run
-must execute the integration-tagged classes; and the full run must execute the union of both sets.
-Keep these checks in the PR description when changing test tags or Maven configuration.
+The frontend commands must report both Browser UI contract suites passing. When recording smoke
+evidence, report the actual test count from `src/test/js/ask-ui.test.mjs` and
+`src/test/js/graph-operations-ui.test.mjs` rather than relying on hard-coded counts. Profile
+selection is verified by running each Maven command and inspecting the Surefire summary. The fast
+run must report zero skipped integration classes; the integration run must execute the
+integration-tagged classes; and the full run must execute the union of the Maven unit, contract,
+and integration sets. Keep these checks in the PR description when changing test tags or Maven
+configuration.
+
+## Evaluation report convention
+
+評測或 repository review 的報告檔名採 `<topic>-YYYYMMDD.md`。每份報告至少記錄 branch、HEAD SHA、
+當時 `origin/main` SHA，以及此次是 read-only review 還是實際執行測試／benchmark；同時列出
+evidence sources、finding priority、residual risk 與 non-goal。
+
+Benchmark 或 metric 是帶有 corpus、policy、版本與 revision 脈絡的 versioned observation，
+不是 universal guarantee 或固定 SLA。`target/quality-reports/` 可維持 git-ignored runtime
+evidence；若要保存 tracked summary，必須說明用途，且不得取代本文件的 canonical test ownership。
+`.ai_llm_wiki_km/` 若為 local-only／git-ignored，只能在 tracked 文件中描述其 authority 與保存
+邊界，不得假裝已透過 GitHub PR 更新私人檔案。
 
 ## Canonical 契約測試擁有權
 

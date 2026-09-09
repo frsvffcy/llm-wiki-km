@@ -27,10 +27,11 @@ developer test-tier guidance is in
 mvn clean package
 ```
 
-Pull requests targeting `main` run Fast, Integration, production ArcadeDB Graph adapter,
-Build Integrity, and sqlite-vec smoke evidence jobs, followed by an aggregate `PR Gate`
-merge-safety job. The clean full regression remains a post-merge, nightly, and manually
-dispatchable canary. Details are in
+Pull requests targeting `main` run six evidence jobs—PR Metadata, Fast, Integration, production
+ArcadeDB Graph adapter, Build Integrity, and sqlite-vec smoke—followed by an aggregate `PR Gate`
+merge-safety job. The clean full regression canary is Maven-only and remains a post-merge, nightly,
+and manually dispatchable canary; Browser JavaScript regression is owned by the PR Fast job rather
+than `mvn clean verify -Pfull`. Details are in
 [docs/development/testing.md](docs/development/testing.md).
 
 ## Run
