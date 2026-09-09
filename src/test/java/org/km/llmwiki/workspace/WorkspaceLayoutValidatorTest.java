@@ -29,9 +29,28 @@ class WorkspaceLayoutValidatorTest {
     Path temp;
 
     @Test
-    void repairsMissingDirectoriesAndStaysValid() throws IOException {
+    void validatesMissingDirectoriesWithoutChangingFilesystem() throws IOException {
         Path root = Files.createDirectories(temp.resolve("layout"));
-        WorkspaceLayoutValidator.LayoutReport report = validator.validateAndRepair(root);
+        WorkspaceLayoutValidator.LayoutReport report = validator.validate(root);
+        assertThat(report.valid()).isFalse();
+        assertThat(report.problems()).containsExactlyInAnyOrder(
+                "'inbox' directory does not exist",
+                "'archive' directory does not exist",
+                "'vault' directory does not exist",
+                "'data' directory does not exist",
+                "'config' directory does not exist",
+                "'logs' directory does not exist",
+                "'temp' directory does not exist");
+        assertThat(report.repairedDirectories()).isEmpty();
+        for (String directoryName : WorkspaceLayoutValidator.DIRECTORY_NAMES) {
+            assertThat(root.resolve(directoryName)).doesNotExist();
+        }
+    }
+
+    @Test
+    void repairsMissingDirectoriesOnlyWhenExplicitlyRequested() throws IOException {
+        Path root = Files.createDirectories(temp.resolve("repair"));
+        WorkspaceLayoutValidator.LayoutReport report = validator.repair(root);
         assertThat(report.valid()).isTrue();
         assertThat(report.problems()).isEmpty();
         assertThat(report.repairedDirectories()).containsExactlyInAnyOrder(
@@ -40,10 +59,37 @@ class WorkspaceLayoutValidatorTest {
 
     @Test
     void reportsMissingRootWithoutLeakingPathDetail() {
-        WorkspaceLayoutValidator.LayoutReport report = validator.validateAndRepair(temp.resolve("missing-root"));
+        Path root = temp.resolve("missing-root");
+        WorkspaceLayoutValidator.LayoutReport report = validator.validate(root);
         assertThat(report.valid()).isFalse();
         assertThat(report.problems()).hasSize(1);
         assertThat(report.problems().getFirst()).startsWith("root directory does not exist");
+        assertThat(report.problems().getFirst()).doesNotContain(root.toAbsolutePath().toString());
+        assertThat(root).doesNotExist();
+    }
+
+    @Test
+    void explicitRepairDoesNotCreateMissingRoot() {
+        Path root = temp.resolve("missing-root-repair");
+
+        WorkspaceLayoutValidator.LayoutReport report = validator.repair(root);
+
+        assertThat(report.valid()).isFalse();
+        assertThat(report.repairedDirectories()).isEmpty();
+        assertThat(report.problems()).containsExactly("root directory does not exist");
+        assertThat(root).doesNotExist();
+    }
+
+    @Test
+    void reportsOrdinaryFileInRequiredDirectoryDeterministically() throws IOException {
+        Path root = Files.createDirectories(temp.resolve("file-child"));
+        Files.createFile(root.resolve("logs"));
+
+        WorkspaceLayoutValidator.LayoutReport report = validator.validate(root);
+
+        assertThat(report.valid()).isFalse();
+        assertThat(report.problems()).contains("'logs' exists but is not a directory");
+        assertThat(root.resolve("logs")).isRegularFile();
     }
 
     @Test
@@ -54,7 +100,7 @@ class WorkspaceLayoutValidatorTest {
         Files.setPosixFilePermissions(root, readOnly);
         WorkspaceLayoutValidator.LayoutReport report;
         try {
-            report = validator.validateAndRepair(root);
+            report = validator.repair(root);
         } finally {
             Files.setPosixFilePermissions(root, EnumSet.allOf(PosixFilePermission.class));
         }

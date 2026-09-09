@@ -44,11 +44,21 @@ public class WorkspaceController {
         return new ApiResponse<>(service.current());
     }
 
+    @PostMapping("/current/repair")
+    public ApiResponse<WorkspaceStatusResponse> repairCurrent() {
+        return new ApiResponse<>(service.repairCurrent());
+    }
+
     @PutMapping("/current")
     public ApiResponse<WorkspaceStatusResponse> openCurrent(@RequestBody OpenWorkspaceRequest request) {
         if (request.workspaceId() == null) {
             throw new IllegalArgumentException("workspaceId must not be blank");
         }
         return new ApiResponse<>(service.open(request.workspaceId()));
+    }
+
+    @PostMapping("/{id}/repair")
+    public ApiResponse<WorkspaceStatusResponse> repair(@PathVariable long id) {
+        return new ApiResponse<>(service.repair(id));
     }
 }
