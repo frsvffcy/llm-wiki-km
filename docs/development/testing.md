@@ -680,3 +680,65 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Answer Context Compaction evaluation 測試責任（#308）
+
+`ai.answer.AnswerContextCompactionEvaluationTest`（unit tier）持有 Answer Context
+Compaction 的 provider-free evaluation gate：以 versioned corpus
+（`ai.answer.AnswerContextCompactionCorpusV1`，`answer-context-compaction-corpus-v1`，14
+cases：single-fact、multi-evidence、cross-document、long-prose、tail-fact、large-table、
+source-code、cjk、mixed-language、conflicting-evidence、single-supporting-sentence、
+graph-added-evidence、stale-not-current-negative、already-short）驅動 production baseline
+（`AnswerContextAssembler` + `AnswerContextBudget.DEFAULT` 的 deterministic truncation）與
+deterministic/內容感知壓縮候選（`ai.answer.AnswerContextCompactionCandidates`：
+head-tail-window、sentence-skeleton），寫出
+`target/quality-reports/answer-context-compaction-evaluation-v1.{json,md}`（Jackson 真實
+JSON 序列化 + Markdown 表；含 per-case reduction/retention/overhead 與 per-query regression
+list，git-ignored runtime evidence）。量測語意：reduction 與 retention 以 post-assembly 的
+baseline context 為分母（欄位 `baseline cp`），baseline 行的 overhead 為 `n/a`（不量測）；
+`maxTotalCodePoints` 的總預算互動未由 corpus 施壓，屬如實記錄的未測互動；
+stale-not-current-negative 的「拒絕者不得復活」由骨架繼承結構性強制（corpus 不持有
+not-current 標記），其量測事實僅覆蓋 current item 內容保留。
+
+候選契約：block 骨架（citationId、authorityIdentity、order、provenance、canonical
+contentHash）自 baseline 繼承，content 往返原始 evidence items 重新投影（僅壓縮 baseline 無法
+恢復 baseline 已截斷的 tail 事實）；structured（table/code）與 short content 的安全動作是
+policy NO-OP，可能超過 per-item budget 並以負 reduction 如實記錄（不隱藏、不補位）。
+Supporting-fact retention 以 corpus 宣告的精確子字串量測。
+
+Hard gates：invariants（citationId／authorityIdentity／contentHash／provenance/kind 恆等、
+無空白 blocks、projected identities ⊆ baseline、insufficient-evidence 語意）對全部 case 恆
+為空；mandatory cases（tail-fact、large-table、source-code、cjk、conflicting-evidence、
+stale-not-current-negative、already-short）的 retention floor 1.0 對每個 candidate 硬性成立；
+regression 逐 case 顯示（不得只以 aggregate average 呈現）。非 mandatory 的品質 regression
+（long-prose、single-supporting-sentence 的 middle-of-prose 事實遺失）是**記錄的證據**而非
+gate 失敗——NO-OP-if-unsafe 是合法候選結果，中段事實遺失證明無差別套用不安全。
+
+量測（#308 初版）：baseline 截斷在 tail-fact、large-table、source-code、cjk 四個 mandatory
+cases 丟失 tail 區 correctness-critical 內容（retention 0）；兩個 candidate 在全部 mandatory
+cases retention 1.0；sentence-skeleton 在 tail-fact（reduction 0.954）與 cjk（0.983）同時達成
+correctness 與高 reduction；structured NO-OP 在 large-table 的 provider input 擴張
+（reduction -1.172）與 source-code（-0.022）如實記錄；middle-of-prose cases（long-prose、
+single-supporting-sentence）上 candidates 低於 baseline（真實 regression，逐 case 顯示）；
+compaction overhead ≤ 2.5 ms（baseline 行為 n/a）。Provider token 與 end-to-end latency
+**不由本 gate 量測**
+（provider-free 為前提，code points 與 token 是不同單位）。
+
+決策（#308）：**CONDITIONAL GO（範圍窄）**——tail-loaded/structured 情境的 deterministic
+candidates 證明 correctness-safe 且 skeleton 具顯著 reduction；middle-loaded prose 證明不
+安全；安全的 applicability 判定器尚未存在，不得以「量測起來省 token」代替。後續 architecture
+issue 必須先建立可判定的 applicability 邊界（或由上層明確 opt-in 的 per-request policy）並
+完成 provider-dependent token/latency benchmark，才可考慮
+`EvidenceContextProjector`/`AnswerContextCompactionPolicy`；production default
+（`AnswerContextAssembler`）不變，本 Issue 無 production 變更。重跑命令：
+`mvn test -Dtest=AnswerContextCompactionEvaluationTest -Pfast`。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='AnswerContextCompactionEvaluationTest' test -Pfast
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
