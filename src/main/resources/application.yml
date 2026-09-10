@@ -34,6 +34,9 @@ app:
       read-timeout: ${ANSWER_PROVIDER_READ_TIMEOUT:15s}
       max-output-tokens: ${ANSWER_PROVIDER_MAX_OUTPUT_TOKENS:4000}
       temperature: ${ANSWER_PROVIDER_TEMPERATURE:0.0}
+      context:
+        compaction:
+          policy-version: ${ANSWER_CONTEXT_COMPACTION_POLICY_VERSION:context-policy-v1-current}
   extraction:
     resource:
       max-input-bytes: ${EXTRACTION_MAX_INPUT_BYTES:52428800}
