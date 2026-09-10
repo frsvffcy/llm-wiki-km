@@ -127,7 +127,8 @@ public final class EvidenceContextProjectorService implements EvidenceContextPro
                                         || projection.blocks().stream().anyMatch(
                                         AnswerContextBlock::contentTruncated))),
                 evidence.items().size(), projection.blocks().size(), originalCodePoints,
-                baselineCodePoints, projectedCodePoints, reductionRatio,
+                baselineCodePoints, projectedCodePoints, baseline.usage().truncated(),
+                reductionRatio,
                 projectedBlocks(baseline, projection), false, null);
     }
 
@@ -182,9 +183,20 @@ public final class EvidenceContextProjectorService implements EvidenceContextPro
                         ContextProjectionFailureType.INVALID_POLICY,
                         "projection kind must not be null");
             }
-            boolean kindCompacting = kinds.get(index) == ProjectionKind.EXTRACTIVE
-                    || kinds.get(index) == ProjectionKind.TRUNCATED;
-            if (kindCompacting != contentCompacted) {
+            ProjectionKind projectionKind = kinds.get(index);
+            boolean kindMatchesContent;
+            if (contentCompacted) {
+                kindMatchesContent = projectionKind == ProjectionKind.EXTRACTIVE
+                        || projectionKind == ProjectionKind.TRUNCATED;
+            } else if (original.contentTruncated()) {
+                // A baseline that was already truncated must remain explicitly labelled as
+                // truncation; an unchanged block cannot be relabelled as extractive compaction.
+                kindMatchesContent = projectionKind == ProjectionKind.TRUNCATED;
+            } else {
+                kindMatchesContent = projectionKind == ProjectionKind.VERBATIM
+                        || projectionKind == ProjectionKind.NO_OP;
+            }
+            if (!kindMatchesContent) {
                 throw new AnswerContextProjectionException(
                         ContextProjectionFailureType.PROJECTION_INVARIANT_VIOLATION,
                         "projection kind must honestly match the actual compaction");
@@ -201,14 +213,16 @@ public final class EvidenceContextProjectorService implements EvidenceContextPro
         int baselineCodePoints = blockCodePoints(blocks);
         return new ContextProjectionResult(policyVersion, baseline, evidence.items().size(),
                 blocks.size(), evidenceCodePoints(evidence.items()), baselineCodePoints,
-                baselineCodePoints, 0.0d, baselineProjectedBlocks(blocks), true, failureType);
+                baselineCodePoints, baseline.usage().truncated(), 0.0d,
+                baselineProjectedBlocks(blocks), true, failureType);
     }
 
     private ContextProjectionResult emptyResult(EvidenceBundle evidence,
                                                 AnswerContextCompactionPolicy policy,
                                                 AnswerContext baseline) {
         return new ContextProjectionResult(policy.version(), baseline, evidence.items().size(),
-                0, evidenceCodePoints(evidence.items()), 0, 0, 0.0d, List.of(), false, null);
+                0, evidenceCodePoints(evidence.items()), 0, 0, baseline.usage().truncated(),
+                0.0d, List.of(), false, null);
     }
 
     private static List<ProjectedEvidenceBlock> projectedBlocks(AnswerContext baseline,

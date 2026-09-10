@@ -16,6 +16,8 @@ import org.km.llmwiki.ai.answer.AnswerGenerationOptions;
 import org.km.llmwiki.ai.answer.AnswerProviderMetadata;
 import org.km.llmwiki.ai.answer.AnswerRequest;
 import org.km.llmwiki.ai.answer.AnswerResult;
+import org.km.llmwiki.ai.answer.AnswerUsageMetadata;
+import org.km.llmwiki.ai.answer.ProviderUsageStatus;
 import org.km.llmwiki.ai.answer.StubAnswerClient;
 import org.km.llmwiki.rag.EvidenceBudget;
 import org.km.llmwiki.rag.EvidenceBundle;
@@ -71,7 +73,28 @@ class AskServiceTest {
                         "design.pdf", 900L, 41L, 1, 1, "Overview", "Root > Overview"));
         assertThat(result.suppliedEvidence()).extracting(AskCitation::citationId)
                 .containsExactly("E1", "E2");
-        assertThat(result.executionMetadata()).isEqualTo(new AskExecutionMetadata(2, 2, 20, false));
+        AskExecutionMetadata execution = result.executionMetadata();
+        assertThat(execution.retrievedEvidenceItems()).isEqualTo(2);
+        assertThat(execution.contextEvidenceItems()).isEqualTo(2);
+        assertThat(execution.contextCodePoints()).isEqualTo(20);
+        assertThat(execution.contextTruncated()).isFalse();
+        assertThat(execution.contextDiagnostics()).satisfies(diagnostics -> {
+            assertThat(diagnostics.retrievedEvidenceCount()).isEqualTo(2);
+            assertThat(diagnostics.admittedEvidenceCount()).isEqualTo(2);
+            assertThat(diagnostics.answerContextBlockCount()).isEqualTo(2);
+            assertThat(diagnostics.originalCodePoints()).isEqualTo(20);
+            assertThat(diagnostics.packedCodePoints()).isEqualTo(20);
+            assertThat(diagnostics.projectedCodePoints()).isEqualTo(20);
+            assertThat(diagnostics.reductionRatio()).isZero();
+            assertThat(diagnostics.truncated()).isFalse();
+            assertThat(diagnostics.compacted()).isFalse();
+            assertThat(diagnostics.projectionLatencyMs()).isNotNull().isGreaterThanOrEqualTo(0L);
+            assertThat(diagnostics.answerLatencyMs()).isNotNull().isGreaterThanOrEqualTo(0L);
+            assertThat(diagnostics.providerUsageStatus()).isEqualTo(ProviderUsageStatus.UNAVAILABLE);
+            assertThat(diagnostics.providerInputTokens()).isNull();
+            assertThat(diagnostics.providerOutputTokens()).isNull();
+            assertThat(diagnostics.providerTotalTokens()).isNull();
+        });
     }
 
     @Test
@@ -335,6 +358,117 @@ class AskServiceTest {
             assertThat(request.context().usage().truncated()).isTrue();
             assertThat(request.options().maxOutputCodePoints()).isEqualTo(20);
         });
+        assertThat(result.executionMetadata().contextDiagnostics()).satisfies(diagnostics -> {
+            assertThat(diagnostics.originalCodePoints()).isEqualTo(10);
+            assertThat(diagnostics.packedCodePoints()).isEqualTo(5);
+            assertThat(diagnostics.projectedCodePoints()).isEqualTo(5);
+            assertThat(diagnostics.reductionRatio()).isEqualTo(1.0d - (5.0d / 10.0d));
+            assertThat(diagnostics.truncated()).isTrue();
+            assertThat(diagnostics.compacted()).isFalse();
+            assertThat(diagnostics.projectionKindDistribution())
+                    .containsEntry(org.km.llmwiki.ai.answer.ProjectionKind.TRUNCATED, 2)
+                    .containsEntry(org.km.llmwiki.ai.answer.ProjectionKind.VERBATIM, 0);
+        });
+    }
+
+    @Test
+    void providerUsageIsReportedSeparatelyFromApplicationCodePointMeasurements() {
+        EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "CJK😀內容")));
+        AnswerUsageMetadata usage = new AnswerUsageMetadata(17, 5, 22);
+        AnswerResult generated = new AnswerResult("回答", List.of("E1"), false, METADATA,
+                Optional.of(usage));
+
+        AskResult result = new AskService(retrievalReturning(bundle), projector(),
+                StubAnswerClient.returning(generated))
+                .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
+
+        assertThat(result.successful()).isTrue();
+        assertThat(result.usage()).contains(usage);
+        assertThat(result.executionMetadata().contextDiagnostics()).satisfies(diagnostics -> {
+            assertThat(diagnostics.originalCodePoints()).isEqualTo(6);
+            assertThat(diagnostics.packedCodePoints()).isEqualTo(6);
+            assertThat(diagnostics.projectedCodePoints()).isEqualTo(6);
+            assertThat(diagnostics.providerUsageStatus()).isEqualTo(ProviderUsageStatus.AVAILABLE);
+            assertThat(diagnostics.providerInputTokens()).isEqualTo(17);
+            assertThat(diagnostics.providerOutputTokens()).isEqualTo(5);
+            assertThat(diagnostics.providerTotalTokens()).isEqualTo(22);
+        });
+    }
+
+    @Test
+    void providerFailureReportsUnavailableUsageWithoutLeakingProviderDiagnostic() {
+        EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")));
+
+        AskResult result = new AskService(retrievalReturning(bundle), projector(),
+                StubAnswerClient.failing(AnswerFailureType.PROVIDER_SERVER_FAILURE,
+                        "provider payload secret-token /Users/private/prompt"))
+                .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
+
+        assertThat(result.status()).isEqualTo(AskStatus.FAILED);
+        assertThat(result.executionMetadata().contextDiagnostics()).satisfies(diagnostics -> {
+            assertThat(diagnostics.providerUsageStatus()).isEqualTo(ProviderUsageStatus.UNAVAILABLE);
+            assertThat(diagnostics.providerInputTokens()).isNull();
+            assertThat(diagnostics.providerOutputTokens()).isNull();
+            assertThat(diagnostics.providerTotalTokens()).isNull();
+            assertThat(diagnostics.answerLatencyMs()).isNotNull().isGreaterThanOrEqualTo(0L);
+        });
+        assertThat(AskApiResponse.from(result).executionMetadata().contextDiagnostics())
+                .satisfies(diagnostics -> {
+                    assertThat(diagnostics.providerUsageStatus()).isEqualTo(
+                            ProviderUsageStatus.UNAVAILABLE);
+                    assertThat(diagnostics.providerInputTokens()).isNull();
+                    assertThat(diagnostics.providerOutputTokens()).isNull();
+                    assertThat(diagnostics.providerTotalTokens()).isNull();
+                });
+        assertThat(AskApiResponse.from(result).toString())
+                .doesNotContain("secret-token", "/Users/private/prompt");
+    }
+
+    @Test
+    void retrievalFailureMarksProviderAsNotAttemptedAndKeepsEmptyContextDiagnostics() {
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenThrow(new RetrievalUnavailableException(
+                RetrievalUnavailableException.Dependency.SEARCH_INDEX,
+                new IllegalStateException("private search path")));
+
+        AskResult result = new AskService(retrieval, projector(), request -> {
+            throw new AssertionError("provider must not be called");
+        }).ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
+
+        assertThat(result.executionMetadata().contextDiagnostics()).satisfies(diagnostics -> {
+            assertThat(diagnostics.retrievedEvidenceCount()).isZero();
+            assertThat(diagnostics.admittedEvidenceCount()).isZero();
+            assertThat(diagnostics.answerContextBlockCount()).isZero();
+            assertThat(diagnostics.providerUsageStatus()).isEqualTo(ProviderUsageStatus.NOT_ATTEMPTED);
+            assertThat(diagnostics.projectionLatencyMs()).isNull();
+            assertThat(diagnostics.answerLatencyMs()).isNull();
+        });
+    }
+
+    @Test
+    void requestScopedDiagnosticsDoNotBleedAcrossRepeatedCalls() {
+        EvidenceBundle firstBundle = bundle(List.of(wiki("first", "First", "vault/first.md",
+                "first fact")));
+        EvidenceBundle secondBundle = bundle(List.of(wiki("second", "Second", "vault/second.md",
+                "second fact is longer")));
+        AtomicInteger retrievalCalls = new AtomicInteger();
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenAnswer(invocation -> retrievalCalls.getAndIncrement() == 0
+                ? firstBundle : secondBundle);
+        AskService service = new AskService(retrieval, projector(),
+                StubAnswerClient.returning(new AnswerResult("回答", List.of("E1"), false,
+                        METADATA, Optional.empty())));
+
+        AskResult first = service.ask(AskRequest.defaults("first", RetrievalMode.WIKI_ONLY));
+        AskResult second = service.ask(AskRequest.defaults("second", RetrievalMode.WIKI_ONLY));
+
+        assertThat(first.executionMetadata().contextDiagnostics().originalCodePoints())
+                .isEqualTo("first fact".codePointCount(0, "first fact".length()));
+        assertThat(second.executionMetadata().contextDiagnostics().originalCodePoints())
+                .isEqualTo("second fact is longer".codePointCount(0,
+                        "second fact is longer".length()));
+        assertThat(first.executionMetadata().contextDiagnostics().providerInputTokens()).isNull();
+        assertThat(second.executionMetadata().contextDiagnostics().providerInputTokens()).isNull();
     }
 
     @Test

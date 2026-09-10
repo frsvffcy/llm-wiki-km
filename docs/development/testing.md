@@ -779,3 +779,50 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Ask Context Observability 測試責任（#310）
+
+`ai.answer.AnswerContextDiagnostics` 是單次 Ask request-scoped 的 application-owned safe
+aggregate；`ai.ask.AskService` 在 retrieval、bounded baseline、versioned projection 與
+answer-provider outcome 邊界建立它，`AskApiResponse` 只投影允許公開的欄位。Diagnostics
+不得持久化完整 `AnswerContext`、prompt、provider payload 或 exception，也不得改變
+retrieval ranking、citation authority、context budget 或 compaction policy。
+
+固定的 lifecycle 語意如下：`retrievedEvidenceCount` 取 authoritative
+`EvidenceBundle.searchedCandidateCount()`；`admittedEvidenceCount` 取 final evidence
+items；`answerContextBlockCount` 取 projected `AnswerContext` blocks。`originalCodePoints`、
+`packedCodePoints` 與 `projectedCodePoints` 都是 application context 的 Unicode code-point
+measurement，與 provider 回報的 input/output/total tokens 完全分離。`packedCodePoints` 是
+projection 前的 bounded baseline；`truncated` 是 baseline truncation，`compacted` 只表示
+projection 後 code points 低於 baseline；`reductionRatio` 使用 original 作為分母，空 context
+固定為有限的 `0.0`。
+
+Provider usage 使用 typed status：未進行 provider call 為 `NOT_ATTEMPTED`，有至少一個
+verified counter 為 `AVAILABLE`，provider call 沒有可用 usage 為 `UNAVAILABLE`；缺失的
+counter 維持 `null`，不可轉成 `0`。Projection policy version、kind distribution、fallback
+failure 與 latency 只保留 bounded typed metadata。REST 與 Browser 必須沿用 allowlist、
+enum 與 text-node redaction；不能輸出 raw evidence、prompt、absolute path、hash、token、
+provider payload、exception 或 ArcadeDB RID。Retrieval Inspector 仍是 read-only observer，
+不得為取得 diagnostics 呼叫 Answer provider。
+
+`ai.ask.AskServiceTest` 覆蓋 normal Ask、CJK code-point、truncation、compaction metadata、
+available/unavailable/not-attempted usage、provider/null-result failure、retrieval failure、
+repeated-request state isolation、REST projection 與 no-provider-call。`AskApiContractTest`
+與 `AskApiIntegrationTest` 覆蓋 public DTO/JSON 的 lifecycle fields、nullable counters、
+hostile policy/RID/path/hash redaction；`src/test/js/ask-ui.test.mjs` 覆蓋 safe text rendering、
+enum/number validation、stale payload isolation 與 provider diagnostics display。Context
+projection 的 baseline truncation metadata 必須與 `AnswerContext.usage().truncated()` 一致，
+不接受 caller 謊報。
+
+受影響測試與完整 gate：
+
+```bash
+node --test src/test/js/ask-ui.test.mjs
+node --test src/test/js/retrieval-inspector-ui.test.mjs
+mvn -Dtest='AskServiceTest,AskApiContractTest' test -Pfast
+mvn -Dtest='AskApiIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```

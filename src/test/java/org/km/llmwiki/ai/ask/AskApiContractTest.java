@@ -4,7 +4,16 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.km.llmwiki.ai.answer.AnswerContextDiagnostics;
+import org.km.llmwiki.ai.answer.AnswerUsageMetadata;
+import org.km.llmwiki.ai.answer.ContextProjectionFailureType;
+import org.km.llmwiki.ai.answer.ProjectionKind;
+import org.km.llmwiki.ai.answer.ProviderUsageStatus;
 import org.km.llmwiki.rag.RetrievalMode;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,6 +55,45 @@ class AskApiContractTest {
         assertThat(response.citations()).hasSize(1);
         assertThat(response.citations().getFirst().provenance().path()).isNull();
         assertThat(response.citations().getFirst().provenance().title()).isEqualTo("Security");
+    }
+
+    @Test
+    void responseProjectionExposesBoundedDiagnosticsWithoutProviderOrBackendDetails() {
+        AnswerContextDiagnostics diagnostics = new AnswerContextDiagnostics(
+                4, 2, 2, 100, 80, 50, 0.5d, true, true,
+                "RID:secret-token",
+                Map.of(ProjectionKind.VERBATIM, 1, ProjectionKind.EXTRACTIVE, 0,
+                        ProjectionKind.TRUNCATED, 1, ProjectionKind.NO_OP, 0),
+                true, ContextProjectionFailureType.PROJECTION_LIMIT_EXCEEDED,
+                12L, 34L, ProviderUsageStatus.AVAILABLE,
+                17, null, 22);
+        AskCitation citation = new AskCitation("E1", org.km.llmwiki.rag.EvidenceKind.WIKI,
+                "WIKI:secret", "hash-secret",
+                new org.km.llmwiki.ai.answer.AnswerContextProvenance.Wiki(
+                        "Security", "vault/security.md", 3));
+        AskResult result = new AskResult(AskStatus.ANSWERED,
+                Optional.of("safe answer"), List.of(citation), List.of(citation),
+                Optional.empty(), Optional.of(new AnswerUsageMetadata(17, null, 22)),
+                Optional.empty(), AskExecutionMetadata.fromDiagnostics(diagnostics));
+
+        AskApiResponse.ContextDiagnostics projected = AskApiResponse.from(result)
+                .executionMetadata().contextDiagnostics();
+
+        assertThat(projected.retrievedEvidenceCount()).isEqualTo(4);
+        assertThat(projected.admittedEvidenceCount()).isEqualTo(2);
+        assertThat(projected.answerContextBlockCount()).isEqualTo(2);
+        assertThat(projected.originalCodePoints()).isEqualTo(100);
+        assertThat(projected.packedCodePoints()).isEqualTo(80);
+        assertThat(projected.projectedCodePoints()).isEqualTo(50);
+        assertThat(projected.truncated()).isTrue();
+        assertThat(projected.compacted()).isTrue();
+        assertThat(projected.contextPolicyVersion()).isNull();
+        assertThat(projected.providerUsageStatus()).isEqualTo(ProviderUsageStatus.AVAILABLE);
+        assertThat(projected.providerInputTokens()).isEqualTo(17);
+        assertThat(projected.providerOutputTokens()).isNull();
+        assertThat(projected.providerTotalTokens()).isEqualTo(22);
+        assertThat(AskApiResponse.from(result).toString())
+                .doesNotContain("secret-token", "hash-secret", "WIKI:secret");
     }
 
     @Test

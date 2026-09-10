@@ -115,6 +115,34 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .graph-feedback--error { color: var(--danger); }
 .answer-text { margin: 24px 0 26px; white-space: pre-wrap; line-height: 1.75; }
 .provider-metadata { margin: -8px 0 26px; color: var(--muted); font-size: 0.82rem; }
+.context-diagnostics {
+  margin: 0 0 26px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.diagnostics-heading { margin-bottom: 14px; }
+.context-diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.context-diagnostic-item {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.context-diagnostic-label { color: var(--muted); font-size: 0.76rem; }
+.context-diagnostic-value {
+  margin: 4px 0 0;
+  font-size: 0.86rem;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
 .citation-heading { margin-bottom: 12px; }
 .citation-count { color: var(--muted); font-size: 0.8rem; }
 .citation-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; counter-reset: citations; }
@@ -130,7 +158,12 @@ button:disabled { cursor: wait; opacity: 0.62; }
   .field-group { width: 100%; }
   button { width: 100%; }
   .graph-details { grid-template-columns: 1fr; }
+  .context-diagnostics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .graph-actions { align-items: stretch; flex-direction: column; }
+}
+
+@media (max-width: 420px) {
+  .context-diagnostics-grid { grid-template-columns: 1fr; }
 }
 
 .inspector-modality-list {

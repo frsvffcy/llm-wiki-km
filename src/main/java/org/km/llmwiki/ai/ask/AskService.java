@@ -3,11 +3,15 @@ package org.km.llmwiki.ai.ask;
 import org.km.llmwiki.ai.answer.AnswerClient;
 import org.km.llmwiki.ai.answer.AnswerClientException;
 import org.km.llmwiki.ai.answer.AnswerContext;
+import org.km.llmwiki.ai.answer.AnswerContextDiagnostics;
 import org.km.llmwiki.ai.answer.ContextProjectionResult;
 import org.km.llmwiki.ai.answer.EvidenceContextProjector;
 import org.km.llmwiki.ai.answer.AnswerResult;
 import org.km.llmwiki.ai.answer.AnswerFailureType;
+import org.km.llmwiki.ai.answer.AnswerProviderMetadata;
+import org.km.llmwiki.ai.answer.AnswerUsageMetadata;
 import org.km.llmwiki.ai.answer.CitationValidationException;
+import org.km.llmwiki.ai.answer.ProviderUsageStatus;
 import org.km.llmwiki.rag.EvidenceBundle;
 import org.km.llmwiki.rag.RetrievalService;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
@@ -55,16 +59,18 @@ public class AskService {
                     new AskFailure(retrievalFailureType(exception),
                             "retrieval dependency is unavailable",
                             Optional.of(exception.dependency())),
-                    new AskExecutionMetadata(0, 0, 0, false),
+                    AskExecutionMetadata.fromDiagnostics(AnswerContextDiagnostics.empty()),
                     List.of(), retrievalFailureDiagnostics(request, exception));
         }
 
+        long projectionStarted = System.nanoTime();
         ContextProjectionResult projection = contextProjector.project(evidence,
                 request.contextBudget());
+        long projectionLatencyMs = elapsedMillis(projectionStarted);
         AnswerContext context = projection.context();
-        AskExecutionMetadata execution = new AskExecutionMetadata(evidence.items().size(),
-                context.usage().usedEvidenceItems(), context.usage().usedCodePoints(),
-                context.usage().truncated());
+        AnswerContextDiagnostics contextDiagnostics = AnswerContextDiagnostics.from(evidence,
+                projection, projectionLatencyMs, null, ProviderUsageStatus.NOT_ATTEMPTED, null);
+        AskExecutionMetadata execution = AskExecutionMetadata.fromDiagnostics(contextDiagnostics);
         List<AskCitation> suppliedEvidence = context.blocks().stream()
                 .map(AskCitation::from).toList();
 
@@ -74,34 +80,48 @@ public class AskService {
         }
 
         AnswerResult generated;
+        long answerStarted = System.nanoTime();
         try {
             generated = answerClient.generate(new org.km.llmwiki.ai.answer.AnswerRequest(
                     request.question(), context, request.generationOptions()));
         } catch (AnswerClientException exception) {
+            execution = executionWithProviderOutcome(contextDiagnostics,
+                    ProviderUsageStatus.UNAVAILABLE, null, elapsedMillis(answerStarted));
             return AskResultFactory.failure(
-                    failureFor(exception), execution, suppliedEvidence, evidence.diagnostics());
+                    failureFor(exception), execution, suppliedEvidence, evidence.diagnostics(),
+                    null, Optional.empty());
         }
 
+        long answerLatencyMs = elapsedMillis(answerStarted);
         if (generated == null) {
+            execution = executionWithProviderOutcome(contextDiagnostics,
+                    ProviderUsageStatus.UNAVAILABLE, null, answerLatencyMs);
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                     "answer provider returned no result"), execution, suppliedEvidence,
-                    evidence.diagnostics());
+                    evidence.diagnostics(), null, Optional.empty());
         }
+
+        Optional<AnswerUsageMetadata> usage = generated.usage();
+        AnswerProviderMetadata providerMetadata = generated.providerMetadata();
+        ProviderUsageStatus usageStatus = usage.isPresent()
+                ? ProviderUsageStatus.AVAILABLE : ProviderUsageStatus.UNAVAILABLE;
+        execution = executionWithProviderOutcome(contextDiagnostics, usageStatus,
+                usage.orElse(null), answerLatencyMs);
 
         if (generated.answerText().codePointCount(0, generated.answerText().length())
                 > request.generationOptions().maxOutputCodePoints()) {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                             "answer provider response exceeded the request output bound"),
-                    execution, suppliedEvidence, evidence.diagnostics());
+                    execution, suppliedEvidence, evidence.diagnostics(), providerMetadata, usage);
         }
 
         try {
             List<AskCitation> citations = mapCitations(context, generated.citedEvidenceIds());
             if (generated.insufficientEvidence()) {
                 return AskResultFactory.insufficient(suppliedEvidence, execution,
-                        evidence.diagnostics());
+                        evidence.diagnostics(), providerMetadata, usage);
             }
             return AskResultFactory.answered(generated, citations, suppliedEvidence, execution,
                     evidence.diagnostics());
@@ -109,8 +129,19 @@ public class AskService {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                             "answer provider response failed citation validation"),
-                    execution, suppliedEvidence, evidence.diagnostics());
+                    execution, suppliedEvidence, evidence.diagnostics(), providerMetadata, usage);
         }
+    }
+
+    private static AskExecutionMetadata executionWithProviderOutcome(
+            AnswerContextDiagnostics contextDiagnostics, ProviderUsageStatus status,
+            AnswerUsageMetadata usage, Long answerLatencyMs) {
+        return AskExecutionMetadata.fromDiagnostics(contextDiagnostics.withProviderUsage(status,
+                usage, answerLatencyMs));
+    }
+
+    private static long elapsedMillis(long started) {
+        return Math.max(0L, (System.nanoTime() - started) / 1_000_000L);
     }
 
     private static AskFailureType retrievalFailureType(RetrievalUnavailableException exception) {
@@ -178,9 +209,17 @@ public class AskService {
         private static AskResult insufficient(List<AskCitation> supplied,
                                               AskExecutionMetadata execution,
                                               RetrievalDiagnostics diagnostics) {
+            return insufficient(supplied, execution, diagnostics, null, Optional.empty());
+        }
+
+        private static AskResult insufficient(List<AskCitation> supplied,
+                                              AskExecutionMetadata execution,
+                                              RetrievalDiagnostics diagnostics,
+                                              AnswerProviderMetadata providerMetadata,
+                                              Optional<AnswerUsageMetadata> usage) {
             return new AskResult(AskStatus.INSUFFICIENT_EVIDENCE, Optional.empty(), List.of(),
-                    supplied, Optional.empty(), Optional.empty(), Optional.empty(), execution,
-                    diagnostics);
+                    supplied, Optional.ofNullable(providerMetadata), usage, Optional.empty(),
+                    execution, diagnostics);
         }
 
         private static AskResult failure(AskFailure failure, AskExecutionMetadata execution) {
@@ -190,9 +229,17 @@ public class AskService {
         private static AskResult failure(AskFailure failure, AskExecutionMetadata execution,
                                          List<AskCitation> supplied,
                                          RetrievalDiagnostics diagnostics) {
+            return failure(failure, execution, supplied, diagnostics, null, Optional.empty());
+        }
+
+        private static AskResult failure(AskFailure failure, AskExecutionMetadata execution,
+                                         List<AskCitation> supplied,
+                                         RetrievalDiagnostics diagnostics,
+                                         AnswerProviderMetadata providerMetadata,
+                                         Optional<AnswerUsageMetadata> usage) {
             return new AskResult(AskStatus.FAILED, Optional.empty(), List.of(), supplied,
-                    Optional.empty(), Optional.empty(), Optional.of(failure), execution,
-                    diagnostics);
+                    Optional.ofNullable(providerMetadata), usage, Optional.of(failure),
+                    execution, diagnostics);
         }
 
         private static AskResult failure(AskFailure failure, AskExecutionMetadata execution,

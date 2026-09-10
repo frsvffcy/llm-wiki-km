@@ -6,7 +6,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.km.llmwiki.ai.answer.AnswerContextProvenance;
+import org.km.llmwiki.ai.answer.AnswerContextDiagnostics;
 import org.km.llmwiki.ai.answer.AnswerProviderMetadata;
+import org.km.llmwiki.ai.answer.AnswerUsageMetadata;
+import org.km.llmwiki.ai.answer.ContextProjectionFailureType;
+import org.km.llmwiki.ai.answer.ProjectionKind;
+import org.km.llmwiki.ai.answer.ProviderUsageStatus;
 import org.km.llmwiki.rag.EvidenceKind;
 import org.km.llmwiki.rag.RetrievalMode;
 import org.km.llmwiki.testsupport.SpringIntegrationTest;
@@ -19,6 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.hamcrest.Matchers.containsString;
@@ -88,6 +94,61 @@ class AskApiIntegrationTest {
     }
 
     @Test
+    void returnsSafeContextDiagnosticsWithNullableProviderUsageCounters() throws Exception {
+        AskCitation wiki = new AskCitation("E1", EvidenceKind.WIKI, "WIKI:secret",
+                "hash-secret", new AnswerContextProvenance.Wiki(
+                "Security", "vault/security.md", 3));
+        AnswerUsageMetadata usage = new AnswerUsageMetadata(17, null, 22);
+        AskExecutionMetadata execution = diagnosticsExecution(
+                ProviderUsageStatus.AVAILABLE, usage, "RID:secret-token");
+        when(askService.ask(any())).thenReturn(new AskResult(AskStatus.ANSWERED,
+                Optional.of("Safe answer"), List.of(wiki), List.of(wiki),
+                Optional.of(new AnswerProviderMetadata("stub", "offline-model")),
+                Optional.of(usage), Optional.empty(), execution));
+
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("{\"question\":\"question\",\"retrievalMode\":\"WIKI_ONLY\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.retrievedEvidenceCount")
+                        .value(4))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.admittedEvidenceCount")
+                        .value(2))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.answerContextBlockCount")
+                        .value(2))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.originalCodePoints")
+                        .value(100))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.packedCodePoints")
+                        .value(80))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.projectedCodePoints")
+                        .value(50))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.reductionRatio")
+                        .value(0.5))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.truncated")
+                        .value(true))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.compacted")
+                        .value(true))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.contextPolicyVersion")
+                        .doesNotExist())
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.projectionKindDistribution.VERBATIM")
+                        .value(1))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.projectionFailureType")
+                        .value("PROJECTION_LIMIT_EXCEEDED"))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.providerUsageStatus")
+                        .value("AVAILABLE"))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.providerInputTokens")
+                        .value(17))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.providerOutputTokens")
+                        .doesNotExist())
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.providerTotalTokens")
+                        .value(22))
+                .andExpect(content().string(not(containsString("RID:secret-token"))))
+                .andExpect(content().string(not(containsString("hash-secret"))))
+                .andExpect(content().string(not(containsString("WIKI:secret"))))
+                .andExpect(content().string(not(containsString("/Users/"))))
+                .andExpect(content().string(not(containsString("raw prompt"))));
+    }
+
+    @Test
     void returnsInsufficientEvidenceAsAValidNonProviderResult() throws Exception {
         when(askService.ask(any())).thenReturn(new AskResult(AskStatus.INSUFFICIENT_EVIDENCE,
                 Optional.empty(), List.of(), List.of(), Optional.empty(), Optional.empty(),
@@ -101,7 +162,15 @@ class AskApiIntegrationTest {
                 .andExpect(jsonPath("$.data.insufficientEvidence").value(true))
                 .andExpect(jsonPath("$.data.answer").doesNotExist())
                 .andExpect(jsonPath("$.data.citations").isEmpty())
-                .andExpect(jsonPath("$.data.providerMetadata").doesNotExist());
+                .andExpect(jsonPath("$.data.providerMetadata").doesNotExist())
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.providerUsageStatus")
+                        .value("NOT_ATTEMPTED"))
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.providerInputTokens")
+                        .doesNotExist())
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.providerOutputTokens")
+                        .doesNotExist())
+                .andExpect(jsonPath("$.data.executionMetadata.contextDiagnostics.providerTotalTokens")
+                        .doesNotExist());
     }
 
     @Test
@@ -331,5 +400,20 @@ class AskApiIntegrationTest {
         return new AskResult(AskStatus.FAILED, Optional.empty(), List.of(), List.of(),
                 Optional.empty(), Optional.empty(), Optional.of(failure),
                 new AskExecutionMetadata(1, 1, 8, false));
+    }
+
+    private static AskExecutionMetadata diagnosticsExecution(ProviderUsageStatus status,
+                                                               AnswerUsageMetadata usage,
+                                                               String policyVersion) {
+        AnswerContextDiagnostics diagnostics = new AnswerContextDiagnostics(
+                4, 2, 2, 100, 80, 50, 0.5d, true, true, policyVersion,
+                Map.of(ProjectionKind.VERBATIM, 1, ProjectionKind.EXTRACTIVE, 0,
+                        ProjectionKind.TRUNCATED, 1, ProjectionKind.NO_OP, 0),
+                true, ContextProjectionFailureType.PROJECTION_LIMIT_EXCEEDED,
+                12L, 34L, status,
+                usage == null ? null : usage.inputTokens(),
+                usage == null ? null : usage.outputTokens(),
+                usage == null ? null : usage.totalTokens());
+        return AskExecutionMetadata.fromDiagnostics(diagnostics);
     }
 }

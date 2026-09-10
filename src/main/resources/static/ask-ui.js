@@ -82,6 +82,100 @@ function isValidAnsweredPayload(data) {
     && data.citations.length >= 1;
 }
 
+function formatReductionRatio(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+    ? `${(value * 100).toFixed(1)}%`
+    : "—";
+}
+
+function formatBoolean(value) {
+  return value === true ? "是" : value === false ? "否" : "—";
+}
+
+function formatCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? String(value) : "—";
+}
+
+function formatLatencyMs(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? `${value} ms` : "—";
+}
+
+function formatSafeString(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)
+    ? value : "—";
+}
+
+function formatProjectionFailureType(value) {
+  return [
+    "INVALID_POLICY",
+    "PROJECTION_INVARIANT_VIOLATION",
+    "PROJECTION_LIMIT_EXCEEDED",
+    "UNSUPPORTED_CONTENT_KIND"
+  ].includes(value) ? value : "—";
+}
+
+function formatProjectionKinds(distribution) {
+  if (!distribution || typeof distribution !== "object") return "—";
+  const labels = ["VERBATIM", "NO_OP", "EXTRACTIVE", "TRUNCATED"];
+  const parts = labels
+    .filter(kind => Number.isSafeInteger(distribution[kind]) && distribution[kind] > 0)
+    .map(kind => `${kind} ${distribution[kind]}`);
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
+function formatProviderUsageStatus(status) {
+  return {
+    NOT_ATTEMPTED: "尚未呼叫",
+    AVAILABLE: "已取得",
+    UNAVAILABLE: "未提供"
+  }[status] || "—";
+}
+
+function appendDiagnosticMetric(documentRef, list, label, value) {
+  const row = documentRef.createElement("div");
+  row.className = "context-diagnostic-item";
+  appendTextElement(documentRef, row, "dt", "context-diagnostic-label", label);
+  appendTextElement(documentRef, row, "dd", "context-diagnostic-value", value);
+  list.append(row);
+}
+
+function clearContextDiagnostics(elements) {
+  if (elements.contextDiagnostics) elements.contextDiagnostics.hidden = true;
+  if (elements.contextDiagnosticsList) elements.contextDiagnosticsList.replaceChildren();
+}
+
+function renderContextDiagnostics(elements, executionMetadata, documentRef) {
+  clearContextDiagnostics(elements);
+  if (!elements.contextDiagnostics || !elements.contextDiagnosticsList) return;
+  const diagnostics = executionMetadata && executionMetadata.contextDiagnostics;
+  if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics)) return;
+
+  const metrics = [
+    ["檢索 evidence", formatCount(diagnostics.retrievedEvidenceCount)],
+    ["通過 admission 的 evidence", formatCount(diagnostics.admittedEvidenceCount)],
+    ["AnswerContext 區塊", formatCount(diagnostics.answerContextBlockCount)],
+    ["原始 code points", formatCount(diagnostics.originalCodePoints)],
+    ["Packed code points", formatCount(diagnostics.packedCodePoints)],
+    ["Projected code points", formatCount(diagnostics.projectedCodePoints)],
+    ["Reduction", formatReductionRatio(diagnostics.reductionRatio)],
+    ["Baseline truncated", formatBoolean(diagnostics.truncated)],
+    ["Compacted", formatBoolean(diagnostics.compacted)],
+    ["Context policy", formatSafeString(diagnostics.contextPolicyVersion)],
+    ["Projection 類型", formatProjectionKinds(diagnostics.projectionKindDistribution)],
+    ["Projection fallback", formatBoolean(diagnostics.projectionFallbackUsed)],
+    ["Projection failure", formatProjectionFailureType(diagnostics.projectionFailureType)],
+    ["Projection latency", formatLatencyMs(diagnostics.projectionLatencyMs)],
+    ["Answer latency", formatLatencyMs(diagnostics.answerLatencyMs)],
+    ["Provider usage", formatProviderUsageStatus(diagnostics.providerUsageStatus)],
+    ["Provider input tokens", formatCount(diagnostics.providerInputTokens)],
+    ["Provider output tokens", formatCount(diagnostics.providerOutputTokens)],
+    ["Provider total tokens", formatCount(diagnostics.providerTotalTokens)]
+  ];
+  metrics.forEach(([label, value]) => appendDiagnosticMetric(
+    documentRef, elements.contextDiagnosticsList, label, value));
+  elements.contextDiagnostics.hidden = false;
+}
+
 export function renderAskResponse(elements, payload, documentRef = document) {
   const data = payload && payload.data ? payload.data : {};
   elements.empty.hidden = true;
@@ -89,12 +183,14 @@ export function renderAskResponse(elements, payload, documentRef = document) {
   elements.insufficient.hidden = true;
   elements.answer.hidden = true;
   elements.metadata.hidden = true;
+  clearContextDiagnostics(elements);
   elements.citations.replaceChildren();
   elements.citationCount.textContent = "";
   elements.metadata.replaceChildren();
 
   if (data.status === "INSUFFICIENT_EVIDENCE" || data.insufficientEvidence === true) {
     elements.insufficient.hidden = false;
+    renderContextDiagnostics(elements, data.executionMetadata, documentRef);
     return;
   }
 
@@ -104,6 +200,7 @@ export function renderAskResponse(elements, payload, documentRef = document) {
   }
 
   elements.answer.hidden = false;
+  renderContextDiagnostics(elements, data.executionMetadata, documentRef);
   elements.answerText.textContent = data.answer;
   const citations = data.citations;
   elements.citationCount.textContent = `${citations.length} 筆`;
@@ -162,6 +259,7 @@ function showError(elements, error) {
   elements.answer.hidden = true;
   elements.insufficient.hidden = true;
   elements.error.hidden = false;
+  clearContextDiagnostics(elements);
   elements.errorTitle.textContent = copy.title;
   elements.errorMessage.textContent = copy.message;
   elements.citations.replaceChildren();
@@ -186,6 +284,8 @@ function elementsFrom(documentRef) {
     answer: documentRef.getElementById("result-answer"),
     answerText: documentRef.getElementById("answer-text"),
     metadata: documentRef.getElementById("provider-metadata"),
+    contextDiagnostics: documentRef.getElementById("context-diagnostics"),
+    contextDiagnosticsList: documentRef.getElementById("context-diagnostics-list"),
     citations: documentRef.getElementById("citations"),
     citationCount: documentRef.getElementById("citation-count")
   };
