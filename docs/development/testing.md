@@ -826,3 +826,27 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Spring integration context 邊界
+
+純 Java 邏輯不得為取得 dependency injection 而預設使用 `@SpringBootTest`；包括 projector、
+policy、validator、mapper、comparator、budget、fingerprint、snippet helper 與 value-object
+rules——這些屬 `unit` tier，plain JUnit + 直接建構即可。僅在需要 Spring wiring、SQLite/FTS5、
+Flyway、jOOQ、REST、transaction 或 filesystem integration 時使用 integration context。
+
+新 integration test 優先使用既有 shared integration-test annotation/base infrastructure
+（如 `testsupport.IsolatedIntegrationTest` 及其 composed annotations），不自行創造不同的
+context signature；確有隔離需求（不同 property set、external backend 等）時，PR body 必須
+說明理由與對 context cache／test isolation 的影響。Shared context、SQLite cleanup 與 reset
+strategy 必須維持測試隔離：新增 persistent table 時同步檢查 reset hook 與
+`DatabaseCleanupPolicy` completeness guard。
+
+## 量測與 Java 版本規範
+
+* 專案 runtime/build 的 canonical Java 是 21；正式 performance/timing before/after 比較應
+  盡量使用 Java 21、相近 test inventory 與相同 command。
+* 不同 Java 版本、runner、dependency-cache 狀態或 command 的結果只能作方向性 evidence，
+  不得宣稱單一優化造成差異；量測結果不是固定 SLA，報告應記錄環境、command、inventory 與
+  變異限制（evaluation report convention 見上節）。
+* Wall-clock benchmark 只能作 supplemental observation；timing threshold 不得作為唯一
+  acceptance criterion（見 Bounded vector scalability evidence 節的對應語意）。
