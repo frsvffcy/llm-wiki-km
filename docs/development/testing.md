@@ -638,6 +638,27 @@ mvn clean verify -Pfull
 git diff --check
 ```
 
+## Source Chunk citation locator 測試責任（#293）
+
+`source.SourceChunkLocatorService` 是 cited Source Chunk 的 read-only navigation boundary：locator 只能由 canonical authority snapshot（`SourceSearchAuthorityRepository` + `SourceSearchEligibilityPolicy`，與 retrieval revalidation 同一 eligibility 契約）產生，永不參與 citation identity、dedupe、ranking 或 authority；`source.ChunkCurrentness`（`CURRENT`/`NOT_CURRENT` + 重用 `rag.AuthorityRejectionReason` reason code）表達檢視當下的 currentness。`source.SourceLocator` 為 forward-compatible contract（未來 layout-aware parser 可加 structural block id / bounding region；Tika 無 bounding box 時保持空值，不偽造 precision）。Citation identity（`SOURCE_CHUNK:<id>`）不變。
+
+Public 投影：`GET /api/v1/source-chunks/{chunkId}/locator`（既有 `SourceChunkController` 的 adapter-only 新增）與 `web.SourceLocatorResponse` 只含 safe 導航欄位與 bounded authoritative preview（≤1,600 code points + truncated flag）；**absolute path、`file://`、archive/SQLite/Graph internals、ArcadeDB RID、raw parser metadata、exception detail 一律不出現**。`NOT_CURRENT` 時不暴露任何內容（fail-closed），只回 chunk row 的誠實導航 metadata + typed reason；`unknown`/`other-workspace`/`DELETED document`/重新抽取後消失的 chunkId 皆為同一 safe `404 SOURCE_CHUNK_NOT_FOUND`（不洩漏存在性）。Inspector 完全 read-only（row counts 驗證），不 re-extract/re-chunk/rebuild。
+
+`source.SourceChunkLocatorServiceTest`（unit tier）持有 currentness 判定、preview bound、not-current 的 no-content 語意與 404/active-workspace typed failures。`web.SourceLocatorApiTest`（integration tier）持有 REST 投影契約與負向 leak 斷言。`source.SourceChunkLocatorIntegrationTest`（integration tier，真 SQLite）持有 current/ineligible/deleted/cross-workspace/unknown/re-extraction drift 與 read-only row counts。Browser：`ask-ui.js` 的 SOURCE citation 提供 safe locate button（`data-chunk-id`），`source-chunk-inspector-ui.js` 事件委託開啟 inspector；`src/test/js/source-chunk-inspector-ui.test.mjs`（Node 內建 runner，PR Fast job）持有 safe text rendering（無 innerHTML）、not-current/404 語意、repeated open 清除 stale previous locator（含 error/network）、靜態禁令（無 POST/mutation/extract、無 file://、無 raw internals 字樣）；`ask-ui.test.mjs` 同步回歸 citation button 契約。
+
+受影響測試與完整 gate：
+
+```bash
+node --test src/test/js/source-chunk-inspector-ui.test.mjs
+node --test src/test/js/ask-ui.test.mjs
+mvn -Dtest='SourceChunkLocatorServiceTest' test -Pfast
+mvn -Dtest='SourceChunkLocatorIntegrationTest,SourceLocatorApiTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
+
 ## Retrieval Inspector 測試責任（#292）
 
 Read-only Retrieval Inspector 是**觀察器，不是第二套 retrieval engine**：`rag.RetrievalInspectorService` 重用 production retrieval boundary（`RetrievalService.retrieve(request, collector)` 的 optional collector overload），Ask path 傳 null collector、行為零改變；Inspector 永不呼叫 Answer provider、不 rebuild/repair、不寫 canonical state。觀察到的 final evidence order 與 production Ask handoff **by construction 一致**（同一 execution）。
