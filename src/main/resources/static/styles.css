@@ -175,3 +175,28 @@ button:disabled { cursor: wait; opacity: 0.62; }
   margin: 0.25rem 0 1rem;
   padding-left: 1.25rem;
 }
+
+.citation-locate {
+  align-self: flex-start;
+  font-size: 0.85rem;
+}
+
+.inspector-metadata-line,
+.inspector-currentness,
+.inspector-not-current,
+.inspector-preview,
+.inspector-preview-truncated {
+  margin: 0.25rem 0;
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.inspector-currentness {
+  font-weight: 600;
+}
+
+.inspector-not-current,
+.inspector-preview-truncated {
+  color: #8a4b08;
+}

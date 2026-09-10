@@ -10,6 +10,7 @@
   <script type="module" src="/ask-ui.js"></script>
   <script type="module" src="/graph-operations-ui.js"></script>
   <script type="module" src="/retrieval-inspector-ui.js"></script>
+  <script type="module" src="/source-chunk-inspector-ui.js"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -173,6 +174,33 @@
       <div id="inspector-error" class="error-state" hidden>
         <p id="inspector-error-title"></p>
         <p id="inspector-error-message"></p>
+      </div>
+    </section>
+
+    <section id="source-chunk-inspector-panel" class="panel"
+             aria-labelledby="source-inspector-heading" aria-busy="false">
+      <div class="section-heading">
+        <h2 id="source-inspector-heading">來源片段檢視</h2>
+        <span class="status-dot" aria-hidden="true"></span>
+      </div>
+      <p class="panel-description">
+        點選回答中的來源 citation 後，於此檢視該片段的 canonical 位置與 bounded 預覽。
+        檢視器為唯讀，不會重新抽取、重建或修改任何資料。
+      </p>
+      <div id="source-inspector-loading" hidden>
+        <p class="form-hint">正在取得來源位置…</p>
+      </div>
+      <div id="source-inspector-result" class="inspector-result" hidden>
+        <div id="source-inspector-metadata"></div>
+        <div id="source-inspector-preview"></div>
+      </div>
+      <div id="source-inspector-not-found" class="empty-state" hidden>
+        <p id="source-inspector-not-found-title"></p>
+        <p id="source-inspector-not-found-message"></p>
+      </div>
+      <div id="source-inspector-error" class="error-state" hidden>
+        <p id="source-inspector-error-title"></p>
+        <p id="source-inspector-error-message"></p>
       </div>
     </section>
   </main>

@@ -24,6 +24,10 @@ class FakeElement {
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
   setAttribute(name, value) { this.attributes.set(name, value); }
+  getAttribute(name) {
+    if (typeof name !== "string") throw new TypeError("attribute name must be a string");
+    return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
   addEventListener(name, handler) { this.handlers.set(name, handler); }
   focus() { this.focused = true; }
 }
@@ -67,6 +71,26 @@ test("renders a normal answer and Wiki/Source provenance as text", () => {
     "Wiki <img onerror=alert(1)>");
   assert.equal(elements.citations.children[1].children[1].children[2].textContent,
     "頁碼：8 · section：Summary · chunk：2");
+});
+
+test("source citations expose a safe locate button and wiki citations do not", () => {
+  const elements = uiElements();
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED",
+    answer: "Answer",
+    insufficientEvidence: false,
+    citations: [
+      { evidenceKind: "SOURCE_CHUNK", provenance: { type: "SOURCE", documentName: "design.pdf", documentId: 900, sourceChunkId: 42, chunkNo: 3, pageNo: 17 } },
+      { evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Wiki", path: "vault/page.md", revision: 3 } }
+    ]
+  } }, documentRef);
+
+  const sourceItem = elements.citations.children[0];
+  const wikiItem = elements.citations.children[1];
+  const sourceButton = sourceItem.children[2];
+  assert.equal(sourceButton.className, "citation-locate");
+  assert.equal(sourceButton.attributes.get("data-chunk-id"), "42");
+  assert.equal(wikiItem.children.length, 2);
 });
 
 test("renders insufficient evidence separately from an answer", () => {

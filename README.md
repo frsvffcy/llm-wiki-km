@@ -137,7 +137,19 @@ candidates with modality-local ordinals, the active fusion policy version and fu
 canonical authority admission with typed rejection codes (lexical/vector
 `AuthorityRejectionReason`; graph reusing the graph evidence/projection taxonomies), typed
 modality degradation, and the final evidence order, which is identical to the Ask handoff
-because it is the same execution observed by an optional collector. The inspector never calls
+because it is the same execution observed by an optional collector. Every source citation in
+an answer is navigable: clicking it opens a read-only Source Chunk inspector backed by an
+application-owned locator (`GET /api/v1/source-chunks/{id}/locator`) that resolves the chunk
+against the active workspace and the same canonical eligibility contract retrieval revalidates
+against. Locators carry safe navigation metadata (document, chunk number, page, section,
+heading path) plus a bounded authoritative preview only while the chunk still matches
+canonical authority — a chunk that drifted after the answer is shown as explicitly
+not-current with a typed reason and no content, and re-extracted, unknown, or cross-workspace
+chunk ids all share the same safe not-found semantics. Citation identity never changes; the
+locator never participates in identity, ranking, or authority, never exposes filesystem
+paths, vendor ids, or raw parser metadata, renders source text safely as text only, never
+mutates canonical state, and is forward-compatible with future structural block ids or
+bounding regions from layout-aware parsers. The inspector never calls
 an answer provider, never mutates canonical state, exposes no raw backend scores, RIDs,
 tokens, fingerprints, or exception details, offers no ranking sliders, and adds no eighth
 ranking semantics beyond the existing seven public modes. A deterministic offline quality gate
