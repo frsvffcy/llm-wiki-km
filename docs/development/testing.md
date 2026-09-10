@@ -850,3 +850,54 @@ strategy 必須維持測試隔離：新增 persistent table 時同步檢查 rese
   變異限制（evaluation report convention 見上節）。
 * Wall-clock benchmark 只能作 supplemental observation；timing threshold 不得作為唯一
   acceptance criterion（見 Bounded vector scalability evidence 節的對應語意）。
+
+## Second-stage reranking evaluation 測試責任（#316）
+
+`rag.RerankEvaluationIntegrationTest`（integration tier）持有 second-stage reranking 的
+provider-free evaluation gate（corpus `rag.RerankEvaluationCorpusV1`，
+`rerank-evaluation-corpus-v1`，15 queries：zh-natural、zh-mixed-tech、exact error code
+（ORA-12899 類）、class token（NoSuchMethodError）、package token（jakarta.persistence）、
+property token（busy_timeout）、semantic paraphrase、exact-vs-semantic 競爭、
+multi-relevant、noise-high-similarity、graph-added、cross-modality（Wiki + SourceChunk）、
+stale/foreign negative、already-good、mixed content；late-relevant ranking
+由 exact-token 與 cross-modality queries 的 baseline rank > 1 情境涵蓋）。Baseline 是
+current production deterministic ranking（`GraphRetrievalQualityFixture` 的
+production-equivalent pipeline：真實 FTS cjk-bigram-v1、deterministic concept embeddings、
+真實 ArcadeDB projection traversal/admission、`fusion-rrf-v2-graph-damped` 融合，k=8）；
+candidates 是 evaluation-only deterministic 策略（`rag.SecondStageRerankPolicies`：
+`rerank-v1-exact-anchor` 技術 token 與 title/heading 錨點加權、
+`rerank-v1-coverage-blend` 覆蓋率與 baseline rank 混合；純 Java 字串/集合運算，tie-break
+回 baseline 順序，只 reorder 已 qualification 的 bundle items）。報告寫出
+`target/quality-reports/rerank-evaluation-v1.{json,md}`（Jackson JSON + Markdown，含
+branch/HEAD、git-ignored）。
+
+Blocking correctness gates（逐 rerank policy 套用，violation 標明 policy）：identity set
+完全保留（rerank 只 reorder 已 qualification 的 bundle items，不得復活、丟棄或重識別
+evidence）、forbidden identities（stale hash、deleted legacy chunk、外部 workspace）不得
+出現、EXACT_TOKEN query 的 reranked MRR 不得低於 baseline（exact technical-token
+protection；強於 aggregate gate）、graph-added 的 rank-retention gate（baseline 窗口含
+graph-only relevant 時 rerank 不得使其劣化）、already-good baseline 不得退化、determinism
+由二次執行的 reranked order 相等推導（不是 hardcoded flag）、per-query regression 逐條
+記錄（不得只以 aggregate 呈現）。Relevant identity 落在 baseline fused window 外是
+candidate-generation 訊號，記錄為 corpus window observation（不是 rerank correctness
+gate）：本 corpus 量測 second-stage reordering，candidate-generation 與 graph-added
+discovery 的 reachability 由 #272/#280 corpora 持有。Safety-negative query 以 1.0 計入
+mean（與 #272/#280 benchmark contract 相同，observation 記錄此 convention）。
+CONDITIONAL-GO 門檻 +0.05 mean MRR 是 corpus-scale heuristic（14+ query 規模下約三次
+one-rank 改善的等效值），deterministic 且僅對本 corpus 有效，不得解讀為 universal claim。
+
+量測（#316）：NO_RERANK mean MRR 0.6451、`rerank-v1-exact-anchor` 0.8833（per-query 零
+regression；exact-token class 0.1667～0.3333 → 0.25～1.0；property-token 由窗口外
+observation 如實記錄）、`rerank-v1-coverage-blend` 0.7444；rerank overhead scoped 到
+rerank call 本身（exact-anchor 6.7ms／coverage-blend 3.2ms per 全 corpus run；retrieval
+time 分開記錄）；無 model artifact、offline；correctness violations 為零。Local
+cross-encoder candidate 為 **feasibility NO-GO**（本 evaluation 不引入 local model
+runtime dependency；CI 保持 deterministic/provider-free；重評價需 dedicated adoption issue
+先證明 dependency、license、memory 與 reproducibility 約束）。決策：**CONDITIONAL GO
+（範圍窄）**——deterministic second-stage ordering 有 reproducible 增益且零 correctness
+regression，但 production adoption 必須另開 issue 定義 typed policy boundary（作用點在
+EvidenceBundle qualification 後、context packing 前）、exact-token protection gate、typed
+routing/no-op 語意、代表性 query 分佈確認與 versioned policy；adoption 改變 final Evidence
+order 後，#308 的 compaction benchmark 需以新 baseline 重新確認。本 Issue 無 production
+變更、不新增 public retrieval mode、不新增 evidence/retrieval_generation persistence。重跑
+命令：`mvn test -Dtest=RerankEvaluationIntegrationTest -Pintegration`。
