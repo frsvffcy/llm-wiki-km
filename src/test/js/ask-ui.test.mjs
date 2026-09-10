@@ -41,11 +41,41 @@ function uiElements() {
     empty: new FakeElement(), error: new FakeElement(), errorTitle: new FakeElement(),
     errorMessage: new FakeElement(), insufficient: new FakeElement(), answer: new FakeElement(),
     answerText: new FakeElement(), metadata: new FakeElement(), citations: new FakeElement(),
-    citationCount: new FakeElement()
+    citationCount: new FakeElement(), contextDiagnostics: new FakeElement(),
+    contextDiagnosticsList: new FakeElement()
   };
 }
 
 function event() { return { preventDefault() {} }; }
+
+function diagnosticsText(element) {
+  return element.children.map(row => row.children.map(child => child.textContent).join("::"))
+    .join("\n");
+}
+
+function contextDiagnostics() {
+  return {
+    retrievedEvidenceCount: 4,
+    admittedEvidenceCount: 3,
+    answerContextBlockCount: 2,
+    originalCodePoints: 120,
+    packedCodePoints: 80,
+    projectedCodePoints: 50,
+    reductionRatio: 0.583333,
+    truncated: true,
+    compacted: true,
+    contextPolicyVersion: "context-policy-v1-current",
+    projectionKindDistribution: { VERBATIM: 0, NO_OP: 0, EXTRACTIVE: 1, TRUNCATED: 1 },
+    projectionFallbackUsed: false,
+    projectionFailureType: null,
+    projectionLatencyMs: 2,
+    answerLatencyMs: 7,
+    providerUsageStatus: "AVAILABLE",
+    providerInputTokens: 31,
+    providerOutputTokens: 11,
+    providerTotalTokens: 42
+  };
+}
 
 test("validates empty questions and accepts trimmed Unicode questions", () => {
   assert.equal(validateQuestion("  \n"), "請先輸入問題。");
@@ -102,6 +132,96 @@ test("renders insufficient evidence separately from an answer", () => {
   assert.equal(elements.answer.hidden, true);
   assert.equal(elements.citations.children.length, 0);
   assert.equal(elements.metadata.hidden, true);
+});
+
+test("renders bounded context diagnostics including provider usage", () => {
+  const elements = uiElements();
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED",
+    answer: "grounded",
+    citations: [{ evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } }],
+    executionMetadata: { contextDiagnostics: contextDiagnostics() }
+  } }, documentRef);
+
+  assert.equal(elements.contextDiagnostics.hidden, false);
+  const rendered = diagnosticsText(elements.contextDiagnosticsList);
+  assert.match(rendered, /檢索 evidence::4/);
+  assert.match(rendered, /通過 admission 的 evidence::3/);
+  assert.match(rendered, /原始 code points::120/);
+  assert.match(rendered, /Packed code points::80/);
+  assert.match(rendered, /Projected code points::50/);
+  assert.match(rendered, /Reduction::58\.3%/);
+  assert.match(rendered, /Baseline truncated::是/);
+  assert.match(rendered, /Compacted::是/);
+  assert.match(rendered, /Projection 類型::EXTRACTIVE 1 · TRUNCATED 1/);
+  assert.match(rendered, /Provider usage::已取得/);
+  assert.match(rendered, /Provider input tokens::31/);
+  assert.match(rendered, /Provider total tokens::42/);
+});
+
+test("renders context diagnostics on insufficient evidence without calling a provider", () => {
+  const elements = uiElements();
+  const diagnostics = contextDiagnostics();
+  diagnostics.providerUsageStatus = "NOT_ATTEMPTED";
+  diagnostics.providerInputTokens = null;
+  diagnostics.providerOutputTokens = null;
+  diagnostics.providerTotalTokens = null;
+  renderAskResponse(elements, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true, citations: [],
+    executionMetadata: { contextDiagnostics: diagnostics }
+  } }, documentRef);
+
+  assert.equal(elements.insufficient.hidden, false);
+  assert.equal(elements.contextDiagnostics.hidden, false);
+  assert.match(diagnosticsText(elements.contextDiagnosticsList), /Provider usage::尚未呼叫/);
+  assert.match(diagnosticsText(elements.contextDiagnosticsList), /Provider input tokens::—/);
+});
+
+test("ignores malformed or stale context diagnostics safely", () => {
+  const elements = uiElements();
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED", answer: "first",
+    citations: [{ evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } }],
+    executionMetadata: { contextDiagnostics: contextDiagnostics() }
+  } }, documentRef);
+  assert.equal(elements.contextDiagnostics.hidden, false);
+  assert.ok(elements.contextDiagnosticsList.children.length > 0);
+
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED", answer: "second",
+    citations: [{ evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } }],
+    executionMetadata: { contextDiagnostics: "malformed" }
+  } }, documentRef);
+  assert.equal(elements.contextDiagnostics.hidden, true);
+  assert.equal(elements.contextDiagnosticsList.children.length, 0);
+});
+
+test("diagnostics use text nodes and reject secret-like free-form values", async () => {
+  const elements = uiElements();
+  const diagnostics = contextDiagnostics();
+  diagnostics.contextPolicyVersion = "/Users/private/prompt-secret";
+  diagnostics.projectionFailureType = "RID:secret-token";
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED", answer: "safe",
+    citations: [{ evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } }],
+    executionMetadata: { contextDiagnostics: diagnostics }
+  } }, documentRef);
+
+  const rendered = diagnosticsText(elements.contextDiagnosticsList);
+  assert.doesNotMatch(rendered, /private|prompt-secret|RID|secret-token/);
+  assert.match(rendered, /Context policy::—/);
+  assert.match(rendered, /Projection failure::—/);
+  const source = await readFile("src/main/resources/static/ask-ui.js", "utf8");
+  assert.doesNotMatch(source, /innerHTML/);
+
+  diagnostics.contextPolicyVersion = "RID:secret-token";
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED", answer: "safe",
+    citations: [{ evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } }],
+    executionMetadata: { contextDiagnostics: diagnostics }
+  } }, documentRef);
+  assert.match(diagnosticsText(elements.contextDiagnosticsList), /Context policy::—/);
+  assert.doesNotMatch(diagnosticsText(elements.contextDiagnosticsList), /RID|secret-token/);
 });
 
 test("clears stale metadata and preserves it for a valid successful payload", () => {

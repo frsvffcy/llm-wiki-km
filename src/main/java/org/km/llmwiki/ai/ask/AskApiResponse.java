@@ -3,10 +3,16 @@ package org.km.llmwiki.ai.ask;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.km.llmwiki.ai.answer.AnswerContextProvenance;
 import org.km.llmwiki.ai.answer.AnswerProviderMetadata;
+import org.km.llmwiki.ai.answer.AnswerContextDiagnostics;
+import org.km.llmwiki.ai.answer.ContextProjectionFailureType;
+import org.km.llmwiki.ai.answer.ProjectionKind;
+import org.km.llmwiki.ai.answer.ProviderUsageStatus;
 import org.km.llmwiki.rag.EvidenceKind;
 import org.km.llmwiki.rag.RetrievalDiagnostics;
 
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 /** Safe, provider-neutral response projection for the Ask REST API. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -19,6 +25,9 @@ public record AskApiResponse(
         ExecutionMetadata executionMetadata,
         RetrievalMetadata retrievalMetadata
 ) {
+
+    private static final Pattern SAFE_CONTEXT_POLICY_VERSION =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
 
     public AskApiResponse(AskStatus status, String answer, boolean insufficientEvidence,
                           List<Citation> citations, ProviderMetadata providerMetadata,
@@ -106,12 +115,65 @@ public record AskApiResponse(
             int retrievedEvidenceItems,
             int contextEvidenceItems,
             int contextCodePoints,
-            boolean contextTruncated
+            boolean contextTruncated,
+            ContextDiagnostics contextDiagnostics
     ) {
         static ExecutionMetadata from(AskExecutionMetadata metadata) {
             return new ExecutionMetadata(metadata.retrievedEvidenceItems(),
                     metadata.contextEvidenceItems(), metadata.contextCodePoints(),
-                    metadata.contextTruncated());
+                    metadata.contextTruncated(), ContextDiagnostics.from(metadata.contextDiagnostics()));
+        }
+    }
+
+    /** Safe context lifecycle and provider-measurement projection; never contains content. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ContextDiagnostics(
+            int retrievedEvidenceCount,
+            int admittedEvidenceCount,
+            int answerContextBlockCount,
+            int originalCodePoints,
+            int packedCodePoints,
+            int projectedCodePoints,
+            double reductionRatio,
+            boolean truncated,
+            boolean compacted,
+            String contextPolicyVersion,
+            Map<ProjectionKind, Integer> projectionKindDistribution,
+            boolean projectionFallbackUsed,
+            ContextProjectionFailureType projectionFailureType,
+            Long projectionLatencyMs,
+            Long answerLatencyMs,
+            ProviderUsageStatus providerUsageStatus,
+            Integer providerInputTokens,
+            Integer providerOutputTokens,
+            Integer providerTotalTokens
+    ) {
+        static ContextDiagnostics from(AnswerContextDiagnostics diagnostics) {
+            return new ContextDiagnostics(
+                    diagnostics.retrievedEvidenceCount(),
+                    diagnostics.admittedEvidenceCount(),
+                    diagnostics.answerContextBlockCount(),
+                    diagnostics.originalCodePoints(),
+                    diagnostics.packedCodePoints(),
+                    diagnostics.projectedCodePoints(),
+                    diagnostics.reductionRatio(),
+                    diagnostics.truncated(),
+                    diagnostics.compacted(),
+                    safeContextPolicyVersion(diagnostics.contextPolicyVersion()),
+                    diagnostics.projectionKindDistribution(),
+                    diagnostics.projectionFallbackUsed(),
+                    diagnostics.projectionFailureType(),
+                    diagnostics.projectionLatencyMs(),
+                    diagnostics.answerLatencyMs(),
+                    diagnostics.providerUsageStatus(),
+                    diagnostics.providerInputTokens(),
+                    diagnostics.providerOutputTokens(),
+                    diagnostics.providerTotalTokens());
+        }
+
+        private static String safeContextPolicyVersion(String value) {
+            return value != null && SAFE_CONTEXT_POLICY_VERSION.matcher(value).matches()
+                    ? value : null;
         }
     }
 

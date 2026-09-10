@@ -16,11 +16,25 @@ public record ContextProjectionResult(
         int originalCodePoints,
         int baselineCodePoints,
         int projectedCodePoints,
+        boolean baselineTruncated,
         double reductionRatio,
         List<ProjectedEvidenceBlock> blocks,
         boolean fallbackUsed,
         ContextProjectionFailureType failureType
 ) {
+    /** Source-compatible constructor for callers predating baseline truncation metadata. */
+    public ContextProjectionResult(String policyVersion, AnswerContext context,
+                                   int originalEvidenceCount, int projectedEvidenceCount,
+                                   int originalCodePoints, int baselineCodePoints,
+                                   int projectedCodePoints, double reductionRatio,
+                                   List<ProjectedEvidenceBlock> blocks, boolean fallbackUsed,
+                                   ContextProjectionFailureType failureType) {
+        this(policyVersion, context, originalEvidenceCount, projectedEvidenceCount,
+                originalCodePoints, baselineCodePoints, projectedCodePoints,
+                context != null && context.usage().truncated(), reductionRatio, blocks,
+                fallbackUsed, failureType);
+    }
+
     public ContextProjectionResult {
         if (policyVersion == null || policyVersion.isBlank()) {
             throw new IllegalArgumentException("policy version is required");
@@ -36,7 +50,12 @@ public record ContextProjectionResult(
             throw new IllegalArgumentException(
                     "projection must not exceed the bounded baseline code points");
         }
-        if (reductionRatio < 0.0d || reductionRatio > 1.0d) {
+        if (baselineTruncated != context.usage().truncated()) {
+            throw new IllegalArgumentException(
+                    "baseline truncation metadata must match the projected context usage");
+        }
+        if (!Double.isFinite(reductionRatio)
+                || reductionRatio < 0.0d || reductionRatio > 1.0d) {
             throw new IllegalArgumentException("reduction ratio must be between 0 and 1");
         }
         if (blocks == null || blocks.size() != context.blocks().size()) {
