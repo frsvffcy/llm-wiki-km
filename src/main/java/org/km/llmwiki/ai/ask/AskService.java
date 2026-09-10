@@ -3,7 +3,8 @@ package org.km.llmwiki.ai.ask;
 import org.km.llmwiki.ai.answer.AnswerClient;
 import org.km.llmwiki.ai.answer.AnswerClientException;
 import org.km.llmwiki.ai.answer.AnswerContext;
-import org.km.llmwiki.ai.answer.AnswerContextAssembler;
+import org.km.llmwiki.ai.answer.ContextProjectionResult;
+import org.km.llmwiki.ai.answer.EvidenceContextProjector;
 import org.km.llmwiki.ai.answer.AnswerResult;
 import org.km.llmwiki.ai.answer.AnswerFailureType;
 import org.km.llmwiki.ai.answer.CitationValidationException;
@@ -21,22 +22,23 @@ import java.util.Set;
 /**
  * Single application-level Ask orchestration boundary.
  *
- * <p>Retrieval owns candidate search and authority revalidation, context assembly owns the
- * second budget boundary, and AnswerClient owns grounded prompt/provider response validation.
- * This service coordinates those contracts without introducing controller, session, or agent
- * responsibilities.
+ * <p>Retrieval owns candidate search and authority revalidation, the evidence context
+ * projector owns the single context-packing boundary (baseline assembly plus the active
+ * versioned compaction policy), and AnswerClient owns grounded prompt/provider response
+ * validation. This service coordinates those contracts without introducing controller,
+ * session, or agent responsibilities.
  */
 @Service
 public class AskService {
 
     private final RetrievalService retrievalService;
-    private final AnswerContextAssembler contextAssembler;
+    private final EvidenceContextProjector contextProjector;
     private final AnswerClient answerClient;
 
-    public AskService(RetrievalService retrievalService, AnswerContextAssembler contextAssembler,
+    public AskService(RetrievalService retrievalService, EvidenceContextProjector contextProjector,
                       AnswerClient answerClient) {
         this.retrievalService = retrievalService;
-        this.contextAssembler = contextAssembler;
+        this.contextProjector = contextProjector;
         this.answerClient = answerClient;
     }
 
@@ -57,7 +59,9 @@ public class AskService {
                     List.of(), retrievalFailureDiagnostics(request, exception));
         }
 
-        AnswerContext context = contextAssembler.assemble(evidence, request.contextBudget());
+        ContextProjectionResult projection = contextProjector.project(evidence,
+                request.contextBudget());
+        AnswerContext context = projection.context();
         AskExecutionMetadata execution = new AskExecutionMetadata(evidence.items().size(),
                 context.usage().usedEvidenceItems(), context.usage().usedCodePoints(),
                 context.usage().truncated());

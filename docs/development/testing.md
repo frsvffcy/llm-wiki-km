@@ -742,3 +742,40 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Evidence Context Projection 測試責任（#309）
+
+`ai.answer.EvidenceContextProjector` / `ai.answer.EvidenceContextProjectorService` 是唯一的
+production context packing path（ADR 0013）：`AnswerContextAssembler` 先組 bounded baseline
+（canonical identity/citation/provenance/hash 權威，不改），再由 active versioned
+`AnswerContextCompactionPolicy` 對 baseline 做 deterministic 投影。Ask path
+（`ai.ask.AskService`）注入 `EvidenceContextProjector`（單一 call site），REST/Ask DTO 零變更。
+
+`ai.answer.AnswerContextCompactionPolicyRegistryTest`（unit tier）持有 policy registry
+契約：unknown version fail-fast、duplicate version 拒絕、blank version 拒絕、active
+resolution。`ai.answer.ContextPolicyV1CurrentTest`（unit tier）以 #308 corpus 全 14 cases
+鎖定 production default `context-policy-v1-current` 為 baseline 的 identity projection
+（逐 block byte-equivalent）且 kinds 只能是 `VERBATIM`/`TRUNCATED`（永不 `EXTRACTIVE`/
+`NO_OP`）。`ai.answer.EvidenceContextProjectorServiceTest`（unit tier）持有 projector
+邊界：identity projection 恆等 + 完整 typed metadata（policyVersion/counts/code points/
+reduction）、同輸入同輸出的 determinism、hostile policy 的 fail-closed（identity drift、
+多餘 block、budget 擴張 `PROJECTION_LIMIT_EXCEEDED`、謊報 truncation flag、null
+projection、blank version、policy runtime fault 全部 typed fallback）、fallback 一律回到
+bounded baseline（`fallbackUsed` + typed `ContextProjectionFailureType`，不得 silently
+unbounded），以及 explicit-policy overload 的 `EXTRACTIVE` 投影（壓縮不擴張、hash 恆等、
+reduction 誠實）。`ai.ask.AskServiceTest` 以 production projector 建構並維持 16 條 Ask
+orchestration 回歸（citation validation、typed retrieval/provider failure、budget、
+determinism）；`AskApiContractTest`/`AskApiIntegrationTest` 維持 REST 契約零變更回歸。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='AnswerContextCompactionPolicyRegistryTest,ContextPolicyV1CurrentTest,EvidenceContextProjectorServiceTest,AskServiceTest' test -Pfast
+mvn -Dtest='AnswerContextCompactionEvaluationTest' test -Pfast
+mvn -Dtest='AskApiContractTest' test -Pfast
+mvn -Dtest='AskApiIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
