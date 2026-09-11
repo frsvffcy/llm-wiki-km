@@ -1061,3 +1061,47 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Read-only local MCP adapter 測試責任（#327）
+
+`mcp.McpServerController`（`POST /api/mcp`）是 read-only-first、loopback-only 的 MCP
+Streamable HTTP 子集 adapter（JSON-RPC 2.0；initialize/ping/tools/list/tools/call；無 SSE
+streaming——spec 允許 server 直接回 JSON response）。**MCP 是另一個 adapter，不是新的
+authority**：tools 委派既有 application 契約的現有 controller boundaries（SystemStatus/
+Search/RetrievalInspector/SourceLocator/Ask——Ask/Inspector 經 controller bean 委派以共享
+同一 validation 與 safe DTO projection），不建第二套 retrieval/ask pipeline；MCP 不直接
+操作 SQLite/FS/ArcadeDB/sqlite-vec/provider endpoint/key。
+
+安全契約：整個 HTTP server 已綁 127.0.0.1（application.yml）——無 remote-bind 路徑；
+auth token 為 backend-only configuration（`app.mcp.enabled`/`app.mcp.auth-token`，
+env `MCP_ADAPTER_*`），**fail-closed**——unconfigured adapter 對任何 body deterministic 回
+503 `MCP_DISABLED`（never parse body），token 以 constant-time 比較（`MessageDigest.isEqual`）、
+wrong token 401 且不 echo token；request body hard bound（`app.mcp.max-body-bytes`，default
+256 KiB）在 decoded body 的 UTF-8 bytes 上 enforcement；malformed JSON 為 typed
+`INVALID_REQUEST`。
+
+Tool surface（`mcp.McpCapabilityManifest`）：`km_status`/`km_search`/`km_retrieval_inspect`/
+`km_source_locator`/`km_ask`——全部 read-only（無 canonical mutation、無 rebuild/repair、無
+config mutation；write tools deterministic `UNSUPPORTED_TOOL`）；annotations 是 client hint
+而 server 強制真正 boundary。Search/Inspector/Locator/Ask 完全重用既有 DTO projection
+（SearchResult/RetrievalInspectionResponse/SourceLocator/AskApiResponse——REST 與 MCP 零
+drift，無第二條 path）。Ask 的 egress disclosure 重用 #323 `ProviderEgressService` 的
+configuration-level descriptors（labelled `CONFIGURATION`）＋ #310 execution-level
+`ProviderUsageStatus`（labelled `EXECUTION`；`NOT_ATTEMPTED` 不誤報為已外送）。
+
+`mcp.McpServerContractTest`（disabled mode，integration tier）：disabled adapter 對
+malformed/oversized/任何 body 均 fail-closed `MCP_DISABLED` 無 token 洩漏。
+`mcp.McpEnabledModeContractTest`（enabled mode + `@DynamicPropertySource` token）：initialize
+protocol version 無 secrets、wrong token 401 不 echo、tools/list 只含五個 read-only tools
+（無 publish/rebuild/repair/backup 字樣）、oversized body 4xx、malformed JSON typed
+parse error、unknown tool 為 JSON-RPC result envelope `isError` + `UNSUPPORTED_TOOL`。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='McpServerContractTest,McpEnabledModeContractTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
