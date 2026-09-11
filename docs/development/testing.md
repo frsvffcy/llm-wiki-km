@@ -1071,9 +1071,10 @@ tools/call；bounded legacy `2025-06-18` 才使用 initialize/initialized flow�
 decision為 `KEEP_CUSTOM_CODEC`，完整 evidence與重評門檻見
 `docs/development/issue-330-mcp-transport-compatibility.md`。本版無 SSE streaming；server直接回
 JSON response。**MCP 是另一個 adapter，不是新的
-authority**：tools 委派既有 application 契約的現有 controller boundaries（SystemStatus/
-Search/RetrievalInspector/SourceLocator/Ask——Ask/Inspector 經 controller bean 委派以共享
-同一 validation 與 safe DTO projection），不建第二套 retrieval/ask pipeline；MCP 不直接
+authority**：tools 委派既有 application 契約的 shared application boundaries（SystemStatus/
+Search/RetrievalInspector/SourceLocator/Ask——Ask 經 `ai.ask.AskApplicationService`，
+Inspector 經 `web.RetrievalInspectionMapper`＋`rag.RetrievalInspectorService`；見 #331 節），
+不建第二套 retrieval/ask pipeline；MCP 不直接
 操作 SQLite/FS/ArcadeDB/sqlite-vec/provider endpoint/key。
 
 安全／validation ordering固定：exact Host/Origin loopback guard → enabled/token → media semantics →
@@ -1108,6 +1109,49 @@ unknown write-like tool、safe error/egress無跨 request bleed等 deterministic
 
 ```bash
 mvn -Dtest='McpServerContractTest,McpEnabledModeContractTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
+
+## MCP shared application boundary 與 adapter dependency guard 測試責任（#331）
+
+`ai.ask.AskApplicationService` 是 REST 與 MCP 共用的 Ask application boundary：strict request
+parsing（`AskApiRequest.fromJson` 規則）、`AskService` orchestration 委派、`AskResult`→
+`AskApiResponse` safe projection、`FAILED`→`AskApiException` typed mapping 四者各只有一份
+實作。`AskController` 與 `mcp.McpToolExecutor` 都只呼叫此 boundary 再各自套用 transport
+envelope（REST `ApiResponse`／MCP JSON-RPC result），不互相呼叫 adapter；`AskService` 仍是
+唯一 orchestration authority。`web.RetrievalInspectionMapper`（pure static：strict query
+validation＋safe report projection，逐字搬移自 controller）同理被兩 adapter 共用；
+`RetrievalInspectorService` 仍是唯一 execution path。MCP ask payload 為 `AskApiResponse`
+本體（不再含 `ApiResponse` HTTP wrapper）；egress EXECUTION 行改從 `AskResult`
+application 物件讀取（`executionMetadata().contextDiagnostics().providerUsageStatus()`），
+不再經 REST response object。
+
+`mcp.McpAdapterDependencyGuardTest`（unit tier）為 executable architecture guard：掃描
+compiled production classes 的 constant pool（含 descriptor-embedded 型別），斷言 mcp
+package 不引用任何 `@RestController` 類別、且 `@RestController` 不引用 mcp package——
+annotation-based（改名 controller 名稱無法繞過），掃描失敗即測試失敗。Guard 已以臨時違規
+import falsify 驗證會 fire。
+
+`mcp.McpAdapterParityTest`（unit tier）以受控 doubles 驗證 REST↔MCP application-field
+parity（非 JSON byte-equivalent）：answered ask 全欄位相等＋citations/order＋execution
+metadata（含 rerank 欄位）＋`NOT_ATTEMPTED`/`UNAVAILABLE` egress 行；no-evidence 兩側同為
+`INSUFFICIENT_EVIDENCE`；provider failure 同一 `AskFailureType` 且兩側 envelope 各自正確、
+secret 不洩漏；invalid mode 同訊息拒絕；inspector insufficient/degraded 報告全等；
+unknown chunk 同為 typed `NOT_FOUND` 無存在性洩漏；envelope 分離（MCP payload 無 `data`、
+REST payload 無 MCP envelope 欄位）。
+`mcp.McpAdapterParityIntegrationTest`（integration tier，真實 stack＋最小 fixture）驗證
+production wiring 下的 parity：evidence-bearing inspector 報告全等＋finalEvidence 內容、
+graph-disabled degradation diagnostics 全等且非 healthy、disabled-provider ask 同一 failure
+type、status tool 委派一致。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='McpAdapterDependencyGuardTest,McpAdapterParityTest' test -Pfast
+mvn -Dtest='McpAdapterParityIntegrationTest,AskApiIntegrationTest,RetrievalInspectorApiTest' test -Pintegration
 mvn test -Pfast
 mvn test -Pintegration
 mvn clean verify -Pfull
