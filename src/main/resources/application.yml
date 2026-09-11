@@ -64,6 +64,8 @@ app:
   rag:
     fusion:
       policy-version: ${KM_RAG_FUSION_POLICY_VERSION:fusion-rrf-v2-graph-damped}
+    rerank:
+      policy-version: ${KM_RAG_RERANK_POLICY_VERSION:rerank-policy-v1-exact-anchor}
 
 server:
   address: 127.0.0.1

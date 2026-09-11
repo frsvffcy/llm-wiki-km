@@ -57,7 +57,7 @@ class AskServiceTest {
                 false, METADATA, Optional.empty());
         RetrievalService retrieval = retrievalReturning(bundle);
 
-        AskResult result = new AskService(retrieval, projector(),
+        AskResult result = new AskService(retrieval, projector(), noopRerank(),
                 StubAnswerClient.returning(generated)).ask(
                         AskRequest.defaults("What is the design?", RetrievalMode.HYBRID_FTS));
 
@@ -78,6 +78,13 @@ class AskServiceTest {
         assertThat(execution.contextEvidenceItems()).isEqualTo(2);
         assertThat(execution.contextCodePoints()).isEqualTo(20);
         assertThat(execution.contextTruncated()).isFalse();
+        // The active rerank policy executes on every ask (order-preserving for the noop
+        // version); its execution metadata is typed and additive.
+        assertThat(execution.rerankStatus()).isEqualTo(
+                org.km.llmwiki.rag.RerankStatus.APPLIED);
+        assertThat(execution.rerankPolicyVersion()).isEqualTo(
+                org.km.llmwiki.rag.SecondStageRerankPolicy.NoOp.VERSION);
+        assertThat(execution.rerankNoOpReason()).isNull();
         assertThat(execution.contextDiagnostics()).satisfies(diagnostics -> {
             assertThat(diagnostics.retrievedEvidenceCount()).isEqualTo(2);
             assertThat(diagnostics.admittedEvidenceCount()).isEqualTo(2);
@@ -106,7 +113,7 @@ class AskServiceTest {
             throw new AssertionError("provider must not be called");
         };
 
-        AskResult result = new AskService(retrieval, projector(), provider)
+        AskResult result = new AskService(retrieval, projector(), noopRerank(), provider)
                 .ask(AskRequest.defaults("unknown", RetrievalMode.WIKI_ONLY));
 
         assertThat(result.status()).isEqualTo(AskStatus.INSUFFICIENT_EVIDENCE);
@@ -127,7 +134,7 @@ class AskServiceTest {
                     METADATA, Optional.empty());
         };
 
-        AskResult result = new AskService(retrievalReturning(bundle), projector(),
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
                 provider).ask(AskRequest.defaults("mixed", RetrievalMode.WIKI_ONLY));
 
         assertThat(result.successful()).isTrue();
@@ -147,7 +154,7 @@ class AskServiceTest {
             throw new AssertionError("provider must not be called");
         };
 
-        AskResult result = new AskService(retrieval, projector(), provider)
+        AskResult result = new AskService(retrieval, projector(), noopRerank(), provider)
                 .ask(AskRequest.defaults("question", RetrievalMode.HYBRID_FTS));
 
         assertThat(result.status()).isEqualTo(AskStatus.FAILED);
@@ -176,7 +183,7 @@ class AskServiceTest {
             throw new AssertionError("provider must not be called");
         };
 
-        AskResult result = new AskService(retrieval, projector(), provider)
+        AskResult result = new AskService(retrieval, projector(), noopRerank(), provider)
                 .ask(AskRequest.defaults("question", mode));
 
         assertThat(result.failure()).hasValueSatisfying(failure -> {
@@ -201,7 +208,7 @@ class AskServiceTest {
                 RetrievalUnavailableException.Dependency.VECTOR_SEARCH,
                 new IllegalStateException("vector unavailable")));
 
-        AskResult result = new AskService(retrieval, projector(),
+        AskResult result = new AskService(retrieval, projector(), noopRerank(),
                 request -> {
                     throw new AssertionError("provider must not be called");
                 }).ask(AskRequest.defaults("question", RetrievalMode.HYBRID_VECTOR));
@@ -223,7 +230,7 @@ class AskServiceTest {
                 RetrievalUnavailableException.Dependency.SEARCH_INDEX,
                 new IllegalStateException("database unavailable")));
 
-        AskResult result = new AskService(retrieval, projector(),
+        AskResult result = new AskService(retrieval, projector(), noopRerank(),
                 request -> {
                     throw new AssertionError("provider must not be called");
                 }).ask(AskRequest.defaults("question", RetrievalMode.HYBRID_GRAPH));
@@ -253,7 +260,7 @@ class AskServiceTest {
             throw new AssertionError("provider must not be called");
         };
 
-        AskResult result = new AskService(retrieval, projector(), provider)
+        AskResult result = new AskService(retrieval, projector(), noopRerank(), provider)
                 .ask(AskRequest.defaults("question", RetrievalMode.HYBRID_GRAPH));
 
         assertThat(result.status()).isEqualTo(AskStatus.FAILED);
@@ -271,7 +278,7 @@ class AskServiceTest {
     void hybridDiagnosticsAreCarriedToAskResult() {
         EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")),
                 RetrievalDiagnostics.degradedHybrid("vector unavailable"));
-        AskResult result = new AskService(retrievalReturning(bundle), projector(),
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
                 StubAnswerClient.returning(new AnswerResult("grounded", List.of("E1"), false,
                         METADATA, Optional.empty())))
                 .ask(AskRequest.defaults("question", RetrievalMode.HYBRID_VECTOR));
@@ -293,7 +300,7 @@ class AskServiceTest {
     })
     void providerFailuresRemainTypedAndRetainSuppliedEvidence(AnswerFailureType providerFailure) {
         EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")));
-        AskResult result = new AskService(retrievalReturning(bundle), projector(),
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
                 StubAnswerClient.failing(providerFailure, "authorization: Bearer secret"))
                 .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
 
@@ -310,7 +317,7 @@ class AskServiceTest {
     @Test
     void hallucinatedCitationIsAnInvalidGenerationFailure() {
         EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")));
-        AskResult result = new AskService(retrievalReturning(bundle), projector(),
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
                 StubAnswerClient.returning(new AnswerResult("hallucinated", List.of("E99"), false,
                         METADATA, Optional.empty())))
                 .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
@@ -331,7 +338,7 @@ class AskServiceTest {
         };
 
         assertThatThrownBy(() -> new AskService(retrievalReturning(bundle),
-                projector(), provider)
+                projector(), noopRerank(), provider)
                 .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY)))
                 .isSameAs(unexpected);
     }
@@ -348,7 +355,7 @@ class AskServiceTest {
                     Optional.empty());
         };
 
-        AskResult result = new AskService(retrievalReturning(bundle), projector(), provider)
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(), provider)
                 .ask(new AskRequest("question", RetrievalMode.WIKI_ONLY, 8, 100,
                         new AnswerContextBudget(8, 3, 5), new AnswerGenerationOptions(20)));
 
@@ -378,7 +385,7 @@ class AskServiceTest {
         AnswerResult generated = new AnswerResult("回答", List.of("E1"), false, METADATA,
                 Optional.of(usage));
 
-        AskResult result = new AskService(retrievalReturning(bundle), projector(),
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
                 StubAnswerClient.returning(generated))
                 .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
 
@@ -399,7 +406,7 @@ class AskServiceTest {
     void providerFailureReportsUnavailableUsageWithoutLeakingProviderDiagnostic() {
         EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")));
 
-        AskResult result = new AskService(retrievalReturning(bundle), projector(),
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
                 StubAnswerClient.failing(AnswerFailureType.PROVIDER_SERVER_FAILURE,
                         "provider payload secret-token /Users/private/prompt"))
                 .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
@@ -431,7 +438,7 @@ class AskServiceTest {
                 RetrievalUnavailableException.Dependency.SEARCH_INDEX,
                 new IllegalStateException("private search path")));
 
-        AskResult result = new AskService(retrieval, projector(), request -> {
+        AskResult result = new AskService(retrieval, projector(), noopRerank(), request -> {
             throw new AssertionError("provider must not be called");
         }).ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
 
@@ -455,7 +462,7 @@ class AskServiceTest {
         RetrievalService retrieval = mock(RetrievalService.class);
         when(retrieval.retrieve(any())).thenAnswer(invocation -> retrievalCalls.getAndIncrement() == 0
                 ? firstBundle : secondBundle);
-        AskService service = new AskService(retrieval, projector(),
+        AskService service = new AskService(retrieval, projector(), noopRerank(),
                 StubAnswerClient.returning(new AnswerResult("回答", List.of("E1"), false,
                         METADATA, Optional.empty())));
 
@@ -477,7 +484,7 @@ class AskServiceTest {
         AnswerClient provider = request -> new AnswerResult("a".repeat(21), List.of("E1"), false,
                 METADATA, Optional.empty());
 
-        AskResult result = new AskService(retrievalReturning(bundle), projector(), provider)
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(), provider)
                 .ask(new AskRequest("question", RetrievalMode.WIKI_ONLY, 8, 100,
                         AnswerContextBudget.DEFAULT, new AnswerGenerationOptions(20)));
 
@@ -489,7 +496,7 @@ class AskServiceTest {
     @Test
     void deterministicStubProducesTheSameAskResultForTheSameInput() {
         EvidenceBundle bundle = bundle(List.of(wiki("one", "One", "vault/one.md", "fact")));
-        AskService service = new AskService(retrievalReturning(bundle), projector(),
+        AskService service = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
                 StubAnswerClient.returning(new AnswerResult("deterministic", List.of("E1"), false,
                         METADATA, Optional.empty())));
 
@@ -507,6 +514,13 @@ class AskServiceTest {
         assertThatThrownBy(() -> new AskRequest("question", RetrievalMode.WIKI_ONLY,
                 null, AskRequest.MAX_RETRIEVAL_CHARACTERS + 1, null, null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static org.km.llmwiki.rag.SecondStageRerankService noopRerank() {
+        return new org.km.llmwiki.rag.SecondStageRerankService(
+                new org.km.llmwiki.rag.SecondStageRerankPolicyRegistry(
+                        java.util.List.of(new org.km.llmwiki.rag.SecondStageRerankPolicy.NoOp()),
+                        org.km.llmwiki.rag.SecondStageRerankPolicy.NoOp.VERSION));
     }
 
     private static EvidenceContextProjector projector() {

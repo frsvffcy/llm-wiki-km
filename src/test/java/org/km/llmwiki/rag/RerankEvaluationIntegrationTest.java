@@ -151,6 +151,9 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
                     corpusObservationList.add(observation);
                 }
             });
+            ModeRun evaluationWinnerRun = runs.stream()
+                    .filter(run -> run.policy().equals("rerank-v1-exact-anchor"))
+                    .findFirst().orElseThrow();
             // A second identical pass must be exactly reproducible for every deterministic
             // policy: the reranked order (not the baseline order) is what must repeat.
             for (SecondStageRerankPolicy candidate : candidates.stream().skip(1).toList()) {
@@ -169,6 +172,40 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
             boolean exactReproducible = violations.stream()
                     .noneMatch(violation -> violation.startsWith("non-reproducible"));
 
+            // Production adoption regression (#326): the production boundary (registry +
+            // executor) must reproduce the #316 winner's behavior on the same corpus and must
+            // satisfy the same blocking gates as the evaluation candidates.
+            org.km.llmwiki.rag.SecondStageRerankService productionRerank =
+                    new org.km.llmwiki.rag.SecondStageRerankService(
+                            new org.km.llmwiki.rag.SecondStageRerankPolicyRegistry(
+                                    java.util.List.of(
+                                            new org.km.llmwiki.rag
+                                                    .SecondStageRerankPolicy.NoOp(),
+                                            new org.km.llmwiki.rag.ExactAnchorRerankPolicyV1()),
+                                    ExactAnchorRerankPolicyV1.VERSION));
+            ModeRun productionRun = runProductionPolicy(productionRerank, orchestrator,
+                    retrievalService, queries, forbidden, violations);
+            ModeRun productionRepeat = runProductionPolicy(productionRerank, orchestrator,
+                    retrievalService, queries, forbidden, violations);
+            for (int index = 0; index < productionRun.queries().size(); index++) {
+                if (!productionRun.queries().get(index).reranked()
+                        .equals(productionRepeat.queries().get(index).reranked())) {
+                    violations.add("non-reproducible production rerank order at "
+                            + queries.get(index).id());
+                }
+                // Parity with the evaluation winner: the production policy's ordering must be
+                // identical to the evaluation-only exact-anchor candidate.
+                if (!productionRun.queries().get(index).reranked()
+                        .equals(evaluationWinnerRun.queries().get(index).reranked())) {
+                    violations.add("production rerank policy diverged from the #316 winner at "
+                            + queries.get(index).id());
+                }
+            }
+            exactReproducible = exactReproducible && violations.stream()
+                    .noneMatch(violation -> violation.startsWith("non-reproducible"));
+            runs.add(productionRun);
+            runs.add(productionRepeat);
+
             Decision decision = decide(runs, violations, exactReproducible);
             writeReports(runs, decision, violations, projection, corpusObservationList,
                     exactReproducible);
@@ -181,6 +218,61 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
 
     private record ModeRun(String policy, List<QueryRun> queries, List<List<String>> orders,
                            long rerankOverheadNanos, long retrievalNanos) {
+    }
+
+    /**
+     * Runs the production rerank boundary (registry + executor with the exact-anchor policy)
+     * over the production retrieval output for every corpus query. The production executor's
+     * blocking invariants and the corpus-level quality gates therefore cover the adopted
+     * production policy, not only the evaluation candidates.
+     */
+    private ModeRun runProductionPolicy(
+            org.km.llmwiki.rag.SecondStageRerankService rerankService,
+            FusedRetrievalOrchestrator orchestrator, RetrievalService retrievalService,
+            List<GoldenQuery> queries, List<String> forbidden, List<String> violations) {
+        List<QueryRun> queryRuns = new ArrayList<>();
+        List<List<String>> orders = new ArrayList<>();
+        long rerankOverheadTotal = 0L;
+        long retrievalStartedAt = System.nanoTime();
+        Map<String, EvidenceBundle> baselineBundles = new LinkedHashMap<>();
+        for (GoldenQuery query : queries) {
+            baselineBundles.put(query.id(), orchestrator.retrieveFused(
+                    RetrievalRequest.defaults(query.text(), RetrievalMode.HYBRID_GRAPH)));
+        }
+        long retrievalNanos = System.nanoTime() - retrievalStartedAt;
+        for (GoldenQuery query : queries) {
+            EvidenceBundle baseline = baselineBundles.get(query.id());
+            List<String> baselineOrder = baseline.items().stream()
+                    .map(EvidenceItem::stableIdentity).toList();
+            orders.add(baselineOrder);
+            long rerankStartedAt = System.nanoTime();
+            org.km.llmwiki.rag.RerankResult rerank =
+                    rerankService.apply(baseline);
+            long rerankOverhead = System.nanoTime() - rerankStartedAt;
+            rerankOverheadTotal += rerankOverhead;
+            List<String> rerankedOrder = rerank.orderedItems().stream()
+                    .map(EvidenceItem::stableIdentity).toList();
+            boolean graphOnlyRetained = query.graphOnlyRelevant().stream()
+                    .allMatch(identity -> rerankedOrder.indexOf(identity)
+                            >= baselineOrder.indexOf(identity))
+                    || query.graphOnlyRelevant().isEmpty();
+            for (String identity : rerankedOrder) {
+                if (forbidden.contains(identity)) {
+                    violations.add(query.id() + "/" + rerank.policyVersion()
+                            + ": production rerank surfaced forbidden identity " + identity);
+                }
+            }
+            queryRuns.add(new QueryRun(query.id(), query.queryClass(),
+                    List.copyOf(query.relevant()), baselineOrder, rerankedOrder,
+                    mrr(baselineOrder, query.relevant()), mrr(rerankedOrder, query.relevant()),
+                    recallAtK(baselineOrder, query.relevant()),
+                    recallAtK(rerankedOrder, query.relevant()),
+                    precisionAtK(rerankedOrder, query.relevant()),
+                    query.graphOnlyRelevant().stream().filter(baselineOrder::contains).toList(),
+                    graphOnlyRetained));
+        }
+        return new ModeRun("rerank-policy-v1-exact-anchor [production]", queryRuns, orders,
+                rerankOverheadTotal, retrievalNanos);
     }
 
     private record QueryRun(String queryId, String queryClass, List<String> relevant,
