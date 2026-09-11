@@ -1,0 +1,38 @@
+name: Main Merge Guard
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: main-merge-guard-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  post-merge-guard:
+    name: Post-merge auto-close guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Merge-time commit messages typed into the GitHub merge UI are invisible to the
+      # pre-merge PR metadata check (#357 AC C); this guard inspects the actual merge/push
+      # commit message and deterministically reopens prematurely auto-closed Issues.
+      - name: Audit merge commit message for closing keywords
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/audit-merge-commit.mjs
+      - name: Audit repository merge settings contract
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/audit-merge-settings.mjs
