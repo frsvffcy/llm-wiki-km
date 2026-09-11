@@ -28,7 +28,8 @@ class McpServerContractTest extends IsolatedIntegrationTest {
     void disabledAdapterFailsClosedWithTypedErrorAndNoLeak() throws Exception {
         // Default test configuration: app.mcp.enabled=false → deterministic MCP_DISABLED.
         // The disabled gate still decides first (nothing is dispatched); the error
-        // envelope best-effort echoes the request id when the body happens to parse (#345).
+        // envelope best-effort echoes the request id when the body happens to parse (#345),
+        // through the shared classifier — illegal id types collapse to null (#350).
         mockMvc.perform(post("/api/mcp").header("Host", "localhost")
                         .header("Accept", "application/json, text/event-stream")
                         .contentType("application/json")
@@ -37,6 +38,15 @@ class McpServerContractTest extends IsolatedIntegrationTest {
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .contains("MCP_DISABLED", "\"id\":1")
                         .doesNotContain("Bearer", "secret"));
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header("Accept", "application/json, text/event-stream")
+                        .contentType("application/json")
+                        .content("{\"jsonrpc\":\"2.0\",\"id\":{\"secret\":\"x\"},"
+                                + "\"method\":\"tools/list\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("MCP_DISABLED", "\"id\":null")
+                        .doesNotContain("secret"));
     }
 
     @Test

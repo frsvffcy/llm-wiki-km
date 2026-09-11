@@ -62,8 +62,45 @@ public final class McpJsonRpc {
         return method != null && method.isTextual() ? method.textValue() : null;
     }
 
-    public static JsonNode id(JsonNode request) {
-        return request == null || !request.has("id") ? null : request.get("id");
+    /** JSON-RPC request-id classification (#350): the single id-grammar authority. */
+    public enum RequestIdType {
+        /** No {@code id} member: a notification, or undetectable for correlation. */
+        ABSENT,
+        /** A legal correlation id: JSON string, or integral JSON number (the adapter
+         * enforces the integral form JSON-RPC merely recommends — fractional ids are
+         * INVALID, matching the project request contract). */
+        VALID,
+        /** A present id violating the JSON-RPC type contract: boolean, object, array,
+         * fractional number, or explicit null (project policy treats explicit null as
+         * non-correlatable). Never reflected into any response id. */
+        INVALID
+    }
+
+    public record RequestIdClassification(RequestIdType type, JsonNode value) {
+    }
+
+    /**
+     * Single request-id grammar shared by normal request validation and the transport
+     * error-echo path, so the two surfaces can never drift (#350). Per JSON-RPC 2.0 an
+     * id is String, Number, or Null; this adapter accepts String and integral numbers
+     * only — boolean, object, array, fractional, and explicit-null ids are INVALID and
+     * must collapse to a null response id.
+     */
+    public static RequestIdClassification classifyRequestId(JsonNode request) {
+        JsonNode id = request == null ? null : request.get("id");
+        if (id == null || id.isMissingNode()) {
+            return new RequestIdClassification(RequestIdType.ABSENT, null);
+        }
+        if (id.isTextual() || id.isIntegralNumber()) {
+            return new RequestIdClassification(RequestIdType.VALID, id);
+        }
+        return new RequestIdClassification(RequestIdType.INVALID, null);
+    }
+
+    /** The correlation id to echo in a response envelope: VALID values only, else null. */
+    public static JsonNode echoableRequestId(JsonNode request) {
+        RequestIdClassification classification = classifyRequestId(request);
+        return classification.type() == RequestIdType.VALID ? classification.value() : null;
     }
 
     public static JsonNode params(JsonNode request) {

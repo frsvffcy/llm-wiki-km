@@ -505,6 +505,98 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void transportErrorEchoReflectsOnlyLegalJsonRpcRequestIds() throws Exception {
+        // #350: the #345 echo best-effort must respect the JSON-RPC id type contract —
+        // structured/boolean ids are never reflected (no client-supplied object content
+        // in any error envelope), while legal string/numeric ids still correlate.
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token")
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("application/json")
+                        .content("{\"jsonrpc\":\"2.0\",\"id\":{\"secret\":\"x\"},"
+                                + "\"method\":\"tools/list\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null")
+                        .doesNotContain("secret"));
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token")
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("application/json")
+                        .content("{\"jsonrpc\":\"2.0\",\"id\":true,\"method\":\"tools/list\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null").doesNotContain("true"));
+        mockMvc.perform(base("{\"jsonrpc\":\"2.0\",\"id\":[1,2],\"method\":\"tools/list\"}")
+                        .header("Origin", "https://evil.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null").doesNotContain("[1,2]"));
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token")
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("application/json")
+                        .content("{\"jsonrpc\":\"2.0\",\"id\":\"req-1\",\"method\":\"tools/list\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":\"req-1\"").doesNotContain(TOKEN));
+        mockMvc.perform(base("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/list\",\"params\":{}}")
+                        .header("Origin", "https://evil.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":9"));
+    }
+
+    @Test
+    void missingAndExplicitNullIdsStayNullWhileEarlyErrorsStillRespond() throws Exception {
+        // Notifications are undetectable for correlation, and explicit null ids are
+        // non-correlatable per project policy — but early HTTP failures still answer.
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token")
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("application/json")
+                        .content("{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null"));
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token")
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("application/json")
+                        .content("{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"tools/list\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null"));
+    }
+
+    @Test
+    void protocolValidationErrorsUseTheSameRequestIdClassifier() throws Exception {
+        // The -32600/-32020 plane echoes through the same classifier: illegal ids
+        // collapse to null there too, and fractional ids stay invalid on both paths.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":{"x":1},"method":"tools/list","params":{%s}}"""
+                .formatted(META), "tools/list", null))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null").doesNotContain("\"x\":1"));
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":9.5,"method":"tools/list","params":{%s}}"""
+                .formatted(META), "tools/list", null))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null"));
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":null,"method":"notifications/initialized"}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32600", "\"id\":null"));
+        // Normal notification semantics (absent id) are untouched.
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","method":"notifications/initialized"}"""))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
     void toolErrorsAndEgressProjectionDoNotBleedAcrossRequests() throws Exception {
         mockMvc.perform(modern("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/call",

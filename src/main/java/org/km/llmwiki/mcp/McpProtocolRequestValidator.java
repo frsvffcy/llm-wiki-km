@@ -81,7 +81,9 @@ final class McpProtocolRequestValidator {
                 || "initialize".equals(method)) {
             return Validation.invalid(HEADER_MISMATCH, "protocol-era header mismatch", null);
         }
-        boolean notification = "notifications/initialized".equals(method) && !request.has("id");
+        boolean notification = "notifications/initialized".equals(method)
+                && McpJsonRpc.classifyRequestId(request).type()
+                        == McpJsonRpc.RequestIdType.ABSENT;
         if (!notification && !validRequestId(request)) {
             return Validation.invalid(-32600, "INVALID_REQUEST", null);
         }
@@ -130,9 +132,14 @@ final class McpProtocolRequestValidator {
                 && !implementation.path("version").asText().isBlank();
     }
 
+    /**
+     * Request-id legality delegates to the shared {@link McpJsonRpc#classifyRequestId}
+     * grammar (#350): String or integral-number ids only — boolean, object, array,
+     * fractional, and explicit-null ids are invalid requests, and the same classifier
+     * keeps the transport error-echo path from ever reflecting them.
+     */
     private static boolean validRequestId(JsonNode request) {
-        JsonNode id = request.get("id");
-        return id != null && !id.isNull() && (id.isTextual() || id.isIntegralNumber());
+        return McpJsonRpc.classifyRequestId(request).type() == McpJsonRpc.RequestIdType.VALID;
     }
 
     private static String decodePlainHeader(String value) {
