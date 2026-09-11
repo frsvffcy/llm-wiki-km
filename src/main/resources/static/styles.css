@@ -271,3 +271,114 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .ai-egress-metric { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
 .ai-egress-metric dt { font-weight: 600; }
 .ai-egress-metric dd { margin: 0; overflow-wrap: anywhere; }
+
+/* --- Multi-view navigation shell (#352) --- */
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0 4px;
+}
+.app-nav a {
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.app-nav a:hover { border-color: var(--accent); color: var(--accent-dark); }
+.app-nav a[aria-current="page"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+.view[hidden] { display: none; }
+.view > h2 { margin: 20px 0 8px; font-size: 1.5rem; letter-spacing: -0.02em; }
+.view > h2:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+/* --- Workspace panel (#352) --- */
+.workspace-current { margin: 12px 0; }
+.workspace-current-name { font-weight: 700; font-size: 1.05rem; margin-bottom: 4px; }
+.workspace-current-path,
+.workspace-current-status { margin-bottom: 4px; color: var(--muted); }
+.workspace-layout { margin: 8px 0 4px; font-weight: 600; }
+.workspace-layout--ok { color: var(--accent-dark); }
+.workspace-layout--broken { color: var(--danger); }
+.workspace-problem { color: var(--danger); }
+.workspace-repaired { color: var(--accent-dark); }
+.workspace-list { list-style: none; margin: 0; padding: 0; }
+.workspace-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-list-name { font-weight: 600; }
+.workspace-list-meta { color: var(--muted); }
+.workspace-list-current {
+  color: var(--accent-dark);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+/* --- Inbox panel (#352) --- */
+.inbox-list { list-style: none; margin: 0; padding: 0; }
+.inbox-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.inbox-file-name { font-weight: 600; margin-bottom: 2px; }
+.inbox-item-meta,
+.inbox-item-error { font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+.inbox-item-error { color: var(--danger); }
+.inbox-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.inbox-actions button {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.inbox-actions button:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--muted);
+}
+.status-badge--pending { background: var(--accent-soft); color: var(--accent-dark); border-color: var(--accent-soft); }
+.status-badge--processing { background: var(--warning-soft); color: var(--warning); border-color: var(--warning-soft); }
+.status-badge--processed { background: var(--accent-soft); color: var(--accent-dark); border-color: var(--accent); }
+.status-badge--duplicate,
+.status-badge--superseded { background: var(--paper); color: var(--muted); }
+.status-badge--unsupported,
+.status-badge--need-ocr { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+.status-badge--failed { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+
+.inbox-batch-result { margin-top: 10px; }
+.inbox-batch-summary { font-weight: 600; }
+.inbox-batch-failures { margin: 6px 0 0; padding-left: 18px; color: var(--danger); }
+.inbox-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.inbox-page-info { color: var(--muted); font-size: 0.9rem; }
+
+.preview-chunks { list-style: none; margin: 0; padding: 0; }
+.preview-chunk { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.preview-chunk-index { font-weight: 700; font-size: 0.85rem; color: var(--accent-dark); }
+.preview-chunk-content { white-space: pre-wrap; font-size: 0.9rem; }

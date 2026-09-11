@@ -50,8 +50,18 @@ jobs:
           node-version: '22'
       - name: Run Browser Ask UI contract tests
         run: node --test src/test/js/ask-ui.test.mjs
+      - name: Run Browser navigation shell contract tests
+        run: node --test src/test/js/navigation-ui.test.mjs
+      - name: Run Browser workspace UI contract tests
+        run: node --test src/test/js/workspace-ui.test.mjs
+      - name: Run Browser inbox UI contract tests
+        run: node --test src/test/js/inbox-ui.test.mjs
       - name: Run Browser Graph operations UI contract tests
         run: node --test src/test/js/graph-operations-ui.test.mjs
+      - name: Run Browser Retrieval Inspector UI contract tests
+        run: node --test src/test/js/retrieval-inspector-ui.test.mjs
+      - name: Run Browser Source Chunk Inspector UI contract tests
+        run: node --test src/test/js/source-chunk-inspector-ui.test.mjs
       - name: Run Browser Retrieval Inspector UI contract tests
         run: node --test src/test/js/retrieval-inspector-ui.test.mjs
       - name: Run Browser Source Chunk inspector UI contract tests
