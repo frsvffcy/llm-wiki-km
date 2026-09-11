@@ -211,9 +211,10 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 .formatted(META), "server/discover", null))
                 .andExpect(status().isOk())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("supportedVersions", "2026-07-28", "2025-06-18",
+                        .contains("supportedVersions", "2026-07-28",
                                 "io.modelcontextprotocol/serverInfo", "\"ttlMs\":0",
-                                "\"cacheScope\":\"private\""));
+                                "\"cacheScope\":\"private\"")
+                        .doesNotContain("2025-06-18"));
         mockMvc.perform(modern("""
                 {"jsonrpc":"2.0","id":2,"method":"unknown/read","params":{%s}}"""
                 .formatted(META), "unknown/read", null))
@@ -231,12 +232,62 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .contains("2025-06-18", "serverInfo").doesNotContain(TOKEN));
+    }
+
+    @Test
+    void legacyInitializeCounterOffersNewerLegacyRevisions() throws Exception {
+        // MCP 2025-11-25 lifecycle: the server answers an unsupported-but-wellformed legacy
+        // revision with a version it speaks instead of erroring; the client decides.
+        for (String offered : new String[]{"2025-11-25", "2024-01-01"}) {
+            mockMvc.perform(base("""
+                    {"jsonrpc":"2.0","id":2,"method":"initialize",
+                    "params":{"protocolVersion":"%s"}}""".formatted(offered)))
+                    .andExpect(status().isOk())
+                    .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                            .contains("\"protocolVersion\":\"2025-06-18\"")
+                            .doesNotContain("-32022", TOKEN));
+        }
+    }
+
+    @Test
+    void legacyInitializeWithoutAVersionFailsClosed() throws Exception {
         mockMvc.perform(base("""
-                {"jsonrpc":"2.0","id":2,"method":"initialize",
-                "params":{"protocolVersion":"2024-01-01"}}"""))
+                {"jsonrpc":"2.0","id":3,"method":"initialize","params":{}}"""))
                 .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("-32022", "2024-01-01"));
+                        .contains("-32022", "missing"));
+        mockMvc.perform(base("""
+                {"jsonrpc":"2.0","id":4,"method":"initialize",
+                "params":{"protocolVersion":""}}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32022"));
+    }
+
+    @Test
+    void perEraMethodAvailabilityIsExplicit() throws Exception {
+        // Legacy ping keeps its existing legal semantics.
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":10,"method":"ping","params":{}}"""))
+                .andExpect(status().isOk());
+        // Modern ping is undefined in the 2026 era and must be rejected, not silently run.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":11,"method":"ping","params":{%s}}"""
+                .formatted(META), "ping", null))
+                .andExpect(status().isNotFound())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32601"));
+        // Modern initialize is rejected (modern era has no initialize handshake).
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":12,"method":"initialize","params":{%s}}"""
+                .formatted(META), "initialize", null))
+                .andExpect(status().isBadRequest());
+        // Legacy server/discover is rejected (discovery belongs to the modern era).
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":13,"method":"server/discover","params":{}}"""))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32601"));
     }
 
     @Test

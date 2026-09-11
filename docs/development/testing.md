@@ -1157,3 +1157,47 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## MCP legacy negotiation、per-era registry 與 Tier-1 SDK conformance 測試責任（#334）
+
+Legacy `initialize` 採 counter-offer negotiation（MCP 2025-11-25 lifecycle）：requested 在
+`LEGACY_SUPPORTED` 內即 echo，否則回 server 最新支援 legacy revision（現為 `2025-06-18`）
+由 client 決定接受或斷線；缺失／空白 version 才 typed `-32022`。Version authority 已拆分：
+`MODERN_SUPPORTED` 只供 `server/discover` 廣告（不含 legacy revision），
+`LEGACY_SUPPORTED` 只供 `initialize` negotiation，`ALL_SUPPORTED` 只出現在 error
+diagnostics；`server/discover` 回 `["2026-07-28"]`。Method availability 由 per-era registry
+明示（modern：`server/discover`、`tools/list`、`tools/call`；legacy：`initialize`、
+`notifications/initialized`、`ping`、`tools/list`、`tools/call`）——modern `ping`／`initialize`
+與 legacy `server/discover` deterministic 拒絕，不再經共用 switch 意外成功。Host/Origin／
+auth／body bounds／header agreement／read-only boundary 語意不變。
+
+`mcp.McpProtocolVersionsTest`（unit tier）鎖定 era partition（disjoint、exact 值、新增
+revision 必須明確指定 era）、negotiation echo／counter-offer／fail-closed 與 per-era
+method registry。`McpEnabledModeContractTest` 持有 wire 層 regression：legacy echo、
+`2025-11-25`／`2024-01-01` counter-offer、缺失 version typed reject、discover 無 legacy
+revision、modern ping reject 且 legacy ping 不回歸。
+
+Pinned Tier-1 SDK live interop（`@modelcontextprotocol/sdk@1.30.0`，最新已發布 legacy-era
+client）：`src/test/js/mcp-sdk-interop.test.mjs` 以 `MCP_SMOKE_URL`／`MCP_SMOKE_TOKEN`／
+`MCP_SDK_PATH` env 驅動，無 env 時 self-skip（不進 required CI gate）。重現步驟：
+`npm install --prefix <scratch> @modelcontextprotocol/sdk@1.30.0`、
+`MCP_ADAPTER_ENABLED=true MCP_ADAPTER_AUTH_TOKEN=<token> java -jar target/*.jar`、
+設 env 後 `node --test src/test/js/mcp-sdk-interop.test.mjs`。已驗證 7/7：
+counter-offer on wire、SDK connect 接受、tools/list 五工具、`inputSchema` object、
+`tools/call`、legacy ping、unknown tool typed `isError`。Modern 面無已發布 Tier-1
+client（最新版仍只走 legacy；auto/discover flow 僅見於未發布 main docs）且本 adapter
+modern 面要求官方 client 不送的自訂 headers，故 modern 以 MockMvc contract tests 持有；
+Tier-1 發布 2026-07-28 client 後重跑本腳本。`CUSTOM_CODEC_CONFORMANCE = CONDITIONAL GO`
+（見 issue-330 decision record）。
+
+受影響測試與完整 gate：
+
+```bash
+node --test src/test/js/mcp-sdk-interop.test.mjs
+mvn -Dtest='McpProtocolVersionsTest' test -Pfast
+mvn -Dtest='McpServerContractTest,McpEnabledModeContractTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
