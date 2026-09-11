@@ -25,11 +25,15 @@ jobs:
         with:
           node-version: '22'
       - name: Run PR metadata guard tests
-        run: node --test src/test/js/pr-metadata.test.mjs
-      - name: Validate PR base and Issue linkage
+        run: node --test src/test/js/pr-metadata.test.mjs src/test/js/merge-settings.test.mjs src/test/js/merge-commit-guard.test.mjs
+      - name: Validate PR base, title and Issue linkage
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/validate-pr-metadata.mjs
+      - name: Audit repository merge settings contract
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/audit-merge-settings.mjs
 
   fast-tests:
     name: Fast unit and contract tests

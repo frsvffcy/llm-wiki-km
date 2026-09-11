@@ -7,14 +7,15 @@ import {
   githubIssueLookup,
   inspectCommitMessages,
   inspectPrBody,
+  inspectPrTitle,
   validatePrMetadata,
 } from "../../../scripts/validate-pr-metadata.mjs";
 
 const PULL_NUMBER = 400;
 
-function event(body, base = "main") {
+function event(body, base = "main", title = "") {
   return {
-    pull_request: { number: PULL_NUMBER, base: { ref: base }, body },
+    pull_request: { number: PULL_NUMBER, base: { ref: base }, body, title },
     repository: { full_name: "frsvffcy/llm-wiki-km" },
   };
 }
@@ -243,6 +244,86 @@ test("uppercase and colon keyword variants are caught in commit messages too", a
     inspected.map((reference) => reference.issueNumber),
     [77, 78],
   );
+});
+
+// --- PR title (#357): with merge_commit_message = PR_TITLE the title becomes the merge
+// commit body on the default branch, so it shares the body/commit closing ban ---
+
+test("rejects a closing-keyword PR title even with a clean body and clean commits", async () => {
+  const result = await validate(event("Refs #234", "main", "Fixes #234"), {
+    issueLookup: existingIssue,
+  });
+
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.closingIssueNumbers, []);
+  assert.match(result.errors.join("\n"), /PR title.*自動關閉 Issue/u);
+  const typed = result.closingReferences.find((reference) => reference.source === "PR_TITLE");
+  assert.equal(typed.keyword, "fixes");
+  assert.equal(typed.issueNumber, 234);
+});
+
+test("rejects cross-repository, uppercase, colon and URL closing forms in the PR title", async () => {
+  const crossRepo = await validate(event("Refs #234", "main", "CLOSES: owner/other-repo#123"), {
+    issueLookup: existingIssue,
+  });
+  const uppercase = await validate(event("Refs #234", "main", "FIXED OWNER/OTHER#123"), {
+    issueLookup: existingIssue,
+  });
+  const url = await validate(
+    event("Refs #234", "main", "Resolves https://github.com/owner/other/issues/123"),
+    { issueLookup: existingIssue },
+  );
+
+  for (const result of [crossRepo, uppercase, url]) {
+    assert.equal(result.valid, false);
+    assert.match(result.errors.join("\n"), /PR title.*自動關閉 Issue/u);
+  }
+  assert.deepEqual(uppercase.closingReferences.find((r) => r.source === "PR_TITLE").keyword, "fixed");
+  assert.deepEqual(url.closingReferences.find((r) => r.source === "PR_TITLE").issueNumber, 123);
+});
+
+test("does not mistake a Conventional Commit title without an issue target for a closing keyword", async () => {
+  const result = await validate(event("Refs #234", "main", "fix: 修正 MCP parser"), {
+    issueLookup: existingIssue,
+  });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.closingReferences, []);
+});
+
+test("the PR title is scanned raw without the Markdown-strip privilege", () => {
+  // The body test above proves HTML comments and inline code are ignored in the PR body;
+  // a title is plain merge input, so the same content must still be caught (#357).
+  const inspected = inspectPrTitle("<!-- Fixes #123 -->");
+
+  assert.equal(inspected.closingReferences.length, 1);
+  assert.equal(inspected.closingReferences[0].source, "PR_TITLE");
+  assert.equal(inspected.closingReferences[0].issueNumber, 123);
+});
+
+test("exception markers never bypass the PR title closing ban", async () => {
+  const stacked = await validate(
+    event("Depends on #220\nPR-Metadata-Exception: stacked-pr", "feature/parent", "Closes #234"),
+    { issueLookup: existingIssue },
+  );
+  const nonIssueDriven = await validate(
+    event("Internal refactor\n\nPR-Metadata-Exception: non-issue-driven", "main", "Resolves #234"),
+    { issueLookup: existingIssue },
+  );
+
+  for (const result of [stacked, nonIssueDriven]) {
+    assert.equal(result.valid, false);
+    assert.match(result.errors.join("\n"), /PR title.*自動關閉 Issue/u);
+  }
+});
+
+test("synthetic gate dry-run: clean body and commits with a malicious PR title cannot pass", async () => {
+  const result = await validate(event("## 相關 Issue\n\nRefs #342", "main", "Fixes #342"), {
+    issueLookup: existingIssue,
+  });
+
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join("\n"), /PR title.*命中 fixes #342/u);
 });
 
 test("a closing keyword in any older commit fails the gate, not only the latest one", async () => {

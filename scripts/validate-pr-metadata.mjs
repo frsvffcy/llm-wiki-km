@@ -5,9 +5,11 @@ import { pathToFileURL } from "node:url";
 
 // GitHub official closing-reference grammar (docs.github.com "Linking a pull request to
 // an issue"): KEYWORD #ISSUE / KEYWORD OWNER/REPOSITORY#ISSUE / KEYWORD issue-URL, with
-// colon and case variants. The PR body and every source commit message are scanned with
-// this single grammar so the two surfaces cannot drift (#349): a merge must never
-// auto-close an Issue ahead of the Completion Code Review Gate.
+// colon and case variants. The PR title, the PR body and every source commit message are
+// scanned with this single grammar so the surfaces cannot drift (#349, #357): with this
+// repository's merge settings the merge/squash-generated commit message is composed from
+// exactly the PR title, the PR body and the source commit messages, so a merge must never
+// be able to auto-close an Issue ahead of the Completion Code Review Gate.
 const CLOSING_KEYWORD_PATTERN =
   /\b((?:close[sd]?|fix(?:e[sd]?)?|resolve[sd]?))\s*:?\s*(?:(?:([\w.-]+)\/([\w.-]+))?#(\d+)|https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/(\d+))\b/giu;
 const ISSUE_REFERENCE_PATTERN = /(?:^|[^\w])#(\d+)\b/gu;
@@ -55,6 +57,17 @@ export function inspectPrBody(body = "") {
   return { closingReferences, closingIssueNumbers, referencedIssueNumbers, exceptions };
 }
 
+/**
+ * PR title scan (#357): with merge_commit_message = PR_TITLE the title becomes the body of
+ * the merge commit on the default branch, so GitHub's own closing parser sees it. The title
+ * is plain merge input — it never receives the Markdown-strip privilege the PR body has.
+ */
+export function inspectPrTitle(title = "") {
+  return {
+    closingReferences: findClosingReferences(String(title), "PR_TITLE", { stripMarkdown: false }),
+  };
+}
+
 /** Closing references across all source commit messages; indexes identify the offender. */
 export function inspectCommitMessages(messages = []) {
   const closingReferences = [];
@@ -75,11 +88,14 @@ function commitSubject(message = "") {
 export async function validatePrMetadata(event, { issueLookup, commitMessagesFetcher } = {}) {
   const errors = [];
   const base = event?.pull_request?.base?.ref;
+  const title = String(event?.pull_request?.title ?? "");
   const body = event?.pull_request?.body ?? "";
   const repository = event?.repository?.full_name;
   const pullNumber = event?.pull_request?.number;
   const { closingReferences, closingIssueNumbers, referencedIssueNumbers, exceptions } =
     inspectPrBody(body);
+  const titleClosingReferences = inspectPrTitle(title).closingReferences;
+  closingReferences.push(...titleClosingReferences);
   const isMainTarget = base === "main";
   const isStacked = exceptions.has("stacked-pr");
   const isNonIssueDriven = exceptions.has("non-issue-driven");
@@ -99,11 +115,21 @@ export async function validatePrMetadata(event, { issueLookup, commitMessagesFet
   }
 
   // Auto-closing keywords would close the Issue on merge, before the Completion Code
-  // Review Gate can run — they are banned on every base, in both the PR body and every
-  // source commit message, targeting any repository, with no exception track (#349).
+  // Review Gate can run — they are banned on every base, in the PR title (the merge
+  // commit body under merge_commit_message = PR_TITLE), the PR body and every source
+  // commit message, targeting any repository, with no exception track (#349, #357).
   if (closingIssueNumbers.length > 0) {
     errors.push(
       `PR body 不得使用會自動關閉 Issue 的 keyword（命中 #${closingIssueNumbers.join(", #")}）；請改用「Refs #N」等 non-closing reference，Issue 由 Completion Audit 後明確關閉。`,
+    );
+  }
+
+  for (const reference of titleClosingReferences) {
+    const target = reference.owner
+      ? `${reference.owner}/${reference.repository}#${reference.issueNumber}`
+      : `#${reference.issueNumber}`;
+    errors.push(
+      `PR title（「${commitSubject(title)}」）不得使用會自動關閉 Issue 的 keyword（命中 ${reference.keyword} ${target}）；merge commit message 會帶入 PR title，請改用「Refs #N」等 non-closing reference，Issue 由 Completion Audit 後明確關閉。`,
     );
   }
 
@@ -285,7 +311,7 @@ async function main() {
       ? `referenced Issue: ${result.referencedIssueNumbers.map((number) => `#${number}`).join(", ")}`
       : `reviewed exception: ${result.exception}`;
   console.log(
-    `PR metadata validation passed (${linkage}; ${result.commitMessageCount ?? "unknown"} commit messages inspected).`,
+    `PR metadata validation passed (${linkage}; PR title + ${result.commitMessageCount ?? "unknown"} commit messages inspected).`,
   );
 }
 
