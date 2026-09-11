@@ -61,6 +61,10 @@ app:
       enabled: ${VECTOR_CAPABILITY_ENABLED:false}
       extension-path: ${VECTOR_EXTENSION_PATH:}
       required-extension-version: ${VECTOR_EXTENSION_VERSION:v0.1.9}
+  mcp:
+    enabled: ${MCP_ADAPTER_ENABLED:false}
+    auth-token: ${MCP_ADAPTER_AUTH_TOKEN:}
+    max-body-bytes: ${MCP_ADAPTER_MAX_BODY_BYTES:262144}
   rag:
     fusion:
       policy-version: ${KM_RAG_FUSION_POLICY_VERSION:fusion-rrf-v2-graph-damped}
