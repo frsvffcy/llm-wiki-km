@@ -1187,11 +1187,9 @@ client）：`src/test/js/mcp-sdk-interop.test.mjs` 以 `MCP_SMOKE_URL`／`MCP_SM
 counter-offer on wire、SDK connect 接受、tools/list 五工具、`inputSchema` object、
 `tools/call`、legacy ping、unknown tool 以 JSON-RPC `-32602` 錯誤 envelope 回絕（SDK client
 呈現為 rejected promise，`error.code === -32602`；#335 起 unknown tool 屬 protocol-level
-`InvalidParams`，不再以 tool-level `isError` 呈現）。Modern 面無已發布 Tier-1
-client（最新版仍只走 legacy；auto/discover flow 僅見於未發布 main docs）且本 adapter
-modern 面要求官方 client 不送的自訂 headers，故 modern 以 MockMvc contract tests 持有；
-Tier-1 發布 2026-07-28 client 後重跑本腳本。`CUSTOM_CODEC_CONFORMANCE = CONDITIONAL GO`
-（見 issue-330 decision record）。
+`InvalidParams`，不再以 tool-level `isError` 呈現）。Modern 面由 #340 的 v2 harness
+持有（`src/test/js/mcp-modern-interop.test.mjs`，pinned `@modelcontextprotocol/client@
+2.0.0`）；`CUSTOM_CODEC_CONFORMANCE = FULL GO`（見 issue-330 decision record）。
 
 受影響測試與完整 gate：
 
@@ -1225,7 +1223,7 @@ behavior，不屬 MCP advertised schema 的一部分）；`mode`/`retrievalMode`
 enum；default 只用於 field absent（present blank 視為值而驗證，enum 空白即 invalid）；
 required string 的 non-blank 規則由 schema `pattern`（ECMA whitespace 集合）與 runtime
 同一字元集共同表達。Unknown tool name 屬 protocol-level
-`InvalidParams` `-32602`（modern era HTTP 404、legacy era HTTP 200 JSON-RPC error
+`InvalidParams` `-32602`（modern era HTTP 400、legacy era HTTP 200 JSON-RPC error
 envelope；Tier-1 SDK server 行為一致），不再回 `UNSUPPORTED_TOOL` result envelope；
 自 #341 起 known tool 的 structural／inputSchema validation failure 亦走同一 protocol
 error plane（modern HTTP 400、legacy 200 envelope，在 handler／application service 執行
@@ -1240,7 +1238,7 @@ schema ≡ contract schema）、無 coercion、bounds/enum/required、defaults/n
 safe-name redaction，以及 executor「invalid input 不觸發任何 application service」
 （Mockito verifyNoInteractions）。`McpEnabledModeContractTest` 持有 wire 層：modern
 tools/list schema 形狀（typed properties、required、maxLength、enum、default、
-additionalProperties:false）、modern unknown tool 404+`-32602`、legacy unknown tool 200
+additionalProperties:false）、modern unknown tool 400+`-32602`、legacy unknown tool 200
 JSON-RPC `-32602` envelope。
 
 已知的宣稱面偏差（fail-closed 方向，重評 Tier-1 modern client 發布後再議）：
@@ -1252,9 +1250,8 @@ schema 的一部分）；（3）`question` 的 4000 cp 上限在 strip 前量測
 MCP 面較嚴；（4）known tool 的結構性無效參數（型別錯誤、未知欄位）依本 adapter 既有
 custom taxonomy 回 tool-level `INVALID_REQUEST`，official SDK server 對此類也回
 protocol-level InvalidParams——missing/blank `params.name` 維持既有 `-32600`；
-（5）modern era unknown tool 以 HTTP 404 呈現（official SDK server 為 200＋error
-envelope；無已發布 modern client，legacy 面 200＋envelope 已對 Tier-1 SDK 1.30.0 驗證，
-decision 記錄於 issue-330 doc）。
+（5）modern era unknown tool 自 #340 起以 HTTP 400 呈現（v2 transport 只解析 400
+envelope；spec 只對 unknown method 強制 404；decision 更新於 issue-330 doc）。
 
 受影響測試與完整 gate：
 
@@ -1367,6 +1364,39 @@ tool-level `isError`（僅直接呼叫者可見，wire 不經過）。外部 sen
 ```bash
 mvn -Dtest='McpToolInputContractTest,McpToolSchemaParityTest,McpAdapterParityTest' test -Pfast
 mvn -Dtest='McpServerContractTest,McpEnabledModeContractTest,McpAdapterParityIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
+
+## Tier-1 SDK v2 modern live interop 與 codec FULL GO（#340）
+
+`src/test/js/mcp-modern-interop.test.mjs`（pinned `@modelcontextprotocol/client@
+2.0.0`，env 驅動、無 env self-skip，不進 required CI gate；重現步驟見檔頭）以 official
+v2 client 對 live server 執行 modern wire：`auto` 選 `modern`（`getProtocolEra()`
+證明）、`pin: '2026-07-28'` 連線、`listTools` 五工具、`km_status`／`km_search`／
+`km_retrieval_inspect` 成功（with-args 成功需先經 REST 建 scratch workspace，檔頭有
+reproducible 命令）、unknown tool 與 invalid arguments 皆為 typed `-32602`
+rejection、`ping` 非法（client 端拒絕）、repeat stateless、pin 不存在 revision loud
+reject，以及同一 client 對 legacy-only stub fixture 的 legacy fallback（era 證明＋
+stub tool 可列）。Legacy 面沿用 `mcp-sdk-interop.test.mjs`（v1.30.0）既有證據，
+#340 已重跑確認無回歸。
+
+Official conformance runner 評估：stable `@modelcontextprotocol/conformance@0.1.16`
+無任何 `2026-07-28` scenario；`0.2.0-alpha.11` 雖有 modern scenarios 但為
+prerelease 且無 auth passthrough（mandatory bearer 下全數 `AUTHENTICATION_FAILED`，
+已實測）、tool-call scenarios 綁定 fixture tools、capability scenarios 針對未宣告
+能力——故不採為 gate，modern external evidence 由 v2-client harness 持有；stable
+runner 出 modern scenarios＋auth 支援後重評。附帶觀察：transport-error envelope 的
+`"id": null` 被 runner wire-schema check 標記（pre-existing，非 verdict blocker）。
+
+受影響測試與完整 gate：
+
+```bash
+MCP_SMOKE_URL=http://127.0.0.1:8765/api/mcp MCP_SMOKE_TOKEN=<token> MCP_V2_SDK_PATH=<pinned v2 install>/node_modules node --test src/test/js/mcp-modern-interop.test.mjs
+node --test src/test/js/mcp-sdk-interop.test.mjs
+mvn -Dtest='McpServerContractTest,McpEnabledModeContractTest' test -Pintegration
 mvn test -Pfast
 mvn test -Pintegration
 mvn clean verify -Pfull

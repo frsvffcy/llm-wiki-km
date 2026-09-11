@@ -166,7 +166,7 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 {"jsonrpc":"2.0","id":2,"method":"tools/call",
                 "params":{"name":"%s","arguments":{},%s}}"""
                 .formatted(unicodeName, META), "tools/call", unicodeEncoded))
-                .andExpect(status().isNotFound())
+                .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .contains("-32602", "unknown tool", "km_ask").doesNotContain("-32020"));
 
@@ -471,7 +471,7 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 {"jsonrpc":"2.0","id":7,"method":"tools/call",
                 "params":{"name":"km_publish","arguments":{},%s}}"""
                 .formatted(META), "tools/call", "km_publish"))
-                .andExpect(status().isNotFound())
+                .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .contains("-32602", "unknown tool", "km_ask")
                         .doesNotContain("PUBLISHED", TOKEN));
