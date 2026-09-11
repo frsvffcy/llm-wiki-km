@@ -1,16 +1,29 @@
 # Issue #330 MCP transport compatibility 決策紀錄
 
 > 決策日期：2026-09-11；狀態：Accepted；決策：`KEEP_CUSTOM_CODEC`。
+> #334 conformance 複核：`CUSTOM_CODEC_CONFORMANCE = CONDITIONAL GO`——legacy wire 以
+> pinned Tier-1 SDK live 證據維持（見下表）；modern 面維持 MockMvc contract 持有，待
+> Tier-1 發布 2026-07-28 client 後以 `src/test/js/mcp-sdk-interop.test.mjs` 重跑；
+> 若屆時出現 drift 仍過高，依原重評門檻重開 adoption review。
 
 ## 支援矩陣
 
 | Wire era | Revision | 支援範圍 | 狀態／期限 |
 | --- | --- | --- | --- |
-| Modern stateless core | `2026-07-28` | `server/discover`、`ping`、`tools/list`、`tools/call` | Current；每個 request 自帶 version、method、client metadata，`tools/call` 另帶 name |
-| Legacy initialize era | `2025-06-18` | `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call` | Bounded compatibility；至少保留至 2027-01-31 review，移除須另開 Issue 並公告，沒有自動 sunset |
+| Modern stateless core | `2026-07-28` | `server/discover`、`tools/list`、`tools/call`（`ping`／`initialize` 明確拒絕） | Current；每個 request 自帶 version、method、client metadata，`tools/call` 另帶 name |
+| Legacy initialize era | `2025-06-18` | `initialize`（counter-offer negotiation）、`notifications/initialized`、`ping`、`tools/list`、`tools/call` | Bounded compatibility；至少保留至 2027-01-31 review，移除須另開 Issue 並公告，沒有自動 sunset |
 
-`McpProtocolVersions` 是唯一 production version authority。兩個 era 不共享 session state，也不允許
-modern headers 混入 legacy negotiation；unsupported revision deterministic 回 JSON-RPC `-32022`，
+`McpProtocolVersions` 是唯一 production version authority：`MODERN_SUPPORTED` 只供
+`server/discover` 廣告，`LEGACY_SUPPORTED` 只供 `initialize` negotiation，
+`ALL_SUPPORTED` 只出現在 error diagnostics，任一 era contract 不得讀混合集合。Legacy
+`initialize` 採 counter-offer negotiation（MCP 2025-11-25 lifecycle）：requested 在
+server 支援集內即 echo，否則回 server 最新支援 legacy revision 由 client 決定接受或斷線；
+缺失／空白 version 才 typed reject。Method availability 由 per-era registry 明示
+（modern：`server/discover`、`tools/list`、`tools/call`；legacy：`initialize`、
+`notifications/initialized`、`ping`、`tools/list`、`tools/call`），跨 era method
+deterministic 拒絕。兩個 era 不共享 session state，也不允許
+modern headers 混入 legacy negotiation；unsupported revision deterministic 回 JSON-RPC
+`-32022`（僅 header-era 未知與缺失 version 兩種情形），
 header/body agreement failure 回 `-32020`，均在 tool dispatch 前終止。
 
 ## Transport contract
@@ -40,6 +53,7 @@ metadata 複製到 response。
 | Dependency/license footprint | `pom.xml` 不新增 MCP dependency或新 license；既有五個 tool executor不變 | 最小供應鏈增量 |
 | Conformance 維護 | `McpEnabledModeContractTest`／`McpServerContractTest` 持有 modern、legacy、media、method、notification、DNS rebinding與 redaction regression | CI 可 deterministic/offline 重現 |
 | SDK maturity | 2026-07-28 公告的 Tier-1 SDK 清單未包含 Java；導入非 Tier-1 Java SDK仍需自行驗證 current/legacy與 Spring transport security | 現階段無法消除本 Issue 的主要維護責任 |
+| Pinned Tier-1 SDK live interop (#334) | `@modelcontextprotocol/sdk@1.30.0`（最新已發布 legacy-era Tier-1 client）對 live server：`initialize` offer `2025-11-25` 得 200 counter-offer `2025-06-18` 並被接受、`tools/list` 五工具、`inputSchema` object、`tools/call`、`ping`、`unknown tool` typed `isError`，7/7 通過；modern 面因無已發布 Tier-1 client（最新版仍只走 legacy；auto/discover flow 僅見於未發布 main docs）且本 adapter modern 面要求官方 client 不送的自訂 headers，live 證據限 legacy，modern 以 MockMvc contract tests 持有 | bonded legacy 互通已證；modern 待 Tier-1 發布 2026-07-28 client 後重跑 `src/test/js/mcp-sdk-interop.test.mjs` |
 
 這不是永久拒絕 SDK。若加入第三個 wire era、SSE/server request、remote exposure、OAuth、Tasks，或
 official Java SDK 成為 current revision Tier-1 且能取代本地 transport guard，必須重開 adoption review；

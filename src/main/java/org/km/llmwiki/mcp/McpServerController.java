@@ -85,7 +85,7 @@ public class McpServerController {
                 McpProtocolRequestValidator.validate(http, request);
         if (!validation.valid()) {
             Object data = validation.errorCode() == McpProtocolRequestValidator.UNSUPPORTED_VERSION
-                    ? Map.of("supported", McpProtocolVersions.SUPPORTED,
+                    ? Map.of("supported", McpProtocolVersions.ALL_SUPPORTED,
                             "requested", validation.requestedVersion())
                     : null;
             return error(HttpStatus.BAD_REQUEST, McpJsonRpc.id(request), validation.errorCode(),
@@ -94,7 +94,7 @@ public class McpServerController {
         if (validation.notification()) {
             return ResponseEntity.accepted().build();
         }
-        return dispatch(request, validation.era());
+        return dispatch(request, validation);
     }
 
     @GetMapping
@@ -107,16 +107,38 @@ public class McpServerController {
         return methodNotAllowed();
     }
 
-    private ResponseEntity<String> dispatch(JsonNode request, McpProtocolEra era) {
+    /**
+     * Explicit per-era method availability. The validator only establishes the era; this
+     * registry alone decides which methods may run in it, so a shared dispatch switch can
+     * never silently accept a cross-era method (notably modern {@code ping}, which the 2026
+     * era leaves undefined, and modern {@code initialize}). New methods must be registered
+     * here per era — never by widening the switch.
+     */
+    private static final java.util.Set<String> LEGACY_METHODS = java.util.Set.of(
+            "initialize", "notifications/initialized", "ping", "tools/list", "tools/call");
+    private static final java.util.Set<String> MODERN_METHODS = java.util.Set.of(
+            "server/discover", "tools/list", "tools/call");
+
+    static boolean methodSupported(McpProtocolEra era, String method) {
+        return switch (era) {
+            case LEGACY -> LEGACY_METHODS.contains(method);
+            case MODERN -> MODERN_METHODS.contains(method);
+        };
+    }
+
+    private ResponseEntity<String> dispatch(JsonNode request,
+                                            McpProtocolRequestValidator.Validation validation) {
         String method = McpJsonRpc.method(request);
+        if (!methodSupported(validation.era(), method)) {
+            return methodNotFound(request, validation.era());
+        }
         return switch (method) {
-            case "initialize" -> ok(request, legacyInitialize());
-            case "ping" -> ok(request, eraPayload(era, Map.of()));
-            case "server/discover" -> era == McpProtocolEra.MODERN
-                    ? ok(request, modernDiscover()) : methodNotFound(request, era);
-            case "tools/list" -> ok(request, toolsList(era));
-            case "tools/call" -> handleToolCall(request, era);
-            default -> methodNotFound(request, era);
+            case "initialize" -> ok(request, legacyInitialize(validation.negotiatedVersion()));
+            case "ping" -> ok(request, eraPayload(validation.era(), Map.of()));
+            case "server/discover" -> ok(request, modernDiscover());
+            case "tools/list" -> ok(request, toolsList(validation.era()));
+            case "tools/call" -> handleToolCall(request, validation.era());
+            default -> methodNotFound(request, validation.era());
         };
     }
 
@@ -126,9 +148,9 @@ public class McpServerController {
                 "unsupported mcp method", null);
     }
 
-    private static Map<String, Object> legacyInitialize() {
+    private static Map<String, Object> legacyInitialize(String negotiatedVersion) {
         Map<String, Object> info = new LinkedHashMap<>();
-        info.put("protocolVersion", McpProtocolVersions.LEGACY);
+        info.put("protocolVersion", negotiatedVersion);
         info.put("capabilities", McpProtocolVersions.capabilities());
         info.put("serverInfo", McpProtocolVersions.serverInfo());
         return info;
@@ -137,7 +159,7 @@ public class McpServerController {
     private static Map<String, Object> modernDiscover() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("resultType", "complete");
-        result.put("supportedVersions", McpProtocolVersions.SUPPORTED);
+        result.put("supportedVersions", McpProtocolVersions.MODERN_SUPPORTED);
         result.put("capabilities", McpProtocolVersions.capabilities());
         result.put("instructions", "Local read-only knowledge tools; canonical writes are unsupported.");
         addCacheContract(result);

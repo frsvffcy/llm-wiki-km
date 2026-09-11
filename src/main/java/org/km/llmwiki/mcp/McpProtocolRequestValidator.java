@@ -68,11 +68,11 @@ final class McpProtocolRequestValidator {
             return Validation.invalid(UNSUPPORTED_VERSION, "missing protocol version", "missing");
         }
         String requested = McpJsonRpc.params(request).path("protocolVersion").asText(null);
-        if (!McpProtocolVersions.LEGACY.equals(requested)) {
-            return Validation.invalid(UNSUPPORTED_VERSION, "unsupported protocol version",
-                    requested == null ? "missing" : requested);
+        String negotiated = McpProtocolVersions.negotiateLegacy(requested);
+        if (negotiated == null) {
+            return Validation.invalid(UNSUPPORTED_VERSION, "missing protocol version", "missing");
         }
-        return Validation.valid(McpProtocolEra.LEGACY, false);
+        return Validation.validLegacyInitialize(negotiated);
     }
 
     private static Validation validateLegacyRequest(
@@ -168,13 +168,20 @@ final class McpProtocolRequestValidator {
     }
 
     record Validation(boolean valid, McpProtocolEra era, boolean notification,
-                      int errorCode, String errorMessage, String requestedVersion) {
+                      int errorCode, String errorMessage, String requestedVersion,
+                      String negotiatedVersion) {
         static Validation valid(McpProtocolEra era, boolean notification) {
-            return new Validation(true, era, notification, 0, null, null);
+            return new Validation(true, era, notification, 0, null, null, null);
+        }
+
+        static Validation validLegacyInitialize(String negotiatedVersion) {
+            return new Validation(true, McpProtocolEra.LEGACY, false, 0, null, null,
+                    negotiatedVersion);
         }
 
         static Validation invalid(int errorCode, String errorMessage, String requestedVersion) {
-            return new Validation(false, null, false, errorCode, errorMessage, requestedVersion);
+            return new Validation(false, null, false, errorCode, errorMessage, requestedVersion,
+                    null);
         }
     }
 }
