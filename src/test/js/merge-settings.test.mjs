@@ -5,6 +5,7 @@ import {
   MERGE_SETTING_ENUMS,
   RECORDED_BASELINE,
   auditMergeSettings,
+  decideAuditOutcome,
   fetchMergeSettings,
   resolveGuardedSources,
 } from "../../../scripts/audit-merge-settings.mjs";
@@ -119,6 +120,46 @@ test("a persistently unusable payload fails closed with bounded diagnostics", as
   assert.match(result.reason, /缺少 governed fields/u);
   assert.match(result.reason, /message="Resource not accessible by integration"/u);
   assert.match(result.reason, /keys=\[documentation_url,message\]/u);
+});
+
+// --- outcome decision: GITHUB_TOKEN is fine-grained and receives a reduced repository
+// object without the merge settings fields, so unreadable settings fall back instead of
+// permanently blocking the gate; the fallback enforcement paths are themselves executable ---
+
+test("unreadable settings enter the documented safe fallback instead of failing the gate", () => {
+  const outcome = decideAuditOutcome({ ok: false, reason: "回應缺少 governed fields（…）" });
+
+  assert.equal(outcome.mode, "fallback");
+  assert.equal(outcome.exitCode, 0);
+  const joined = outcome.lines.join("\n");
+  assert.match(joined, /safe fallback/u);
+  assert.match(joined, /post-merge guard/u);
+  assert.match(joined, /MERGE_SETTINGS_AUDIT_TOKEN/u);
+});
+
+test("readable settings with violations fail closed", () => {
+  const outcome = decideAuditOutcome(
+    { ok: true, settings: { ...RECORDED_BASELINE.values, merge_commit_message: "PR_BODY" } },
+    auditMergeSettings({
+      ...RECORDED_BASELINE.values,
+      merge_commit_message: "PR_BODY",
+    }),
+  );
+
+  assert.equal(outcome.mode, "violations");
+  assert.equal(outcome.exitCode, 1);
+  assert.match(outcome.lines.join("\n"), /不得 silent drift/u);
+});
+
+test("readable settings matching the baseline pass the full audit", () => {
+  const outcome = decideAuditOutcome(
+    { ok: true, settings: { ...RECORDED_BASELINE.values } },
+    auditMergeSettings(RECORDED_BASELINE.values),
+  );
+
+  assert.equal(outcome.mode, "full");
+  assert.equal(outcome.exitCode, 0);
+  assert.equal(outcome.lines, null);
 });
 
 test("settings retrieval extracts exactly the governed fields", async () => {

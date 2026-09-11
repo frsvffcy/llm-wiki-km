@@ -80,9 +80,19 @@ keyword-free constant，因此在官方 enum 內的任何設定組合都被現�
 ### Executable enforcement
 
 - `scripts/audit-merge-settings.mjs`：讀取 live settings，對照官方 enum 與
-  `RECORDED_BASELINE`（含上表）。取得失敗、未知 enum 值或偏離 baseline 一律 exit 1
-  （fail-closed、不得 silent drift；baseline 更新必須經 PR 同步本文件）。於 PR CI 的
+  `RECORDED_BASELINE`（含上表）。**可讀取時**：取得失敗、未知 enum 值或偏離 baseline 一律
+  exit 1（fail-closed、不得 silent drift；baseline 更新必須經 PR 同步本文件）。於 PR CI 的
   `PR metadata` job 與 main push guard 各執行一次。
+- **Documented safe fallback（2026-09-12 CI 實證）**：Actions `GITHUB_TOKEN` 屬 fine-grained
+  token，`GET /repos` 對它回傳 reduced repository object（缺少 `allow_merge_commit` 等全部
+  governed fields；見 github/orgs/community discussion 153258；Actions workflow 無
+  `administration` scope、GraphQL 亦無 title/message 欄位）。此時 audit 進入 fallback 並
+  exit 0：coverage 正確性改由 (1)「官方 enum 逐值映射到 guarded surfaces」的 structural
+  coverage 測試與 (2) main push post-merge guard 對實際 merge commit message 的掃描承接
+  （任何 settings drift 產生的文本都會流經 merge commit message，closing keyword 仍會被
+  偵測並 deterministic reopen）——drift 因此仍被防禦涵蓋，只是無法 pre-merge 警告。
+  升級路徑：owner 提供具 repository 權限的 classic PAT 作為
+  `MERGE_SETTINGS_AUDIT_TOKEN` secret，即可恢復完整 live audit，程式碼無須變更。
 - `scripts/audit-merge-commit.mjs`（`.github/workflows/main-merge-guard.yml`，main push）：
   merge UI 允許合併當下人為編輯 commit message，pre-merge status check 無法看見該 residual。
   guard 掃描實際 merge/push commit message（同一 grammar），命中 closing reference 時
