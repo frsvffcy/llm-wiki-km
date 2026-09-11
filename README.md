@@ -46,7 +46,12 @@ The application listens only on `127.0.0.1:8765` by default.
 
 Phase 1 currently includes SQLite FTS5, FTS-backed Retrieval, Evidence Assembly, the
 provider-neutral Answer contract, grounded prompt/response validation, the first production
-provider adapter, stateless Ask orchestration, the Ask REST API, and the Browser Ask UI. Ask and
+provider adapter, stateless Ask orchestration, the Ask REST API, and the Browser Ask UI. The Ask
+input area shows an application-owned provider egress indicator (local / remote secure / remote
+insecure explicit opt-in / disabled-unavailable) with a data-category disclosure via
+`GET /api/v1/system/ai-provider-egress`; it never exposes credentials or raw endpoints, and the
+execution-level fact of whether a provider was actually called stays separate from the
+configuration-level disclosure. Ask and
 Answer are an ephemeral MVP: each request is independent and cannot directly write to `vault/`,
 `archive/`, or canonical knowledge state. Any future “Save Answer to Knowledge” action must return
 to the Proposal → Draft → Human Review → Publish workflow. Sprint 7 now exposes the provider-neutral

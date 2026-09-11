@@ -233,3 +233,41 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .inspector-preview-truncated {
   color: #8a4b08;
 }
+
+/* AI provider egress transparency indicator (low-noise trust UX near the Ask input) */
+.ai-egress {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  border: 1px solid #c8c4b8;
+  border-radius: 8px;
+  background: #faf9f5;
+}
+.ai-egress-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.ai-egress-label::before {
+  content: "• ";
+  font-weight: 700;
+}
+.ai-egress--insecure {
+  border-color: #b3541e;
+  border-width: 2px;
+  background: #fdf3ec;
+}
+.ai-egress--insecure .ai-egress-label::before { content: "⚠ "; color: #b3541e; }
+.ai-egress--insecure .ai-egress-label { font-weight: 700; }
+.ai-egress--remote .ai-egress-label::before { content: "☁ "; }
+.ai-egress--local .ai-egress-label::before { content: "⌂ "; }
+.ai-egress--off .ai-egress-label::before { content: "○ "; }
+.ai-egress-detail { margin: 0; padding: 4px 12px 10px; }
+.ai-egress-metric { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+.ai-egress-metric dt { font-weight: 600; }
+.ai-egress-metric dd { margin: 0; overflow-wrap: anywhere; }

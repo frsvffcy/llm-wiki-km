@@ -68,6 +68,47 @@ public final class ProviderEndpointSecurityPolicy {
         return new IllegalArgumentException("provider endpoint is invalid");
     }
 
+    /**
+     * Classifies a configured provider endpoint for the transparency contract without leaking
+     * the URL. Classification reuses this policy's own validation and loopback rules, so the
+     * disclosure can never disagree with the transport policy: a configuration the policy
+     * would reject (for example plain HTTP without the explicit opt-in) is classified as
+     * {@link ProviderDestination#UNAVAILABLE_OR_INVALID}, and a disabled or missing endpoint
+     * is classified by the caller.
+     *
+     * @param baseUrl configured provider base URL
+     * @param allowInsecureTransport explicit opt-in for non-loopback plain HTTP
+     * @return application-owned destination classification
+     */
+    public static ProviderDestination classify(String baseUrl, boolean allowInsecureTransport) {
+        if (baseUrl == null || baseUrl.isBlank() || baseUrl.length() > MAX_BASE_URL_LENGTH) {
+            return ProviderDestination.UNAVAILABLE_OR_INVALID;
+        }
+        URI base;
+        try {
+            base = new URI(baseUrl.trim());
+        } catch (URISyntaxException exception) {
+            return ProviderDestination.UNAVAILABLE_OR_INVALID;
+        }
+        String scheme = base.getScheme();
+        String host = base.getHost();
+        if (!("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
+                || host == null || base.getUserInfo() != null
+                || base.getQuery() != null || base.getFragment() != null) {
+            return ProviderDestination.UNAVAILABLE_OR_INVALID;
+        }
+        boolean loopback = isLoopbackHost(host);
+        if ("https".equalsIgnoreCase(scheme)) {
+            return loopback ? ProviderDestination.LOCAL_LOOPBACK
+                    : ProviderDestination.REMOTE_SECURE;
+        }
+        if (loopback) {
+            return ProviderDestination.LOCAL_LOOPBACK;
+        }
+        return allowInsecureTransport ? ProviderDestination.REMOTE_INSECURE_OPT_IN
+                : ProviderDestination.UNAVAILABLE_OR_INVALID;
+    }
+
     private static boolean isLoopbackHost(String host) {
         if ("localhost".equalsIgnoreCase(host)) {
             return true;
