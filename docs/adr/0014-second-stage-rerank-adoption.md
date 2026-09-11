@@ -43,7 +43,7 @@ Active version 由 `km.rag.rerank.policy-version`（env `KM_RAG_RERANK_POLICY_VE
 
 ## #308 re-baseline 與 adoption evidence
 
-Evidence order 改變後，#308 Answer Context Compaction corpus 以 reranked production candidate 重跑（`ai.answer.AnswerContextCompactionRebaselineTest`）：per-case supporting-fact retention 對 no-rerank baseline 零 regression；`EvidenceContextProjector` 仍是唯一 packing path、`context-policy-v1-current` baseline 語意不變、`EXTRACTIVE` 未啟用。量測：production parity 0.8833 mean MRR（逐 query 與 #316 winner 一致）、exact-anchor overhead ~6.8ms/corpus run、無 model artifact。
+Evidence order 改變後，#308 Answer Context Compaction corpus 以 reranked production candidate 重跑（`ai.answer.AnswerContextCompactionRebaselineTest`）：per-case supporting-fact retention 對 no-rerank baseline 零 regression；`EvidenceContextProjector` 仍是唯一 packing path、`context-policy-v1-current` baseline 語意不變、`EXTRACTIVE` 未啟用。量測：production parity 0.8833 mean MRR（逐 query 與 #316 winner 一致）、exact-anchor overhead 為純 Java 運算（量測 ~4–7ms/corpus run）、無 model artifact。
 
 ## 安全與範圍
 

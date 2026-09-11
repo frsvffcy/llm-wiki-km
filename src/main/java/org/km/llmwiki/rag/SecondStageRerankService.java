@@ -40,7 +40,7 @@ public class SecondStageRerankService {
                     failure);
             return withVersion(new RerankResult(evidence,
                     RerankStatus.NO_OP_UNSUPPORTED_SHAPE,
-                    RerankNoOpReason.UNSUPPORTED_QUERY_SHAPE, policy.version()),
+                    RerankNoOpReason.POLICY_FAILURE, policy.version()),
                     policy.version());
         }
     }
@@ -60,11 +60,10 @@ public class SecondStageRerankService {
         }
         boolean sameIdentitySet = candidate.orderedItems().size() == evidence.items().size();
         if (sameIdentitySet) {
-            java.util.Set<String> baseline = new java.util.LinkedHashSet<>();
-            evidence.items().forEach(item -> baseline.add(item.stableIdentity()));
-            java.util.Set<String> ordered = new java.util.LinkedHashSet<>();
-            candidate.orderedItems().forEach(item -> ordered.add(item.stableIdentity()));
-            sameIdentitySet = baseline.equals(ordered);
+            // Per-item integrity: the ordered view must contain the SAME item records
+            // (value equality), not re-created items with mutated content/hash/provenance.
+            sameIdentitySet = new java.util.HashSet<>(evidence.items())
+                    .containsAll(candidate.orderedItems());
         }
         if (!sameIdentitySet) {
             LOG.warn("rerank policy {} changed the qualified identity set; keeping the "

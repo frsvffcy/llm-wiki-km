@@ -1029,8 +1029,10 @@ typed fallback、registry fail-fast。`rag.RerankPolicyWiringIntegrationTest`（
 保持註冊）。`rag.RerankEvaluationIntegrationTest` 擴充 production-policy adoption regression：
 production boundary（registry + executor）以 #316 corpus 重跑 production retrieval output，
 blocking gates（identity/forbidden/graph rank retention/exact-token protection/determinism）對
-production policy 成立，且 production ordering 與 #316 evaluation winner **逐 query 完全一致**
-（parity gate）。`ai.answer.AnswerContextCompactionRebaselineTest`（unit tier）為 #308
+production policy 成立（production run 的 graph-added gate 與 parity gate 皆為 enforced
+violation；本 corpus 的 graph-added identity 在 baseline window 外由 corpus window
+observation 如實記錄，discovery reachability 由 #280 持有），且 production ordering 與 #316
+evaluation winner **逐 query 完全一致**（parity gate）。`ai.answer.AnswerContextCompactionRebaselineTest`（unit tier）為 #308
 re-baseline gate：reranked packing order 對每個 corpus case 的 supporting-fact retention 不得
 低於 no-rerank baseline（per-case no-regression；#308 mandatory floors 由 compaction-candidate
 gate 本身持有，assembler 截斷語意不因 adoption 改變），且 rerank 只改 order 不改 per-block
@@ -1046,7 +1048,7 @@ backfill 可能）。無 new public retrieval mode、無 raw-score blending、�
 remote reranker、無 Browser slider；`context-policy-v1-current` baseline 語意不變，
 `EXTRACTIVE` compaction 未被啟用。量測（#326 adoption）：#316 production parity 0.8833 mean
 MRR（與 evaluation winner 逐 query 一致）、#308 re-baseline per-case 零 regression、
-exact-anchor overhead ~6.8ms/corpus run、zero model artifact。
+exact-anchor overhead 為純 Java 運算（量測 ~4–7ms/corpus run）、zero model artifact。
 
 受影響測試與完整 gate：
 

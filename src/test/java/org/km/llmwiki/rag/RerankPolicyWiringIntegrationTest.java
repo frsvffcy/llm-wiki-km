@@ -28,6 +28,9 @@ class RerankPolicyWiringIntegrationTest extends IsolatedIntegrationTest {
         assertThat(registry.activeVersion())
                 .isEqualTo(ExactAnchorRerankPolicyV1.VERSION);
         assertThat(registry.active()).isInstanceOf(ExactAnchorRerankPolicyV1.class);
+        // The noop rollback target stays registered: switching back to it requires no rebuild.
+        assertThat(registry.activeVersion()).isNotEqualTo(
+                org.km.llmwiki.rag.SecondStageRerankPolicy.NoOp.VERSION);
         assertThat(rerankService.apply(bundle("query", java.util.List.of(
                 evidenceItem("a", "資料庫的備份節奏"),
                 evidenceItem("b", "ORA-12899 錯誤的診斷方法")))).status())

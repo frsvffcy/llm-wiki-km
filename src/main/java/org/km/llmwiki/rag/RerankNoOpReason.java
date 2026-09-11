@@ -5,5 +5,7 @@ public enum RerankNoOpReason {
     /** Fewer than two qualified candidates were available to order. */
     INSUFFICIENT_CANDIDATES,
     /** The query shape is not covered by this policy version. */
-    UNSUPPORTED_QUERY_SHAPE
+    UNSUPPORTED_QUERY_SHAPE,
+    /** The policy itself failed; the deterministic baseline order was kept. */
+    POLICY_FAILURE
 }

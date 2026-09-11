@@ -146,11 +146,6 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
                 runs.add(run(candidate, orchestrator, retrievalService, queries, forbidden,
                         violations, corpusObservationList));
             }
-            corpusObservationList.forEach(observation -> {
-                if (!corpusObservationList.contains(observation)) {
-                    corpusObservationList.add(observation);
-                }
-            });
             ModeRun evaluationWinnerRun = runs.stream()
                     .filter(run -> run.policy().equals("rerank-v1-exact-anchor"))
                     .findFirst().orElseThrow();
@@ -254,8 +249,12 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
                     .map(EvidenceItem::stableIdentity).toList();
             boolean graphOnlyRetained = query.graphOnlyRelevant().stream()
                     .allMatch(identity -> rerankedOrder.indexOf(identity)
-                            >= baselineOrder.indexOf(identity))
+                            <= baselineOrder.indexOf(identity))
                     || query.graphOnlyRelevant().isEmpty();
+            if (!graphOnlyRetained) {
+                violations.add(query.id() + "/" + rerank.policyVersion()
+                        + ": production rerank degraded graph-added relevant ranking");
+            }
             for (String identity : rerankedOrder) {
                 if (forbidden.contains(identity)) {
                     violations.add(query.id() + "/" + rerank.policyVersion()
@@ -446,7 +445,7 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
         double bestMean = runs.stream().filter(run -> !run.policy().equals("NO_RERANK"))
                 .mapToDouble(run -> run.queries().stream().mapToDouble(QueryRun::rerankedMrr)
                         .average().orElse(0.0d)).max().orElse(0.0d);
-        // 0.05 is a corpus-scale heuristic for this 14-query corpus (roughly three queries'
+        // 0.05 is a corpus-scale heuristic for this 15-query corpus (roughly three queries'
         // worth of one-rank improvement); it is deterministic and recorded as a corpus-scoped
         // heuristic, not a universal quality claim.
         if (bestMean > baselineMean + 0.05d) {
