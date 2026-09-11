@@ -201,7 +201,25 @@ public class McpServerController {
                     "unknown tool", Map.of("supported",
                             List.copyOf(McpCapabilityManifest.tools().keySet())));
         }
-        McpToolResult result = executor.execute(toolName, params.get("arguments"));
+        McpToolInputContract contract = McpCapabilityManifest.contractFor(toolName);
+        McpValidatedArguments validated;
+        try {
+            // Non-null: unknown names were routed to a protocol error above, and both
+            // lookups read the same manifest.
+            validated = contract.validate(params.get("arguments"));
+        } catch (McpToolInputException invalid) {
+            // Structural/schema failures never reach a tool handler: protocol-level
+            // InvalidParams, mirroring the official server (validation throws before the
+            // handler runs). Known tools keep tool-level isError for genuine execution
+            // failures only. Modern maps the protocol error to HTTP 400 (the tool exists;
+            // its arguments do not); legacy keeps the JSON-RPC error envelope on 200 so
+            // released Tier-1 clients surface it as a rejected call.
+            HttpStatus status = era == McpProtocolEra.MODERN ? HttpStatus.BAD_REQUEST
+                    : HttpStatus.OK;
+            return error(status, McpJsonRpc.id(request), JSONRPC_INVALID_PARAMS,
+                    invalid.getMessage(), null);
+        }
+        McpToolResult result = executor.executeValidated(toolName, validated);
         if (result.isError()) {
             return ok(request, toolResult(era, true, null, null, result.errorCode(),
                     result.message() == null ? result.errorCode().name() : result.message()));

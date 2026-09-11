@@ -14,12 +14,15 @@ import java.util.Objects;
  *   ({@code long} unless {@link #intRange()} is set, which additionally requires an
  *   {@code int} fit); fractions, numeric strings, and booleans are rejected, as is any
  *   overflow beyond the Java type.</li>
- *   <li>{@code allowedValues} holds the canonical enum spellings. Matching is exact unless
- *   {@code caseInsensitive} mirrors an application contract that normalizes first (such as
- *   {@code SearchCorpus}); in that case the normalized spelling is what the application
- *   receives.</li>
- *   <li>{@code defaultValue} is applied when the field is absent (or blank, for optional
- *   strings); required fields have no default and reject blank values.</li>
+ *   <li>{@code allowedValues} holds the canonical enum spellings. Matching is exact:
+ *   there is no case-insensitive alias path, because JSON Schema {@code enum} cannot
+ *   express one. Application layers behind the tools may keep their own normalization
+ *   (such as {@code SearchCorpus}), but that is not part of the MCP advertised
+ *   schema.</li>
+ *   <li>{@code defaultValue} applies when the field is absent only — a present blank
+ *   value is validated, never silently defaulted — and must itself satisfy the field
+ *   constraints (canonical enum spelling, range, code-point bound); required fields carry
+ *   no default. Violations fail fast at declaration time.</li>
  * </ul>
  */
 public record McpFieldContract(
@@ -31,7 +34,6 @@ public record McpFieldContract(
         Long maxValue,
         boolean intRange,
         List<String> allowedValues,
-        boolean caseInsensitive,
         Object defaultValue
 ) {
     public McpFieldContract {
@@ -59,44 +61,82 @@ public record McpFieldContract(
                 throw new IllegalArgumentException("integer field default must be numeric");
             }
         }
+        if (required && defaultValue != null) {
+            throw new IllegalArgumentException(
+                    "required field must not carry a default: " + name);
+        }
+        if (defaultValue instanceof String text) {
+            checkStringDefault(name, maxCodePoints, allowedValues, text);
+        } else if (defaultValue instanceof Number number) {
+            checkIntegerDefault(name, minValue, maxValue, intRange, number);
+        }
+    }
+
+    /**
+     * Fail-fast misdeclaration guard: a default that violates its own field constraints
+     * can never satisfy both the advertised schema and the runtime validator, so the
+     * contract is rejected at declaration time instead of drifting at runtime.
+     */
+    private static void checkStringDefault(String name, Integer maxCodePoints,
+                                           List<String> allowedValues, String value) {
+        if (maxCodePoints != null
+                && value.codePointCount(0, value.length()) > maxCodePoints) {
+            throw new IllegalArgumentException("invalid default for field: " + name);
+        }
+        if (!allowedValues.isEmpty() && !allowedValues.contains(value)) {
+            throw new IllegalArgumentException("invalid default for field: " + name);
+        }
+    }
+
+    private static void checkIntegerDefault(String name, Long minValue, Long maxValue,
+                                            boolean intRange, Number value) {
+        long numeric = value.longValue();
+        if (intRange
+                && (numeric < Integer.MIN_VALUE || numeric > Integer.MAX_VALUE)) {
+            throw new IllegalArgumentException("invalid default for field: " + name);
+        }
+        if ((minValue != null && numeric < minValue)
+                || (maxValue != null && numeric > maxValue)) {
+            throw new IllegalArgumentException("invalid default for field: " + name);
+        }
     }
 
     public static McpFieldContract requiredString(String name, int maxCodePoints) {
         return new McpFieldContract(name, McpFieldType.STRING, true, maxCodePoints, null, null,
-                false, List.of(), false, null);
+                false, List.of(), null);
     }
 
     public static McpFieldContract optionalString(String name, Integer maxCodePoints,
                                                   Object defaultValue) {
         return new McpFieldContract(name, McpFieldType.STRING, false, maxCodePoints, null, null,
-                false, List.of(), false, defaultValue);
+                false, List.of(), defaultValue);
     }
 
     public static McpFieldContract optionalEnum(String name, List<String> allowedValues,
-                                                boolean caseInsensitive, Object defaultValue) {
+                                                Object defaultValue) {
         return new McpFieldContract(name, McpFieldType.STRING, false, null, null, null,
-                false, allowedValues, caseInsensitive, defaultValue);
+                false, allowedValues, defaultValue);
     }
 
     public static McpFieldContract requiredLong(String name, long minValue) {
         return new McpFieldContract(name, McpFieldType.INTEGER, true, null, minValue, null,
-                false, List.of(), false, null);
+                false, List.of(), null);
     }
 
     public static McpFieldContract optionalLong(String name, long minValue, Object defaultValue) {
         return new McpFieldContract(name, McpFieldType.INTEGER, false, null, minValue, null,
-                false, List.of(), false, defaultValue);
+                false, List.of(), defaultValue);
     }
 
     public static McpFieldContract optionalInt(String name, int minValue, int maxValue,
                                                int defaultValue) {
         return new McpFieldContract(name, McpFieldType.INTEGER, false, null, (long) minValue,
-                (long) maxValue, true, List.of(), false, defaultValue);
+                (long) maxValue, true, List.of(), defaultValue);
     }
 
     /** Integer with only a lower bound; the int target itself caps the upper end. */
     public static McpFieldContract optionalInt(String name, int minValue, int defaultValue) {
         return new McpFieldContract(name, McpFieldType.INTEGER, false, null, (long) minValue,
-                null, true, List.of(), false, defaultValue);
+                null, true, List.of(), defaultValue);
     }
 }

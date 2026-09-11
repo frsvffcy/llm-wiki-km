@@ -53,6 +53,12 @@ public class McpToolExecutor {
         this.providerEgressService = providerEgressService;
     }
 
+    /**
+     * Validates and executes a tool call for direct (non-wire) callers. Structural
+     * failures surface as tool-level {@code INVALID_REQUEST} here; the wire path instead
+     * validates in the controller routing plane (protocol-level {@code -32602}) and
+     * calls {@link #executeValidated}.
+     */
     public McpToolResult execute(String toolName, JsonNode arguments) {
         McpToolInputContract contract = McpCapabilityManifest.contractFor(toolName);
         if (contract == null) {
@@ -66,6 +72,15 @@ public class McpToolExecutor {
         } catch (McpToolInputException invalid) {
             return McpToolResult.failure(McpToolError.INVALID_REQUEST, invalid.getMessage());
         }
+        return executeValidated(toolName, validated);
+    }
+
+    /**
+     * Executes an already-validated tool call. The controller owns structural validation
+     * on the wire path and calls this only after the tool input contract accepts; direct
+     * callers must validate first via {@link #execute(String, JsonNode)} or the contract.
+     */
+    public McpToolResult executeValidated(String toolName, McpValidatedArguments validated) {
         try {
             return switch (toolName) {
                 case McpCapabilityManifest.TOOL_STATUS -> status();
