@@ -585,6 +585,52 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void mathematicalIntegerRepresentationsReachTheHandlerWhileFractionsStayProtocolErrors()
+            throws Exception {
+        // #348: integral-float representations (2.0, 1e2) are mathematical integers —
+        // structural validation passes and the tool handler runs; the locator's not-found
+        // is a genuine execution failure (tool-level isError), never a structural error.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":40,"method":"tools/call",
+                "params":{"name":"km_source_locator","arguments":{"chunkId":42.0},%s}}"""
+                .formatted(META), "tools/call", "km_source_locator"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"isError\":true")
+                        .doesNotContain("-32602"));
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":41,"method":"tools/call",
+                "params":{"name":"km_search","arguments":{"query":"q","size":2.0},%s}}"""
+                .formatted(META), "tools/call", "km_search"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        // No protocol error and a tool-level envelope: structural
+                        // validation passed and the application layer ran (its own
+                        // domain failure, e.g. no active workspace, is isError).
+                        .doesNotContain("-32602")
+                        .contains("\"isError\""));
+
+        // Fractions and out-of-range representations stay protocol-level -32602 before
+        // the handler runs — deterministic reject, no truncation, no overflow.
+        assertThatFractionIsRejected("{\"query\":\"q\",\"size\":2.5}");
+        assertThatFractionIsRejected("{\"query\":\"q\",\"size\":\"2.0\"}");
+        assertThatFractionIsRejected("{\"query\":\"q\",\"page\":2147483648.0}");
+        assertThatFractionIsRejected("{\"query\":\"q\",\"documentId\":9223372036854775808.0}");
+        assertThatFractionIsRejected("{\"query\":\"q\",\"size\":1e300}");
+    }
+
+    private void assertThatFractionIsRejected(String arguments) throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":42,"method":"tools/call",
+                "params":{"name":"km_search","arguments":%s,%s}}"""
+                .formatted(arguments, META), "tools/call", "km_search"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32602")
+                        .doesNotContain("\"isError\""));
+    }
+
+    @Test
     void executionFailuresStayToolLevelAfterStructuralValidationPasses() throws Exception {
         // Structurally valid locator call for a chunk that cannot exist: the failure
         // happens inside the handler, so it stays a tool-level isError result — never a

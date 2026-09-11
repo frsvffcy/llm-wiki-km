@@ -1347,11 +1347,18 @@ type／missing required／enum typo 在 modern 回 400+`-32602`、legacy 回 200
 tool-level `isError`。`mcp-sdk-interop.test.mjs` 新增 invalid-arguments case
 （legacy client 收到 rejected promise，`error.code === -32602`）。
 
-Parity 的精確邊界（`McpToolSchemaParityTest` 以 equality 斷言；唯一例外另立
-fail-closed deviation test 明示）：（a）integral-float representation（`2.0`、
-`1e2`）：JSON Schema 2020-12 視為 integer 而接受，runtime 要求 integral
-representation 而拒絕——無標準 keyword 可表達，方向嚴格 fail-closed（runtime 從不
-接受 schema 判 invalid 者）；（b）root `arguments: null`：視為 present mistyped 值，
+Parity 的精確邊界（`McpToolSchemaParityTest` 以 equality 斷言，無已知
+acceptance-set exception）：（a）integer 欄位採 JSON Schema 2020-12
+mathematical-integer 語意（#348）：wire 以 exact BigDecimal 解析浮點（
+`McpJsonRpc` `USE_BIG_DECIMAL_FOR_FLOATS`），integral-float representation（`2.0`、
+`1e2`、`-0.0`）與 bare integer 同集、兩平面同判；true fraction（含
+`1.0000000000000001` 這類會被 double round 掉的值）與超過 int/long 的 integral
+representation（`9223372036854775808.0`）兩平面同判 reject——exact 轉換、無
+truncate、無 overflow。pinned networknt 1.5.9 的 `maximum` 比較在極大 exponent
+DecimalNode（約 1e100 以上）有 upstream defect（會 over-accept），該範圍不在
+parity fixtures 內，runtime 的 fail-closed 行為（`size:1e300` → `-32602`）由
+unit／wire tests 鎖定——runtime 從不接受 schema 判 invalid 者的不變量仍成立；
+（b）root `arguments: null`：視為 present mistyped 值，
 兩邊同判 invalid（Java-null／missing 仍視為 absent）；（c）FS-only（U+001C）等 ECMA
 非空白控制字元：structural 兩邊同判 valid，application 層（`isBlank`）拒絕時走
 tool-level `isError`（taxonomy 允許的執行期 domain validation）；（d）wire plane 用

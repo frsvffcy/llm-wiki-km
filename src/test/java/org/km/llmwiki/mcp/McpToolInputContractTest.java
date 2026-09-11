@@ -1,8 +1,6 @@
 package org.km.llmwiki.mcp;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.ask.AskApplicationService;
@@ -36,8 +34,6 @@ import static org.mockito.Mockito.verifyNoInteractions;
  */
 @Tag("unit")
 class McpToolInputContractTest {
-
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     @Test
     void manifestExposesExactlyTheFiveReadOnlyToolsWithTheirOwnContracts() {
@@ -108,9 +104,10 @@ class McpToolInputContractTest {
         assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"size\":1.5}"))
                 .isInstanceOf(McpToolInputException.class)
                 .hasMessage("size must be an integer");
-        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"page\":2.0}"))
+        assertThatThrownBy(() ->
+                validate("km_search", "{\"query\":\"q\",\"size\":\"2.0\"}"))
                 .isInstanceOf(McpToolInputException.class)
-                .hasMessage("page must be an integer");
+                .hasMessage("size must be an integer");
         assertThatThrownBy(() ->
                 validate("km_search", "{\"query\":\"q\",\"page\":2147483648}"))
                 .isInstanceOf(McpToolInputException.class)
@@ -122,6 +119,54 @@ class McpToolInputContractTest {
         assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"corpus\":true}"))
                 .isInstanceOf(McpToolInputException.class)
                 .hasMessage("corpus must be a string");
+    }
+
+    /**
+     * #348: integer fields follow JSON Schema 2020-12 mathematical-integer semantics —
+     * an integral value in any JSON numeric representation ({@code 2.0}, {@code 1e2},
+     * {@code -0.0}) is the same integer, while true fractions (even below double
+     * precision, which the exact-BigDecimal wire parse preserves) reject without
+     * truncation and oversized values reject without overflow.
+     */
+    @Test
+    void integralFloatRepresentationsAreMathematicalIntegersWithExactConversions() {
+        // Exact target types: int fields yield Integer, long fields yield Long (#348
+        // challenge 9 — the application mapper sees the declared Java type).
+        assertThat(validate("km_search", "{\"query\":\"q\",\"page\":2.0}")
+                .view().get("page")).isEqualTo(2).isInstanceOf(Integer.class);
+        assertThat(validate("km_search", "{\"query\":\"q\",\"size\":1e2}")
+                .view().get("size")).isEqualTo(100).isInstanceOf(Integer.class);
+        assertThat(validate("km_search", "{\"query\":\"q\",\"page\":-0.0}")
+                .view().get("page")).isEqualTo(0).isInstanceOf(Integer.class);
+        assertThat(validate("km_search", "{\"query\":\"q\",\"documentId\":42.0}")
+                .view().get("documentId")).isEqualTo(42L).isInstanceOf(Long.class);
+        assertThat(validate("km_source_locator", "{\"chunkId\":42.0}")
+                .view().get("chunkId")).isEqualTo(42L).isInstanceOf(Long.class);
+
+        // True fractions reject deterministically — including one that a double would
+        // round to 1.0; the exact decimal parse keeps the fractional part visible.
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"size\":2.5}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("size must be an integer");
+        assertThatThrownBy(() ->
+                validate("km_search", "{\"query\":\"q\",\"size\":1.0000000000000001}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("size must be an integer");
+
+        // Exact range conversion: integral representations beyond int/long reject
+        // without overflow wrapping (challenges 4/5), at any exponent magnitude.
+        assertThatThrownBy(() ->
+                validate("km_search", "{\"query\":\"q\",\"page\":2147483648.0}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("page is out of range");
+        assertThatThrownBy(() ->
+                validate("km_search",
+                        "{\"query\":\"q\",\"documentId\":9223372036854775808.0}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("documentId is out of range");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"size\":1e300}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("size is out of range");
     }
 
     @Test
@@ -344,11 +389,13 @@ class McpToolInputContractTest {
     }
 
     private static JsonNode parse(String raw) {
-        try {
-            return JSON.readTree(raw);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("test JSON is malformed", exception);
+        // Production parsing: exact BigDecimal floats (#348), so fixtures are the same
+        // nodes the wire plane validates.
+        JsonNode node = McpJsonRpc.parseValue(raw);
+        if (node == null) {
+            throw new IllegalStateException("test JSON is malformed: " + raw);
         }
+        return node;
     }
 
     private static String jsonQuestion(String field, int codePoints) {
