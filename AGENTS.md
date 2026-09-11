@@ -144,7 +144,14 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 
 ## 3. Git / GitHub 工作流程
 
-* `main` 是唯一正式整合分支。交付路徑固定：Issue → latest main → dedicated branch → implementation → verification → commit → push → PR targeting main → PR Gate → merge → verify fix on main → close Issue。**Issue/PR 完成必須以 fix exists on latest main + CI evidence 為準**，不以 Closed/Merged metadata 判定。
+* `main` 是唯一正式整合分支。交付路徑固定：Issue → latest main → dedicated branch → implementation → verification → commit → push → PR targeting main → PR Gate → merge → verify fix on main → Completion Code Review Gate → close Issue。**Issue/PR 完成必須以 fix exists on latest main + CI evidence 為準**，不以 Closed/Merged metadata 判定。
+* **Completion Code Review Gate（#336）**：Completion report／PR body／test count／CI 綠燈都是 evidence，不是 implementation completeness 的 authority。有 production／executable 變更的 Issue，在進下一個 Sprint／Story 前必須 review latest `main` 的 actual code 並給出 `FULL GO / CONDITIONAL GO / NO-GO`。
+  - 範圍：含 production Java/JS、schema/migration、security boundary、transport/protocol adapter、persistence/filesystem、retrieval/ranking/RAG/Graph、concurrency/currentness、public API/contract、CI-test governance executable change 者完整執行；純 docs/wording 且無 executable behavior 變更者可輕量執行（仍須確認文件未冒充 executable authority）。
+  - 步驟：latest main presence → actual diff → core production code → test implementation（不只接受 test count；檢查 tests 是否鎖錯 contract）→ AC ↔ Code ↔ Test reconciliation（blocking AC 須能回答 AC → implementation location → executable test/evidence，缺一不可判 FULL GO）→ negative/challenge paths（malformed、fail-closed、stale/currentness、cross-workspace、security/secret、fallback、race、rollback/versioning、external interop）→ architecture residual（duplicate pipeline、adapter-to-adapter coupling、authority drift、DB/FS/provider bypass、declared-but-unused config、hidden mutable/shared state、過廣 fallback/catch）→ external protocol 對照 current official authority（self-authored tests 不得單獨證明 conformance，適用時用 official conformance/SDK interop evidence）→ CI evidence（supporting，不是替代品）。
+  - 分類：`FULL GO`（code 符合 AC、tests 鎖對 contract、無 blocking residual、CI 成立）／`CONDITIONAL GO`（核心成立＋bounded non-blocking residual，須記錄限制與是否另開 Issue；security/correctness/external-conformance residual 不得判 FULL GO）／`NO-GO`（implementation 缺漏、tests 鎖錯、blocker、fix 不在 main）。
+  - Residual 有 actionable 項：直接開 corrective/stabilization Issue（標 `[L1]`～`[L5]`、寫明來自 post-merge code audit 並引實際 code/test evidence），blocker 優先於下一個 feature Sprint；不把 finding 塞回已 Closed 的歷史 Issue。
+  - PR 內的 self-reported review（`Independent review complete` 等字樣）不可替代 post-merge review；reviewer 身分依 §0.1 如實揭露（同一 model family／同一 agent context／fresh context 但非 model-independent 皆須揭露，不得宣稱不存在的 independent reviewer）。
+  - Audit 記錄格式與存放見 `docs/development/testing.md`「Completion Code Review evidence」節；本節是唯一規範 authority，testing.md 不得另立相異規則。
 * 開始前 preflight：`git status`、`git remote -v`、`git fetch origin`、`gh auth status`；**execution-environment 的 approval/permission capability 是 preflight 的一部分**（曾出現 Git 失敗被誤判為 credential/network 的案例——failure-layer 診斷順序：repository write capability → remote protocol → credential/`gh auth` → network → 執行環境 permission/approval policy）。被 approval policy/permission 阻擋時不得誤判為 credential/network 失敗。
 * CLI-first：local/remote 操作優先 `git`/`gh` CLI；遇 authentication/permission/approval failure 禁止無聲切換 UI 完成 commit/push/PR。
 * Branch 從最新 `main` 建立（舊 branch merge 後不得續用）；命名 `feature|fix|test|cleanup/<issue>-<slug>`。
@@ -166,7 +173,7 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 * Bug fix 必須附 regression test；transaction/filesystem/concurrency 問題必須有 failure-path test；新 persistent table 同步 reset/cleanup guard。
 * Issue/PR body 列出實際執行的 commands 與結果；不得只寫「tests passed」。
 * 完成狀態回報：僅當 requirements + tests + PR merged into main + fix verified on main + Issue completed 全部成立才回報 `DONE`；僅在 branch/PR 上回報 `IMPLEMENTED / READY FOR MERGE`；merge 至非 main 回報 `NOT INTEGRATED`。
-* Sprint Exit：P0/blocker 必須真正存在於 `main`；結論 🟢 GO / 🟡 CONDITIONAL GO（有已登記的 Medium/Low 待辦）/ 🔴 NO-GO。
+* Sprint Exit：P0/blocker 必須真正存在於 `main`；進入下一 Sprint／Story 前，scope 內 implementation Issues 的 Completion Code Review Gate 須為 `FULL GO`（`CONDITIONAL GO` 須已登記 residual 與 follow-up Issue）；結論 🟢 GO / 🟡 CONDITIONAL GO（有已登記的 Medium/Low 待辦）/ 🔴 NO-GO。
 * docs/AGENTS-only 且無 production/test/build/CI behavior 變更時，可依 docs-only scope 驗證並跳過 full tests，PR body 如實記錄理由；影響上述行為的變更不可套用此例外。
 
 ## 6. Output / log policy
