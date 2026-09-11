@@ -3,7 +3,8 @@
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-const CLOSING_KEYWORD_PATTERN = /\b(?:closes|fixes|resolves)\s+#(\d+)\b/giu;
+const CLOSING_KEYWORD_PATTERN =
+  /\b(?:close[sd]?|fix(?:e[sd]?)?|resolve[sd]?)\s*:?\s*(?:#(\d+)|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/(\d+))\b/giu;
 const ISSUE_REFERENCE_PATTERN = /(?:^|[^\w])#(\d+)\b/gu;
 const EXCEPTION_PATTERN = /^PR-Metadata-Exception:\s*(stacked-pr|non-issue-driven)\s*$/gimu;
 const MAX_ISSUE_REFERENCES = 20;
@@ -19,7 +20,11 @@ export function semanticMarkdown(markdown = "") {
 export function inspectPrBody(body = "") {
   const semanticBody = semanticMarkdown(body);
   const closingIssueNumbers = [
-    ...new Set([...semanticBody.matchAll(CLOSING_KEYWORD_PATTERN)].map((match) => Number(match[1]))),
+    ...new Set(
+      [...semanticBody.matchAll(CLOSING_KEYWORD_PATTERN)].map((match) =>
+        Number(match[1] ?? match[2]),
+      ),
+    ),
   ];
   const referencedIssueNumbers = [
     ...new Set([...semanticBody.matchAll(ISSUE_REFERENCE_PATTERN)].map((match) => Number(match[1]))),
@@ -55,39 +60,37 @@ export async function validatePrMetadata(event, { issueLookup } = {}) {
     errors.push("stacked-pr 與 non-issue-driven 例外標記不得同時使用。");
   }
 
-  if (isMainTarget && closingIssueNumbers.length === 0 && !isNonIssueDriven) {
-    if (referencedIssueNumbers.length > 0) {
-      errors.push(
-        "找到 Issue reference，但沒有有效 closing keyword；請使用「Closes #123」、「Fixes #123」或「Resolves #123」。",
-      );
-    } else {
-      errors.push(
-        "Issue-driven PR 必須提供 closing keyword；非 Issue-driven PR 必須加入獨立一行「PR-Metadata-Exception: non-issue-driven」。",
-      );
-    }
+  // Auto-closing keywords would close the Issue on merge, before the Completion Code
+  // Review Gate can run — they are banned on every base, with no exception track.
+  if (closingIssueNumbers.length > 0) {
+    errors.push(
+      `PR body 不得使用會自動關閉 Issue 的 keyword（命中 #${closingIssueNumbers.join(", #")}）；請改用「Refs #N」等 non-closing reference，Issue 由 Completion Audit 後明確關閉。`,
+    );
   }
 
-  if (closingIssueNumbers.length > 0 && isNonIssueDriven) {
-    errors.push("已有 closing keyword，不得同時宣告 non-issue-driven 例外。");
+  if (isMainTarget && referencedIssueNumbers.length === 0 && !isNonIssueDriven) {
+    errors.push(
+      "Issue-driven PR 必須提供至少一個 Issue reference（例如「Refs #123」）；非 Issue-driven PR 必須加入獨立一行「PR-Metadata-Exception: non-issue-driven」。",
+    );
   }
 
-  if (closingIssueNumbers.length > MAX_ISSUE_REFERENCES) {
-    errors.push(`closing references 超過上限 ${MAX_ISSUE_REFERENCES}，請縮小 PR scope。`);
-  } else if (closingIssueNumbers.length > 0) {
+  if (referencedIssueNumbers.length > MAX_ISSUE_REFERENCES) {
+    errors.push(`Issue references 超過上限 ${MAX_ISSUE_REFERENCES}，請縮小 PR scope。`);
+  } else if (referencedIssueNumbers.length > 0 && !isNonIssueDriven) {
     if (!repository) {
       errors.push("無法從 pull_request event 取得 repository.full_name。");
     } else if (typeof issueLookup !== "function") {
-      errors.push("Issue existence lookup 未設定，無法驗證 closing references。");
+      errors.push("Issue existence lookup 未設定，無法驗證 references。");
     } else {
       const results = await Promise.all(
-        closingIssueNumbers.map(async (issueNumber) => ({
+        referencedIssueNumbers.map(async (issueNumber) => ({
           issueNumber,
           result: await issueLookup(repository, issueNumber),
         })),
       );
       for (const { issueNumber, result } of results) {
         if (!result.exists) {
-          errors.push(`Closing reference #${issueNumber} 不是同 repository 的有效 Issue（${result.reason}）。`);
+          errors.push(`Reference #${issueNumber} 不是同 repository 的有效 Issue（${result.reason}）。`);
         }
       }
     }
@@ -96,6 +99,7 @@ export async function validatePrMetadata(event, { issueLookup } = {}) {
   return {
     valid: errors.length === 0,
     errors: errors.slice(0, MAX_ISSUE_REFERENCES + 5),
+    referencedIssueNumbers,
     closingIssueNumbers,
     exception: isStacked ? "stacked-pr" : isNonIssueDriven ? "non-issue-driven" : null,
   };
@@ -157,8 +161,8 @@ async function main() {
   }
 
   const linkage =
-    result.closingIssueNumbers.length > 0
-      ? `closing Issue: ${result.closingIssueNumbers.map((number) => `#${number}`).join(", ")}`
+    result.referencedIssueNumbers.length > 0
+      ? `referenced Issue: ${result.referencedIssueNumbers.map((number) => `#${number}`).join(", ")}`
       : `reviewed exception: ${result.exception}`;
   console.log(`PR metadata validation passed (${linkage}).`);
 }

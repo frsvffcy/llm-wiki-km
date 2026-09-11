@@ -181,7 +181,7 @@ below; ordinary delivery still targets `main`:
 
 | CI job | Command | Purpose |
 | --- | --- | --- |
-| PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, closing keyword, and same-repository Issue existence with a read-only token |
+| PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, absence of auto-closing keywords (`Closes/Fixes/Resolves #` blocks the gate — Issues close only after the Completion Audit), non-closing Issue references (`Refs #N`), and same-repository Issue existence with a read-only token |
 | Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`node --test src/test/js/graph-operations-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask and Graph projection operations UI contract regression plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
 | Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest,GraphEvidenceAdmissionIntegrationTest,GraphProjectionOperationalApiIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, canonical ingress/currentness, deterministic bounded traversal, graph evidence admission, operational API lifecycle, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
@@ -1274,7 +1274,9 @@ evidence 的格式與存放，不另立相異規則。
 
 Audit 在 merge 後、close Issue 前（或進入下一 Sprint／Story 前）執行，對象是 latest
 `main` 的 actual code，不是 PR body 或 test count。結論以下列格式記錄於原 Issue
-comment；有 corrective/stabilization follow-up 時，結論同時連結至新 Issue：
+comment，且該 comment 必須存在於 close 之前（close 由 audit decision 驅動，不由 merge
+的 keyword 驅動；PR body 已禁 closing keyword，見 AGENTS.md §3）；有
+corrective/stabilization follow-up 時，結論同時連結至新 Issue：
 
 ```text
 Completion Audit
@@ -1298,9 +1300,11 @@ CONDITIONAL GO 時必須同時記載限制範圍；security／correctness／exte
 類 residual 不得判 FULL GO。
 
 Retrospective 依據：#327（PR #329）completion report＋full tests 全綠後，actual-code
-audit 仍發現 tools/list schema 與 runtime validation 分家（schema 全 string、runtime
-coercion）而產出 #330/#331；#330（PR #332）全綠後，再次由 actual-code audit 發現
-legacy negotiation／per-era conformance 與 schema/validator drift 而產出 #334/#335。
+audit 發現 MCP current-spec／security gap 而產出 #330（protocol／transport 修正）與
+#331（adapter layering 共用 boundary）；#330（PR #332）全綠後，再次由 actual-code
+audit 發現 legacy negotiation／per-era conformance 問題（→ #334）與 tools/list
+schema／runtime validation drift（→ #335，後由 #341 收斂為 exact acceptance 與
+protocol error plane）。
 兩次的共同模式是 tests 鎖住了過粗或錯誤的 contract（存在性而非語意），只有打開 actual
 diff＋core code＋test implementation 才能看見——這正是本 gate 要求 reconciliation
 三元組與「tests 是否鎖錯 contract」檢查的原因。
