@@ -15,11 +15,9 @@
  * (offers 2025-11-25, must receive the 2025-06-18 counter-offer), tools/list shape (typed
  * contract-derived schema), tools/call, legacy ping, the unknown-tool protocol error
  * (JSON-RPC -32602 surfaced as a rejected callTool promise), and the same rejection for
- * invalid arguments on a known tool. Modern-era surfaces cannot be
- * driven by any released Tier-1 client today (latest published SDK is legacy-only; the
- * auto/discover flow exists only in unreleased main docs), so modern coverage stays with the
- * deterministic MockMvc contract tests; re-run this procedure when a Tier-1 SDK ships a
- * 2026-07-28 client.
+ * invalid arguments on a known tool. Modern-era coverage lives in the companion
+ * `mcp-modern-interop.test.mjs` (pinned Tier-1 SDK v2); this script remains the
+ * legacy-era (2025) black-box evidence.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

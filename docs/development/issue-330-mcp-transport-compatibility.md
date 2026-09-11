@@ -1,10 +1,10 @@
 # Issue #330 MCP transport compatibility 決策紀錄
 
 > 決策日期：2026-09-11；狀態：Accepted；決策：`KEEP_CUSTOM_CODEC`。
-> #334 conformance 複核：`CUSTOM_CODEC_CONFORMANCE = CONDITIONAL GO`——legacy wire 以
-> pinned Tier-1 SDK live 證據維持（見下表）；modern 面維持 MockMvc contract 持有，待
-> Tier-1 發布 2026-07-28 client 後以 `src/test/js/mcp-sdk-interop.test.mjs` 重跑；
-> 若屆時出現 drift 仍過高，依原重評門檻重開 adoption review。
+> #334 conformance 複核：`CUSTOM_CODEC_CONFORMANCE = CONDITIONAL GO`（歷史記錄，見下）。
+> #340 conformance 複核：`CUSTOM_CODEC_CONFORMANCE = FULL GO`——modern＋legacy 皆有
+> pinned Tier-1 live 證據（v2 `@modelcontextprotocol/client@2.0.0` modern harness＋
+> v1 legacy script）；重評觸發見文末 #340 節。
 
 ## 支援矩陣
 
@@ -53,7 +53,7 @@ metadata 複製到 response。
 | Dependency/license footprint | `pom.xml` 不新增 MCP dependency或新 license；既有五個 tool executor不變 | 最小供應鏈增量 |
 | Conformance 維護 | `McpEnabledModeContractTest`／`McpServerContractTest` 持有 modern、legacy、media、method、notification、DNS rebinding與 redaction regression | CI 可 deterministic/offline 重現 |
 | SDK maturity | 2026-07-28 公告的 Tier-1 SDK 清單未包含 Java；導入非 Tier-1 Java SDK仍需自行驗證 current/legacy與 Spring transport security | 現階段無法消除本 Issue 的主要維護責任 |
-| Pinned Tier-1 SDK live interop (#334) | `@modelcontextprotocol/sdk@1.30.0`（最新已發布 legacy-era Tier-1 client）對 live server：`initialize` offer `2025-11-25` 得 200 counter-offer `2025-06-18` 並被接受、`tools/list` 五工具、`inputSchema` object、`tools/call`、`ping`、`unknown tool` typed `isError`，7/7 通過；modern 面因無已發布 Tier-1 client（最新版仍只走 legacy；auto/discover flow 僅見於未發布 main docs）且本 adapter modern 面要求官方 client 不送的自訂 headers，live 證據限 legacy，modern 以 MockMvc contract tests 持有 | bonded legacy 互通已證；modern 待 Tier-1 發布 2026-07-28 client 後重跑 `src/test/js/mcp-sdk-interop.test.mjs` |
+| Pinned Tier-1 SDK live interop (#334 + #340) | legacy：`@modelcontextprotocol/sdk@1.30.0` 對 live server 7/7（counter-offer、`tools/list`、`tools/call`、`ping`、unknown tool typed error）；modern：`@modelcontextprotocol/client@2.0.0` 對 live server（auto→modern era 證明、pin、list／call 成功、`ping` 非法、unknown／invalid-args typed `-32602`、stateless、legacy fallback fixture）；`Mcp-Method`／`Mcp-Name` 為 official client 原生發送的 standard headers | 雙 era 皆有 Tier-1 live 證據 |
 
 這不是永久拒絕 SDK。若加入第三個 wire era、SSE/server request、remote exposure、OAuth、Tasks，或
 official Java SDK 成為 current revision Tier-1 且能取代本地 transport guard，必須重開 adoption review；
@@ -71,19 +71,70 @@ agent loop或第二條 retrieval/Ask pipeline。
 
 Unknown tool name 由 result-envelope `isError`/`UNSUPPORTED_TOOL` 改為 protocol-level
 JSON-RPC `InvalidParams` `-32602`，對齊 official SDK server 的 `Tool ${name} not found`
-行為。Era 呈現差異：modern `2026-07-28` 以 HTTP 404 呈現（official TS server 對 JSON-RPC
-error 一律 HTTP 200；本 adapter 的 modern 面向來以 HTTP status 攜帶 method-level 錯誤，
-如 `-32601` 404，故 unknown tool 沿用同一慣例），legacy `2025-06-18` 為 HTTP 200＋JSON-RPC
-error envelope（Tier-1 SDK 1.30.0 client 呈現為 rejected `callTool`，`error.code ===
--32602`，已以 pinned interop 驗證）。重評門檻：Tier-1 發布 modern-era client 後，若其
-`StreamableHTTPClientTransport` 對非 200 的 POST 一律丟 transport error 而不解析 body，
-須重新評估 modern 面改回 HTTP 200 error envelope 的相容性。
+行為。Era 呈現差異（#340 修訂）：modern `2026-07-28` unknown tool 為 HTTP **400**＋
+JSON-RPC error envelope（Tier-1 v2 transport 只解析 400 的 envelope，404 一律丟
+transport error；spec 只對 unknown **method** 強制 404＋`-32601`，unknown **tool**
+的 HTTP status 未規定——client 可觀察的 typed `-32602` 優先），legacy
+`2025-06-18` 為 HTTP 200＋JSON-RPC error envelope（Tier-1 SDK 1.30.0 client 呈現為
+rejected `callTool`，`error.code === -32602`，已以 pinned interop 驗證）。舊 404
+慣例見本節歷史記錄；重評門檻由 #340 decision 取代。
 
 ## #341 error plane：structural validation failure 的 HTTP 呈現
 
 #341 起 known tool 的 structural／inputSchema validation failure 與 unknown tool 同屬
-protocol-level `InvalidParams` `-32602`，但 HTTP 呈現區分：unknown tool（tool 不存在）
-沿用 modern 404／legacy 200 envelope；known tool 參數不合法（tool 存在）為 modern
-**400**／legacy 200 envelope。missing／blank `params.name` 維持既有 `-32600`（400）。
-重評門檻與 unknown-tool 404 相同：Tier-1 發布 modern-era client 後，若其 transport 對
-非 200 POST 不解析 body，須重新評估 modern 面改回 200 error envelope 的相容性。
+protocol-level `InvalidParams` `-32602`：unknown tool（tool 不存在）為 modern
+**400**（#340 修訂，原因同上）／legacy 200 envelope；known tool 參數不合法
+（tool 存在）為 modern **400**／legacy 200 envelope。missing／blank `params.name`
+維持既有 `-32600`（400）。重評門檻由 #340 decision 取代。
+
+## #340：Tier-1 v2 live evidence 與 `KEEP_CUSTOM_CODEC = FULL GO`
+
+#334／#335／#341 留下的重評門檻（「Tier-1 發布 modern-era client 後重評」）已觸發。
+Pinned `@modelcontextprotocol/client@2.0.0`（v2 GA 唯一 stable，`npm install
+--prefix <scratch> @modelcontextprotocol/client@2.0.0`，harness 啟動時斷言版本）
+對 live server 的 black-box 結果：
+
+- `mode: 'auto'` 選到 `modern`（`getProtocolEra()` 證明，非僅憑成功推斷；negotiated
+  `2026-07-28`）；`mode: { pin: '2026-07-28' }` 連線成功；pin 不存在的 revision
+  loud reject（`UnsupportedProtocolVersionError`，無 silent fallback）。
+- `listTools()` 見五個唯讀 tools；`inputSchema` 被 official codec 接受；
+  `km_status`、`km_search`、`km_retrieval_inspect` 經 official client 成功
+  （`isError: false`，structured result 可解析；`_meta`／cache 欄位無 rejection）。
+- `ping` 由 client 端直接拒絕（`METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION`）——modern
+  無 ping，與 server 端 per-era registry 一致。
+- unknown tool 與 invalid arguments 皆為 typed `ProtocolError -32602`
+  （invalid-args 訊息為 operator-safe contract message）；repeated calls stateless。
+- 同一 v2 client 對 legacy-only stub fixture 正確 fallback 到 legacy era——dual-era
+  endpoint 本身恆 offer modern，故 fallback regression 被掩蓋的路徑不存在。
+
+關鍵修正（重評門檻的執行結果）：v2 transport 只解析 HTTP 400 的 JSON-RPC error
+envelope（`_isModernEnvelopedRequest` 限定），404 一律丟 transport error 而不解析
+body。Spec 只對 unknown **method** 強制 404＋`-32601`（保留），unknown **tool** 的
+HTTP status 未規定——故 modern unknown-tool 由 404 改為 **400**＋`-32602`
+envelope，使真實 client 觀察到的 error plane 與 #335／#341 目標一致。 transport
+spec（header mismatch／unsupported version→400、unknown method→404）其餘全部符合，
+不需其他 server 變更——特別是 Host／Origin／auth guard 零放寬。
+
+Official conformance runner 評估（D）：stable `@modelcontextprotocol/conformance@
+0.1.16` 無任何 `2026-07-28` scenario，無法測試 modern wire；`0.2.0-alpha.11` 雖有
+modern scenarios 但為 prerelease，且 (1) 無 auth passthrough（本 adapter 的
+mandatory bearer 使其全數 `AUTHENTICATION_FAILED`，已實測），(2) tool-call scenarios
+綁定 fixture tools（`test_simple_text` 等），(3) capability scenarios 針對未宣告
+能力（resources／prompts／logging／completion／sampling／elicitation／SSE）。
+Applicable 子集（`tools-list`、`server-stateless`、`json-schema-2020-12`）被 (1)
+阻擋；工具名／描述／inputSchema 要求（1–64 chars、`^[A-Za-z0-9_./-]+$`）本 server
+本就滿足。附帶觀察（非 verdict blocker）：transport-error envelope 用 `"id": null`
+被 runner wire-schema check 標記；屬 pre-existing 行為，已開 follow-up #345，
+不在本 decision 範圍。結論：runner 不採為 gate；modern external evidence 由 v2-client
+harness（`src/test/js/mcp-modern-interop.test.mjs`）持有；stable runner 出 modern
+scenarios＋auth 支援後重評。
+
+Adoption verdict：**`KEEP_CUSTOM_CODEC = FULL GO`**。modern＋legacy 皆有 Tier-1 live
+evidence；dual-era 維護 bounded（兩個明列 revision、per-era registry、versioned
+contract）；2026-07-28 spec 已 stable 且 client 接受本 wire；無 Tier-1 Java SDK 可
+serving current revision＋transport guard／auth／egress 整合（ADOPT 不可行）；
+production dependency 零新增（networknt 僅 test scope；v2 SDK 僅 scratch／harness，
+不進 `pom.xml`）；security integration 零放寬（interop 未要求任何 guard 鬆動）。
+重評觸發（取代舊門檻）：第三個 wire era、SSE server-requests、remote／OAuth、
+Tasks、official Java SDK 可 serving current revision、stable conformance runner 具
+modern scenarios＋auth 支援。

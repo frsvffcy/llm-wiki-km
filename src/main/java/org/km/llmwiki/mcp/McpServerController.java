@@ -194,8 +194,11 @@ public class McpServerController {
         if (!McpCapabilityManifest.isKnown(toolName)) {
             // Unknown tool names never reach a tool handler: per the official server
             // behavior this is a protocol-level InvalidParams error, not a tool execution
-            // result. Known tools keep their tool-level isError semantics.
-            HttpStatus status = era == McpProtocolEra.MODERN ? HttpStatus.NOT_FOUND
+            // result. The HTTP mapping follows what Tier-1 clients can observe: modern
+            // clients parse JSON-RPC error envelopes on 400 (but not 404), so unknown
+            // tools are 400 on modern; legacy keeps 200 for the same reason. Unknown
+            // METHODS stay 404 — the spec mandates it for -32601.
+            HttpStatus status = era == McpProtocolEra.MODERN ? HttpStatus.BAD_REQUEST
                     : HttpStatus.OK;
             return error(status, McpJsonRpc.id(request), JSONRPC_INVALID_PARAMS,
                     "unknown tool", Map.of("supported",
