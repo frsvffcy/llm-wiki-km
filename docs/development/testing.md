@@ -1003,3 +1003,61 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Second-stage rerank production adoption 測試責任（#326）
+
+`rag.SecondStageRerankPolicy`（versioned、deterministic、provider-neutral）為 production
+second-stage rerank boundary：policy 只 reorder 已完成 authority/currentness qualification 的
+canonical evidence（`RerankResult` 為 ordered view；identity set/citation/content hash/
+provenance 不可變），不得執行 retrieval/traversal/authority read/provider call，不得接收
+vendor id/RID/raw score；`RerankStatus`（`APPLIED`／`NO_OP_INSUFFICIENT_CANDIDATES`／
+`NO_OP_UNSUPPORTED_SHAPE`）與 `RerankNoOpReason` 是 typed applicability/no-op 語意。production
+policies：`rerank-policy-v1-noop`（rollback target）與 `rerank-policy-v1-exact-anchor`
+（#316 winner 的 production 化；exact technical-token/title 錨點主導、CJK bigram 次之、
+plain coverage 最後、tie-break 回 application-owned baseline 順序；policy 自身的 identity-set
+honesty gate + executor 的 invariant revalidation 雙層防護——policy 輸出改變 identity set 或
+runtime fault 時 deterministic fallback 回 baseline order 並 typed no-op）。
+`rag.SecondStageRerankService`（execution boundary）對每次 policy 輸出重新驗證 blocking
+invariants（identity set 完全相同、無復活/丟棄/重識別），`rag.SecondStageRerankPolicyRegistry`
+（`km.rag.rerank.policy-version`，env `KM_RAG_RERANK_POLICY_VERSION`）unknown/duplicate/blank
+fail fast；rollback 即切回 noop version，不需重建任何 projection。
+
+`rag.SecondStageRerankServiceTest`（unit tier）持有 executor 邊界：noop rollback target、
+typed no-op、exact-anchor reorder 與 identity invariants、hostile policy/runtime fault 的
+typed fallback、registry fail-fast。`rag.RerankPolicyWiringIntegrationTest`（full context）
+驗證 production default wiring（adopted `rerank-policy-v1-exact-anchor` + noop rollback target
+保持註冊）。`rag.RerankEvaluationIntegrationTest` 擴充 production-policy adoption regression：
+production boundary（registry + executor）以 #316 corpus 重跑 production retrieval output，
+blocking gates（identity/forbidden/graph rank retention/exact-token protection/determinism）對
+production policy 成立（production run 的 graph-added gate 與 parity gate 皆為 enforced
+violation；本 corpus 的 graph-added identity 在 baseline window 外由 corpus window
+observation 如實記錄，discovery reachability 由 #280 持有），且 production ordering 與 #316
+evaluation winner **逐 query 完全一致**（parity gate）。`ai.answer.AnswerContextCompactionRebaselineTest`（unit tier）為 #308
+re-baseline gate：reranked packing order 對每個 corpus case 的 supporting-fact retention 不得
+低於 no-rerank baseline（per-case no-regression；#308 mandatory floors 由 compaction-candidate
+gate 本身持有，assembler 截斷語意不因 adoption 改變），且 rerank 只改 order 不改 per-block
+identity/hash/provenance/content 語意。
+
+Execution metadata：`AskExecutionMetadata`/`AskApiResponse.ExecutionMetadata` 的 additive
+typed 欄位（`rerankPolicyVersion`／`rerankStatus`／`rerankNoOpReason`；APPLIED 無 no-op
+reason、no-op 必帶 reason、version 為 safe identifier、provider outcome immutable copy 保留
+rerank metadata）；`ai.ask.AskService` 的 Ask path 在 authority/currentness qualification 後
+、context packing 前套用 active policy（retrieval 側 terminal/handoff currentness guard 仍是
+該 consumption window 的權威——rerank 是純 in-memory reorder，不新增 window gap、無 silent
+backfill 可能）。無 new public retrieval mode、無 raw-score blending、無 cross-encoder/
+remote reranker、無 Browser slider；`context-policy-v1-current` baseline 語意不變，
+`EXTRACTIVE` compaction 未被啟用。量測（#326 adoption）：#316 production parity 0.8833 mean
+MRR（與 evaluation winner 逐 query 一致）、#308 re-baseline per-case 零 regression、
+exact-anchor overhead 為純 Java 運算（量測 ~4–7ms/corpus run）、zero model artifact。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='SecondStageRerankServiceTest' test -Pfast
+mvn -Dtest='RerankPolicyWiringIntegrationTest,RerankEvaluationIntegrationTest' test -Pintegration
+mvn -Dtest='AnswerContextCompactionRebaselineTest,AskServiceTest' test -Pfast
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```

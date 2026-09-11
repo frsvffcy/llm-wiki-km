@@ -37,12 +37,15 @@ public class AskService {
 
     private final RetrievalService retrievalService;
     private final EvidenceContextProjector contextProjector;
+    private final org.km.llmwiki.rag.SecondStageRerankService rerankService;
     private final AnswerClient answerClient;
 
     public AskService(RetrievalService retrievalService, EvidenceContextProjector contextProjector,
+                      org.km.llmwiki.rag.SecondStageRerankService rerankService,
                       AnswerClient answerClient) {
         this.retrievalService = retrievalService;
         this.contextProjector = contextProjector;
+        this.rerankService = rerankService;
         this.answerClient = answerClient;
     }
 
@@ -63,14 +66,23 @@ public class AskService {
                     List.of(), retrievalFailureDiagnostics(request, exception));
         }
 
+        // Second-stage reranking reorders the already-qualified evidence into an ordered
+        // view; the policy can never add, drop, or re-identify evidence (blocking invariants
+        // enforced inside the rerank execution boundary), and the existing retrieval-side
+        // terminal/Ask handoff currentness guard stays authoritative for this consumption
+        // window because the reorder is a pure in-memory view with no new reads.
+        org.km.llmwiki.rag.RerankResult rerank = rerankService.apply(evidence);
+        EvidenceBundle qualified = rerank.orderedBundle();
+
         long projectionStarted = System.nanoTime();
-        ContextProjectionResult projection = contextProjector.project(evidence,
+        ContextProjectionResult projection = contextProjector.project(qualified,
                 request.contextBudget());
         long projectionLatencyMs = elapsedMillis(projectionStarted);
         AnswerContext context = projection.context();
-        AnswerContextDiagnostics contextDiagnostics = AnswerContextDiagnostics.from(evidence,
+        AnswerContextDiagnostics contextDiagnostics = AnswerContextDiagnostics.from(qualified,
                 projection, projectionLatencyMs, null, ProviderUsageStatus.NOT_ATTEMPTED, null);
-        AskExecutionMetadata execution = AskExecutionMetadata.fromDiagnostics(contextDiagnostics);
+        AskExecutionMetadata execution = AskExecutionMetadata.fromDiagnostics(contextDiagnostics)
+                .withRerankOutcome(rerank.policyVersion(), rerank.status(), rerank.noOpReason());
         List<AskCitation> suppliedEvidence = context.blocks().stream()
                 .map(AskCitation::from).toList();
 
@@ -85,8 +97,8 @@ public class AskService {
             generated = answerClient.generate(new org.km.llmwiki.ai.answer.AnswerRequest(
                     request.question(), context, request.generationOptions()));
         } catch (AnswerClientException exception) {
-            execution = executionWithProviderOutcome(contextDiagnostics,
-                    ProviderUsageStatus.UNAVAILABLE, null, elapsedMillis(answerStarted));
+            execution = execution.withProviderOutcome(ProviderUsageStatus.UNAVAILABLE, null,
+                    elapsedMillis(answerStarted));
             return AskResultFactory.failure(
                     failureFor(exception), execution, suppliedEvidence, evidence.diagnostics(),
                     null, Optional.empty());
@@ -94,8 +106,8 @@ public class AskService {
 
         long answerLatencyMs = elapsedMillis(answerStarted);
         if (generated == null) {
-            execution = executionWithProviderOutcome(contextDiagnostics,
-                    ProviderUsageStatus.UNAVAILABLE, null, answerLatencyMs);
+            execution = execution.withProviderOutcome(ProviderUsageStatus.UNAVAILABLE, null,
+                    answerLatencyMs);
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                     "answer provider returned no result"), execution, suppliedEvidence,
@@ -106,8 +118,8 @@ public class AskService {
         AnswerProviderMetadata providerMetadata = generated.providerMetadata();
         ProviderUsageStatus usageStatus = usage.isPresent()
                 ? ProviderUsageStatus.AVAILABLE : ProviderUsageStatus.UNAVAILABLE;
-        execution = executionWithProviderOutcome(contextDiagnostics, usageStatus,
-                usage.orElse(null), answerLatencyMs);
+        execution = execution.withProviderOutcome(usageStatus, usage.orElse(null),
+                answerLatencyMs);
 
         if (generated.answerText().codePointCount(0, generated.answerText().length())
                 > request.generationOptions().maxOutputCodePoints()) {
@@ -131,13 +143,6 @@ public class AskService {
                             "answer provider response failed citation validation"),
                     execution, suppliedEvidence, evidence.diagnostics(), providerMetadata, usage);
         }
-    }
-
-    private static AskExecutionMetadata executionWithProviderOutcome(
-            AnswerContextDiagnostics contextDiagnostics, ProviderUsageStatus status,
-            AnswerUsageMetadata usage, Long answerLatencyMs) {
-        return AskExecutionMetadata.fromDiagnostics(contextDiagnostics.withProviderUsage(status,
-                usage, answerLatencyMs));
     }
 
     private static long elapsedMillis(long started) {

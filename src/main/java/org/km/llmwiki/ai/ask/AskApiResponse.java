@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import org.km.llmwiki.ai.answer.AnswerContextProvenance;
 import org.km.llmwiki.ai.answer.AnswerProviderMetadata;
 import org.km.llmwiki.ai.answer.AnswerContextDiagnostics;
+import org.km.llmwiki.rag.RerankNoOpReason;
+import org.km.llmwiki.rag.RerankStatus;
 import org.km.llmwiki.ai.answer.ContextProjectionFailureType;
 import org.km.llmwiki.ai.answer.ProjectionKind;
 import org.km.llmwiki.ai.answer.ProviderUsageStatus;
@@ -111,17 +113,24 @@ public record AskApiResponse(
         }
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ExecutionMetadata(
             int retrievedEvidenceItems,
             int contextEvidenceItems,
             int contextCodePoints,
             boolean contextTruncated,
-            ContextDiagnostics contextDiagnostics
+            ContextDiagnostics contextDiagnostics,
+            String rerankPolicyVersion,
+            RerankStatus rerankStatus,
+            RerankNoOpReason rerankNoOpReason
     ) {
         static ExecutionMetadata from(AskExecutionMetadata metadata) {
             return new ExecutionMetadata(metadata.retrievedEvidenceItems(),
                     metadata.contextEvidenceItems(), metadata.contextCodePoints(),
-                    metadata.contextTruncated(), ContextDiagnostics.from(metadata.contextDiagnostics()));
+                    metadata.contextTruncated(),
+                    ContextDiagnostics.from(metadata.contextDiagnostics()),
+                    metadata.rerankPolicyVersion(), metadata.rerankStatus(),
+                    metadata.rerankNoOpReason());
         }
     }
 

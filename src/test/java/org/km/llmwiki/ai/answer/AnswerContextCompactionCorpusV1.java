@@ -164,7 +164,21 @@ final class AnswerContextCompactionCorpusV1 {
     }
 
     static EvidenceBundle bundle(List<EvidenceItem> items) {
-        return new EvidenceBundle("compaction evaluation", RetrievalMode.HYBRID_FTS, WORKSPACE,
+        return bundleWithQuery(items, "compaction evaluation");
+    }
+
+    /**
+     * Re-baseline variant (#326): the ask query drives the exact-anchor policy's scoring, so
+     * the rerank reorder can actually engage on multi-item cases instead of silently tying.
+     */
+    /** Re-baseline fixture helper (#326): constructs a wiki evidence item from raw parts. */
+    static org.km.llmwiki.rag.EvidenceItem exposedWiki(String id, String title, String path,
+                                                       String content) {
+        return wiki(id, title, path, 1, content);
+    }
+
+    static EvidenceBundle bundleWithQuery(List<EvidenceItem> items, String query) {
+        return new EvidenceBundle(query, RetrievalMode.HYBRID_FTS, WORKSPACE,
                 items, new org.km.llmwiki.rag.EvidenceBudget(8, 12_000, items.size(),
                 items.stream().mapToInt(item -> item.content().codePointCount(0, item.content().length()))
                         .sum(), 0, false),

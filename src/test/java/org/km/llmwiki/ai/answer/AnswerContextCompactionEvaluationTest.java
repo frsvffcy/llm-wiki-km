@@ -153,7 +153,7 @@ class AnswerContextCompactionEvaluationTest {
         return violations;
     }
 
-    private static double retention(AnswerContext context,
+    static double retention(AnswerContext context,
                                     AnswerContextCompactionCorpusV1.CompactionCase compactionCase) {
         if (compactionCase.supportingFacts().isEmpty()) {
             return 1.0d;
