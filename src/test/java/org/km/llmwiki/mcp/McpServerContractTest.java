@@ -3,18 +3,15 @@ package org.km.llmwiki.mcp;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
-
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * Transport-level contract for the read-only local MCP adapter (#327): fail-closed disabled
+ * Transport-level contract for the read-only local MCP adapter (#330): fail-closed disabled
  * mode, backend-only bearer authentication with constant-time comparison, hard body bound
  * enforced on the decoded body (not only Content-Length), read-only tool surface (write
  * capabilities answer typed unsupported), and no secret/raw-endpoint leakage in any response.
@@ -30,7 +27,9 @@ class McpServerContractTest extends IsolatedIntegrationTest {
     @Test
     void disabledAdapterFailsClosedWithTypedErrorAndNoLeak() throws Exception {
         // Default test configuration: app.mcp.enabled=false → deterministic MCP_DISABLED.
-        mockMvc.perform(post("/api/mcp").contentType("application/json")
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header("Accept", "application/json, text/event-stream")
+                        .contentType("application/json")
                         .content("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
@@ -43,9 +42,21 @@ class McpServerContractTest extends IsolatedIntegrationTest {
         // The disabled gate is the FIRST check: a disabled adapter never parses or processes
         // any body, so malformed/oversized content deterministically answers MCP_DISABLED
         // too (nothing is processed while the boundary is off).
-        mockMvc.perform(post("/api/mcp").contentType("application/json").content("not-json"))
+        mockMvc.perform(post("/api/mcp").header("Host", "127.0.0.1:8765")
+                        .header("Accept", "application/json, text/event-stream")
+                        .contentType("application/json").content("not-json"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .contains("MCP_DISABLED"));
+    }
+
+    @Test
+    void invalidOriginIsRejectedBeforeTheDisabledGate() throws Exception {
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header("Origin", "https://evil.example")
+                        .contentType("application/json").content("not-json"))
+                .andExpect(status().isForbidden())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .doesNotContain("MCP_DISABLED", "INVALID_REQUEST"));
     }
 }

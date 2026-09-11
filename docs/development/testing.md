@@ -1062,23 +1062,31 @@ mvn clean verify -Pfull
 git diff --check
 ```
 
-## Read-only local MCP adapter 測試責任（#327）
+## Read-only local MCP adapter 測試責任（#327／#330）
 
 `mcp.McpServerController`（`POST /api/mcp`）是 read-only-first、loopback-only 的 MCP
-Streamable HTTP 子集 adapter（JSON-RPC 2.0；initialize/ping/tools/list/tools/call；無 SSE
-streaming——spec 允許 server 直接回 JSON response）。**MCP 是另一個 adapter，不是新的
+Streamable HTTP adapter。Current `2026-07-28` 使用 stateless `server/discover`/ping/tools/list/
+tools/call；bounded legacy `2025-06-18` 才使用 initialize/initialized flow。兩個 era 由
+`McpProtocolVersions` 單一 authority明列，不共用 hidden session state；custom codec adoption
+decision為 `KEEP_CUSTOM_CODEC`，完整 evidence與重評門檻見
+`docs/development/issue-330-mcp-transport-compatibility.md`。本版無 SSE streaming；server直接回
+JSON response。**MCP 是另一個 adapter，不是新的
 authority**：tools 委派既有 application 契約的現有 controller boundaries（SystemStatus/
 Search/RetrievalInspector/SourceLocator/Ask——Ask/Inspector 經 controller bean 委派以共享
 同一 validation 與 safe DTO projection），不建第二套 retrieval/ask pipeline；MCP 不直接
 操作 SQLite/FS/ArcadeDB/sqlite-vec/provider endpoint/key。
 
-安全契約：整個 HTTP server 已綁 127.0.0.1（application.yml）——無 remote-bind 路徑；
+安全／validation ordering固定：exact Host/Origin loopback guard → enabled/token → media semantics →
+decoded body hard bound → JSON parse → protocol-era/header-body agreement → dispatch。整個 HTTP server
+已綁 127.0.0.1（application.yml）——無 remote-bind 路徑；Origin缺少時允許 CLI/desktop，存在時只
+接受結構合法的 localhost/127.0.0.1 origin；Host只接受 exact localhost/127.0.0.1（可帶合法 port）；
 auth token 為 backend-only configuration（`app.mcp.enabled`/`app.mcp.auth-token`，
 env `MCP_ADAPTER_*`），**fail-closed**——unconfigured adapter 對任何 body deterministic 回
 503 `MCP_DISABLED`（never parse body），token 以 constant-time 比較（`MessageDigest.isEqual`）、
 wrong token 401 且不 echo token；request body hard bound（`app.mcp.max-body-bytes`，default
-256 KiB）在 decoded body 的 UTF-8 bytes 上 enforcement；malformed JSON 為 typed
-`INVALID_REQUEST`。
+256 KiB）由 request stream只讀 bound + 1 bytes enforcement；malformed JSON 為 typed
+`INVALID_REQUEST`。POST要求 JSON Content-Type，Accept明列 JSON與SSE；GET/DELETE回 `405 Allow: POST`；
+modern notification fail closed，legacy `notifications/initialized`回 202/no body。
 
 Tool surface（`mcp.McpCapabilityManifest`）：`km_status`/`km_search`/`km_retrieval_inspect`/
 `km_source_locator`/`km_ask`——全部 read-only（無 canonical mutation、無 rebuild/repair、無
@@ -1089,12 +1097,12 @@ drift，無第二條 path）。Ask 的 egress disclosure 重用 #323 `ProviderEg
 configuration-level descriptors（labelled `CONFIGURATION`）＋ #310 execution-level
 `ProviderUsageStatus`（labelled `EXECUTION`；`NOT_ATTEMPTED` 不誤報為已外送）。
 
-`mcp.McpServerContractTest`（disabled mode，integration tier）：disabled adapter 對
-malformed/oversized/任何 body 均 fail-closed `MCP_DISABLED` 無 token 洩漏。
-`mcp.McpEnabledModeContractTest`（enabled mode + `@DynamicPropertySource` token）：initialize
-protocol version 無 secrets、wrong token 401 不 echo、tools/list 只含五個 read-only tools
-（無 publish/rebuild/repair/backup 字樣）、oversized body 4xx、malformed JSON typed
-parse error、unknown tool 為 JSON-RPC result envelope `isError` + `UNSUPPORTED_TOOL`。
+`mcp.McpServerContractTest`（disabled mode，integration tier）：valid transport上的任何 body均
+fail-closed `MCP_DISABLED` 無 token洩漏；invalid Origin先於 disabled/body parse回 403。
+`mcp.McpEnabledModeContractTest`（enabled mode + `@DynamicPropertySource` token）：持有 versioned
+modern/legacy wire contract、stateless repeat、version/method/name/meta agreement、Base64 name、discovery、
+notification/media/GET/DELETE、exact Host/Origin與suffix attack、auth/body-bound ordering、五個唯讀 tool、
+unknown write-like tool、safe error/egress無跨 request bleed等 deterministic/offline regression。
 
 受影響測試與完整 gate：
 
