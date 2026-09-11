@@ -1258,3 +1258,41 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Completion Code Review evidence（#336）
+
+規範 authority 是 `AGENTS.md` §3「Completion Code Review Gate」；本節只定義 audit
+evidence 的格式與存放，不另立相異規則。
+
+Audit 在 merge 後、close Issue 前（或進入下一 Sprint／Story 前）執行，對象是 latest
+`main` 的 actual code，不是 PR body 或 test count。結論以下列格式記錄於原 Issue
+comment；有 corrective/stabilization follow-up 時，結論同時連結至新 Issue：
+
+```text
+Completion Audit
+- Latest main SHA:
+- Reviewed merged PR(s):
+- Production files reviewed:
+- Test files reviewed:
+- AC ↔ Code ↔ Test gaps:
+- Architecture/security residuals:
+- External conformance evidence (if applicable):
+- Required CI:
+- Decision: FULL GO / CONDITIONAL GO / NO-GO
+- Follow-up Issues:
+```
+
+撰寫要求：`AC ↔ Code ↔ Test gaps` 須逐條 blocking AC 給出
+AC → implementation location → executable test/evidence 三元組，缺一即不可判
+FULL GO；`Architecture/security residuals` 須明確寫「無」或列出 residual 與處置
+（另開 Issue 編號或接受理由），不得以「已 review」一語帶過。`Decision` 為
+CONDITIONAL GO 時必須同時記載限制範圍；security／correctness／external-conformance
+類 residual 不得判 FULL GO。
+
+Retrospective 依據：#327（PR #329）completion report＋full tests 全綠後，actual-code
+audit 仍發現 tools/list schema 與 runtime validation 分家（schema 全 string、runtime
+coercion）而產出 #330/#331；#330（PR #332）全綠後，再次由 actual-code audit 發現
+legacy negotiation／per-era conformance 與 schema/validator drift 而產出 #334/#335。
+兩次的共同模式是 tests 鎖住了過粗或錯誤的 contract（存在性而非語意），只有打開 actual
+diff＋core code＋test implementation 才能看見——這正是本 gate 要求 reconciliation
+三元組與「tests 是否鎖錯 contract」檢查的原因。
