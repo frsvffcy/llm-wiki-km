@@ -957,3 +957,49 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Provider egress transparency 測試責任（#323）
+
+`ai.provider.ProviderEndpointSecurityPolicy.classify`（#281 transport policy 的延伸，不另造
+第二套 endpoint-security 邏輯）持有 destination classification 語意（unit tier）：loopback
+http/https 一律 `LOCAL_LOOPBACK`（host 為準，hostname 前綴 localhost 不是 loopback）、remote
+https 為 `REMOTE_SECURE`、remote http 僅在 explicit opt-in 時為
+`REMOTE_INSECURE_OPT_IN`、無 opt-in 的 remote http 與 malformed/userinfo/query/fragment
+endpoint 一律 `UNAVAILABLE_OR_INVALID`（disclosure 不得與 transport policy 不一致）。
+`ai.provider.ProviderEgressServiceTest`（unit tier）持有 descriptor 邊界：disabled provider
+為 `DISABLED` 且無任何 egress category、Answer 與 Embedding 的 data-category disclosure
+各自準確（answer：question text／admitted evidence-derived context representation／
+instruction context／generation settings／provider response metadata；embedding：僅 selected
+input representation）、policy-invalid config 不宣稱任何 data category、descriptor 絕不含
+API key／raw endpoint／secret-bearing URL／path；URL-like/path-like/multi-line 的
+display 欄位值視為 operator 誤配置並丟棄；mixed Answer/Embedding destination（case 6）
+各 descriptor 分別表述，UI headline 以最嚴重 destination 呈現。
+
+`system.SystemStatusControllerTest`（integration tier，adapter slice）持有
+`GET /api/v1/system/ai-provider-egress` 的 REST 契約：allowlisted 欄位（purpose/
+destinationClass/providerType/modelDisplayName/egressCategories）、disabled 時 nullable
+metadata、negative leak 斷言（無 http/key/token/path/baseUrl）與 service failure 的 typed
+error 不含 exception/raw detail。`system.ProviderEgressIntegrationTest`（full context，
+integration tier）以 real `ProviderEgressService` + real configuration 驗證 wiring（default
+config 兩個 boundary 皆 `DISABLED` 且無任何 provider 細節）。Execution-bound 的「本次是否
+實際呼叫 provider」由 #310 的 `ProviderUsageStatus`（`NOT_ATTEMPTED`／`AVAILABLE`／
+`UNAVAILABLE`）持有，configuration-level descriptor（本 contract）與 execution-level 事實
+分開呈現；configuration-level disclosure 不得偽裝成 execution 事實，provider tokens
+unavailable 維持 null/typed semantics。Browser：`ask-ui.test.mjs`（Node 內建 runner，PR
+Fast job）持有 egress indicator 契約——local／remote secure／remote insecure opt-in／
+disabled 的 label 與 class（不只顏色；insecure 以雙倍邊框+警示記號醒目）、detail 只渲染
+safe text（無 endpoint/credential）、disclosure 不可得時隱藏且永不擋 Ask、每次 submit 後
+refresh（provider 切換後不保留 stale destination）、UI 模組的唯一非 ask endpoint 僅限
+read-only `system/ai-provider-egress`。
+
+受影響測試與完整 gate：
+
+```bash
+node --test src/test/js/ask-ui.test.mjs
+mvn -Dtest='ProviderEndpointSecurityPolicyTest,ProviderEgressServiceTest' test -Pfast
+mvn -Dtest='SystemStatusControllerTest,ProviderEgressIntegrationTest,AskApiIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```

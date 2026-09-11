@@ -131,6 +131,123 @@ function formatProviderUsageStatus(status) {
   }[status] || "—";
 }
 
+function egressDestinationLabel(destination) {
+  return {
+    DISABLED: "AI 未啟用",
+    LOCAL_LOOPBACK: "本機 AI",
+    REMOTE_SECURE: "遠端安全連線",
+    REMOTE_INSECURE_OPT_IN: "遠端明文連線（已明確開啟）",
+    UNAVAILABLE_OR_INVALID: "AI 設定不可用"
+  }[destination] || "AI 設定不可用";
+}
+
+function egressPurposeLabel(purpose) {
+  return purpose === "EMBEDDING" ? "Embedding 提供者" : "回答提供者";
+}
+
+function egressCategoryLabel(category) {
+  return {
+    QUESTION_TEXT: "使用者問題文字",
+    EVIDENCE_CONTEXT_REPRESENTATION: "已通過驗證的證據所衍生的上下文表示",
+    INSTRUCTION_CONTEXT: "應用程式內建的指示脈絡",
+    GENERATION_SETTINGS: "生成參數（不含機密）",
+    PROVIDER_RESPONSE_METADATA: "回答與使用量 metadata",
+    EMBEDDING_INPUT_REPRESENTATION: "經挑選的文本表示"
+  }[category] || category;
+}
+
+function egressRows(descriptor) {
+  const rows = [
+    ["用途", egressPurposeLabel(descriptor.purpose)],
+    ["資料去向", egressDestinationLabel(descriptor.destinationClass)]
+  ];
+  if (descriptor.providerType) rows.push(["提供者類型", descriptor.providerType]);
+  if (descriptor.modelDisplayName) rows.push(["模型名稱", descriptor.modelDisplayName]);
+  const categories = (descriptor.egressCategories || []).map(egressCategoryLabel);
+  rows.push(["可能送出的資料類型", categories.length > 0 ? categories.join("、") : "無"]);
+  return rows;
+}
+
+/**
+ * Loads the application-owned provider egress disclosure and renders a low-noise trust
+ * indicator next to the Ask input. Renders safe text only: no endpoints, no credentials, no
+ * raw provider details. Configuration-level destination is not an execution fact; the answer
+ * execution's actual provider usage is shown separately in the context diagnostics.
+ */
+export async function loadAiEgress(elements, fetchImpl = fetch, documentRef = document) {
+  if (!elements.aiEgress || !elements.aiEgressLabel || !elements.aiEgressDetail) return;
+  try {
+    const response = await fetchImpl("/api/v1/system/ai-provider-egress", {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      elements.aiEgress.hidden = true;
+      return;
+    }
+    const payload = await response.json();
+    const descriptors = Array.isArray(payload && payload.data) ? payload.data : [];
+    if (descriptors.length === 0) {
+      elements.aiEgress.hidden = true;
+      return;
+    }
+    const byPurpose = new Map(descriptors.map(item => [item.purpose, item]));
+    const answer = byPurpose.get("ANSWER") || descriptors[0];
+    const embedding = byPurpose.get("EMBEDDING");
+    // The collapsed headline must never hide the most severe boundary (e.g. answer local but
+    // embedding remote insecure); it always surfaces the worst destination across both.
+    const worst = descriptors
+      .filter(item => item && item.destinationClass)
+      .reduce((severe, item) => egressSeverity(item.destinationClass) >
+              egressSeverity(severe.destinationClass) ? item : severe, answer);
+    elements.aiEgressLabel.textContent = egressDestinationLabel(worst.destinationClass);
+    elements.aiEgress.className = "ai-egress "
+        + egressDestinationClass(worst.destinationClass);
+    elements.aiEgress.hidden = false;
+
+    const rows = [];
+    descriptors.forEach(descriptor => {
+      egressRows(descriptor).forEach(([labelText, value]) => {
+        rows.push([
+          descriptor.purpose === "EMBEDDING" ? `Embedding · ${labelText}` : `回答 · ${labelText}`,
+          value
+        ]);
+      });
+    });
+    rows.push(["本次執行是否實際呼叫提供者", "見回答結果的 Context 與執行診斷（Provider usage）"]);
+    elements.aiEgressDetail.replaceChildren(
+      ...rows.map(([labelText, value]) => {
+        const wrapper = documentRef.createElement("div");
+        wrapper.className = "ai-egress-metric";
+        const title = documentRef.createElement("dt");
+        title.textContent = labelText;
+        const content = documentRef.createElement("dd");
+        content.textContent = value;
+        wrapper.append(title, content);
+        return wrapper;
+      }));
+  } catch (error) {
+    // Transparency is best-effort: a network failure must never block asking or leak details.
+    elements.aiEgress.hidden = true;
+  }
+}
+
+function egressSeverity(destination) {
+  return {
+    REMOTE_INSECURE_OPT_IN: 4,
+    UNAVAILABLE_OR_INVALID: 3,
+    REMOTE_SECURE: 2,
+    LOCAL_LOOPBACK: 1,
+    DISABLED: 0
+  }[destination] || 0;
+}
+
+function egressDestinationClass(destination) {
+  if (destination === "REMOTE_INSECURE_OPT_IN") return "ai-egress--insecure";
+  if (destination === "REMOTE_SECURE") return "ai-egress--remote";
+  if (destination === "LOCAL_LOOPBACK") return "ai-egress--local";
+  return "ai-egress--off";
+}
+
 function appendDiagnosticMetric(documentRef, list, label, value) {
   const row = documentRef.createElement("div");
   row.className = "context-diagnostic-item";
@@ -286,6 +403,10 @@ function elementsFrom(documentRef) {
     metadata: documentRef.getElementById("provider-metadata"),
     contextDiagnostics: documentRef.getElementById("context-diagnostics"),
     contextDiagnosticsList: documentRef.getElementById("context-diagnostics-list"),
+    aiEgress: documentRef.getElementById("ai-egress"),
+    aiEgressToggle: documentRef.getElementById("ai-egress-toggle"),
+    aiEgressLabel: documentRef.getElementById("ai-egress-label"),
+    aiEgressDetail: documentRef.getElementById("ai-egress-detail"),
     citations: documentRef.getElementById("citations"),
     citationCount: documentRef.getElementById("citation-count")
   };
@@ -295,9 +416,19 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   let inFlight = false;
   const submitLabel = elements.submit.textContent || "取得回答";
 
+  if (elements.aiEgressToggle && elements.aiEgressDetail) {
+    elements.aiEgressToggle.addEventListener("click", () => {
+      const expanded = elements.aiEgressToggle.getAttribute("aria-expanded") === "true";
+      elements.aiEgressToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+      elements.aiEgressDetail.hidden = expanded;
+    });
+  }
+
   async function submit(event) {
     event.preventDefault();
     if (inFlight) return;
+    const refreshEgress = () => loadAiEgress(elements, fetchImpl, documentRef);
+
     const question = elements.question.value;
     const validationMessage = validateQuestion(question);
     if (validationMessage) {
@@ -339,6 +470,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
       elements.submit.textContent = submitLabel;
       elements.result.setAttribute("aria-busy", "false");
       elements.hint.textContent = "";
+      refreshEgress();
     }
   }
 
@@ -349,7 +481,9 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
 export function bootstrapAskUi(documentRef = document) {
   const elements = elementsFrom(documentRef);
   if (!elements.form) return null;
-  return createAskController(elements, fetch, documentRef);
+  const controller = createAskController(elements, fetch, documentRef);
+  loadAiEgress(elements, fetch, documentRef);
+  return controller;
 }
 
 if (typeof document !== "undefined") bootstrapAskUi();

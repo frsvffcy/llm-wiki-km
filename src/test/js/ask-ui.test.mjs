@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createAskController,
   errorMessage,
+  loadAiEgress,
   renderAskResponse,
   validateQuestion,
   RETRIEVAL_MODES
@@ -42,7 +43,9 @@ function uiElements() {
     errorMessage: new FakeElement(), insufficient: new FakeElement(), answer: new FakeElement(),
     answerText: new FakeElement(), metadata: new FakeElement(), citations: new FakeElement(),
     citationCount: new FakeElement(), contextDiagnostics: new FakeElement(),
-    contextDiagnosticsList: new FakeElement()
+    contextDiagnosticsList: new FakeElement(), aiEgress: new FakeElement(),
+    aiEgressLabel: new FakeElement(), aiEgressDetail: new FakeElement(),
+    aiEgressToggle: new FakeElement()
   };
 }
 
@@ -438,5 +441,118 @@ test("does not add persistence, unsafe HTML APIs, vendor internals, or graph end
   assert.doesNotMatch(source, /localStorage|sessionStorage/);
   assert.doesNotMatch(source, /innerHTML/);
   assert.doesNotMatch(source, /ArcadeDB|sqlite-vec|snapshotToken|sourceFingerprint|vendorScore/i);
-  assert.doesNotMatch(source, /api\/v1\/(?!ask)/);
+  // The only allowed non-ask endpoint is the read-only provider egress transparency surface;
+  // it is an application-owned descriptor (no credentials, no raw endpoints, no mutations).
+  assert.doesNotMatch(source, /api\/v1\/(?!ask\b|system\/ai-provider-egress\b|system\/ai-provider-egress\?)/);
+});
+
+test("loads and renders the provider egress trust indicator with safe text only", async () => {
+  const elements = { aiEgress: new FakeElement(), aiEgressLabel: new FakeElement(),
+    aiEgressDetail: new FakeElement(), aiEgressToggle: null };
+  const responses = [
+    {
+      ok: true,
+      json: async () => ({ data: [
+        {
+          purpose: "ANSWER",
+          destinationClass: "REMOTE_SECURE",
+          providerType: "openai-compatible",
+          modelDisplayName: "offline-model",
+          egressCategories: [
+            "QUESTION_TEXT",
+            "EVIDENCE_CONTEXT_REPRESENTATION",
+            "INSTRUCTION_CONTEXT",
+            "GENERATION_SETTINGS",
+            "PROVIDER_RESPONSE_METADATA"
+          ]
+        },
+        {
+          purpose: "EMBEDDING",
+          destinationClass: "LOCAL_LOOPBACK",
+          providerType: "openai-compatible",
+          modelDisplayName: null,
+          egressCategories: ["EMBEDDING_INPUT_REPRESENTATION"]
+        }
+      ] })
+    }
+  ];
+  let fetchCalls = 0;
+  const fetchImpl = async (url) => {
+    fetchCalls += 1;
+    assert.equal(url, "/api/v1/system/ai-provider-egress");
+    return responses[Math.min(fetchCalls - 1, responses.length - 1)];
+  };
+
+  await loadAiEgress(elements, fetchImpl, documentRef);
+
+  assert.equal(elements.aiEgress.hidden, false);
+  assert.equal(elements.aiEgressLabel.textContent, "遠端安全連線");
+  const detailText = diagnosticsText(elements.aiEgressDetail);
+  assert.match(detailText, /遠端安全連線/);
+  assert.match(detailText, /使用者問題文字/);
+  assert.match(detailText, /經挑選的文本表示/);
+  assert.doesNotMatch(detailText, /https?:\/\//);
+  assert.doesNotMatch(detailText, /api-key|bearer|secret/i);
+  assert.equal(elements.aiEgress.className, "ai-egress ai-egress--remote");
+});
+
+test("marks insecure explicit opt-in transport prominently and disabled as not local", async () => {
+  const insecure = { aiEgress: new FakeElement(), aiEgressLabel: new FakeElement(),
+    aiEgressDetail: new FakeElement() };
+  await loadAiEgress(insecure, async () => ({ ok: true, json: async () => ({ data: [
+    { purpose: "ANSWER", destinationClass: "REMOTE_INSECURE_OPT_IN", providerType: null,
+      modelDisplayName: null, egressCategories: [] }
+  ] }) }), documentRef);
+  assert.match(insecure.aiEgress.className, /insecure/);
+  assert.equal(insecure.aiEgressLabel.textContent, "遠端明文連線（已明確開啟）");
+
+  const disabled = { aiEgress: new FakeElement(), aiEgressLabel: new FakeElement(),
+    aiEgressDetail: new FakeElement() };
+  await loadAiEgress(disabled, async () => ({ ok: true, json: async () => ({ data: [
+    { purpose: "ANSWER", destinationClass: "DISABLED", providerType: null,
+      modelDisplayName: null, egressCategories: [] }
+  ] }) }), documentRef);
+  assert.equal(disabled.aiEgressLabel.textContent, "AI 未啟用");
+  assert.doesNotMatch(disabled.aiEgress.className, /local/);
+});
+
+test("hides the indicator when egress disclosure is unavailable and never blocks asking", async () => {
+  const networkFailure = { aiEgress: new FakeElement(), aiEgressLabel: new FakeElement(),
+    aiEgressDetail: new FakeElement() };
+  await loadAiEgress(networkFailure, async () => { throw new Error("network down"); },
+    documentRef);
+  assert.equal(networkFailure.aiEgress.hidden, true);
+
+  const notFound = { aiEgress: new FakeElement(), aiEgressLabel: new FakeElement(),
+    aiEgressDetail: new FakeElement() };
+  await loadAiEgress(notFound, async () => ({ ok: false, json: async () => ({}) }),
+    documentRef);
+  assert.equal(notFound.aiEgress.hidden, true);
+});
+
+test("refreshes the indicator after every completed submit to avoid stale destinations", async () => {
+  const elements = uiElements();
+  elements.aiEgress = new FakeElement();
+  elements.aiEgressLabel = new FakeElement();
+  elements.aiEgressDetail = new FakeElement();
+  elements.aiEgressToggle = new FakeElement();
+  let egressCalls = 0;
+  const fetchImpl = async (url) => {
+    if (url === "/api/v1/system/ai-provider-egress") {
+      egressCalls += 1;
+      return { ok: true, json: async () => ({ data: [
+        { purpose: "ANSWER", destinationClass: "DISABLED", providerType: null,
+          modelDisplayName: null, egressCategories: [] }
+      ] }) };
+    }
+    return { ok: true, json: async () => ({ data: { status: "FAILED", error: {
+      code: "LOCAL_VALIDATION", message: "provider disabled" } } }) };
+  };
+  const controller = createAskController(elements, fetchImpl, documentRef);
+  elements.question.value = "question";
+  elements.retrievalMode.value = "WIKI_ONLY";
+
+  await controller.submit(event());
+
+  assert.ok(egressCalls >= 1, "submit must refresh the egress indicator");
 });

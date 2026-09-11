@@ -49,6 +49,13 @@
           <button id="ask-submit" type="submit">取得回答</button>
         </div>
         <p id="form-hint" class="form-hint" role="status" aria-live="polite"></p>
+        <div id="ai-egress" class="ai-egress" aria-labelledby="ai-egress-label" hidden>
+          <button id="ai-egress-toggle" class="ai-egress-toggle" type="button"
+                  aria-expanded="false" aria-controls="ai-egress-detail">
+            <span id="ai-egress-label" class="ai-egress-label"></span>
+          </button>
+          <dl id="ai-egress-detail" class="ai-egress-detail" hidden></dl>
+        </div>
       </form>
     </section>
 
