@@ -1088,6 +1088,13 @@ wrong token 401 且不 echo token；request body hard bound（`app.mcp.max-body-
 256 KiB）由 request stream只讀 bound + 1 bytes enforcement；malformed JSON 為 typed
 `INVALID_REQUEST`。POST要求 JSON Content-Type，Accept明列 JSON與SSE；GET/DELETE回 `405 Allow: POST`；
 modern notification fail closed，legacy `notifications/initialized`回 202/no body。
+transport-error envelope（#345／#350）：401／403／503／415／406／413 各 gate 的決策順序不變，
+error envelope 於 body 可解析時以 bounded best-effort 讀取回填 request id（不 dispatch、
+不增加 read 上限）；回填與 normal request validation 共用單一 JSON-RPC id classifier
+（`McpJsonRpc.classifyRequestId`）——僅 String／integral number id 可回填（echo 原值），
+boolean／object／array／fractional／explicit-null id 一律 collapse 為 `id: null` 且
+structured 內容不反射進 response；over-bound 截斷、parse error、root non-object 亦維持
+`id: null`。
 
 Tool surface（`mcp.McpCapabilityManifest`）：`km_status`/`km_search`/`km_retrieval_inspect`/
 `km_source_locator`/`km_ask`——全部 read-only（無 canonical mutation、無 rebuild/repair、無

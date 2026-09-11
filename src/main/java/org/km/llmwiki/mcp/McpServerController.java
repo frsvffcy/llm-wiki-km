@@ -89,7 +89,7 @@ public class McpServerController {
                     ? Map.of("supported", McpProtocolVersions.ALL_SUPPORTED,
                             "requested", validation.requestedVersion())
                     : null;
-            return error(HttpStatus.BAD_REQUEST, McpJsonRpc.id(request), validation.errorCode(),
+            return error(HttpStatus.BAD_REQUEST, McpJsonRpc.echoableRequestId(request), validation.errorCode(),
                     validation.errorMessage(), data);
         }
         if (validation.notification()) {
@@ -145,7 +145,7 @@ public class McpServerController {
 
     private ResponseEntity<String> methodNotFound(JsonNode request, McpProtocolEra era) {
         HttpStatus status = era == McpProtocolEra.MODERN ? HttpStatus.NOT_FOUND : HttpStatus.OK;
-        return error(status, McpJsonRpc.id(request), JSONRPC_METHOD_NOT_FOUND,
+        return error(status, McpJsonRpc.echoableRequestId(request), JSONRPC_METHOD_NOT_FOUND,
                 "unsupported mcp method", null);
     }
 
@@ -188,7 +188,7 @@ public class McpServerController {
         JsonNode name = params.get("name");
         String toolName = name != null && name.isTextual() ? name.textValue() : null;
         if (toolName == null || toolName.isBlank()) {
-            return error(HttpStatus.BAD_REQUEST, McpJsonRpc.id(request), JSONRPC_INVALID_REQUEST,
+            return error(HttpStatus.BAD_REQUEST, McpJsonRpc.echoableRequestId(request), JSONRPC_INVALID_REQUEST,
                     McpToolError.INVALID_REQUEST.name(), null);
         }
         if (!McpCapabilityManifest.isKnown(toolName)) {
@@ -200,7 +200,7 @@ public class McpServerController {
             // METHODS stay 404 — the spec mandates it for -32601.
             HttpStatus status = era == McpProtocolEra.MODERN ? HttpStatus.BAD_REQUEST
                     : HttpStatus.OK;
-            return error(status, McpJsonRpc.id(request), JSONRPC_INVALID_PARAMS,
+            return error(status, McpJsonRpc.echoableRequestId(request), JSONRPC_INVALID_PARAMS,
                     "unknown tool", Map.of("supported",
                             List.copyOf(McpCapabilityManifest.tools().keySet())));
         }
@@ -219,7 +219,7 @@ public class McpServerController {
             // released Tier-1 clients surface it as a rejected call.
             HttpStatus status = era == McpProtocolEra.MODERN ? HttpStatus.BAD_REQUEST
                     : HttpStatus.OK;
-            return error(status, McpJsonRpc.id(request), JSONRPC_INVALID_PARAMS,
+            return error(status, McpJsonRpc.echoableRequestId(request), JSONRPC_INVALID_PARAMS,
                     invalid.getMessage(), null);
         }
         McpToolResult result = executor.executeValidated(toolName, validated);
@@ -331,7 +331,7 @@ public class McpServerController {
     private static JsonNode requestId(byte[] bytes) {
         String body = decodeUtf8(bytes);
         JsonNode request = body == null ? null : McpJsonRpc.parse(body);
-        return request == null ? null : McpJsonRpc.id(request);
+        return request == null ? null : McpJsonRpc.echoableRequestId(request);
     }
 
     private static String decodeUtf8(byte[] bytes) {
@@ -347,7 +347,7 @@ public class McpServerController {
 
     private static ResponseEntity<String> ok(JsonNode request, Object payload) {
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)
-                .body(McpJsonRpc.result(McpJsonRpc.id(request), payload));
+                .body(McpJsonRpc.result(McpJsonRpc.echoableRequestId(request), payload));
     }
 
     private static ResponseEntity<String> error(
