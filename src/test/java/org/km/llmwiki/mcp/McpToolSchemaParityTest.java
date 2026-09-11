@@ -17,11 +17,15 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Semantic parity for #341: the advertised {@code inputSchema} and the runtime
+ * Semantic parity for #341/#348: the advertised {@code inputSchema} and the runtime
  * {@link McpToolInputContract#validate} must agree on structural acceptance for every
  * representative fixture — proven by a real JSON Schema 2020-12 validator (pinned
  * {@code com.networknt:json-schema-validator:1.5.9}, test scope), never by comparing the
- * schema object to itself. Either side may only reject what the other rejects.
+ * schema object to itself. Either side may only reject what the other rejects, with no
+ * documented exception: integral-float representations ({@code 2.0}, {@code 1e2}) are
+ * mathematical integers on both planes, and sub-double-precision fractions keep their
+ * exact decimal value because every fixture is parsed by the production mapper
+ * ({@link McpJsonRpc#parseValue}, exact BigDecimal floats).
  */
 @Tag("unit")
 class McpToolSchemaParityTest {
@@ -33,7 +37,7 @@ class McpToolSchemaParityTest {
 
     private static JsonSchema schemaFor(String tool) {
         return SCHEMAS.computeIfAbsent(tool, name -> FACTORY.getSchema(
-                JSON.valueToTree(McpCapabilityManifest.contractFor(name).jsonSchema())));
+                McpJsonRpc.valueToTree(McpCapabilityManifest.contractFor(name).jsonSchema())));
     }
 
     private record Fixture(String tool, String rawArguments) {
@@ -86,6 +90,21 @@ class McpToolSchemaParityTest {
                 new Fixture("km_search", "{\"query\":\"q\",\"size\":\"200\"}"),
                 new Fixture("km_search", "{\"query\":\"q\",\"size\":1.5}"),
                 new Fixture("km_search", "{\"query\":\"q\",\"size\":null}"),
+                // Mathematical integers (#348): integral-float representations are the
+                // same set as bare integers on BOTH planes (JSON Schema 2020-12 value
+                // semantics; the runtime validates the exact decimal value).
+                new Fixture("km_search", "{\"query\":\"q\",\"size\":2.0}"),
+                new Fixture("km_search", "{\"query\":\"q\",\"size\":1e2}"),
+                new Fixture("km_search", "{\"query\":\"q\",\"page\":100.0}"),
+                new Fixture("km_search", "{\"query\":\"q\",\"page\":-0.0}"),
+                new Fixture("km_source_locator", "{\"chunkId\":42.0}"),
+                // Exact-decimal rejections: true fractions, sub-double-precision
+                // fractions, and out-of-range integral representations reject on both
+                // planes — no truncation, no parse-time rounding, no overflow.
+                new Fixture("km_search", "{\"query\":\"q\",\"size\":1.0000000000000001}"),
+                new Fixture("km_search", "{\"query\":\"q\",\"page\":2147483648.0}"),
+                new Fixture("km_search",
+                        "{\"query\":\"q\",\"documentId\":9223372036854775808.0}"),
                 new Fixture("km_search", "{\"query\":\"q\",\"page\":null}"),
                 new Fixture("km_search", "{\"query\":\"q\",\"documentId\":null}"),
                 new Fixture("km_search", "{\"query\":\"q\",\"documentId\":-5}"),
@@ -160,36 +179,6 @@ class McpToolSchemaParityTest {
                 .isEqualTo(schemaValid(fixture.tool(), arguments));
     }
 
-    /**
-     * The single documented fail-closed deviation: JSON numbers with integral value but
-     * non-integral representation ({@code 2.0}, {@code 1e2}) are integers per JSON Schema
-     * 2020-12, so the schema accepts them — but the runtime contract requires an integral
-     * <em>representation</em> (no coercion philosophy, pinned since #335) and rejects
-     * them. The deviation direction is strictly fail-closed: the runtime never accepts
-     * what the schema rejects. There is no standard schema keyword for representation
-     * integrality, so this is asserted explicitly rather than hidden.
-     */
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("integralFloatFixtures")
-    void integralFloatRepresentationIsAFailClosedDeviation(Fixture fixture) {
-        JsonNode arguments = parse(fixture.rawArguments());
-        assertThat(runtimeValid(fixture.tool(), arguments))
-                .as("runtime rejects %s %s", fixture.tool(), fixture.rawArguments())
-                .isFalse();
-        assertThat(schemaValid(fixture.tool(), arguments))
-                .as("schema accepts %s %s per 2020-12 integer semantics", fixture.tool(),
-                        fixture.rawArguments())
-                .isTrue();
-    }
-
-    static Stream<Fixture> integralFloatFixtures() {
-        return Stream.of(
-                new Fixture("km_search", "{\"query\":\"q\",\"size\":2.0}"),
-                new Fixture("km_search", "{\"query\":\"q\",\"size\":1e2}"),
-                new Fixture("km_search", "{\"query\":\"q\",\"page\":100.0}"),
-                new Fixture("km_source_locator", "{\"chunkId\":42.0}"));
-    }
-
     @Test
     void everyToolHasAcceptAndRejectParityFixtures() {
         for (String tool : McpCapabilityManifest.tools().keySet()) {
@@ -228,10 +217,12 @@ class McpToolSchemaParityTest {
     }
 
     private static JsonNode parse(String raw) {
-        try {
-            return JSON.readTree(raw);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
-            throw new IllegalStateException("test JSON is malformed", exception);
+        // Production parsing: exact BigDecimal floats (#348). The parity verdict is only
+        // meaningful when both validators see the node the wire plane actually builds.
+        JsonNode node = McpJsonRpc.parseValue(raw);
+        if (node == null) {
+            throw new IllegalStateException("test JSON is malformed: " + raw);
         }
+        return node;
     }
 }

@@ -12,18 +12,39 @@ import java.util.Map;
  * includes credentials or raw provider details. Requests are single JSON objects
  * (application/json; no SSE stream in this initial loopback-only adapter), and oversized or
  * malformed envelopes are rejected by the guard before reaching the dispatcher.
+ *
+ * <p>Floating-point literals parse as exact {@link java.math.BigDecimal} values
+ * ({@code USE_BIG_DECIMAL_FOR_FLOATS}): the JSON text's mathematical value is preserved for
+ * the tool-input contract (#348), so integral-float representations such as {@code 2.0} and
+ * {@code 1e2} are validated as the integers they mathematically are, sub-double-precision
+ * fractions are never silently rounded away, and no numeric comparison can overflow a
+ * {@code double}.
  */
 public final class McpJsonRpc {
 
     private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
             new com.fasterxml.jackson.databind.ObjectMapper()
-                    .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+                    .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
 
     private McpJsonRpc() {
     }
 
     public static JsonNode valueToTree(Map<String, Object> value) {
         return MAPPER.valueToTree(value);
+    }
+
+    /**
+     * Parses any bounded JSON value exactly as the wire plane does; malformed input is a
+     * typed null return. Exposed for parity/unit tests so every fixture is parsed by the
+     * same mapper configuration the runtime validates.
+     */
+    public static JsonNode parseValue(String body) {
+        try {
+            return MAPPER.readTree(body);
+        } catch (Exception failure) {
+            return null;
+        }
     }
 
     /** Parses a bounded JSON-RPC request envelope; malformed input is a typed null return. */

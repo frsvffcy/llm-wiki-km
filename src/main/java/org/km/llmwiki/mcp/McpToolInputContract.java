@@ -23,6 +23,12 @@ import java.util.Objects;
  * fields. Rejection messages carry only the field name (bounded) and the violated rule —
  * never raw JSON, paths, or exception chains.
  *
+ * <p>Integer fields follow the JSON Schema 2020-12 mathematical-integer semantics: a JSON
+ * number is accepted exactly when its mathematical value has no fractional part ({@code 2},
+ * {@code 2.0}, and {@code 1e2} are the same set) and converts exactly into the declared
+ * int/long range — there is no representation-class gate and no truncation, so the
+ * advertised schema and this validator accept the identical numeric set (#348).
+ *
  * <p>Structural acceptance is exact: the runtime never accepts an input the advertised
  * schema deems invalid. Enum matching is canonical exact — there is deliberately no
  * case-insensitive alias path, because JSON Schema {@code enum} cannot express one and
@@ -131,22 +137,48 @@ public record McpToolInputContract(
         return value;
     }
 
+    /**
+     * Mathematical-integer contract (#348): JSON Schema 2020-12 matches {@code integer}
+     * against the numeric <em>value</em>, not its representation — {@code 2}, {@code 2.0},
+     * and {@code 1e2} are the same integer — so the runtime validates the exact decimal
+     * value the wire parsed (never a Jackson node class, never a lossy double cast), then
+     * converts exactly into the target range. Fractions reject deterministically, values
+     * beyond int/long reject before any narrowing, and non-numeric types never coerce.
+     */
     private static Number validateInteger(McpFieldContract field, JsonNode node) {
-        if (!node.isIntegralNumber()) {
+        if (!node.isNumber()) {
+            throw new McpToolInputException(field.name() + " must be an integer");
+        }
+        java.math.BigDecimal decimal;
+        try {
+            decimal = node.decimalValue();
+        } catch (NumberFormatException unparsable) {
+            // No exact numeric value exists (e.g. a non-finite double): fail closed.
+            throw new McpToolInputException(field.name() + " must be an integer");
+        }
+        if (decimal.remainder(java.math.BigDecimal.ONE).signum() != 0) {
+            throw new McpToolInputException(field.name() + " must be an integer");
+        }
+        java.math.BigInteger exact;
+        try {
+            exact = decimal.toBigIntegerExact();
+        } catch (ArithmeticException unparsable) {
             throw new McpToolInputException(field.name() + " must be an integer");
         }
         if (field.intRange()) {
-            if (!node.canConvertToInt()) {
+            if (exact.compareTo(java.math.BigInteger.valueOf(Integer.MAX_VALUE)) > 0
+                    || exact.compareTo(java.math.BigInteger.valueOf(Integer.MIN_VALUE)) < 0) {
                 throw new McpToolInputException(field.name() + " is out of range");
             }
-            int value = node.intValue();
+            int value = exact.intValueExact();
             checkRange(field, value);
             return value;
         }
-        if (!node.canConvertToLong()) {
+        if (exact.compareTo(java.math.BigInteger.valueOf(Long.MAX_VALUE)) > 0
+                || exact.compareTo(java.math.BigInteger.valueOf(Long.MIN_VALUE)) < 0) {
             throw new McpToolInputException(field.name() + " is out of range");
         }
-        long value = node.longValue();
+        long value = exact.longValueExact();
         checkRange(field, value);
         return value;
     }
