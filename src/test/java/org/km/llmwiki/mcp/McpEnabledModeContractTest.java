@@ -60,10 +60,14 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                     // enforced additionalProperties:false (issue #335).
                     assertThat(body).contains(
                             "\"inputSchema\":{\"type\":\"object\",\"properties\":{",
-                            "\"query\":{\"type\":\"string\",\"maxLength\":256}",
+                            "\"query\":{\"type\":\"string\",\"maxLength\":256,\"pattern\":\"[^",
+                            "\"pattern\"",
+                            "u2000-",
+                            "uFEFF",
                             "\"required\":[\"query\"]",
                             "\"enum\":[\"WIKI\",\"SOURCE\",\"ALL\"]",
-                            "\"chunkId\":{\"type\":\"integer\",\"minimum\":1}",
+                            "\"chunkId\":{\"type\":\"integer\",\"minimum\":1,"
+                                    + "\"maximum\":9223372036854775807}",
                             "\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":200,"
                                     + "\"default\":20}",
                             "\"additionalProperties\":false");
@@ -471,6 +475,77 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .contains("-32602", "unknown tool", "km_ask")
                         .doesNotContain("PUBLISHED", TOKEN));
+    }
+
+    @Test
+    void knownToolStructuralFailuresAreProtocolErrorsWithoutHandlerExecution() throws Exception {
+        // Wrong JSON type for a numeric field: never a tool result.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":31,"method":"tools/call",
+                "params":{"name":"km_search","arguments":{"query":"q","size":"200"},%s}}"""
+                .formatted(META), "tools/call", "km_search"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32602", "size must be an integer")
+                        .doesNotContain("\"isError\""));
+        // Missing required field.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":32,"method":"tools/call",
+                "params":{"name":"km_search","arguments":{},%s}}"""
+                .formatted(META), "tools/call", "km_search"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32602", "query is required")
+                        .doesNotContain("\"isError\""));
+        // Enum typo: no silent fallback, no tool result.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":33,"method":"tools/call",
+                "params":{"name":"km_ask","arguments":{"question":"q",
+                "retrievalMode":"NOPE"},%s}}"""
+                .formatted(META), "tools/call", "km_ask"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32602", "retrievalMode is invalid")
+                        .doesNotContain("\"isError\""));
+        // Legacy era carries the same protocol error inside a 200 JSON-RPC envelope so
+        // released Tier-1 clients surface it as a rejected call.
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":34,"method":"tools/call",
+                "params":{"name":"km_search","arguments":{"query":"q","size":"200"}}}"""))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32602", "size must be an integer", "\"error\"")
+                        .doesNotContain("\"isError\""));
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":35,"method":"tools/call",
+                "params":{"name":"km_ask","arguments":{"question":"q",
+                "retrievalMode":"NOPE"}}}"""))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32602", "retrievalMode is invalid", "\"error\"")
+                        .doesNotContain("\"isError\""));
+    }
+
+    @Test
+    void executionFailuresStayToolLevelAfterStructuralValidationPasses() throws Exception {
+        // Structurally valid locator call for a chunk that cannot exist: the failure
+        // happens inside the handler, so it stays a tool-level isError result — never a
+        // protocol error — on both eras.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":36,"method":"tools/call",
+                "params":{"name":"km_source_locator","arguments":{"chunkId":424242},%s}}"""
+                .formatted(META), "tools/call", "km_source_locator"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"isError\":true")
+                        .doesNotContain("-32602"));
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":37,"method":"tools/call",
+                "params":{"name":"km_source_locator","arguments":{"chunkId":424242}}}"""))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"isError\":true")
+                        .doesNotContain("-32602"));
     }
 
     private static MockHttpServletRequestBuilder modern(

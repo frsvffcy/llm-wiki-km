@@ -13,8 +13,9 @@
  *
  * The script drives the default (legacy) SDK client end to end: initialize negotiation
  * (offers 2025-11-25, must receive the 2025-06-18 counter-offer), tools/list shape (typed
- * contract-derived schema), tools/call, legacy ping, and the unknown-tool protocol error
- * (JSON-RPC -32602 surfaced as a rejected callTool promise). Modern-era surfaces cannot be
+ * contract-derived schema), tools/call, legacy ping, the unknown-tool protocol error
+ * (JSON-RPC -32602 surfaced as a rejected callTool promise), and the same rejection for
+ * invalid arguments on a known tool. Modern-era surfaces cannot be
  * driven by any released Tier-1 client today (latest published SDK is legacy-only; the
  * auto/discover flow exists only in unreleased main docs), so modern coverage stays with the
  * deterministic MockMvc contract tests; re-run this procedure when a Tier-1 SDK ships a
@@ -84,6 +85,15 @@ test('pinned SDK legacy interop against the live adapter', { skip: !ENDPOINT }, 
     }
     assert.ok(unknownError, 'unknown tool must reject the call');
     assert.equal(unknownError.code, -32602);
+
+    let invalidError = null;
+    try {
+        await client.callTool({ name: 'km_search', arguments: { query: 'q', size: '200' } });
+    } catch (error) {
+        invalidError = error;
+    }
+    assert.ok(invalidError, 'invalid arguments must reject the call, not return a result');
+    assert.equal(invalidError.code, -32602);
 
     await transport.close();
 });

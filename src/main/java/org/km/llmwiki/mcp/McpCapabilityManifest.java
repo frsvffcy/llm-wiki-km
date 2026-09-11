@@ -81,8 +81,8 @@ public final class McpCapabilityManifest {
                 "query ≤ 256 chars; page/size ≤ 200",
                 new McpToolInputContract(TOOL_SEARCH, List.of(
                         McpFieldContract.requiredString("query", 256),
-                        McpFieldContract.optionalEnum("corpus", searchCorpora(), true, "WIKI"),
-                        McpFieldContract.optionalEnum("pageType", wikiPageTypes(), true, null),
+                        McpFieldContract.optionalEnum("corpus", searchCorpora(), "WIKI"),
+                        McpFieldContract.optionalEnum("pageType", wikiPageTypes(), null),
                         McpFieldContract.optionalLong("documentId", 1L, null),
                         McpFieldContract.optionalInt("page", 0, 1),
                         McpFieldContract.optionalInt("size", 1, 200, 20)))));
@@ -93,7 +93,7 @@ public final class McpCapabilityManifest {
                 "question ≤ 4000 code points; bounded mode",
                 new McpToolInputContract(TOOL_RETRIEVAL_INSPECT, List.of(
                         McpFieldContract.requiredString("question", 4_000),
-                        McpFieldContract.optionalEnum("mode", retrievalModes(), false,
+                        McpFieldContract.optionalEnum("mode", retrievalModes(),
                                 "HYBRID_GRAPH")))));
         tools.put(TOOL_SOURCE_LOCATOR, new McpToolDescriptor(
                 TOOL_SOURCE_LOCATOR, "來源定位",
@@ -113,7 +113,7 @@ public final class McpCapabilityManifest {
                 "question ≤ 4000 code points",
                 new McpToolInputContract(TOOL_ASK, List.of(
                         McpFieldContract.requiredString("question", 4_000),
-                        McpFieldContract.optionalEnum("retrievalMode", retrievalModes(), false,
+                        McpFieldContract.optionalEnum("retrievalMode", retrievalModes(),
                                 "HYBRID_FTS")))));
         return java.util.Collections.unmodifiableMap(tools);
     }

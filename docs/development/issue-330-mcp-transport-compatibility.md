@@ -78,3 +78,12 @@ error envelope（Tier-1 SDK 1.30.0 client 呈現為 rejected `callTool`，`error
 -32602`，已以 pinned interop 驗證）。重評門檻：Tier-1 發布 modern-era client 後，若其
 `StreamableHTTPClientTransport` 對非 200 的 POST 一律丟 transport error 而不解析 body，
 須重新評估 modern 面改回 HTTP 200 error envelope 的相容性。
+
+## #341 error plane：structural validation failure 的 HTTP 呈現
+
+#341 起 known tool 的 structural／inputSchema validation failure 與 unknown tool 同屬
+protocol-level `InvalidParams` `-32602`，但 HTTP 呈現區分：unknown tool（tool 不存在）
+沿用 modern 404／legacy 200 envelope；known tool 參數不合法（tool 存在）為 modern
+**400**／legacy 200 envelope。missing／blank `params.name` 維持既有 `-32600`（400）。
+重評門檻與 unknown-tool 404 相同：Tier-1 發布 modern-era client 後，若其 transport 對
+非 200 POST 不解析 body，須重新評估 modern 面改回 200 error envelope 的相容性。

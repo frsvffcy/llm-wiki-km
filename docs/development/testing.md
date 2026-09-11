@@ -1219,13 +1219,21 @@ MCP boundary 拒絕，不會觸發 Search／Inspector／Locator／Ask 執行。�
 僅 bounded field name + rule 文案（與被重用的 application 契約對齊：`retrievalMode is
 invalid`、`size must be between 1 and 200`、`documentId must be positive`、`page must be
 >= 0`、`must not exceed N Unicode code points`），不攜帶 raw JSON／path／exception。
-`km_search` 的 `corpus`/`pageType` 對映 application 的 case-insensitive normalization
-（正規化後送入 SearchService）；`mode`/`retrievalMode` 為 exact-case enum，缺失時採既有
-MCP 預設（`HYBRID_GRAPH`／`HYBRID_FTS`）。Unknown tool name 屬 protocol-level
+`km_search` 的 `corpus`/`pageType` 自 #341 起為 canonical exact enum（`wiki` 等 alias
+不再接受；REST／Search application 層的 case-insensitive normalization 維持既有
+behavior，不屬 MCP advertised schema 的一部分）；`mode`/`retrievalMode` 為 exact-case
+enum；default 只用於 field absent（present blank 視為值而驗證，enum 空白即 invalid）；
+required string 的 non-blank 規則由 schema `pattern`（ECMA whitespace 集合）與 runtime
+同一字元集共同表達。Unknown tool name 屬 protocol-level
 `InvalidParams` `-32602`（modern era HTTP 404、legacy era HTTP 200 JSON-RPC error
 envelope；Tier-1 SDK server 行為一致），不再回 `UNSUPPORTED_TOOL` result envelope；
-genuine tool 執行失敗維持 tool-level `isError` 語意。`McpToolError.UNSUPPORTED_TOOL` 已
-移除（遺留 `IllegalStateException` fail-closed 內部不變式）。
+自 #341 起 known tool 的 structural／inputSchema validation failure 亦走同一 protocol
+error plane（modern HTTP 400、legacy 200 envelope，在 handler／application service 執行
+前；controller 先驗證再呼叫 `executeValidated`，executor 保留 defensive re-validation）；
+genuine execution／business failure（retrieval unavailable、provider failure、source
+not-found、執行期 domain validation）維持 tool-level `isError` 語意。
+`McpToolError.UNSUPPORTED_TOOL` 已移除（遺留 `IllegalStateException` fail-closed
+內部不變式）。
 
 `mcp.McpToolInputContractTest`（unit tier）持有 schema↔validator 同一性（descriptor
 schema ≡ contract schema）、無 coercion、bounds/enum/required、defaults/normalization、
@@ -1236,11 +1244,11 @@ additionalProperties:false）、modern unknown tool 404+`-32602`、legacy unknow
 JSON-RPC `-32602` envelope。
 
 已知的宣稱面偏差（fail-closed 方向，重評 Tier-1 modern client 發布後再議）：
-（1）`maxLength` 以 Unicode code points 計量（application 契約同單位），JSON Schema
-`maxLength` 標準單位是 UTF-16 code units——client-side schema 檢查會比 server 更嚴，
-schema 較嚴不會放行 server 拒絕的輸入；（2）`corpus`/`pageType` 的 case-insensitive
-normalization（含 strip）無法以 JSON Schema enum 表達，schema 只列 canonical 拼法，
-server 較寬鬆；（3）`question` 的 4000 cp 上限在 strip 前量測（REST 契約 strip 後量測），
+（1）`maxLength` 以 Unicode code points 計量——pinned parity validator
+（networknt `MaxLengthValidator`）同為 code points，兩邊一致；此註記僅針對
+generic client-side 檢查（JSON Schema 標準單位是 UTF-16 code units）；（2）`corpus`/`pageType` 的大小寫 alias 路徑已於
+#341 移除（MCP 面改為 canonical exact enum；REST 層 normalization 不變，不屬 MCP
+schema 的一部分）；（3）`question` 的 4000 cp 上限在 strip 前量測（REST 契約 strip 後量測），
 MCP 面較嚴；（4）known tool 的結構性無效參數（型別錯誤、未知欄位）依本 adapter 既有
 custom taxonomy 回 tool-level `INVALID_REQUEST`，official SDK server 對此類也回
 protocol-level InvalidParams——missing/blank `params.name` 維持既有 `-32600`；
@@ -1296,3 +1304,67 @@ legacy negotiation／per-era conformance 與 schema/validator drift 而產出 #3
 兩次的共同模式是 tests 鎖住了過粗或錯誤的 contract（存在性而非語意），只有打開 actual
 diff＋core code＋test implementation 才能看見——這正是本 gate 要求 reconciliation
 三元組與「tests 是否鎖錯 contract」檢查的原因。
+
+## MCP exact contract acceptance 與 invalid-arguments protocol plane（#341）
+
+#335 留下兩個 executable drift，#341 關閉：
+
+1. Enum acceptance 不等價（advertised ⊂ runtime）：`corpus`／`pageType` 的
+   `caseInsensitive` alias 路徑已移除——`McpFieldContract` 不再有
+   `caseInsensitive` 欄位（結構上無法再引入 schema 表達不了的 alias）；MCP external
+   contract 只接受 canonical exact values，REST／Search application 層的既有
+   normalization 不動（`SearchCorpus.from`、`validatePageType` 照常正規化，收到的已是
+   canonical 值）。
+2. Blank／default 語意：default 只用於 field absent；present 值（含 blank）一律驗證。
+   Optional enum 的 blank（`""`、`"   "`）因不在 enum 內而 invalid，不再默默套 default；
+   required string 的 non-blank 規則由 schema `pattern` 與 runtime 同一 ECMA
+   whitespace 字元集（`McpToolInputContract.NON_BLANK_PATTERN`，WhiteSpace＋
+   LineTerminator；astral 字元在兩邊皆為 content）共同表達；explicit JSON null 視為
+   present 值（型別不合即 invalid），只有 absent 才套 default。
+3. Long／int 型別上限屬 advertised contract 的一部分：無 explicit max 的 long 欄位補
+   `maximum: 9223372036854775807`，intRange 無 max 者補 `maximum: 2147483647`
+  （runtime 以 `canConvertToLong`／`canConvertToInt` 執行；`McpFieldContract`
+   constructor 對 misdeclared default fail-fast：enum/range/code-point 違規與
+   required+default 一律 `IllegalArgumentException`）。
+4. Error plane：structural／inputSchema validation failure 在 controller routing plane
+   即轉為 JSON-RPC `-32602`（modern HTTP 400——tool 存在而參數不合法；legacy HTTP 200
+   envelope 供已發布 Tier-1 client 解析為 rejected call），handler／application
+   service 不執行（`executeValidated` 只收已驗證參數；`execute` 保留 defensive
+   re-validation 供直接呼叫者）。`isError=true` 只保留給通過 structural validation 後
+   的 execution／business failure；missing／blank `params.name` 維持既有 `-32600`。
+
+`mcp.McpToolSchemaParityTest`（unit tier）以 pinned real validator
+（`com.networknt:json-schema-validator:1.5.9` test scope，2020-12 dialect）對每個
+representative fixture 同時執行 generated `inputSchema` validation 與
+`McpToolInputContract.validate()`，assert acceptance／rejection 一致：大小寫／混合
+enum、blank enum、缺失 optional＋default、required 空白字串（含 NBSP／BOM／FS／NEL
+等 ECMA 邊界字元）、Unicode maxLength 邊界（含 surrogate pair 在 256／4000 上下）、
+integer min／max／overflow（含 2^63）、extra property、null／fraction／wrong type、
+non-object arguments。`McpEnabledModeContractTest` 新增 wire 層：known tool wrong
+type／missing required／enum typo 在 modern 回 400+`-32602`、legacy 回 200 envelope
+且無 `isError`；structurally valid 但執行期失敗（不存在 chunk）兩 era 皆維持
+tool-level `isError`。`mcp-sdk-interop.test.mjs` 新增 invalid-arguments case
+（legacy client 收到 rejected promise，`error.code === -32602`）。
+
+Parity 的精確邊界（`McpToolSchemaParityTest` 以 equality 斷言；唯一例外另立
+fail-closed deviation test 明示）：（a）integral-float representation（`2.0`、
+`1e2`）：JSON Schema 2020-12 視為 integer 而接受，runtime 要求 integral
+representation 而拒絕——無標準 keyword 可表達，方向嚴格 fail-closed（runtime 從不
+接受 schema 判 invalid 者）；（b）root `arguments: null`：視為 present mistyped 值，
+兩邊同判 invalid（Java-null／missing 仍視為 absent）；（c）FS-only（U+001C）等 ECMA
+非空白控制字元：structural 兩邊同判 valid，application 層（`isBlank`）拒絕時走
+tool-level `isError`（taxonomy 允許的執行期 domain validation）；（d）wire plane 用
+validate→`-32602`，`McpToolExecutor.execute()` 的 defensive re-validation 維持
+tool-level `isError`（僅直接呼叫者可見，wire 不經過）。外部 sender 注意：`wiki`／
+`Wiki`／`concept`／padded enum 自 #341 起為 `-32602`，不再靜默正規化。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='McpToolInputContractTest,McpToolSchemaParityTest,McpAdapterParityTest' test -Pfast
+mvn -Dtest='McpServerContractTest,McpEnabledModeContractTest,McpAdapterParityIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```

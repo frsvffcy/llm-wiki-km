@@ -26,12 +26,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * Single-authority contract tests for #335: the JSON Schema advertised by {@code tools/list}
- * and the strict runtime validation executed by {@code tools/call} come from one
- * {@link McpToolInputContract} per tool — same object by construction
- * ({@code descriptor.inputContract()} IS {@code contractFor(name)}), so the identity is
- * structural and the tests pin the projection shape plus the challenge behaviors (no
- * coercion, no execution on invalid input, operator-safe messages).
+ * Single-authority contract tests for #335, exact acceptance for #341: the JSON Schema
+ * advertised by {@code tools/list} and the strict runtime validation executed by
+ * {@code tools/call} come from one {@link McpToolInputContract} per tool — same object by
+ * construction ({@code descriptor.inputContract()} IS {@code contractFor(name)}), so the
+ * identity is structural and the tests pin the projection shape plus the challenge
+ * behaviors (no coercion, canonical-exact enums, absent-only defaults, operator-safe
+ * messages, no execution on invalid input).
  */
 @Tag("unit")
 class McpToolInputContractTest {
@@ -68,15 +69,16 @@ class McpToolInputContractTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> properties =
                 (Map<String, Object>) searchSchema.get("properties");
-        assertThat(properties.get("query"))
-                .isEqualTo(Map.of("type", "string", "maxLength", 256));
+        assertThat(properties.get("query")).isEqualTo(Map.of(
+                "type", "string", "maxLength", 256, "pattern",
+                McpToolInputContract.NON_BLANK_PATTERN));
         assertThat(properties.get("corpus")).isEqualTo(Map.of(
                 "type", "string", "enum", List.of("WIKI", "SOURCE", "ALL"), "default", "WIKI"));
         assertThat(properties.get("pageType")).isEqualTo(Map.of(
                 "type", "string", "enum",
                 Arrays.stream(WikiPageType.values()).map(Enum::name).toList()));
-        assertThat(properties.get("documentId"))
-                .isEqualTo(Map.of("type", "integer", "minimum", 1L));
+        assertThat(properties.get("documentId")).isEqualTo(Map.of(
+                "type", "integer", "minimum", 1L, "maximum", Long.MAX_VALUE));
         assertThat(properties.get("page")).isEqualTo(Map.of(
                 "type", "integer", "minimum", 0L, "maximum", (long) Integer.MAX_VALUE,
                 "default", 1));
@@ -161,7 +163,7 @@ class McpToolInputContractTest {
                 .hasMessage("query is required");
         assertThatThrownBy(() -> validate("km_search", "null"))
                 .isInstanceOf(McpToolInputException.class)
-                .hasMessage("query is required");
+                .hasMessage("arguments must be an object");
         assertThatThrownBy(() -> validate("km_search", "{\"query\":\"   \"}"))
                 .isInstanceOf(McpToolInputException.class)
                 .hasMessage("query is required");
@@ -205,16 +207,46 @@ class McpToolInputContractTest {
     }
 
     @Test
-    void defaultsAndNormalizationMatchTheApplicationContracts() {
+    void defaultsApplyToAbsentFieldsAndEnumsAreCanonicalExact() {
         McpValidatedArguments search = McpCapabilityManifest.contractFor("km_search")
-                .validate(parse("{\"query\":\" q \",\"corpus\":\"wiki\","
-                        + "\"pageType\":\"concept\"}"));
+                .validate(parse("{\"query\":\" q \",\"corpus\":\"WIKI\","
+                        + "\"pageType\":\"CONCEPT\"}"));
         assertThat(search.string("query")).isEqualTo(" q ");
         assertThat(search.string("corpus")).isEqualTo("WIKI");
         assertThat(search.stringOr("pageType", null)).isEqualTo("CONCEPT");
         assertThat(search.longOrNull("documentId")).isNull();
         assertThat(search.intValue("page")).isEqualTo(1);
         assertThat(search.intValue("size")).isEqualTo(20);
+
+        // Lower/mixed-case aliases are not part of the advertised schema and are rejected;
+        // the REST/Search application layers keep their own normalization untouched.
+        assertThatThrownBy(() -> validate("km_search",
+                "{\"query\":\"q\",\"corpus\":\"wiki\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("corpus is invalid");
+        assertThatThrownBy(() -> validate("km_search",
+                "{\"query\":\"q\",\"pageType\":\"concept\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("pageType is invalid");
+        assertThatThrownBy(() -> validate("km_search",
+                "{\"query\":\"q\",\"corpus\":\"Wiki\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("corpus is invalid");
+
+        // Present blanks are validated, never silently defaulted: the schema enum has no
+        // blank member, so the runtime must reject them too.
+        assertThatThrownBy(() -> validate("km_search",
+                "{\"query\":\"q\",\"corpus\":\"\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("corpus is invalid");
+        assertThatThrownBy(() -> validate("km_search",
+                "{\"query\":\"q\",\"corpus\":\"   \"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("corpus is invalid");
+        assertThatThrownBy(() -> validate("km_search",
+                "{\"query\":\"q\",\"pageType\":\"\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("pageType is invalid");
 
         McpValidatedArguments ask = McpCapabilityManifest.contractFor("km_ask")
                 .validate(parse("{\"question\":\"q\"}"));
@@ -231,6 +263,48 @@ class McpToolInputContractTest {
         McpValidatedArguments locator = McpCapabilityManifest.contractFor(
                 "km_source_locator").validate(parse("{\"chunkId\":42}"));
         assertThat(locator.longValue("chunkId")).isEqualTo(42L);
+    }
+
+    @Test
+    void requiredBlankRuleUsesTheAdvertisedCharacterSet() {
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query is required");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\" \\t\\n \"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query is required");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"\u00A0\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query is required");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"\uFEFF\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query is required");
+        // Control characters outside the ECMA whitespace set are content on both sides.
+        assertThat(validate("km_search", "{\"query\":\"\\u001C\"}").string("query"))
+                .isEqualTo("\u001C");
+        assertThat(validate("km_search", "{\"query\":\"\\u0085\"}").string("query"))
+                .isEqualTo("\u0085");
+    }
+
+    @Test
+    void misdeclaredContractsFailFastAtDeclaration() {
+        assertThatThrownBy(() -> McpFieldContract.optionalEnum("x", List.of("A"), "B"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid default for field: x");
+        assertThatThrownBy(() -> McpFieldContract.optionalInt("x", 1, 200, 999))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid default for field: x");
+        assertThatThrownBy(() -> McpFieldContract.optionalString("x", 3, "toolong"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid default for field: x");
+        assertThatThrownBy(() -> new McpFieldContract("q", McpFieldType.STRING, true, 10,
+                null, null, false, List.of(), "dflt"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("required field must not carry a default: q");
+        assertThatThrownBy(() -> new McpToolInputContract("km_x", List.of(
+                McpFieldContract.optionalEnum("mode", List.of("A"), "B"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid default for field: mode");
     }
 
     @Test
@@ -255,7 +329,7 @@ class McpToolInputContractTest {
 
         whenSearchReturnsNull(searchService);
         McpToolResult valid = executor.execute("km_search",
-                parse("{\"query\":\"q\",\"corpus\":\"wiki\"}"));
+                parse("{\"query\":\"q\",\"corpus\":\"WIKI\"}"));
         assertThat(valid.isError()).isFalse();
         verify(searchService).search("q", "WIKI", null, null, 1, 20);
     }
