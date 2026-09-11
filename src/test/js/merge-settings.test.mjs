@@ -86,6 +86,41 @@ test("settings retrieval failure fails closed", async () => {
   assert.deepEqual(result, { ok: false, reason: "GitHub API HTTP 503" });
 });
 
+test("a minimal repository payload is retried with a cache-buster before succeeding", async () => {
+  // GET /repos is CDN-cached without Vary: Authorization; an unauthenticated minimal body
+  // (no merge settings fields) can be served to an authenticated request (#357 CI evidence).
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(String(url));
+    if (calls.length === 1) {
+      return { ok: true, json: async () => ({ name: "llm-wiki-km", private: false }) };
+    }
+    return { ok: true, json: async () => ({ ...RECORDED_BASELINE.values }) };
+  };
+  const result = await fetchMergeSettings("read-only-token", fetchImpl)("frsvffcy/llm-wiki-km");
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.settings, RECORDED_BASELINE.values);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1], /\?cache_bust=/u);
+});
+
+test("a persistently unusable payload fails closed with bounded diagnostics", async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    json: async () => ({
+      message: "Resource not accessible by integration",
+      documentation_url: "https://docs.github.com",
+    }),
+  });
+  const result = await fetchMergeSettings("read-only-token", fetchImpl)("frsvffcy/llm-wiki-km");
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /缺少 governed fields/u);
+  assert.match(result.reason, /message="Resource not accessible by integration"/u);
+  assert.match(result.reason, /keys=\[documentation_url,message\]/u);
+});
+
 test("settings retrieval extracts exactly the governed fields", async () => {
   const fetcher = fetchMergeSettings("read-only-token", async () => ({
     ok: true,

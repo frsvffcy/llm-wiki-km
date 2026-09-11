@@ -99,9 +99,13 @@ export function resolveGuardedSources(field, value) {
 }
 
 /**
- * Fetches the live repository merge settings (bounded timeout, read-only). Any retrieval
- * or parse failure returns { ok: false } so the caller fails closed instead of auditing
- * nothing and passing.
+ * Fetches the live repository merge settings (bounded timeout, read-only). GET /repos is
+ * CDN-cached with a Vary that excludes Authorization, so an unauthenticated "minimal
+ * repository" body (without the merge settings fields) can be served to an authenticated
+ * request; a payload missing any governed field is therefore treated as unusable evidence
+ * and retried once with a cache-busting query parameter before failing closed. Any
+ * retrieval or parse failure returns { ok: false } so the caller fails closed instead of
+ * auditing nothing and passing.
  */
 export function fetchMergeSettings(token = process.env.GITHUB_TOKEN, fetchImpl = fetch) {
   return async (repository) => {
@@ -117,30 +121,44 @@ export function fetchMergeSettings(token = process.env.GITHUB_TOKEN, fetchImpl =
       headers.Authorization = `Bearer ${token}`;
     }
 
-    let response;
-    try {
-      response = await fetchImpl(`https://api.github.com/repos/${repository}`, {
-        headers,
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch (error) {
-      return { ok: false, reason: `GitHub API request failed: ${error.name}` };
-    }
-    if (!response.ok) {
-      return { ok: false, reason: `GitHub API HTTP ${response.status}` };
-    }
-    let payload;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      return { ok: false, reason: `GitHub API response parse failed: ${error.name}` };
-    }
-    return {
-      ok: true,
-      settings: Object.fromEntries(
+    let lastFailure = "unknown reason";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const url = `https://api.github.com/repos/${repository}${
+        attempt === 0 ? "" : `?cache_bust=${Date.now()}-${Math.random().toString(36).slice(2)}`
+      }`;
+      let response;
+      try {
+        response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(10_000) });
+      } catch (error) {
+        lastFailure = `GitHub API request failed: ${error.name}`;
+        continue;
+      }
+      if (!response.ok) {
+        lastFailure = `GitHub API HTTP ${response.status}`;
+        continue;
+      }
+      let payload;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        lastFailure = `GitHub API response parse failed: ${error.name}`;
+        continue;
+      }
+      const settings = Object.fromEntries(
         Object.keys(MERGE_SETTING_ENUMS).map((field) => [field, payload[field]]),
-      ),
-    };
+      );
+      if (Object.values(settings).every((value) => value !== undefined)) {
+        return { ok: true, settings };
+      }
+      const diagnostic = [
+        typeof payload?.message === "string" ? `message="${payload.message.slice(0, 120)}"` : null,
+        `keys=[${Object.keys(payload ?? {}).slice(0, 10).sort().join(",")}]`,
+      ]
+        .filter(Boolean)
+        .join("；");
+      lastFailure = `回應缺少 governed fields（${diagnostic}）；可能是 unauthenticated minimal repository view 被 CDN 快取服務`;
+    }
+    return { ok: false, reason: lastFailure };
   };
 }
 
