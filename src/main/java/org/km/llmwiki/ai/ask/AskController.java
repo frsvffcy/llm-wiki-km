@@ -12,21 +12,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/ask")
 public class AskController {
 
-    private final AskService askService;
+    private final AskApplicationService askApplication;
 
-    public AskController(AskService askService) {
-        this.askService = askService;
+    public AskController(AskApplicationService askApplication) {
+        this.askApplication = askApplication;
     }
 
     @PostMapping
     public ApiResponse<AskApiResponse> ask(@RequestBody JsonNode body) {
-        AskApiRequest request = AskApiRequest.fromJson(body);
-        AskResult result = askService.ask(request.toApplicationRequest());
+        AskApiRequest request = askApplication.parseRequest(body);
+        AskResult result = askApplication.execute(request);
         if (result.status() == AskStatus.FAILED) {
-            throw new AskApiException(result.failure()
-                    .orElseThrow(() -> new IllegalStateException("failed Ask result has no failure"))
-                    .type());
+            throw askApplication.failure(result);
         }
-        return new ApiResponse<>(AskApiResponse.from(result));
+        return new ApiResponse<>(askApplication.project(result));
     }
 }

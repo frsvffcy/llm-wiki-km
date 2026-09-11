@@ -2,21 +2,19 @@ package org.km.llmwiki.mcp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.km.llmwiki.ai.ask.AskApiException;
-import org.km.llmwiki.ai.ask.AskFailureType;
 import org.km.llmwiki.ai.ask.AskApiRequest;
-import org.km.llmwiki.ai.ask.AskApiResponse;
-import org.km.llmwiki.ai.ask.AskController;
-import org.km.llmwiki.ai.provider.ProviderDestination;
-import org.km.llmwiki.ai.provider.ProviderEgressDescriptor;
+import org.km.llmwiki.ai.ask.AskApplicationService;
+import org.km.llmwiki.ai.ask.AskFailureType;
+import org.km.llmwiki.ai.ask.AskResult;
+import org.km.llmwiki.ai.ask.AskStatus;
 import org.km.llmwiki.ai.provider.ProviderEgressService;
+import org.km.llmwiki.rag.RetrievalInspectorService;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
-import org.km.llmwiki.search.SearchResult;
 import org.km.llmwiki.search.SearchService;
 import org.km.llmwiki.source.SourceChunkLocatorService;
 import org.km.llmwiki.source.SourceChunkNotFoundException;
 import org.km.llmwiki.system.SystemStatusService;
-import org.km.llmwiki.web.RetrievalInspectionResponse;
-import org.km.llmwiki.rag.RetrievalRequest;
+import org.km.llmwiki.web.RetrievalInspectionMapper;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -36,22 +34,22 @@ public class McpToolExecutor {
 
     private final SystemStatusService systemStatusService;
     private final SearchService searchService;
-    private final org.km.llmwiki.web.RetrievalInspectorController retrievalInspectorController;
+    private final RetrievalInspectorService retrievalInspectorService;
     private final SourceChunkLocatorService sourceChunkLocatorService;
-    private final AskController askController;
+    private final AskApplicationService askApplication;
     private final ProviderEgressService providerEgressService;
 
     public McpToolExecutor(SystemStatusService systemStatusService,
                            SearchService searchService,
-                           org.km.llmwiki.web.RetrievalInspectorController retrievalInspectorController,
+                           RetrievalInspectorService retrievalInspectorService,
                            SourceChunkLocatorService sourceChunkLocatorService,
-                           AskController askController,
+                           AskApplicationService askApplication,
                            ProviderEgressService providerEgressService) {
         this.systemStatusService = systemStatusService;
         this.searchService = searchService;
-        this.retrievalInspectorController = retrievalInspectorController;
+        this.retrievalInspectorService = retrievalInspectorService;
         this.sourceChunkLocatorService = sourceChunkLocatorService;
-        this.askController = askController;
+        this.askApplication = askApplication;
         this.providerEgressService = providerEgressService;
     }
 
@@ -118,12 +116,14 @@ public class McpToolExecutor {
         if (question == null || question.isBlank()) {
             return McpToolResult.failure(McpToolError.INVALID_REQUEST, "question is required");
         }
-        // Delegate through the same inspector controller boundary the REST surface uses
-        // (identical validation and the same safe DTO projection, so no second inspection
-        // path exists).
+        // Same shared inspector boundary the REST controller uses: identical validation and
+        // the same safe DTO projection, so no second inspection path exists. The REST HTTP
+        // envelope stays with the REST adapter; only the application projection is shared.
         return McpToolResult.success(
-                retrievalInspectorController.inspect(question, textOr(arguments, "mode",
-                        "HYBRID_GRAPH")).data(), List.of());
+                RetrievalInspectionMapper.toResponse(retrievalInspectorService.inspect(
+                        RetrievalInspectionMapper.validate(question, textOr(arguments, "mode",
+                                "HYBRID_GRAPH")))),
+                List.of());
     }
 
     private McpToolResult sourceLocator(JsonNode arguments) {
@@ -139,12 +139,12 @@ public class McpToolExecutor {
         if (question == null || question.isBlank()) {
             return McpToolResult.failure(McpToolError.INVALID_REQUEST, "question is required");
         }
-        // Delegate through the SAME ask application boundary the REST controller uses:
-        // identical request parsing/validation, identical orchestration (retrieval →
-        // qualification → rerank → projector → provider → grounded/citation validation),
-        // and identical typed failure mapping via AskApiException. The ask API request
-        // contract intentionally has no maxItems/maxCharacters fields, so those arguments
-        // are rejected as unsupported by the request validation itself.
+        // Same shared application boundary the REST controller uses: identical request
+        // parsing/validation, identical orchestration (retrieval → qualification → rerank →
+        // projector → provider → grounded/citation validation), and identical typed failure
+        // mapping via AskApiException. The ask API request contract intentionally has no
+        // maxItems/maxCharacters fields, so those arguments are rejected as unsupported by
+        // the request validation itself.
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("question", question);
         body.put("retrievalMode", textOr(arguments, "retrievalMode", "HYBRID_FTS"));
@@ -154,33 +154,37 @@ public class McpToolExecutor {
                         "unsupported ask argument: " + extra);
             }
         }
-        Object response = askController.ask(McpJsonRpc.valueToTree(body));
-        return McpToolResult.success(response, egressLines(response));
+        AskApiRequest request;
+        try {
+            request = askApplication.parseRequest(McpJsonRpc.valueToTree(body));
+        } catch (IllegalArgumentException invalid) {
+            return McpToolResult.failure(McpToolError.INVALID_REQUEST, invalid.getMessage());
+        }
+        AskResult result = askApplication.execute(request);
+        if (result.status() == AskStatus.FAILED) {
+            AskApiException failure = askApplication.failure(result);
+            return McpToolResult.failure(providerError(failure.failureType()),
+                    failure.getMessage());
+        }
+        return McpToolResult.success(askApplication.project(result), egressLines(result));
     }
 
     /**
-     * Execution-level facts come from the SAME ask response the tool returns:
+     * Execution-level facts come from the SAME application ask result the tool returns:
      * {@code NOT_ATTEMPTED} means no provider call happened (for example no evidence);
      * AVAILABLE/UNAVAILABLE mean a provider call was attempted or completed. This is
-     * deliberately read from the execution metadata, never from the pre-request
-     * configuration descriptor, so a mid-flight configuration change can never be presented
-     * as an execution-bound fact.
+     * deliberately read from the application execution metadata — never from the pre-request
+     * configuration descriptor and never through the REST response wrapper — so a mid-flight
+     * configuration change can never be presented as an execution-bound fact.
      */
-    private List<McpToolResult.ProviderEgressLine> egressLines(Object response) {
+    private List<McpToolResult.ProviderEgressLine> egressLines(AskResult result) {
         List<McpToolResult.ProviderEgressLine> lines = new ArrayList<>();
         providerEgressService.descriptors().forEach(descriptor -> lines.add(
                 new McpToolResult.ProviderEgressLine(
                         descriptor.purpose().name(), descriptor.destinationClass().name(),
                         "CONFIGURATION")));
-        String executionUsage = org.km.llmwiki.ai.answer.ProviderUsageStatus.NOT_ATTEMPTED.name();
-        if (response instanceof org.km.llmwiki.web.ApiResponse<?> apiResponse
-                && apiResponse.data() instanceof AskApiResponse askResponse
-                && askResponse.executionMetadata() != null
-                && askResponse.executionMetadata().contextDiagnostics() != null) {
-            executionUsage = askResponse.executionMetadata().contextDiagnostics()
-                    .providerUsageStatus().name();
-        }
-        lines.add(new McpToolResult.ProviderEgressLine("ANSWER", executionUsage, "EXECUTION"));
+        lines.add(new McpToolResult.ProviderEgressLine("ANSWER", result.executionMetadata()
+                .contextDiagnostics().providerUsageStatus().name(), "EXECUTION"));
         return lines;
     }
 
