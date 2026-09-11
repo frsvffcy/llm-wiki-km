@@ -901,3 +901,59 @@ routing/no-op 語意、代表性 query 分佈確認與 versioned policy；adopti
 order 後，#308 的 compaction benchmark 需以新 baseline 重新確認。本 Issue 無 production
 變更、不新增 public retrieval mode、不新增 evidence/retrieval_generation persistence。重跑
 命令：`mvn test -Dtest=RerankEvaluationIntegrationTest -Pintegration`。
+
+## Historical installed-state upgrade matrix 測試責任（#322）
+
+`persistence.HistoricalUpgradeMatrixIntegrationTest`（integration tier）持有 historical
+SQLite installed-state upgrade gate：以 **repository-owned synthetic populated fixtures**
+（`persistence.HistoricalUpgradeFixtures`——reviewable raw SQL setup，絕非 binary snapshot、
+絕非真實使用者資料；Flyway migrations 仍是唯一 executable schema authority）在 baseline
+版本真實執行 Flyway migration chain 至 populated baseline，插入代表性 canonical/domain
+資料後以真實 migration chain 升到 latest schema。Representative semantic boundaries（依
+migration 語意轉折點，非 O(N²) 全排列）：**V18**（pre-CJK projection era，V19 recreate
+FTS + V20～V29 全鏈）、**V24**（pre-embedding generation ledger，V25～V27）、**V27**
+（pre-Graph lifecycle，V28）、**V28**（pre-versioned ChunkingPolicy backfill，V29）。
+不宣稱 oldest-supported support window（目前無正式 released baseline 政策）。
+
+Gates（每個 boundary）：canonical data preservation 以 application-owned stable identity
++ canonical field manifest 驗證（workspace/setting/document/extracted content/source chunk/
+processing job/log/analysis/candidate/proposal/wiki draft/publish operation/knowledge page；
+derived row order、vendor ids、RID、transient timestamps 一律不是 equality authority）；
+workspace isolation（外部 workspace 文件不洩漏）、soft-delete/status/provenance 語意不因
+backfill drift；derived projections 不 fake-current——FTS 由 V19 recreate 後 identity 清空
+（deterministic rebuild 訊號）且 sync/rebuild state 的 projection_version backfill 為
+`cjk-bigram-v1`、embedding readiness 的歷史 READY row 保留為 legacy baseline 但無 invented
+operation history/snapshot token（target/applied generation = 0）、graph lifecycle 不得因
+migration 發明 READY row、V29 把全部歷史 chunks backfill 為 `chunk-policy-v1-current`（無
+silent 混用，stale-policy hook 回空）；repeated migrate idempotent（第二次 migrate
+`migrationsExecuted = 0` 且 manifest byte-identical，destructive backfill 不得重跑）。Application-level readers 對非空 historical states 也有 gate：V24 的 legacy READY
+readiness row 經 production `EmbeddingProjectionReadinessRepository` 讀出後 target/applied
+generation 為 0 且無 snapshot token（invented history 禁令的 application-level 證明）。V28
+的 READY lifecycle row 是 SQLite 歷史 state（schema gate 保留其語意）；「provider projection
+不存在時不得 fake READY」的 application-level 防護由 smoke 的 `readiness()` NOT_READY gate
+（空 lifecycle）與 ADR 0010 的 canonical fingerprint revalidation contract 持有；fixture
+的 vault Markdown 與 canonical hashes 自洽（canonical content read 不 fail closed），
+health 的 corpus 語意為 corpus-pinned 斷言。
+`persistence.HistoricalUpgradeSmokeIntegrationTest`（integration tier、
+`@DynamicPropertySource` 綁定 fixture DB）以 latest application boundary 對最高風險的 V18
+boundary 做 open/read smoke：workspace 可安全 open、document/source chunk/published wiki
+canonical reads 可用、chunk-policy hook 回空、FTS 空 projection 查詢不炸且
+`GET /api/v1/search/index/health` 回 `REBUILD_REQUIRED`（不 fake healthy）、embedding
+readiness 不得被發明、graph readiness 不得宣稱 READY（直到 explicit rebuild）、startup
+Flyway no-op + 二次 migrate no-op。
+
+Challenge cases 已內建為 gates：populated rows 通過全部 intermediate migrations（migration
+chain 真跑，不載入 latest schema 跳過）；新 constraint 對 populated data 的相容性由
+population+migration 成功證明；backfill 語意由 manifest+projection 斷言鎖定；無 binary
+fixture（不會 fixture/migration 漂移）；timestamps/RID 不進 equality（假失敗防護）；idempotent
+二次斷言防 destructive backfill 重跑。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='HistoricalUpgradeMatrixIntegrationTest,HistoricalUpgradeSmokeIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
