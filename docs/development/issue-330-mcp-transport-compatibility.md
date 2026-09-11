@@ -125,9 +125,12 @@ Applicable 子集（`tools-list`、`server-stateless`、`json-schema-2020-12`）
 阻擋；工具名／描述／inputSchema 要求（1–64 chars、`^[A-Za-z0-9_./-]+$`）本 server
 本就滿足。附帶觀察（非 verdict blocker）：transport-error envelope 用 `"id": null`
 被 runner wire-schema check 標記；屬 pre-existing 行為，已開 follow-up #345，
-不在本 decision 範圍。結論：runner 不採為 gate；modern external evidence 由 v2-client
-harness（`src/test/js/mcp-modern-interop.test.mjs`）持有；stable runner 出 modern
-scenarios＋auth 支援後重評。
+不在本 decision 範圍。（#345 已修正：401／403／503／415／406／413 各 transport gate
+維持原決策順序不變，error envelope 以 bounded best-effort 讀取回填 request id——body
+可解析即回同 id、無法解析或 over-bound 截斷即維持 `id: null`；parse error／invalid
+request 依 JSON-RPC 2.0 維持 `id: null`。）結論：runner 不採為 gate；modern external
+evidence 由 v2-client harness（`src/test/js/mcp-modern-interop.test.mjs`）持有；
+stable runner 出 modern scenarios＋auth 支援後重評。
 
 Adoption verdict：**`KEEP_CUSTOM_CODEC = FULL GO`**。modern＋legacy 皆有 Tier-1 live
 evidence；dual-era 維護 bounded（兩個明列 revision、per-era registry、versioned

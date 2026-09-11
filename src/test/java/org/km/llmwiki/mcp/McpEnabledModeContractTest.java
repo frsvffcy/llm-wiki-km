@@ -39,6 +39,9 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private McpProperties properties;
+
     @Test
     void modernToolsListIsStatelessAndExposesExactlyFiveReadOnlyTools() throws Exception {
         mockMvc.perform(modern("""
@@ -380,7 +383,7 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token"))
                 .andExpect(status().isForbidden())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("transport origin or host rejected")
+                        .contains("transport origin or host rejected", "\"id\":null")
                         .doesNotContain("wrong-token", "INVALID_REQUEST"));
     }
 
@@ -392,6 +395,7 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                         .contentType("application/json").content("not-json"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null")
                         .doesNotContain("wrong-token", TOKEN));
     }
 
@@ -401,7 +405,8 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 + "x".repeat(300_000) + "\"}";
         mockMvc.perform(base(oversized)).andExpect(status().isPayloadTooLarge())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("PAYLOAD_TOO_LARGE").doesNotContain("km_status"));
+                        .contains("PAYLOAD_TOO_LARGE", "\"id\":null")
+                        .doesNotContain("km_status"));
     }
 
     @Test
@@ -412,7 +417,8 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
         mockMvc.perform(modern(valid + valid, "tools/list", null))
                 .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("-32700").doesNotContain("km_status"));
+                        // Undetectable id: parse errors keep id:null per JSON-RPC 2.0.
+                        .contains("-32700", "\"id\":null").doesNotContain("km_status"));
 
         byte[] invalidUtf8 = valid.replace("tools/list", "tools/lÿst")
                 .getBytes(StandardCharsets.ISO_8859_1);
@@ -421,7 +427,7 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                         .header("Mcp-Method", "tools/lÿst"))
                 .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("-32700").doesNotContain("km_status"));
+                        .contains("-32700", "\"id\":null").doesNotContain("km_status"));
     }
 
     @Test
@@ -444,6 +450,58 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 .andExpect(header().string(HttpHeaders.ALLOW, "POST"));
         mockMvc.perform(delete("/api/mcp")).andExpect(status().isMethodNotAllowed())
                 .andExpect(header().string(HttpHeaders.ALLOW, "POST"));
+    }
+
+    @Test
+    void transportErrorsEchoParseableRequestIds() throws Exception {
+        // #345: JSON-RPC 2.0 keeps id:null only for undetectable ids. Every transport
+        // gate rejects before the body is read, so the error envelope best-effort reads
+        // and parses the body (bounded by the same hard cap) purely to echo the id; it
+        // never dispatches. Wire-schema target: error id must be string|integer when
+        // detectable (conformance runner observation, #340 evaluation).
+        String parseable = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/list\",\"params\":{}}";
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token")
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("application/json").content(parseable))
+                .andExpect(status().isUnauthorized())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":9", "AUTHENTICATION_FAILED")
+                        .doesNotContain(TOKEN, "wrong-token"));
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN)
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("text/plain").content(parseable))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":9"));
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN)
+                        .header(HttpHeaders.ACCEPT, "application/json")
+                        .contentType("application/json").content(parseable))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":9"));
+        mockMvc.perform(base(parseable).header("Origin", "https://evil.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":9", "transport origin or host rejected"));
+    }
+
+    @Test
+    void oversizedBodyStillEchoesTheIdWhenTheDocumentFitsTheBoundedRead() throws Exception {
+        // The hard bound reads max+1 bytes; when the JSON document itself completes
+        // within that read, the 413 envelope echoes the id (parseable body). A document
+        // truncated by the bound cannot parse and stays null (oversized test above).
+        int bound = properties.effectiveMaxBodyBytes();
+        String prefix = "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/list\",\"padding\":\"";
+        String suffix = "\"}";
+        String exactBoundPlusOne =
+                prefix + "x".repeat(bound + 1 - prefix.length() - suffix.length()) + suffix;
+        mockMvc.perform(base(exactBoundPlusOne)).andExpect(status().isPayloadTooLarge())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("PAYLOAD_TOO_LARGE", "\"id\":12")
+                        .doesNotContain("km_status"));
     }
 
     @Test

@@ -27,27 +27,30 @@ class McpServerContractTest extends IsolatedIntegrationTest {
     @Test
     void disabledAdapterFailsClosedWithTypedErrorAndNoLeak() throws Exception {
         // Default test configuration: app.mcp.enabled=false → deterministic MCP_DISABLED.
+        // The disabled gate still decides first (nothing is dispatched); the error
+        // envelope best-effort echoes the request id when the body happens to parse (#345).
         mockMvc.perform(post("/api/mcp").header("Host", "localhost")
                         .header("Accept", "application/json, text/event-stream")
                         .contentType("application/json")
                         .content("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("MCP_DISABLED")
+                        .contains("MCP_DISABLED", "\"id\":1")
                         .doesNotContain("Bearer", "secret"));
     }
 
     @Test
     void malformedJsonAlsoFailsClosedWhileDisabled() throws Exception {
-        // The disabled gate is the FIRST check: a disabled adapter never parses or processes
-        // any body, so malformed/oversized content deterministically answers MCP_DISABLED
-        // too (nothing is processed while the boundary is off).
+        // The disabled gate is the FIRST check: a disabled adapter never dispatches or
+        // processes any body, so malformed/oversized content deterministically answers
+        // MCP_DISABLED too. The envelope still tries a bounded id echo; a body that
+        // cannot parse keeps id:null (#345).
         mockMvc.perform(post("/api/mcp").header("Host", "127.0.0.1:8765")
                         .header("Accept", "application/json, text/event-stream")
                         .contentType("application/json").content("not-json"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("MCP_DISABLED"));
+                        .contains("MCP_DISABLED", "\"id\":null"));
     }
 
     @Test
@@ -57,6 +60,7 @@ class McpServerContractTest extends IsolatedIntegrationTest {
                         .contentType("application/json").content("not-json"))
                 .andExpect(status().isForbidden())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":null")
                         .doesNotContain("MCP_DISABLED", "INVALID_REQUEST"));
     }
 }
