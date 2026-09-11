@@ -1,7 +1,7 @@
 package org.km.llmwiki.mcp;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.Map;
@@ -16,7 +16,8 @@ import java.util.Map;
 public final class McpJsonRpc {
 
     private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
-            new com.fasterxml.jackson.databind.ObjectMapper();
+            new com.fasterxml.jackson.databind.ObjectMapper()
+                    .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     private McpJsonRpc() {
     }
@@ -36,8 +37,8 @@ public final class McpJsonRpc {
     }
 
     public static String method(JsonNode request) {
-        return request == null || !request.hasNonNull("method")
-                ? null : request.get("method").asText();
+        JsonNode method = request == null ? null : request.get("method");
+        return method != null && method.isTextual() ? method.textValue() : null;
     }
 
     public static JsonNode id(JsonNode request) {
@@ -58,13 +59,28 @@ public final class McpJsonRpc {
     }
 
     public static String error(JsonNode id, int code, String message) {
+        return error(id, code, message, null);
+    }
+
+    public static String error(JsonNode id, int code, String message, Object data) {
         ObjectNode response = MAPPER.createObjectNode();
         response.put("jsonrpc", "2.0");
         response.set("id", id == null ? MAPPER.nullNode() : id);
         ObjectNode error = response.putObject("error");
         error.put("code", code);
         error.put("message", message.length() <= 256 ? message : message.substring(0, 256));
+        if (data != null) {
+            error.set("data", MAPPER.valueToTree(data));
+        }
         return render(response);
+    }
+
+    public static String renderValue(Object value) {
+        try {
+            return MAPPER.writeValueAsString(value);
+        } catch (Exception failure) {
+            throw new IllegalStateException("mcp value serialization failed", failure);
+        }
     }
 
     private static String render(ObjectNode response) {

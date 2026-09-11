@@ -3,25 +3,32 @@ package org.km.llmwiki.mcp;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Enabled-mode MCP contract tests (#327): with an explicitly configured backend-only token the
- * adapter answers initialize/ping/tools/list/tools/call; the token is compared constant-time
- * and never leaks; oversized bodies are rejected on the decoded body; malformed JSON is a
- * typed parse error; write tools answer typed unsupported.
- */
+/** Versioned modern/legacy wire, transport-security, and read-only regressions for #330. */
 @Tag("integration")
 class McpEnabledModeContractTest extends IsolatedIntegrationTest {
 
-    private static final String TOKEN = "test-mcp-bearer-token-327";
+    private static final String TOKEN = "test-mcp-bearer-token-330";
+    private static final String ACCEPT = "application/json, text/event-stream";
+    private static final String META = """
+            "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities":{}}""";
 
     @DynamicPropertySource
     static void mcpProperties(DynamicPropertyRegistry registry) {
@@ -32,107 +39,392 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder mcpPost(
-            String body, String bearerToken) {
-        return org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                .post("/api/mcp").contentType("application/json").content(body)
-                .header("Authorization", "Bearer " + bearerToken);
-    }
-
     @Test
-    void initializeAnswersProtocolVersionWithoutSecrets() throws Exception {
-        mockMvc.perform(mcpPost("""
-                {"jsonrpc":"2.0","id":1,"method":"initialize"}""", TOKEN))
+    void modernToolsListIsStatelessAndExposesExactlyFiveReadOnlyTools() throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{%s}}"""
+                .formatted(META), "tools/list", null))
                 .andExpect(status().isOk())
                 .andExpect(result -> {
                     String body = result.getResponse().getContentAsString();
-                    assertThat(body).contains("2025-06-18").contains("llm-wiki-km")
-                            .contains("tools");
-                    assertThat(body).doesNotContain(TOKEN);
+                    assertThat(body).contains("resultType", "complete", "\"ttlMs\":0",
+                                    "\"cacheScope\":\"private\"",
+                                    "io.modelcontextprotocol/serverInfo",
+                                    "km_status", "km_search", "km_retrieval_inspect",
+                                    "km_source_locator", "km_ask")
+                            .doesNotContain("publish", "rebuild", "repair", "upload",
+                                    "proposal", "backup", TOKEN);
+                    assertThat(occurrences(body, "\"name\":\"km_")).isEqualTo(5);
+                });
+
+        // The same request succeeds again without initialize or any hidden session state.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{%s}}"""
+                .formatted(META), "tools/list", null))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void modernToolCallRequiresMatchingMethodNameAndMetadata() throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":"call-1","method":"tools/call",
+                "params":{"name":"km_status","arguments":{},%s}}"""
+                .formatted(META), "tools/call", "km_status"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String body = result.getResponse().getContentAsString();
+                    assertThat(body).contains("NOT_INITIALIZED", "structuredContent",
+                                    "content", "resultType")
+                            .doesNotContain("/Users/", "RID:", TOKEN,
+                                    "IllegalStateException", "Exception");
                 });
     }
 
     @Test
-    void wrongTokenIsUnauthorizedWithoutEchoingTheToken() throws Exception {
-        mockMvc.perform(mcpPost("""
-                {"jsonrpc":"2.0","id":1,"method":"ping"}""", "wrong-token"))
+    void modernMissingOrUnsupportedVersionFailsBeforeDispatch() throws Exception {
+        String body = """
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{%s}}"""
+                .formatted(META);
+        mockMvc.perform(base(body).header("Mcp-Method", "tools/list"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32020", "MCP-Protocol-Version header missing")
+                        .doesNotContain("km_status"));
+        mockMvc.perform(base(body).header("MCP-Protocol-Version", "2099-01-01")
+                        .header("Mcp-Method", "tools/list"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32022", "2099-01-01")
+                        .doesNotContain("km_status"));
+        mockMvc.perform(base(body)
+                        .header("MCP-Protocol-Version", "2026-07-28", "2025-06-18")
+                        .header("Mcp-Method", "tools/list"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32020", "MCP-Protocol-Version header malformed")
+                        .doesNotContain("km_status"));
+    }
+
+    @Test
+    void modernMethodHeaderIsRequiredAndMustMatchBody() throws Exception {
+        String body = """
+                {"jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"km_status","arguments":{},%s}}""".formatted(META);
+        mockMvc.perform(base(body).header("MCP-Protocol-Version", "2026-07-28")
+                        .header("Mcp-Name", "km_status"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(modern(body, "tools/list", "km_status"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32020").doesNotContain("NOT_INITIALIZED"));
+    }
+
+    @Test
+    void modernNameHeaderIsRequiredAndMustMatchBody() throws Exception {
+        String body = """
+                {"jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"km_ask","arguments":{"question":"x"},%s}}"""
+                .formatted(META);
+        mockMvc.perform(modern(body, "tools/call", null))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(modern(body, "tools/call", "km_search"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32020").doesNotContain("CONFIGURATION", "EXECUTION"));
+    }
+
+    @Test
+    void modernBase64NameHeaderIsDecodedBeforeAgreementCheck() throws Exception {
+        String encoded = "=?base64?" + Base64.getEncoder().encodeToString(
+                "km_status".getBytes(StandardCharsets.UTF_8)) + "?=";
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"km_status","arguments":{},%s}}"""
+                .formatted(META), "tools/call", encoded))
+                .andExpect(status().isOk());
+
+        String unicodeName = "知識查詢";
+        String unicodeEncoded = "=?base64?" + Base64.getEncoder().encodeToString(
+                unicodeName.getBytes(StandardCharsets.UTF_8)) + "?=";
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call",
+                "params":{"name":"%s","arguments":{},%s}}"""
+                .formatted(unicodeName, META), "tools/call", unicodeEncoded))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("UNSUPPORTED_TOOL").doesNotContain("-32020"));
+
+        String encodedMethod = "=?base64?" + Base64.getEncoder().encodeToString(
+                "tools/list".getBytes(StandardCharsets.UTF_8)) + "?=";
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{%s}}"""
+                .formatted(META), encodedMethod, null))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32020"));
+    }
+
+    @Test
+    void modernMetadataMustBeCompleteAndAgreeWithHeader() throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{}}}""",
+                "tools/list", null)).andExpect(status().isBadRequest());
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{
+                "io.modelcontextprotocol/protocolVersion":"2025-06-18",
+                "io.modelcontextprotocol/clientCapabilities":{}}}}""", "tools/list", null))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{
+                "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities":{},
+                "io.modelcontextprotocol/clientInfo":{}}}}""", "tools/list", null))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void jsonRpcMethodNameAndParamsKeepTheirDeclaredTypes() throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":123,"params":{%s}}"""
+                .formatted(META), "123", null))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32600"));
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call",
+                "params":{"name":123,"arguments":{},%s}}"""
+                .formatted(META), "tools/call", "123"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32020"));
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":3,"method":"ping","params":"invalid"}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32600"));
+    }
+
+    @Test
+    void modernDiscoveryAndUnknownMethodHaveCurrentSemantics() throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{%s}}"""
+                .formatted(META), "server/discover", null))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("supportedVersions", "2026-07-28", "2025-06-18",
+                                "io.modelcontextprotocol/serverInfo", "\"ttlMs\":0",
+                                "\"cacheScope\":\"private\""));
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":2,"method":"unknown/read","params":{%s}}"""
+                .formatted(META), "unknown/read", null))
+                .andExpect(status().isNotFound())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32601"));
+    }
+
+    @Test
+    void legacyInitializeNegotiatesOnlyTheBoundedSupportedRevision() throws Exception {
+        mockMvc.perform(base("""
+                {"jsonrpc":"2.0","id":1,"method":"initialize",
+                "params":{"protocolVersion":"2025-06-18","capabilities":{},
+                "clientInfo":{"name":"test","version":"1"}}}"""))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("2025-06-18", "serverInfo").doesNotContain(TOKEN));
+        mockMvc.perform(base("""
+                {"jsonrpc":"2.0","id":2,"method":"initialize",
+                "params":{"protocolVersion":"2024-01-01"}}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32022", "2024-01-01"));
+    }
+
+    @Test
+    void legacyFollowupAndNotificationStayInTheirOwnEra() throws Exception {
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}"""))
+                .andExpect(status().isOk());
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"""))
+                .andExpect(status().isAccepted())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString()).isEmpty());
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":4,"method":"initialize",
+                "params":{"protocolVersion":"2025-06-18"}}"""))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(base("""
+                {"jsonrpc":"2.0","id":5,"method":"initialize",
+                "params":{"protocolVersion":"2025-06-18"}}""")
+                        .header("Mcp-Method", "initialize"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void modernNotificationAndInitializeAreRejected() throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","method":"tools/list","params":{%s}}"""
+                .formatted(META), "tools/list", null)).andExpect(status().isBadRequest());
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":"initialize","params":{%s}}"""
+                .formatted(META), "initialize", null)).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void hostAndOriginUseExactStructuredLoopbackAllowlist() throws Exception {
+        String body = """
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{%s}}"""
+                .formatted(META);
+        mockMvc.perform(modern(body, "tools/list", null).header("Origin", "https://localhost:8765"))
+                .andExpect(status().isOk());
+        mockMvc.perform(modern(body, "tools/list", null).header("Origin", "https://evil.example"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(modern(body, "tools/list", null)
+                        .header("Origin", "https://localhost.evil.example"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(modern(body, "tools/list", null).header("Host", "localhost.evil.example"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(modern(body, "tools/list", null).header("Host", "127.0.0.1.evil.example"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(modern(body, "tools/list", null).header("Host", "localhost:8765,evil"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(modern(body, "tools/list", null).header("Origin", "null"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(modern(body, "tools/list", null)
+                        .header("Origin", "https://user@localhost:8765"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void invalidOriginWinsBeforeAuthenticationAndJsonParsing() throws Exception {
+        mockMvc.perform(base("not-json").header("Origin", "https://evil.example")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token"))
+                .andExpect(status().isForbidden())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("transport origin or host rejected")
+                        .doesNotContain("wrong-token", "INVALID_REQUEST"));
+    }
+
+    @Test
+    void wrongTokenNeverEchoesEitherCredential() throws Exception {
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token")
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("application/json").content("not-json"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .doesNotContain("wrong-token", TOKEN));
     }
 
     @Test
-    void toolsListExposesReadOnlyManifestOnly() throws Exception {
-        mockMvc.perform(mcpPost("""
-                {"jsonrpc":"2.0","id":2,"method":"tools/list"}""", TOKEN))
-                .andExpect(status().isOk())
-                .andExpect(result -> {
-                    String body = result.getResponse().getContentAsString();
-                    assertThat(body).contains("km_status").contains("km_search")
-                            .contains("km_ask").contains("km_retrieval_inspect")
-                            .contains("km_source_locator");
-                    // No write capability exists anywhere in the manifest.
-                    assertThat(body).doesNotContain("publish", "rebuild", "repair",
-                            "upload", "proposal", "backup");
-                    assertThat(body).doesNotContain(TOKEN);
-                });
-    }
-
-    @Test
-    void oversizedBodyIsRejectedOnTheDecodedBody() throws Exception {
+    void oversizedDecodedBodyIsRejectedBeforeProtocolDispatch() throws Exception {
         String oversized = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"padding\":\""
                 + "x".repeat(300_000) + "\"}";
-        mockMvc.perform(mcpPost(oversized, TOKEN)).andExpect(status().isBadRequest());
+        mockMvc.perform(base(oversized)).andExpect(status().isPayloadTooLarge())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("PAYLOAD_TOO_LARGE").doesNotContain("km_status"));
     }
 
     @Test
-    void malformedJsonIsADeterministicParseError() throws Exception {
-        mockMvc.perform(mcpPost("not-json", TOKEN))
+    void bodyMustBeOneStrictUtf8JsonObject() throws Exception {
+        String valid = """
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{%s}}"""
+                .formatted(META);
+        mockMvc.perform(modern(valid + valid, "tools/list", null))
                 .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("INVALID_REQUEST"));
+                        .contains("-32700").doesNotContain("km_status"));
+
+        byte[] invalidUtf8 = valid.replace("tools/list", "tools/lÿst")
+                .getBytes(StandardCharsets.ISO_8859_1);
+        mockMvc.perform(base(invalidUtf8)
+                        .header("MCP-Protocol-Version", "2026-07-28")
+                        .header("Mcp-Method", "tools/lÿst"))
+                .andExpect(status().isBadRequest())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32700").doesNotContain("km_status"));
     }
 
     @Test
-    void toolResultsStayInsideTheJsonRpcEnvelopeWithoutLeaking() throws Exception {
-        // Tool calls run through the existing application contracts: status answers bounded
-        // safe fields (NOT_INITIALIZED + database READY) inside the JSON-RPC result envelope
-        // (never a transport crash, never a REST error envelope, never an internal
-        // exception or a filesystem path). Ask with no active workspace fails with a typed
-        // INVALID_REQUEST and carries no egress claim at all.
-        mockMvc.perform(mcpPost("""
-                {"jsonrpc":"2.0","id":4,"method":"tools/call",
-                "params":{"name":"km_status","arguments":{}}}""", TOKEN))
-                .andExpect(status().isOk())
-                .andExpect(result -> {
-                    String body = result.getResponse().getContentAsString();
-                    assertThat(body).contains("NOT_INITIALIZED").contains("isError");
-                    assertThat(body).doesNotContain("/Users/", "RID:", TOKEN,
-                            "IllegalStateException", "Exception");
-                });
-        mockMvc.perform(mcpPost("""
-                {"jsonrpc":"2.0","id":5,"method":"tools/call",
-                "params":{"name":"km_ask","arguments":{"question":"unknown topic test",
-                "retrievalMode":"WIKI_ONLY"}}}""", TOKEN))
-                .andExpect(status().isOk())
-                .andExpect(result -> {
-                    String body = result.getResponse().getContentAsString();
-                    // The ask without an active workspace fails typed inside the envelope
-                    // and carries no egress claim at all (no CONFIGURATION or EXECUTION
-                    // lines — those are for successful asks).
-                    assertThat(body).contains("INVALID_REQUEST");
-                    assertThat(body).doesNotContain("https://", "apiKey", "Bearer",
-                            "CONFIGURATION", "EXECUTION");
-                });
+    void mediaTypesAndUnsupportedHttpMethodsAreExplicit() throws Exception {
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN)
+                        .header(HttpHeaders.ACCEPT, ACCEPT).contentType("text/plain").content("{}"))
+                .andExpect(status().isUnsupportedMediaType());
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN)
+                        .header(HttpHeaders.ACCEPT, "application/json")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isNotAcceptable());
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN)
+                        .header(HttpHeaders.ACCEPT, "*/*")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isNotAcceptable());
+        mockMvc.perform(get("/api/mcp")).andExpect(status().isMethodNotAllowed())
+                .andExpect(header().string(HttpHeaders.ALLOW, "POST"));
+        mockMvc.perform(delete("/api/mcp")).andExpect(status().isMethodNotAllowed())
+                .andExpect(header().string(HttpHeaders.ALLOW, "POST"));
     }
 
     @Test
-    void unknownToolIsATypedUnsupportedError() throws Exception {
-        mockMvc.perform(mcpPost("""
-                {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"km_publish",
-                "arguments":{}}}""", TOKEN))
+    void toolErrorsAndEgressProjectionDoNotBleedAcrossRequests() throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"km_ask","arguments":{"question":"unknown topic",
+                "retrievalMode":"WIKI_ONLY"},%s}}""".formatted(META), "tools/call", "km_ask"))
                 .andExpect(status().isOk())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("UNSUPPORTED_TOOL"));
+                        .contains("INVALID_REQUEST")
+                        .doesNotContain("https://", "apiKey", "Bearer",
+                                "CONFIGURATION", "EXECUTION"));
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{%s}}"""
+                .formatted(META), "tools/list", null))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .doesNotContain("CONFIGURATION", "EXECUTION", "INVALID_REQUEST"));
+    }
+
+    @Test
+    void unknownWriteLikeToolRemainsTypedUnsupported() throws Exception {
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":7,"method":"tools/call",
+                "params":{"name":"km_publish","arguments":{},%s}}"""
+                .formatted(META), "tools/call", "km_publish"))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("UNSUPPORTED_TOOL", "isError", "content")
+                        .doesNotContain("PUBLISHED", TOKEN));
+    }
+
+    private static MockHttpServletRequestBuilder modern(
+            String body, String method, String name) {
+        MockHttpServletRequestBuilder request = base(body)
+                .header("MCP-Protocol-Version", "2026-07-28")
+                .header("Mcp-Method", method);
+        return name == null ? request : request.header("Mcp-Name", name);
+    }
+
+    private static MockHttpServletRequestBuilder legacy(String body) {
+        return base(body).header("MCP-Protocol-Version", "2025-06-18");
+    }
+
+    private static MockHttpServletRequestBuilder base(String body) {
+        return base(body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static MockHttpServletRequestBuilder base(byte[] body) {
+        return post("/api/mcp").header("Host", "localhost:8765")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN)
+                .header(HttpHeaders.ACCEPT, ACCEPT)
+                .contentType("application/json").content(body);
+    }
+
+    private static int occurrences(String value, String needle) {
+        int count = 0;
+        for (int index = 0; (index = value.indexOf(needle, index)) >= 0; index += needle.length()) {
+            count++;
+        }
+        return count;
     }
 }
