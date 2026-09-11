@@ -4,11 +4,12 @@
 
 ## 相關 Issue
 
-Closes #<issue-number>
+Refs #<issue-number>
 
 <!--
-Issue-driven PR 必須把上方 placeholder 換成真實 closing reference，例如 Closes #234、Fixes #234 或 Resolves #234。
-多個要關閉的 Issue 必須逐一提供 closing keyword。純 dependency/reference 請使用 Related to #123 或 Depends on #123，不得期待 bare #123 自動關閉。
+Issue-driven PR 把上方 placeholder 換成真實 non-closing reference，例如 Refs #234、Implements #234 或 Related #234。
+禁止使用會在 merge 時自動關閉 Issue 的 keyword（Closes/Fixes/Resolves 及其變形、含 issue URL 形式）；Issue 只能在 Completion Audit 後明確關閉（見 AGENTS.md §3）。
+多個相關 Issue 逐一列出。bare #123 亦視為有效 reference，但建議使用 Refs #123 明確語意。
 非 Issue-driven PR 才可加入獨立一行：PR-Metadata-Exception: non-issue-driven
 Stacked PR 必須說明 parent PR、進入 main 的路徑，並加入獨立一行：PR-Metadata-Exception: stacked-pr
 -->
