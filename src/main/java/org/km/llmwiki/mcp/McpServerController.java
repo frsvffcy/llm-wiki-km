@@ -35,6 +35,7 @@ public class McpServerController {
     private static final int JSONRPC_PARSE_ERROR = -32700;
     private static final int JSONRPC_INVALID_REQUEST = -32600;
     private static final int JSONRPC_METHOD_NOT_FOUND = -32601;
+    private static final int JSONRPC_INVALID_PARAMS = -32602;
     private static final int JSONRPC_PAYLOAD_TOO_LARGE = -32001;
 
     private final McpProperties properties;
@@ -191,10 +192,14 @@ public class McpServerController {
                     McpToolError.INVALID_REQUEST.name(), null);
         }
         if (!McpCapabilityManifest.isKnown(toolName)) {
-            return ok(request, toolResult(era, true, null, null,
-                    McpToolError.UNSUPPORTED_TOOL,
-                    "unsupported tool; read-only tools only: "
-                            + McpCapabilityManifest.tools().keySet()));
+            // Unknown tool names never reach a tool handler: per the official server
+            // behavior this is a protocol-level InvalidParams error, not a tool execution
+            // result. Known tools keep their tool-level isError semantics.
+            HttpStatus status = era == McpProtocolEra.MODERN ? HttpStatus.NOT_FOUND
+                    : HttpStatus.OK;
+            return error(status, McpJsonRpc.id(request), JSONRPC_INVALID_PARAMS,
+                    "unknown tool", Map.of("supported",
+                            List.copyOf(McpCapabilityManifest.tools().keySet())));
         }
         McpToolResult result = executor.execute(toolName, params.get("arguments"));
         if (result.isError()) {

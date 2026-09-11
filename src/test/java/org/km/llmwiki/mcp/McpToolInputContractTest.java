@@ -1,0 +1,283 @@
+package org.km.llmwiki.mcp;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.km.llmwiki.ai.ask.AskApplicationService;
+import org.km.llmwiki.ai.provider.ProviderEgressService;
+import org.km.llmwiki.rag.RetrievalInspectorService;
+import org.km.llmwiki.search.SearchService;
+import org.km.llmwiki.source.SourceChunkLocatorService;
+import org.km.llmwiki.system.SystemStatusService;
+import org.km.llmwiki.wiki.WikiPageType;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+
+/**
+ * Single-authority contract tests for #335: the JSON Schema advertised by {@code tools/list}
+ * and the strict runtime validation executed by {@code tools/call} come from one
+ * {@link McpToolInputContract} per tool — same object by construction
+ * ({@code descriptor.inputContract()} IS {@code contractFor(name)}), so the identity is
+ * structural and the tests pin the projection shape plus the challenge behaviors (no
+ * coercion, no execution on invalid input, operator-safe messages).
+ */
+@Tag("unit")
+class McpToolInputContractTest {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    @Test
+    void manifestExposesExactlyTheFiveReadOnlyToolsWithTheirOwnContracts() {
+        assertThat(McpCapabilityManifest.tools().keySet()).containsExactlyInAnyOrder(
+                "km_status", "km_search", "km_retrieval_inspect", "km_source_locator",
+                "km_ask");
+        for (String tool : McpCapabilityManifest.tools().keySet()) {
+            assertThat(McpCapabilityManifest.contractFor(tool)).isNotNull();
+            assertThat(McpCapabilityManifest.contractFor(tool).toolName()).isEqualTo(tool);
+        }
+        assertThat(McpCapabilityManifest.contractFor("km_publish")).isNull();
+    }
+
+    @Test
+    void advertisedSchemaIsProjectedFromTheSameContractObjectTheValidatorExecutes() {
+        for (Map.Entry<String, McpToolDescriptor> entry
+                : McpCapabilityManifest.tools().entrySet()) {
+            Map<String, Object> fromDescriptor = entry.getValue().inputContract().jsonSchema();
+            Map<String, Object> fromContract =
+                    McpCapabilityManifest.contractFor(entry.getKey()).jsonSchema();
+            assertThat(fromDescriptor).isEqualTo(fromContract);
+            assertThat(fromDescriptor).containsKeys("type", "properties", "required",
+                    "additionalProperties");
+            assertThat(fromDescriptor.get("type")).isEqualTo("object");
+            assertThat(fromDescriptor.get("additionalProperties")).isEqualTo(false);
+        }
+        Map<String, Object> searchSchema =
+                McpCapabilityManifest.contractFor("km_search").jsonSchema();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties =
+                (Map<String, Object>) searchSchema.get("properties");
+        assertThat(properties.get("query"))
+                .isEqualTo(Map.of("type", "string", "maxLength", 256));
+        assertThat(properties.get("corpus")).isEqualTo(Map.of(
+                "type", "string", "enum", List.of("WIKI", "SOURCE", "ALL"), "default", "WIKI"));
+        assertThat(properties.get("pageType")).isEqualTo(Map.of(
+                "type", "string", "enum",
+                Arrays.stream(WikiPageType.values()).map(Enum::name).toList()));
+        assertThat(properties.get("documentId"))
+                .isEqualTo(Map.of("type", "integer", "minimum", 1L));
+        assertThat(properties.get("page")).isEqualTo(Map.of(
+                "type", "integer", "minimum", 0L, "maximum", (long) Integer.MAX_VALUE,
+                "default", 1));
+        assertThat(properties.get("size")).isEqualTo(Map.of(
+                "type", "integer", "minimum", 1L, "maximum", 200L, "default", 20));
+        assertThat(searchSchema.get("required")).isEqualTo(List.of("query"));
+        Map<String, Object> locatorSchema =
+                McpCapabilityManifest.contractFor("km_source_locator").jsonSchema();
+        assertThat(locatorSchema.get("required")).isEqualTo(List.of("chunkId"));
+        Map<String, Object> askSchema =
+                McpCapabilityManifest.contractFor("km_ask").jsonSchema();
+        assertThat(askSchema.get("required")).isEqualTo(List.of("question"));
+        Map<String, Object> statusSchema =
+                McpCapabilityManifest.contractFor("km_status").jsonSchema();
+        assertThat(statusSchema.get("properties")).isEqualTo(Map.of());
+        assertThat(statusSchema.get("required")).isEqualTo(List.of());
+    }
+
+    @Test
+    void numericFieldsAreDeclaredAndValidatedAsIntegersWithoutCoercion() {
+        assertThatThrownBy(() -> validate("km_source_locator", "{\"chunkId\":\"123\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("chunkId must be an integer");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"size\":\"200\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("size must be an integer");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"size\":1.5}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("size must be an integer");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"page\":2.0}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("page must be an integer");
+        assertThatThrownBy(() ->
+                validate("km_search", "{\"query\":\"q\",\"page\":2147483648}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("page is out of range");
+        assertThatThrownBy(() ->
+                validate("km_search", "{\"query\":\"q\",\"documentId\":9223372036854775808}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("documentId is out of range");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"corpus\":true}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("corpus must be a string");
+    }
+
+    @Test
+    void advertisedBoundsAndEnumsAreEnforcedAtTheMcpBoundary() {
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"size\":999999}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("size must be between 1 and 200");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"page\":-1}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("page must be >= 0");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"q\",\"documentId\":0}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("documentId must be positive");
+        assertThatThrownBy(() -> validate("km_source_locator", "{\"chunkId\":0}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("chunkId must be positive");
+        assertThatThrownBy(() ->
+                validate("km_search", "{\"query\":\"q\",\"corpus\":\"UNKNOWN\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("corpus is invalid");
+        assertThatThrownBy(() ->
+                validate("km_ask", "{\"question\":\"q\",\"retrievalMode\":\"NOPE\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("retrievalMode is invalid");
+        assertThatThrownBy(() ->
+                validate("km_ask", "{\"question\":\"q\",\"retrievalMode\":\"hybrid_fts\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("retrievalMode is invalid");
+        assertThatThrownBy(() ->
+                validate("km_retrieval_inspect", "{\"question\":\"q\",\"mode\":\"REBUILD\"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("mode is invalid");
+    }
+
+    @Test
+    void requiredAndTypedStringRulesAreEnforced() {
+        assertThatThrownBy(() -> validate("km_search", "{}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query is required");
+        assertThatThrownBy(() -> validate("km_search", "null"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query is required");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":\"   \"}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query is required");
+        assertThatThrownBy(() -> validate("km_search", "{\"query\":123}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query must be a string");
+        assertThatThrownBy(() -> validate("km_ask", jsonQuestion("question", 4_001)))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("question must not exceed 4000 Unicode code points");
+        assertThatThrownBy(() ->
+                validate("km_retrieval_inspect", jsonQuestion("question", 4_001)))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("question must not exceed 4000 Unicode code points");
+        assertThatThrownBy(() -> validate("km_search", jsonQuestion("query", 257)))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("query must not exceed 256 Unicode code points");
+    }
+
+    @Test
+    void unknownPropertiesAndNonObjectArgumentsAreRejectedBeforeExecution() {
+        assertThatThrownBy(() -> validate("km_status", "{\"foo\":1}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("unsupported argument: foo");
+        assertThatThrownBy(() -> validate("km_status", "{\"名稱\":1}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("unsupported argument: <invalid argument name>");
+        assertThatThrownBy(() -> validate("km_ask",
+                "{\"question\":\"q\",\"retrievalMode\":\"HYBRID_FTS\",\"maxItems\":5}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("unsupported argument: maxItems");
+        assertThatThrownBy(() -> validate("km_search",
+                "{\"query\":\"q\",\"size\":20,\"unexpected\":{\"x\":1}}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("unsupported argument: unexpected");
+        assertThatThrownBy(() -> validate("km_status", "[1,2]"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("arguments must be an object");
+        assertThatThrownBy(() -> validate("km_status", "\"km_status\""))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("arguments must be an object");
+    }
+
+    @Test
+    void defaultsAndNormalizationMatchTheApplicationContracts() {
+        McpValidatedArguments search = McpCapabilityManifest.contractFor("km_search")
+                .validate(parse("{\"query\":\" q \",\"corpus\":\"wiki\","
+                        + "\"pageType\":\"concept\"}"));
+        assertThat(search.string("query")).isEqualTo(" q ");
+        assertThat(search.string("corpus")).isEqualTo("WIKI");
+        assertThat(search.stringOr("pageType", null)).isEqualTo("CONCEPT");
+        assertThat(search.longOrNull("documentId")).isNull();
+        assertThat(search.intValue("page")).isEqualTo(1);
+        assertThat(search.intValue("size")).isEqualTo(20);
+
+        McpValidatedArguments ask = McpCapabilityManifest.contractFor("km_ask")
+                .validate(parse("{\"question\":\"q\"}"));
+        assertThat(ask.string("retrievalMode")).isEqualTo("HYBRID_FTS");
+
+        McpValidatedArguments inspect = McpCapabilityManifest.contractFor(
+                "km_retrieval_inspect").validate(parse("{\"question\":\"q\"}"));
+        assertThat(inspect.string("mode")).isEqualTo("HYBRID_GRAPH");
+
+        McpValidatedArguments status = McpCapabilityManifest.contractFor("km_status")
+                .validate(null);
+        assertThat(status.view()).isEmpty();
+
+        McpValidatedArguments locator = McpCapabilityManifest.contractFor(
+                "km_source_locator").validate(parse("{\"chunkId\":42}"));
+        assertThat(locator.longValue("chunkId")).isEqualTo(42L);
+    }
+
+    @Test
+    void executorRejectsInvalidInputBeforeAnyApplicationServiceRuns() {
+        SearchService searchService = mock(SearchService.class);
+        McpToolExecutor executor = new McpToolExecutor(
+                mock(SystemStatusService.class), searchService,
+                mock(RetrievalInspectorService.class),
+                mock(SourceChunkLocatorService.class), mock(AskApplicationService.class),
+                mock(ProviderEgressService.class));
+
+        McpToolResult invalid = executor.execute("km_search",
+                parse("{\"query\":\"q\",\"size\":\"200\"}"));
+        assertThat(invalid.isError()).isTrue();
+        assertThat(invalid.errorCode()).isEqualTo(McpToolError.INVALID_REQUEST);
+        assertThat(invalid.message()).isEqualTo("size must be an integer");
+        verifyNoInteractions(searchService);
+
+        assertThatThrownBy(() -> executor.execute("km_publish", parse("{}")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("unknown tool: km_publish");
+
+        whenSearchReturnsNull(searchService);
+        McpToolResult valid = executor.execute("km_search",
+                parse("{\"query\":\"q\",\"corpus\":\"wiki\"}"));
+        assertThat(valid.isError()).isFalse();
+        verify(searchService).search("q", "WIKI", null, null, 1, 20);
+    }
+
+    private static void whenSearchReturnsNull(SearchService searchService) {
+        org.mockito.Mockito.when(searchService.search(any(), any(), any(), any(), anyInt(),
+                anyInt())).thenReturn(null);
+    }
+
+    private static McpValidatedArguments validate(String tool, String rawArguments) {
+        return McpCapabilityManifest.contractFor(tool).validate(parse(rawArguments));
+    }
+
+    private static JsonNode parse(String raw) {
+        try {
+            return JSON.readTree(raw);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("test JSON is malformed", exception);
+        }
+    }
+
+    private static String jsonQuestion(String field, int codePoints) {
+        return "{\"" + field + "\":\"" + "a".repeat(codePoints) + "\"}";
+    }
+}

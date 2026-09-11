@@ -1091,7 +1091,8 @@ modern notification fail closed，legacy `notifications/initialized`回 202/no b
 
 Tool surface（`mcp.McpCapabilityManifest`）：`km_status`/`km_search`/`km_retrieval_inspect`/
 `km_source_locator`/`km_ask`——全部 read-only（無 canonical mutation、無 rebuild/repair、無
-config mutation；write tools deterministic `UNSUPPORTED_TOOL`）；annotations 是 client hint
+config mutation；unknown tool name 自 #335 起為 protocol-level `InvalidParams` `-32602`，
+不再有 write tool fallback）；annotations 是 client hint
 而 server 強制真正 boundary。Search/Inspector/Locator/Ask 完全重用既有 DTO projection
 （SearchResult/RetrievalInspectionResponse/SourceLocator/AskApiResponse——REST 與 MCP 零
 drift，無第二條 path）。Ask 的 egress disclosure 重用 #323 `ProviderEgressService` 的
@@ -1184,7 +1185,9 @@ client）：`src/test/js/mcp-sdk-interop.test.mjs` 以 `MCP_SMOKE_URL`／`MCP_SM
 `MCP_ADAPTER_ENABLED=true MCP_ADAPTER_AUTH_TOKEN=<token> java -jar target/*.jar`、
 設 env 後 `node --test src/test/js/mcp-sdk-interop.test.mjs`。已驗證 7/7：
 counter-offer on wire、SDK connect 接受、tools/list 五工具、`inputSchema` object、
-`tools/call`、legacy ping、unknown tool typed `isError`。Modern 面無已發布 Tier-1
+`tools/call`、legacy ping、unknown tool 以 JSON-RPC `-32602` 錯誤 envelope 回絕（SDK client
+呈現為 rejected promise，`error.code === -32602`；#335 起 unknown tool 屬 protocol-level
+`InvalidParams`，不再以 tool-level `isError` 呈現）。Modern 面無已發布 Tier-1
 client（最新版仍只走 legacy；auto/discover flow 僅見於未發布 main docs）且本 adapter
 modern 面要求官方 client 不送的自訂 headers，故 modern 以 MockMvc contract tests 持有；
 Tier-1 發布 2026-07-28 client 後重跑本腳本。`CUSTOM_CODEC_CONFORMANCE = CONDITIONAL GO`
@@ -1196,6 +1199,60 @@ Tier-1 發布 2026-07-28 client 後重跑本腳本。`CUSTOM_CODEC_CONFORMANCE =
 node --test src/test/js/mcp-sdk-interop.test.mjs
 mvn -Dtest='McpProtocolVersionsTest' test -Pfast
 mvn -Dtest='McpServerContractTest,McpEnabledModeContractTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
+
+## MCP tool input contract 與 schema/validator 單一 authority 測試責任（#335）
+
+`tools/list` 的 `inputSchema` 與 `tools/call` 的 runtime validation 由同一個
+`mcp.McpToolInputContract`（per-tool field list：`McpFieldContract`）產生，兩者不得分歧：
+schema projection（`type`／`maxLength`／`minimum`／`maximum`／`enum`／`required`／
+`additionalProperties: false`）與 strict validator 都從同一份 field list 派生。Validation
+fail-closed 且無 coercion：STRING 只接受 JSON string（code points 量測），INTEGER 只接受
+JSON 整數且必須能轉換為目標型別（`int`/`long` overflow、小數、數字字串、boolean 一律
+拒絕）；未知欄位（`additionalProperties: false` enforced，含 km_status 的任意參數與
+km_ask 的未刊登欄位）、缺漏 required、blank required、enum 拼寫錯誤、bounds 違規全部在
+MCP boundary 拒絕，不會觸發 Search／Inspector／Locator／Ask 執行。訊息 operator-safe：
+僅 bounded field name + rule 文案（與被重用的 application 契約對齊：`retrievalMode is
+invalid`、`size must be between 1 and 200`、`documentId must be positive`、`page must be
+>= 0`、`must not exceed N Unicode code points`），不攜帶 raw JSON／path／exception。
+`km_search` 的 `corpus`/`pageType` 對映 application 的 case-insensitive normalization
+（正規化後送入 SearchService）；`mode`/`retrievalMode` 為 exact-case enum，缺失時採既有
+MCP 預設（`HYBRID_GRAPH`／`HYBRID_FTS`）。Unknown tool name 屬 protocol-level
+`InvalidParams` `-32602`（modern era HTTP 404、legacy era HTTP 200 JSON-RPC error
+envelope；Tier-1 SDK server 行為一致），不再回 `UNSUPPORTED_TOOL` result envelope；
+genuine tool 執行失敗維持 tool-level `isError` 語意。`McpToolError.UNSUPPORTED_TOOL` 已
+移除（遺留 `IllegalStateException` fail-closed 內部不變式）。
+
+`mcp.McpToolInputContractTest`（unit tier）持有 schema↔validator 同一性（descriptor
+schema ≡ contract schema）、無 coercion、bounds/enum/required、defaults/normalization、
+safe-name redaction，以及 executor「invalid input 不觸發任何 application service」
+（Mockito verifyNoInteractions）。`McpEnabledModeContractTest` 持有 wire 層：modern
+tools/list schema 形狀（typed properties、required、maxLength、enum、default、
+additionalProperties:false）、modern unknown tool 404+`-32602`、legacy unknown tool 200
+JSON-RPC `-32602` envelope。
+
+已知的宣稱面偏差（fail-closed 方向，重評 Tier-1 modern client 發布後再議）：
+（1）`maxLength` 以 Unicode code points 計量（application 契約同單位），JSON Schema
+`maxLength` 標準單位是 UTF-16 code units——client-side schema 檢查會比 server 更嚴，
+schema 較嚴不會放行 server 拒絕的輸入；（2）`corpus`/`pageType` 的 case-insensitive
+normalization（含 strip）無法以 JSON Schema enum 表達，schema 只列 canonical 拼法，
+server 較寬鬆；（3）`question` 的 4000 cp 上限在 strip 前量測（REST 契約 strip 後量測），
+MCP 面較嚴；（4）known tool 的結構性無效參數（型別錯誤、未知欄位）依本 adapter 既有
+custom taxonomy 回 tool-level `INVALID_REQUEST`，official SDK server 對此類也回
+protocol-level InvalidParams——missing/blank `params.name` 維持既有 `-32600`；
+（5）modern era unknown tool 以 HTTP 404 呈現（official SDK server 為 200＋error
+envelope；無已發布 modern client，legacy 面 200＋envelope 已對 Tier-1 SDK 1.30.0 驗證，
+decision 記錄於 issue-330 doc）。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='McpToolInputContractTest,McpAdapterParityTest,McpProtocolVersionsTest' test -Pfast
+mvn -Dtest='McpServerContractTest,McpEnabledModeContractTest,McpAdapterParityIntegrationTest' test -Pintegration
 mvn test -Pfast
 mvn test -Pintegration
 mvn clean verify -Pfull
