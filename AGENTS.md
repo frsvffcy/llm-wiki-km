@@ -118,6 +118,7 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 ### 1.5 Current capability boundary（短摘要；authority 在 ADR/runtime tests/testing.md）
 
 * **Phase 1/2 baseline 已交付**：FTS + semantic/vector retrieval、Evidence assembly、grounded/citation-validated stateless Ask、provider-neutral Answer contract、Browser Ask UI。
+* **Browser first-mile（#352）**：vanilla-JS hash-navigation 多視圖骨架（Home／Inbox／Ask／Inspect／Review placeholder），Home/Inbox 為既有 Workspace／Inbox／Extraction REST 的 UI projection——workspace 建立/切換（切換後清空並重新取得 workspace-scoped state）、單檔/批次上傳（部分失敗如實呈現）、rescan、soft-delete、extraction 觸發與 bounded extracted-content preview、`DocumentStatus` typed 狀態徽章；無新增 authority、CSP 不放寬；processing job list endpoint 不存在（僅 per-jobId query），UI 不自造 job authority。
 * **Phase 3 已交付**：Knowledge Graph 為 optional/degradable derived modality（ArcadeDB replaceable embedded projection，可刪除重建；SQLite 持續是 operational/control plane，不得被取代或成為 migration target）；`HYBRID_GRAPH` Ask mode 已產品化；Graph backend unavailable 時維持 lexical + vector baseline。
 * Graph public API 只允許 explicit `graph/projection/{readiness,rebuild,repair}`；Ask 維持 read-only，不得自動 rebuild/repair；graph traversal 是 internal application boundary，無 public REST endpoint。
 * Retrieval Inspector（`/api/v1/retrieval/inspect`）與 Source Chunk locator（`/api/v1/source-chunks/{chunkId}/locator`）為 read-only observation/navigation；citation identity（`WIKI:<knowledgeId>`/`SOURCE_CHUNK:<id>`）不變。

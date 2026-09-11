@@ -18,6 +18,9 @@ as a fast-only run. The explicit profiles are:
 
 ```text
 node --test src/test/js/ask-ui.test.mjs # Browser Ask UI contract regression suite
+node --test src/test/js/navigation-ui.test.mjs # Browser navigation shell contract suite
+node --test src/test/js/workspace-ui.test.mjs # Browser workspace UI contract suite
+node --test src/test/js/inbox-ui.test.mjs # Browser inbox UI contract suite
 node --test src/test/js/graph-operations-ui.test.mjs # Browser Graph operations UI contract suite
 node --test src/test/js/pr-metadata.test.mjs # PR metadata guard regression suite
 mvn test -Pfast         # unit + contract; no Spring context tests
@@ -26,11 +29,12 @@ mvn clean verify -Pbuild-integrity # clean build evidence; test execution intent
 mvn clean verify -Pfull # all tests plus clean package/build-integrity checks
 ```
 
-The Browser Ask UI and Graph operations UI contract suites run directly with the Node.js built-in
-test runner. They do not require npm dependencies, a frontend build, a browser automation server,
-provider credentials, or network access. The PR workflow pins its runtime to Node.js 22 LTS and
-runs both suites in the `Fast unit and contract tests` job before the Maven fast tier. A failure in
-either suite fails that job. The separate PR Metadata job executes the metadata guard regression
+The Browser UI contract suites (Ask, navigation shell, workspace, inbox, and Graph operations)
+run directly with the Node.js built-in test runner. They do not require npm dependencies, a
+frontend build, a browser automation server, provider credentials, or network access. The PR
+workflow pins its runtime to Node.js 22 LTS and runs every suite in the
+`Fast unit and contract tests` job before the Maven fast tier. A failure in
+any suite fails that job. The separate PR Metadata job executes the metadata guard regression
 suite and validates the live pull-request event. The `PR Gate` job aggregates PR Metadata, Fast, Integration,
 production ArcadeDB Graph adapter, Build Integrity, and sqlite-vec smoke results and fails unless
 every evidence job succeeds.
@@ -48,8 +52,9 @@ is complementary to—not a replacement for—the Fast and Integration test inve
 and canary `full` gate.
 
 The `full` profile and the Full Regression Canary are Maven-only. They do not run the Browser
-JavaScript suites; `src/test/js/ask-ui.test.mjs` and `src/test/js/graph-operations-ui.test.mjs`
-are owned by the PR Fast job and must be run locally whenever their JavaScript surface is touched.
+JavaScript suites; every `src/test/js/*.test.mjs` Browser UI suite (Ask, navigation shell,
+workspace, inbox, Graph operations) is owned by the PR Fast job and must be run locally whenever
+its JavaScript surface is touched.
 
 ## Local verification by change type
 
@@ -182,7 +187,7 @@ below; ordinary delivery still targets `main`:
 | CI job | Command | Purpose |
 | --- | --- | --- |
 | PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node scripts/validate-pr-metadata.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, absence of auto-closing keywords in **both the PR body and every source commit message** (`Closes/Fixes/Resolves` ＋ `#N`／`owner/repo#N`／issue URL，colon/uppercase 變形，任何 target repository；以單一 closing-reference grammar 掃描，commit retrieval 失敗 fail-closed — Issues close only after the Completion Audit；#349), non-closing Issue references (`Refs #N`), and same-repository Issue existence with a read-only token |
-| Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`node --test src/test/js/graph-operations-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser Ask and Graph projection operations UI contract regression plus quick feedback for pure Java and contract coverage |
+| Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`node --test src/test/js/navigation-ui.test.mjs`<br>`node --test src/test/js/workspace-ui.test.mjs`<br>`node --test src/test/js/inbox-ui.test.mjs`<br>`node --test src/test/js/graph-operations-ui.test.mjs`<br>`node --test src/test/js/retrieval-inspector-ui.test.mjs`<br>`node --test src/test/js/source-chunk-inspector-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser UI contract regression (Ask, navigation shell, workspace, inbox, Graph operations, Retrieval Inspector, Source Chunk Inspector) plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
 | Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest,GraphEvidenceAdmissionIntegrationTest,GraphProjectionOperationalApiIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, canonical ingress/currentness, deterministic bounded traversal, graph evidence admission, operational API lifecycle, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
 | Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
@@ -210,8 +215,9 @@ exact checksums.
 
 `.github/workflows/full-regression-canary.yml` retains `mvn --batch-mode clean verify -Pfull` as
 Maven-only clean end-to-end evidence on every push to `main`, daily at 02:17 Asia/Taipei, and on
-manual dispatch. It intentionally does not run Browser JavaScript; `ask-ui.test.mjs` and
-`graph-operations-ui.test.mjs` are regression evidence owned by the PR Fast job. This separates the
+manual dispatch. It intentionally does not run Browser JavaScript; every `src/test/js/*.test.mjs`
+Browser UI suite (Ask, navigation shell, workspace, inbox, Graph operations) is regression
+evidence owned by the PR Fast job. This separates the
 complete Maven regression canary from the PR's complementary evidence jobs without removing the
 full safety net.
 
@@ -228,15 +234,15 @@ aggregate `PR Gate` checks. A GitHub
 branch protection rule or ruleset may additionally make `PR Gate` a server-enforced required check,
 but plan, visibility, or permissions can make that enforcement unavailable or unverifiable. In that
 case, contributors must not claim it is enforced and must explicitly inspect every Logical PR Gate
-check before merging. Do not remove either Browser UI command from the Fast job or reduce any
+check before merging. Do not remove any Browser UI command from the Fast job or reduce any
 existing coverage. See [GitHub delivery governance](github-delivery-governance.md) for the current
 capability evidence and private-repository fallback.
 
 ## Tag/profile smoke checks
 
-The frontend commands must report both Browser UI contract suites passing. When recording smoke
-evidence, report the actual test count from `src/test/js/ask-ui.test.mjs` and
-`src/test/js/graph-operations-ui.test.mjs` rather than relying on hard-coded counts. Profile
+The frontend commands must report every Browser UI contract suite passing. When recording smoke
+evidence, report the actual test counts from the `src/test/js/*.test.mjs` suites rather than
+relying on hard-coded counts. Profile
 selection is verified by running each Maven command and inspecting the Surefire summary. The fast
 run must report zero skipped integration classes; the integration run must execute the
 integration-tagged classes; and the full run must execute the union of the Maven unit, contract,
