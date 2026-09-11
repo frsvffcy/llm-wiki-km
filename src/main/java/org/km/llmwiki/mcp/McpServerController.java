@@ -50,29 +50,29 @@ public class McpServerController {
     @PostMapping
     public ResponseEntity<String> handle(HttpServletRequest http) throws IOException {
         if (!McpTransportSecurityGuard.allows(http)) {
-            return error(HttpStatus.FORBIDDEN, null, JSONRPC_INVALID_REQUEST,
+            return error(HttpStatus.FORBIDDEN, echoableRequestId(http), JSONRPC_INVALID_REQUEST,
                     "transport origin or host rejected", null);
         }
         if (!properties.enabled() || !properties.authConfigured()) {
-            return error(HttpStatus.SERVICE_UNAVAILABLE, null, JSONRPC_INVALID_REQUEST,
+            return error(HttpStatus.SERVICE_UNAVAILABLE, echoableRequestId(http), JSONRPC_INVALID_REQUEST,
                     McpToolError.MCP_DISABLED.name(), null);
         }
         if (!tokenMatches(http)) {
-            return error(HttpStatus.UNAUTHORIZED, null, JSONRPC_INVALID_REQUEST,
+            return error(HttpStatus.UNAUTHORIZED, echoableRequestId(http), JSONRPC_INVALID_REQUEST,
                     McpToolError.AUTHENTICATION_FAILED.name(), null);
         }
         if (!acceptsJsonRequest(http.getContentType())) {
-            return error(HttpStatus.UNSUPPORTED_MEDIA_TYPE, null, JSONRPC_INVALID_REQUEST,
+            return error(HttpStatus.UNSUPPORTED_MEDIA_TYPE, echoableRequestId(http), JSONRPC_INVALID_REQUEST,
                     "application/json content type required", null);
         }
         if (!acceptsJsonAndEventStream(http.getHeader(HttpHeaders.ACCEPT))) {
-            return error(HttpStatus.NOT_ACCEPTABLE, null, JSONRPC_INVALID_REQUEST,
+            return error(HttpStatus.NOT_ACCEPTABLE, echoableRequestId(http), JSONRPC_INVALID_REQUEST,
                     "Accept must include application/json and text/event-stream", null);
         }
 
         byte[] bytes = http.getInputStream().readNBytes(properties.effectiveMaxBodyBytes() + 1);
         if (bytes.length > properties.effectiveMaxBodyBytes()) {
-            return error(HttpStatus.PAYLOAD_TOO_LARGE, null, JSONRPC_PAYLOAD_TOO_LARGE,
+            return error(HttpStatus.PAYLOAD_TOO_LARGE, requestId(bytes), JSONRPC_PAYLOAD_TOO_LARGE,
                     McpToolError.PAYLOAD_TOO_LARGE.name(), null);
         }
         String body = decodeUtf8(bytes);
@@ -310,6 +310,28 @@ public class McpServerController {
     private static boolean sameType(MediaType actual, MediaType expected) {
         return actual.getType().equalsIgnoreCase(expected.getType())
                 && actual.getSubtype().equalsIgnoreCase(expected.getSubtype());
+    }
+
+    /**
+     * Best-effort request-id echo for transport-level error envelopes (#345). JSON-RPC 2.0
+     * keeps {@code id:null} only for undetectable ids (parse error / invalid request), so a
+     * rejected request whose body is still readable and parseable echoes its id for
+     * client-side correlation. The guard above has already rejected the request: this read
+     * is bounded by the same hard body cap, never dispatches, and any failure stays null.
+     */
+    private JsonNode echoableRequestId(HttpServletRequest http) {
+        try {
+            return requestId(
+                    http.getInputStream().readNBytes(properties.effectiveMaxBodyBytes() + 1));
+        } catch (IOException broken) {
+            return null;
+        }
+    }
+
+    private static JsonNode requestId(byte[] bytes) {
+        String body = decodeUtf8(bytes);
+        JsonNode request = body == null ? null : McpJsonRpc.parse(body);
+        return request == null ? null : McpJsonRpc.id(request);
     }
 
     private static String decodeUtf8(byte[] bytes) {
