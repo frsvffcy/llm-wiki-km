@@ -54,19 +54,26 @@ public class McpToolExecutor {
     }
 
     public McpToolResult execute(String toolName, JsonNode arguments) {
-        if (!McpCapabilityManifest.isKnown(toolName)) {
-            return McpToolResult.failure(McpToolError.UNSUPPORTED_TOOL,
-                    "unsupported tool; read-only tools only: " + supportedNames());
+        McpToolInputContract contract = McpCapabilityManifest.contractFor(toolName);
+        if (contract == null) {
+            // Unreachable through the controller, which routes unknown tools to a protocol
+            // error first; kept as a fail-closed internal invariant, never a success envelope.
+            throw new IllegalStateException("unknown tool: " + toolName);
+        }
+        McpValidatedArguments validated;
+        try {
+            validated = contract.validate(arguments);
+        } catch (McpToolInputException invalid) {
+            return McpToolResult.failure(McpToolError.INVALID_REQUEST, invalid.getMessage());
         }
         try {
             return switch (toolName) {
                 case McpCapabilityManifest.TOOL_STATUS -> status();
-                case McpCapabilityManifest.TOOL_SEARCH -> search(arguments);
-                case McpCapabilityManifest.TOOL_RETRIEVAL_INSPECT -> retrievalInspect(arguments);
-                case McpCapabilityManifest.TOOL_SOURCE_LOCATOR -> sourceLocator(arguments);
-                case McpCapabilityManifest.TOOL_ASK -> ask(arguments);
-                default -> McpToolResult.failure(McpToolError.UNSUPPORTED_TOOL,
-                        "unsupported tool");
+                case McpCapabilityManifest.TOOL_SEARCH -> search(validated);
+                case McpCapabilityManifest.TOOL_RETRIEVAL_INSPECT -> retrievalInspect(validated);
+                case McpCapabilityManifest.TOOL_SOURCE_LOCATOR -> sourceLocator(validated);
+                case McpCapabilityManifest.TOOL_ASK -> ask(validated);
+                default -> throw new IllegalStateException("unknown tool: " + toolName);
             };
         } catch (RetrievalUnavailableException exception) {
             return McpToolResult.failure(McpToolError.RETRIEVAL_UNAVAILABLE,
@@ -85,75 +92,47 @@ public class McpToolExecutor {
         }
     }
 
-    private static String supportedNames() {
-        return String.join(", ", McpCapabilityManifest.tools().keySet());
-    }
-
     private McpToolResult status() {
         return McpToolResult.success(systemStatusService.getStatus(), List.of());
     }
 
-    private McpToolResult search(JsonNode arguments) {
-        String query = text(arguments, "query");
-        if (query == null || query.isBlank()
-                || query.codePointCount(0, query.length()) > 256) {
-            return McpToolResult.failure(McpToolError.INVALID_REQUEST,
-                    "query is required and must not exceed 256 code points");
-        }
-        var page = searchService.search(query,
-                textOr(arguments, "corpus", "WIKI"),
-                textOrNull(arguments, "pageType"),
-                longOrNull(arguments, "documentId"),
-                intOrNull(arguments, "page", 1),
-                intOrNull(arguments, "size", 20));
+    private McpToolResult search(McpValidatedArguments arguments) {
+        var page = searchService.search(arguments.string("query"),
+                arguments.string("corpus"),
+                arguments.stringOr("pageType", null),
+                arguments.longOrNull("documentId"),
+                arguments.intValue("page"),
+                arguments.intValue("size"));
         // Identical projection to the REST search contract: same DTO, same fields, zero
         // drift between the REST pipeline and the MCP tool (issue H).
         return McpToolResult.success(page, List.of());
     }
 
-    private McpToolResult retrievalInspect(JsonNode arguments) {
-        String question = text(arguments, "question");
-        if (question == null || question.isBlank()) {
-            return McpToolResult.failure(McpToolError.INVALID_REQUEST, "question is required");
-        }
+    private McpToolResult retrievalInspect(McpValidatedArguments arguments) {
         // Same shared inspector boundary the REST controller uses: identical validation and
         // the same safe DTO projection, so no second inspection path exists. The REST HTTP
         // envelope stays with the REST adapter; only the application projection is shared.
         return McpToolResult.success(
                 RetrievalInspectionMapper.toResponse(retrievalInspectorService.inspect(
-                        RetrievalInspectionMapper.validate(question, textOr(arguments, "mode",
-                                "HYBRID_GRAPH")))),
+                        RetrievalInspectionMapper.validate(arguments.string("question"),
+                                arguments.string("mode")))),
                 List.of());
     }
 
-    private McpToolResult sourceLocator(JsonNode arguments) {
-        Long chunkId = longOrNull(arguments, "chunkId");
-        if (chunkId == null || chunkId <= 0) {
-            return McpToolResult.failure(McpToolError.INVALID_REQUEST, "chunkId is required");
-        }
-        return McpToolResult.success(sourceChunkLocatorService.locate(chunkId), List.of());
+    private McpToolResult sourceLocator(McpValidatedArguments arguments) {
+        return McpToolResult.success(
+                sourceChunkLocatorService.locate(arguments.longValue("chunkId")), List.of());
     }
 
-    private McpToolResult ask(JsonNode arguments) {
-        String question = text(arguments, "question");
-        if (question == null || question.isBlank()) {
-            return McpToolResult.failure(McpToolError.INVALID_REQUEST, "question is required");
-        }
+    private McpToolResult ask(McpValidatedArguments arguments) {
         // Same shared application boundary the REST controller uses: identical request
         // parsing/validation, identical orchestration (retrieval → qualification → rerank →
         // projector → provider → grounded/citation validation), and identical typed failure
-        // mapping via AskApiException. The ask API request contract intentionally has no
-        // maxItems/maxCharacters fields, so those arguments are rejected as unsupported by
-        // the request validation itself.
+        // mapping via AskApiException. Unadvertised arguments never reach this point: the
+        // shared contract rejects them as unsupported before any service executes.
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("question", question);
-        body.put("retrievalMode", textOr(arguments, "retrievalMode", "HYBRID_FTS"));
-        for (String extra : List.of("maxItems", "maxCharacters")) {
-            if (arguments != null && arguments.hasNonNull(extra)) {
-                return McpToolResult.failure(McpToolError.INVALID_REQUEST,
-                        "unsupported ask argument: " + extra);
-            }
-        }
+        body.put("question", arguments.string("question"));
+        body.put("retrievalMode", arguments.string("retrievalMode"));
         AskApiRequest request;
         try {
             request = askApplication.parseRequest(McpJsonRpc.valueToTree(body));
@@ -205,31 +184,4 @@ public class McpToolExecutor {
         };
     }
 
-    private static String text(JsonNode node, String field) {
-        if (node == null || !node.hasNonNull(field)) {
-            return null;
-        }
-        return node.get(field).asText();
-    }
-
-    private static String textOr(JsonNode node, String field, String fallback) {
-        String value = text(node, field);
-        return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private static String textOrNull(JsonNode node, String field) {
-        String value = text(node, field);
-        return value == null || value.isBlank() ? null : value;
-    }
-
-    private static Long longOrNull(JsonNode node, String field) {
-        return node == null || !node.hasNonNull(field) ? null : node.get(field).asLong();
-    }
-
-    private static Integer intOrNull(JsonNode node, String field, Integer fallback) {
-        if (node == null || !node.hasNonNull(field)) {
-            return fallback;
-        }
-        return node.get(field).asInt();
-    }
 }

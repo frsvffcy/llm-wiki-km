@@ -19,7 +19,7 @@ public record McpToolDescriptor(
         boolean activeWorkspaceScoped,
         boolean askProviderEgressPossible,
         String inputBound,
-        List<String> inputSchema
+        McpToolInputContract inputContract
 ) {
 
     public McpToolDescriptor {
@@ -29,6 +29,8 @@ public record McpToolDescriptor(
         name = name.strip();
         description = description == null ? "" : description.strip();
         inputBound = inputBound == null || inputBound.isBlank() ? "bounded" : inputBound.strip();
-        inputSchema = List.copyOf(inputSchema == null ? List.of() : inputSchema);
+        if (inputContract == null) {
+            throw new IllegalArgumentException("mcp tool input contract is required");
+        }
     }
 }

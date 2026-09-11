@@ -55,6 +55,18 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                             .doesNotContain("publish", "rebuild", "repair", "upload",
                                     "proposal", "backup", TOKEN);
                     assertThat(occurrences(body, "\"name\":\"km_")).isEqualTo(5);
+                    // The advertised schema comes from the same contract the runtime
+                    // validates: typed properties, required markers, bounds, enums, and the
+                    // enforced additionalProperties:false (issue #335).
+                    assertThat(body).contains(
+                            "\"inputSchema\":{\"type\":\"object\",\"properties\":{",
+                            "\"query\":{\"type\":\"string\",\"maxLength\":256}",
+                            "\"required\":[\"query\"]",
+                            "\"enum\":[\"WIKI\",\"SOURCE\",\"ALL\"]",
+                            "\"chunkId\":{\"type\":\"integer\",\"minimum\":1}",
+                            "\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":200,"
+                                    + "\"default\":20}",
+                            "\"additionalProperties\":false");
                 });
 
         // The same request succeeds again without initialize or any hidden session state.
@@ -150,9 +162,9 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 {"jsonrpc":"2.0","id":2,"method":"tools/call",
                 "params":{"name":"%s","arguments":{},%s}}"""
                 .formatted(unicodeName, META), "tools/call", unicodeEncoded))
-                .andExpect(status().isOk())
+                .andExpect(status().isNotFound())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("UNSUPPORTED_TOOL").doesNotContain("-32020"));
+                        .contains("-32602", "unknown tool", "km_ask").doesNotContain("-32020"));
 
         String encodedMethod = "=?base64?" + Base64.getEncoder().encodeToString(
                 "tools/list".getBytes(StandardCharsets.UTF_8)) + "?=";
@@ -262,6 +274,19 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .contains("-32022"));
+    }
+
+    @Test
+    void legacyUnknownToolIsAJsonRpcInvalidParamsEnvelope() throws Exception {
+        // Released Tier-1 clients are legacy-era: the unknown-tool rejection must travel as
+        // a JSON-RPC error envelope they can parse, not a tool execution result.
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":21,"method":"tools/call",
+                "params":{"name":"km_publish","arguments":{}}}"""))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32602", "unknown tool", "\"error\"")
+                        .doesNotContain("isError", TOKEN));
     }
 
     @Test
@@ -437,14 +462,14 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
     }
 
     @Test
-    void unknownWriteLikeToolRemainsTypedUnsupported() throws Exception {
+    void unknownWriteLikeToolIsAProtocolError() throws Exception {
         mockMvc.perform(modern("""
                 {"jsonrpc":"2.0","id":7,"method":"tools/call",
                 "params":{"name":"km_publish","arguments":{},%s}}"""
                 .formatted(META), "tools/call", "km_publish"))
-                .andExpect(status().isOk())
+                .andExpect(status().isNotFound())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("UNSUPPORTED_TOOL", "isError", "content")
+                        .contains("-32602", "unknown tool", "km_ask")
                         .doesNotContain("PUBLISHED", TOKEN));
     }
 

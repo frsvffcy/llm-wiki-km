@@ -3,7 +3,6 @@ package org.km.llmwiki.mcp;
 /** Typed MCP tool error taxonomy; messages are operator-safe and never carry internals. */
 public enum McpToolError {
     INVALID_REQUEST,
-    UNSUPPORTED_TOOL,
     NOT_FOUND,
     RETRIEVAL_UNAVAILABLE,
     INSUFFICIENT_EVIDENCE,

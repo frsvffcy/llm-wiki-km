@@ -66,3 +66,15 @@ Tool surface仍只有 `km_status`、`km_search`、`km_retrieval_inspect`、`km_s
 Codec 只做 transport/protocol projection；Search/Retrieval/Ask、workspace authority、provider egress與
 diagnostic redaction仍委派既有 application contracts。沒有 write tool、canonical mutation、remote bind、
 agent loop或第二條 retrieval/Ask pipeline。
+
+## #335 之後的 unknown tool 語意
+
+Unknown tool name 由 result-envelope `isError`/`UNSUPPORTED_TOOL` 改為 protocol-level
+JSON-RPC `InvalidParams` `-32602`，對齊 official SDK server 的 `Tool ${name} not found`
+行為。Era 呈現差異：modern `2026-07-28` 以 HTTP 404 呈現（official TS server 對 JSON-RPC
+error 一律 HTTP 200；本 adapter 的 modern 面向來以 HTTP status 攜帶 method-level 錯誤，
+如 `-32601` 404，故 unknown tool 沿用同一慣例），legacy `2025-06-18` 為 HTTP 200＋JSON-RPC
+error envelope（Tier-1 SDK 1.30.0 client 呈現為 rejected `callTool`，`error.code ===
+-32602`，已以 pinned interop 驗證）。重評門檻：Tier-1 發布 modern-era client 後，若其
+`StreamableHTTPClientTransport` 對非 200 的 POST 一律丟 transport error 而不解析 body，
+須重新評估 modern 面改回 HTTP 200 error envelope 的相容性。
