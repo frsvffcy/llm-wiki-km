@@ -572,19 +572,13 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
     @Test
     void protocolValidationErrorsUseTheSameRequestIdClassifier() throws Exception {
         // The -32600/-32020 plane echoes through the same classifier: illegal ids
-        // collapse to null there too, and fractional ids stay invalid on both paths.
+        // collapse to null there too.
         mockMvc.perform(modern("""
                 {"jsonrpc":"2.0","id":{"x":1},"method":"tools/list","params":{%s}}"""
                 .formatted(META), "tools/list", null))
                 .andExpect(status().isBadRequest())
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString())
                         .contains("\"id\":null").doesNotContain("\"x\":1"));
-        mockMvc.perform(modern("""
-                {"jsonrpc":"2.0","id":9.5,"method":"tools/list","params":{%s}}"""
-                .formatted(META), "tools/list", null))
-                .andExpect(status().isBadRequest())
-                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
-                        .contains("\"id\":null"));
         mockMvc.perform(legacy("""
                 {"jsonrpc":"2.0","id":null,"method":"notifications/initialized"}"""))
                 .andExpect(status().isBadRequest())
@@ -594,6 +588,48 @@ class McpEnabledModeContractTest extends IsolatedIntegrationTest {
         mockMvc.perform(legacy("""
                 {"jsonrpc":"2.0","method":"notifications/initialized"}"""))
                 .andExpect(status().isAccepted());
+    }
+
+    @Test
+    void fractionalNumericRequestIdsAreLegalAndCorrelateEverywhere() throws Exception {
+        // #358: both supported MCP era schemas define RequestId = string | number, so
+        // fractional/exponent ids are legal on the request plane, echo exactly (the
+        // BigDecimal wire parse keeps the mathematical value), and correlate through
+        // success, protocol error, and transport error alike.
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":9.5,"method":"tools/list","params":{%s}}"""
+                .formatted(META), "tools/list", null))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":9.5")
+                        .doesNotContain("-32600"));
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1.0000000000000001,"method":"tools/list","params":{%s}}"""
+                .formatted(META), "tools/list", null))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":1.0000000000000001"));
+        mockMvc.perform(modern("""
+                {"jsonrpc":"2.0","id":1.5,"method":"no/such-method","params":{%s}}"""
+                .formatted(META), "no/such-method", null))
+                .andExpect(status().isNotFound())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("-32601", "\"id\":1.5"));
+        mockMvc.perform(post("/api/mcp").header("Host", "localhost")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer wrong-token")
+                        .header(HttpHeaders.ACCEPT, ACCEPT)
+                        .contentType("application/json")
+                        .content("{\"jsonrpc\":\"2.0\",\"id\":9.5,\"method\":\"tools/list\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":9.5").doesNotContain(TOKEN));
+        // Legacy era shares the same number-legal grammar (2025-06-18 schema).
+        mockMvc.perform(legacy("""
+                {"jsonrpc":"2.0","id":2.5,"method":"tools/list"}"""))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"id\":2.5")
+                        .doesNotContain("-32600"));
     }
 
     @Test

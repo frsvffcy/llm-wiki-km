@@ -7,11 +7,13 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The single JSON-RPC request-id grammar (#350): normal request validation and the
- * transport error-echo path must classify ids identically — String and integral-number
- * ids are VALID and echoable; boolean, object, array, fractional, and explicit-null ids
- * are INVALID and collapse to a null response id; a missing id is ABSENT (notification /
- * undetectable), never a reflected value.
+ * The single JSON-RPC request-id grammar (#350/#358): normal request validation and the
+ * transport error-echo path must classify ids identically — both supported MCP era
+ * schemas define {@code RequestId = string | number}, so strings and every JSON number
+ * (integral or fractional, parsed exactly by the BigDecimal wire) are VALID and echo
+ * exact values; boolean, object, array, and explicit-null ids are INVALID and collapse
+ * to a null response id; a missing id is ABSENT (notification / undetectable), never a
+ * reflected value.
  */
 @Tag("unit")
 class McpJsonRpcRequestIdTest {
@@ -35,7 +37,7 @@ class McpJsonRpcRequestIdTest {
     }
 
     @Test
-    void stringAndIntegralNumericIdsAreValidAndEchoExactValues() {
+    void stringAndAllJsonNumberIdsAreValidAndEchoExactValues() {
         var string = classify("{\"id\":\"req-1\"}");
         assertThat(string.type()).isEqualTo(McpJsonRpc.RequestIdType.VALID);
         assertThat(string.value().asText()).isEqualTo("req-1");
@@ -44,12 +46,29 @@ class McpJsonRpcRequestIdTest {
         assertThat(integral.value().asInt()).isEqualTo(9);
         var big = classify("{\"id\":123456789012345678901234567890}");
         assertThat(big.type()).isEqualTo(McpJsonRpc.RequestIdType.VALID);
+        // #358: fractional and exponent representations are legal numbers per the MCP
+        // RequestId schema. The correlation contract is the exact mathematical value —
+        // asserted numerically (compareTo), because Jackson may canonically strip
+        // trailing zeroes (1.0 → 1) without changing the value; what must never happen
+        // is truncation (9.5 → 9) or double-rounding (1.0000000000000001 → 1).
+        for (String rawId : new String[]{"9.5", "1.0", "1e2", "-0.0",
+                "1.0000000000000001"}) {
+            var fractional = classify("{\"id\":" + rawId + "}");
+            assertThat(fractional.type())
+                    .as("id %s must be VALID", rawId)
+                    .isEqualTo(McpJsonRpc.RequestIdType.VALID);
+            assertThat(fractional.value().decimalValue().compareTo(new java.math.BigDecimal(rawId)))
+                    .as("exact mathematical value preserved for %s", rawId)
+                    .isZero();
+        }
+        assertThat(classify("{\"id\":9.5}").value().toString()).isEqualTo("9.5");
+        assertThat(classify("{\"id\":1.0000000000000001}").value().toString())
+                .isEqualTo("1.0000000000000001");
     }
 
     @Test
-    void structuredAndBooleanAndFractionalAndExplicitNullIdsAreInvalid() {
-        for (String rawId : new String[]{"{\"x\":1}", "[1,2]", "true", "false", "9.5",
-                "1.0", "null"}) {
+    void structuredAndBooleanAndExplicitNullIdsAreInvalid() {
+        for (String rawId : new String[]{"{\"x\":1}", "[1,2]", "true", "false", "null"}) {
             var classification = classify("{\"id\":" + rawId + "}");
             assertThat(classification.type())
                     .as("id %s must be INVALID", rawId)
@@ -71,5 +90,8 @@ class McpJsonRpcRequestIdTest {
         JsonNode echoed = McpJsonRpc.echoableRequestId(
                 McpJsonRpc.parseValue("{\"id\":\"req-1\"}"));
         assertThat(echoed.asText()).isEqualTo("req-1");
+        JsonNode fractionalEcho = McpJsonRpc.echoableRequestId(
+                McpJsonRpc.parseValue("{\"id\":9.5}"));
+        assertThat(fractionalEcho.toString()).isEqualTo("9.5");
     }
 }

@@ -1099,8 +1099,10 @@ modern notification fail closed，legacy `notifications/initialized`回 202/no b
 transport-error envelope（#345／#350）：401／403／503／415／406／413 各 gate 的決策順序不變，
 error envelope 於 body 可解析時以 bounded best-effort 讀取回填 request id（不 dispatch、
 不增加 read 上限）；回填與 normal request validation 共用單一 JSON-RPC id classifier
-（`McpJsonRpc.classifyRequestId`）——僅 String／integral number id 可回填（echo 原值），
-boolean／object／array／fractional／explicit-null id 一律 collapse 為 `id: null` 且
+（`McpJsonRpc.classifyRequestId`）——String 與任何 JSON number id 可回填（echo 原值；
+#358：兩個 supported era schema 均 `RequestId = string | number`，fractional／exponent
+id 為合法且以 exact BigDecimal 值原樣回填，無 truncate／double round），
+boolean／object／array／explicit-null id 一律 collapse 為 `id: null` 且
 structured 內容不反射進 response；over-bound 截斷、parse error、root non-object 亦維持
 `id: null`。
 
