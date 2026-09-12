@@ -141,16 +141,18 @@ export function createPostMergeGuard({ api } = {}) {
     }
 
     const actions = planReopenActions(issueNumbers, issueStates);
-    for (const { issueNumber, action } of actions) {
-      if (action !== "reopen") {
+    for (const action of actions) {
+      if (action.action !== "reopen") {
         continue;
       }
+      const { issueNumber } = action;
       const reopened = await call(
         `/repos/${repository}/issues/${issueNumber}`,
         "PATCH",
         { state: "open" },
       );
       if (reopened.ok) {
+        action.reopenOutcome = "reopened";
         await call(`/repos/${repository}/issues/${issueNumber}/comments`, "POST", {
           body:
             `Post-merge auto-close guard（#357）偵測到 commit ${String(headSha).slice(0, 12)} 的 message 含 closing keyword` +
@@ -158,6 +160,11 @@ export function createPostMergeGuard({ api } = {}) {
             `恢復「merge 後、Completion Audit 前保持 OPEN」invariant。請改用「Refs #N」等 non-closing reference；` +
             `Issue 由 Completion Audit 後明確關閉。`,
         });
+      } else {
+        // A failed PATCH must not be reported as a successful reopen (#363): record the
+        // actual outcome so the human-readable report asks for manual verification.
+        action.reopenOutcome = "reopen-failed";
+        action.reopenFailureReason = reopened.reason ?? "unknown reason";
       }
     }
 
@@ -192,9 +199,15 @@ async function main() {
       : `#${reference.issueNumber}`;
     console.error(`- ${reference.keyword} ${target}（source: ${reference.source}）`);
   }
-  for (const { issueNumber, action } of actions) {
+  for (const { issueNumber, action, reopenOutcome, reopenFailureReason } of actions) {
     if (action === "reopen") {
-      console.error(`- Issue #${issueNumber} 已 deterministic reopen，恢復 MERGED_PENDING_AUDIT invariant。`);
+      if (reopenOutcome === "reopened") {
+        console.error(`- Issue #${issueNumber} 已 deterministic reopen，恢復 MERGED_PENDING_AUDIT invariant。`);
+      } else {
+        console.error(
+          `- Issue #${issueNumber} reopen 嘗試失敗（${reopenFailureReason ?? "unknown reason"}）；`
+          + `請人工確認 Issue 已恢復 OPEN，恢復 MERGED_PENDING_AUDIT invariant。`);
+      }
     } else if (action === "already-open") {
       console.error(`- Issue #${issueNumber} 仍為 OPEN，無需 reopen。`);
     } else {

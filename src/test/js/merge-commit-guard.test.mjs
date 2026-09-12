@@ -59,12 +59,38 @@ test("a prematurely closed issue is deterministically reopened, commented, and t
   const result = await createPostMergeGuard({ api })(pushEvent());
 
   assert.equal(result.status, "closing-reference-detected");
-  assert.deepEqual(result.detail.actions, [{ issueNumber: 342, action: "reopen" }]);
+  assert.deepEqual(result.detail.actions, [
+    { issueNumber: 342, action: "reopen", reopenOutcome: "reopened" },
+  ]);
   const patch = api.calls.find((call) => call.method === "PATCH");
   assert.deepEqual(patch.body, { state: "open" });
   const comment = api.calls.find((call) => call.path.endsWith("/issues/342/comments"));
   assert.match(comment.body.body, /deterministic reopen/u);
   assert.match(comment.body.body, /Completion Audit/u);
+});
+
+test("a reopen whose PATCH fails is reported as an outcome, not as a success (#363)", async () => {
+  const api = fakeApi({
+    [`GET /repos/${REPO}/commits/abc123def456`]: {
+      ok: true,
+      payload: { commit: { message: "Merge pull request #360 from frsvffcy/fix/x\n\nFixes #342" } },
+    },
+    [`GET /repos/${REPO}/issues/342`]: { ok: true, payload: { state: "closed" } },
+    [`PATCH /repos/${REPO}/issues/342`]: { ok: false, reason: "GitHub API HTTP 502" },
+  });
+  const result = await createPostMergeGuard({ api })(pushEvent());
+
+  assert.equal(result.status, "closing-reference-detected");
+  assert.deepEqual(result.detail.actions, [
+    {
+      issueNumber: 342,
+      action: "reopen",
+      reopenOutcome: "reopen-failed",
+      reopenFailureReason: "GitHub API HTTP 502",
+    },
+  ]);
+  // No success comment may be left for a reopen that did not happen.
+  assert.equal(api.calls.some((call) => call.method === "POST"), false);
 });
 
 test("an issue that stayed open is reported without a reopen call", async () => {
