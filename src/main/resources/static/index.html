@@ -10,6 +10,7 @@
   <script type="module" src="/navigation-ui.js"></script>
   <script type="module" src="/workspace-ui.js"></script>
   <script type="module" src="/inbox-ui.js"></script>
+  <script type="module" src="/review-ui.js"></script>
   <script type="module" src="/ask-ui.js"></script>
   <script type="module" src="/graph-operations-ui.js"></script>
   <script type="module" src="/retrieval-inspector-ui.js"></script>
@@ -389,16 +390,88 @@
 
     <section id="view-review" data-route="review" class="view" aria-label="審核" hidden>
       <h2 data-view-heading tabindex="-1">審核</h2>
-      <section class="panel">
+
+      <section class="panel" aria-labelledby="proposal-list-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">REVIEW</p>
-            <h3>Proposal review 工作台</h3>
+            <p class="eyebrow">PROPOSALS</p>
+            <h3 id="proposal-list-heading">Proposal 審核清單</h3>
           </div>
         </div>
-        <p class="empty-state">
-          Proposal → Human Review → Publish 工作台將由後續 Story 提供；
-          目前 review 流程仍以既有 REST API 為準，此處不做任何替代實作。
+        <form id="proposal-filter-form" novalidate>
+          <div class="field-group">
+            <label for="proposal-status-filter">狀態篩選</label>
+            <select id="proposal-status-filter" name="status">
+              <option value="">全部</option>
+              <option value="DRAFT">草稿（待送審）</option>
+              <option value="REVIEW">審核中</option>
+              <option value="APPROVED">已核准</option>
+              <option value="REJECTED">已拒絕</option>
+            </select>
+          </div>
+          <button id="proposal-filter-submit" type="submit">套用篩選</button>
+        </form>
+        <p id="review-hint" class="form-hint" role="status" aria-live="polite"></p>
+        <p id="proposal-empty" class="empty-state" hidden>
+          目前沒有符合條件的 proposal。
+        </p>
+        <ul id="proposal-list" class="proposal-list"></ul>
+        <div class="inbox-pager">
+          <button id="proposal-prev-page" type="button" class="secondary-button">上一頁</button>
+          <span id="proposal-page-info" class="inbox-page-info"></span>
+          <button id="proposal-next-page" type="button" class="secondary-button">下一頁</button>
+        </div>
+      </section>
+
+      <section id="proposal-detail" class="panel" aria-labelledby="proposal-detail-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PROPOSAL DETAIL</p>
+            <h3 id="proposal-detail-heading">Proposal 內容與決定</h3>
+          </div>
+          <button id="proposal-detail-close" type="button" class="secondary-button">關閉</button>
+        </div>
+        <h4 id="proposal-detail-title" class="proposal-detail-title"></h4>
+        <p id="proposal-detail-meta" class="proposal-detail-meta"></p>
+        <p id="proposal-detail-summary" class="proposal-detail-text"></p>
+        <p id="proposal-detail-rationale" class="proposal-detail-text"></p>
+        <p id="proposal-detail-target" class="proposal-detail-text"></p>
+        <p id="proposal-detail-source" class="proposal-detail-text"></p>
+        <h4>依據證據</h4>
+        <ul id="proposal-evidence" class="proposal-evidence"></ul>
+        <div id="proposal-actions" class="inbox-actions" aria-label="Proposal 狀態決定"></div>
+        <p class="panel-description">
+          核准僅代表 proposal 決定；後續仍須於 Draft lifecycle 中 preview/diff，
+          並由人工明確執行 publish。核准不會自動發布任何內容。
+        </p>
+      </section>
+
+      <section class="panel" aria-labelledby="draft-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">WIKI DRAFT</p>
+            <h3 id="draft-heading">Draft lifecycle</h3>
+          </div>
+          <button id="draft-create" type="button" class="draft-create" hidden>
+            由已核准的 proposal 建立 Wiki Draft
+          </button>
+        </div>
+        <section id="draft-panel" aria-label="Draft 狀態與操作" hidden>
+          <div id="draft-meta" class="draft-meta"></div>
+          <div class="inbox-actions" aria-label="Draft 操作">
+            <button id="draft-preview" type="button" class="secondary-button">Preview</button>
+            <button id="draft-diff" type="button" class="secondary-button">Diff</button>
+            <button id="draft-regenerate" type="button" class="secondary-button">Regenerate</button>
+            <button id="draft-invalidate" type="button" class="secondary-button">Invalidate</button>
+            <button id="draft-publish" type="button">Publish</button>
+          </div>
+          <p id="draft-hint" class="form-hint" role="status" aria-live="polite"></p>
+          <div id="draft-content" class="draft-content"></div>
+        </section>
+        <p id="publish-result" class="publish-result" role="status" aria-live="polite" hidden></p>
+        <p class="panel-description">
+          Publish 是明確的人類動作：僅 READY 且 publishReady 的 draft 可發布；
+          發布結果以 backend typed response 為準，失敗不會被顯示為成功。
         </p>
       </section>
     </section>

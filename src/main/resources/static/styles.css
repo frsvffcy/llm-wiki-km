@@ -382,3 +382,63 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .preview-chunk { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .preview-chunk-index { font-weight: 700; font-size: 0.85rem; color: var(--accent-dark); }
 .preview-chunk-content { white-space: pre-wrap; font-size: 0.9rem; }
+
+/* --- Governance review workbench (#353) --- */
+.proposal-list { list-style: none; margin: 0; padding: 0; }
+.proposal-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.proposal-title { font-weight: 600; margin-bottom: 2px; }
+.proposal-item-meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 6px; }
+.proposal-detail-title { font-size: 1.1rem; margin-bottom: 4px; }
+.proposal-detail-meta { color: var(--accent-dark); font-weight: 600; margin-bottom: 8px; }
+.proposal-detail-text { margin-bottom: 6px; }
+.proposal-evidence { list-style: none; margin: 0 0 10px; padding: 0; }
+.proposal-evidence-item {
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--paper);
+  margin-bottom: 6px;
+}
+.proposal-evidence-meta { font-size: 0.8rem; color: var(--muted); margin-bottom: 2px; }
+.proposal-evidence-content { font-size: 0.9rem; white-space: pre-wrap; }
+.proposal-transition {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.proposal-transition:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+.draft-meta { margin-bottom: 10px; }
+.draft-meta-line { margin-bottom: 2px; }
+.draft-invalidated { color: var(--danger); font-weight: 600; }
+.draft-create {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.draft-content { margin-top: 10px; }
+.draft-content-title { font-size: 0.9rem; color: var(--accent-dark); margin-bottom: 6px; }
+.draft-markdown,
+.draft-diff {
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  max-height: 420px;
+  overflow: auto;
+}
+.draft-preview-evidence { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+.publish-result { margin-top: 10px; }
+.publish-outcome { font-weight: 700; color: var(--accent-dark); }
+.publish-outcome--created { color: var(--accent); }
+.publish-meta { font-size: 0.85rem; color: var(--muted); }
