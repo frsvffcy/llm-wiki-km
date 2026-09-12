@@ -13,6 +13,9 @@
 
 ## 1. 原則
 
+* **與 Action Risk 正交（#360）**：本文件的 routing 只回答「用什麼能力執行／審查」；
+  「這個 action 是否可自主執行、是否需要執行前批准」由 `action-risk-autonomy.md` 的
+  A0～A2 決定。L1～L5 或 routing profile 都不得被用來證明某 action 可自動放行或需要批准。
 * **Lowest-sufficient-capability**：先選擇能滿足 correctness、evidence、tool execution 與
   review requirements 的最低合理成本 profile，再依實際 finding 升級；不得因 Level 就自動
   使用特定 model 或最高 effort。

@@ -35,6 +35,18 @@ Baseline：L1 self-check；L2 self-review；L3 explicit correctness review；L4 
 
 Task-shape routing、reviewer routing、escalation、reasoning effort 與 calibration 的完整 policy 在 `docs/development/model-routing.md`（human dispatcher/orchestrator guidance；僅在執行環境實際提供 routing capability 時才是 executable）。Executor 無 model-switch 能力時不得假裝已動態路由；須依當前工具/runner 能力執行並揭露限制。L4 review 與 L5 execution 的完整要求見該文件 §5～§6。
 
+## 0.2 Action risk / autonomy gate（#360）
+
+L1～L5 只描述任務複雜度與 verification rigor（§0.1），**不得**用來證明某 agent/tool action 可自動放行。執行自主權由獨立的 **Action Risk** 軸決定（A0～A2；完整 factors、current capability mapping 與 challenge scenarios 見 `docs/development/action-risk-autonomy.md`）：
+
+| Level | 定義（摘要） | Autonomy |
+| --- | --- | --- |
+| A0 — OBSERVE | 無 mutation；read-only／ephemeral。**read-only ≠ no-egress**：bounded、configured、有 disclosure 的 provider egress（如 Ask）屬此層並須獨立標記 | HOTL——可自主執行，人類經輸出監督 |
+| A1 — REVERSIBLE | tracked／rebuildable／non-canonical bounded mutation：feature branch/commit/push/PR、PR merge（PR Gate 全綠後）、Issue metadata、derived projection rebuild/repair（須記錄 operational impact）、draft/proposal 建立（不含 apply/publish） | HOTL＋evidence/review——可執行，須留可稽核 evidence |
+| A2 — GATED (HITL) | canonical publish/apply、destructive/irreversible delete、default-branch direct mutation、permission/credential/secret/provider endpoint 變更、第三方可見 external write、非預期 cost、未來 MCP write／agent write surface | 執行前 **explicit human authorization**（逐次、針對該具體動作）；由既有專屬強 gate 涵蓋者（Proposal → Human Review → Publish）視為已滿足，不得削弱亦不得重複簽核 |
+
+Invariants：多因素命中取最高 level；rollback 需特權者不得標 A1；blast radius 跨 workspace/repository/canonical 至少 A2；§4 安全紅線永遠優先（紅線動作是未經授權不可執行，不是「A2 待批准」）；「使用者要求完成 Issue」≠ 對 incidental high-impact side effects 的 blanket authorization；**工具能力 ≠ 授權**（§3 preflight）；action-risk 不得綁 model/effort、不得寫入 Issue title prefix（Issue 仍只用 `[L1]`～`[L5]`）。
+
 ## 1. Repository invariants（不可退讓）
 
 ### 1.1 技術棧與 persistence
@@ -154,7 +166,7 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
   - Issue 在 merge 後、audit 前保持 open（`MERGED_PENDING_AUDIT`：fix 已在 latest main，Gate 未執行；此為回報用語，不是 GitHub state）。PR title、PR body 與 PR source commit messages 均禁止使用會於 merge 自動關閉 Issue 的 closing keyword（`Closes/Fixes/Resolves` ＋ `#N`／`owner/repo#N`／issue URL 及 colon/uppercase 變形，指向任何 repository 一律禁止；commit-message 檢索取回失敗時 fail-closed 擋下；title/commit 掃描 raw text 不享 Markdown-strip 特權；由 PR Metadata guard 以單一 closing-reference grammar 強制執行，#349）；repository merge/squash/rebase 設定的 coverage 契約由 `scripts/audit-merge-settings.mjs` 以 GitHub 官方 enum＋recorded baseline 驗證（merge-generated commit text 皆須可追溯到已受 guard 的 title/body/source commits；可讀取 live settings 時偏離 baseline 即 fail-closed，不得 silent drift；`GITHUB_TOKEN` 只能取得 reduced repository object 時進入 documented safe fallback，由 structural enum coverage 測試與 post-merge guard 承接，#357）；merge-time 人為編輯 commit message 的 residual 由 main push 的 post-merge guard（`scripts/audit-merge-commit.mjs`）掃描實際 merge commit message 並 deterministic reopen（#357）；統一使用 non-closing reference（`Refs #N`／`Implements #N`／`Related #N`）。Issue 只能在 audit decision 後明確 close：`FULL GO` → close 並回報 DONE；`CONDITIONAL GO` → 先建立／連結 follow-up 再依 ownership 規則決定 original 是否可 close；`NO-GO` → 不得 close。Close 前原 Issue 必須有一則 Completion Audit comment（格式見 testing.md），manual close 不得發生在該 comment 之前。
   - PR 內的 self-reported review（`Independent review complete` 等字樣）不可替代 post-merge review；reviewer 身分依 §0.1 如實揭露（同一 model family／同一 agent context／fresh context 但非 model-independent 皆須揭露，不得宣稱不存在的 independent reviewer）。
   - Audit 記錄格式與存放見 `docs/development/testing.md`「Completion Code Review evidence」節；本節是唯一規範 authority，testing.md 不得另立相異規則。
-* 開始前 preflight：`git status`、`git remote -v`、`git fetch origin`、`gh auth status`；**execution-environment 的 approval/permission capability 是 preflight 的一部分**（曾出現 Git 失敗被誤判為 credential/network 的案例——failure-layer 診斷順序：repository write capability → remote protocol → credential/`gh auth` → network → 執行環境 permission/approval policy）。被 approval policy/permission 阻擋時不得誤判為 credential/network 失敗。
+* 開始前 preflight：`git status`、`git remote -v`、`git fetch origin`、`gh auth status`；**execution-environment 的 approval/permission capability 是 preflight 的一部分**（曾出現 Git 失敗被誤判為 credential/network 的案例——failure-layer 診斷順序：repository write capability → remote protocol → credential/`gh auth` → network → 執行環境 permission/approval policy）。被 approval policy/permission 阻擋時不得誤判為 credential/network 失敗。**工具能力 ≠ 授權**（§0.2）：環境暴露 admin-capable connector／GitHub write／filesystem write 時，agent 須先依 Action Risk 判定可否呼叫；high-impact action 不得因 tool schema 可用就自動執行，environment 的 approval mode 是 preflight 事實而非本 repo 的授權來源。
 * CLI-first：local/remote 操作優先 `git`/`gh` CLI；遇 authentication/permission/approval failure 禁止無聲切換 UI 完成 commit/push/PR。
 * Branch 從最新 `main` 建立（舊 branch merge 後不得續用）；命名 `feature|fix|test|cleanup/<issue>-<slug>`。
 * PR：target `main`（stacked PR 須標示 parent 與進 main 路徑 + `PR-Metadata-Exception: stacked-pr`；非 issue-driven 加 `PR-Metadata-Exception: non-issue-driven`）；標題/說明繁體中文；body 至少含摘要、相關 Issue（逐一 non-closing reference `Refs #N`，禁止 `Closes/Fixes/Resolves #`）、主要變更、AC、驗證方式/結果（如實記錄，不得虛構或省略已知失敗）。
@@ -190,6 +202,7 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 | Architecture decisions / capability contracts | `docs/adr/` + current runtime contracts（controllers、application services） |
 | Test tiers、CI ownership、canonical suite map 與 capability contract 細節 | `docs/development/testing.md` |
 | Model / executor routing（task-shape、escalation、calibration） | `docs/development/model-routing.md` |
+| Action risk / autonomy（HITL/HOTL 邊界、capability mapping） | `docs/development/action-risk-autonomy.md` |
 | Git/CI hosting governance、visibility 變更 | `docs/development/github-delivery-governance.md` |
 | Schema execution truth | Flyway migrations（`src/main/resources/db/migration/`） |
 | REST execution truth | `@RestController` classes（多數位於各 domain package，非全部在 `web/`）+ API contract/integration tests（13 §150 current inventory 為 local 對照） |
