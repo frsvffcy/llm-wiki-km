@@ -62,16 +62,19 @@ public final class McpJsonRpc {
         return method != null && method.isTextual() ? method.textValue() : null;
     }
 
-    /** JSON-RPC request-id classification (#350): the single id-grammar authority. */
+    /** JSON-RPC request-id classification (#350/#358): the single id-grammar authority. */
     public enum RequestIdType {
         /** No {@code id} member: a notification, or undetectable for correlation. */
         ABSENT,
-        /** A legal correlation id: JSON string, or integral JSON number (the adapter
-         * enforces the integral form JSON-RPC merely recommends — fractional ids are
-         * INVALID, matching the project request contract). */
+        /** A legal correlation id: a JSON string, or any JSON number — both supported
+         * MCP era schemas (2026-07-28 and 2025-06-18) define {@code RequestId =
+         * string | number}, so the historical integral-only narrowing is removed (#358).
+         * Exact numeric values are preserved by the BigDecimal wire parse (#348); the
+         * echo never truncates, rounds, or overflows a fractional id. */
         VALID,
-        /** A present id violating the JSON-RPC type contract: boolean, object, array,
-         * fractional number, or explicit null (project policy treats explicit null as
+        /** A present id violating the type contract: boolean, object, array, or explicit
+         * null (JSON-RPC 2.0 allows null ids, but both supported MCP era schemas narrow
+         * {@code RequestId} to string | number — project policy keeps explicit null
          * non-correlatable). Never reflected into any response id. */
         INVALID
     }
@@ -81,17 +84,18 @@ public final class McpJsonRpc {
 
     /**
      * Single request-id grammar shared by normal request validation and the transport
-     * error-echo path, so the two surfaces can never drift (#350). Per JSON-RPC 2.0 an
-     * id is String, Number, or Null; this adapter accepts String and integral numbers
-     * only — boolean, object, array, fractional, and explicit-null ids are INVALID and
-     * must collapse to a null response id.
+     * error-echo path, so the two surfaces can never drift (#350/#358). Legality follows
+     * the supported MCP era schemas ({@code RequestId = string | number}) rather than the
+     * JSON-RPC base spec alone: boolean, object, array, and explicit-null ids are
+     * INVALID and must collapse to a null response id; every finite JSON number —
+     * integral or fractional — is VALID with its exact parsed value.
      */
     public static RequestIdClassification classifyRequestId(JsonNode request) {
         JsonNode id = request == null ? null : request.get("id");
         if (id == null || id.isMissingNode()) {
             return new RequestIdClassification(RequestIdType.ABSENT, null);
         }
-        if (id.isTextual() || id.isIntegralNumber()) {
+        if (id.isTextual() || id.isNumber()) {
             return new RequestIdClassification(RequestIdType.VALID, id);
         }
         return new RequestIdClassification(RequestIdType.INVALID, null);

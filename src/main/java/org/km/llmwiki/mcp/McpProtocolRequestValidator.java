@@ -134,9 +134,11 @@ final class McpProtocolRequestValidator {
 
     /**
      * Request-id legality delegates to the shared {@link McpJsonRpc#classifyRequestId}
-     * grammar (#350): String or integral-number ids only — boolean, object, array,
-     * fractional, and explicit-null ids are invalid requests, and the same classifier
-     * keeps the transport error-echo path from ever reflecting them.
+     * grammar (#350/#358): the supported MCP era schemas define {@code RequestId =
+     * string | number}, so every JSON number (integral or fractional, parsed exactly)
+     * is valid — boolean, object, array, and explicit-null ids are invalid requests,
+     * and the same classifier keeps the transport error-echo path from ever reflecting
+     * them.
      */
     private static boolean validRequestId(JsonNode request) {
         return McpJsonRpc.classifyRequestId(request).type() == McpJsonRpc.RequestIdType.VALID;

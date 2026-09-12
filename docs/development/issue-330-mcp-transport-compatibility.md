@@ -128,7 +128,17 @@ Applicable 子集（`tools-list`、`server-stateless`、`json-schema-2020-12`）
 不在本 decision 範圍。（#345 已修正：401／403／503／415／406／413 各 transport gate
 維持原決策順序不變，error envelope 以 bounded best-effort 讀取回填 request id——body
 可解析即回同 id、無法解析或 over-bound 截斷即維持 `id: null`；parse error／invalid
-request 依 JSON-RPC 2.0 維持 `id: null`。）結論：runner 不採為 gate；modern external
+request 依 JSON-RPC 2.0 維持 `id: null`。）
+
+（#358 RequestId external conformance：兩個 supported era 官方 schema（2026-07-28 與
+2025-06-18）均定義 `RequestId = string | number`；historical integral-only narrowing 已
+移除——任何 JSON number（含 fractional／exponent，exact BigDecimal 值）為合法 request id
+並於 success／protocol error／transport error 原樣 correlate，boolean／object／array／
+explicit-null 維持 INVALID 且不反射。pinned Tier-1 client 不會自行產生 fractional id，
+該 case 的 authority 為 raw-wire fixtures＋official schema 引用，SDK 限制已記錄、不假造
+live evidence。）
+
+結論：runner 不採為 gate；modern external
 evidence 由 v2-client harness（`src/test/js/mcp-modern-interop.test.mjs`）持有；
 stable runner 出 modern scenarios＋auth 支援後重評。
 
