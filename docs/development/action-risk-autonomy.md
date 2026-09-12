@@ -106,7 +106,7 @@ Proposal/Draft/Publish → canonical knowledge governance（§1.4）
 | MCP write tools／agent loop／Save Answer to Knowledge（**未來**） | 未存在 | 未存在 | **未分類前禁止**；啟用前必須完成 A2-HITL classification＋approval semantics | §6 |
 | Git feature branch／commit／push／PR 建立 | tracked、可 revert、PR 可審 | 無 | **A1** | §3 標準交付路徑 |
 | PR merge（PR Gate 全綠後） | default branch 經 gate 變更 | 無 | **A1** | gate 即事前證據；非「direct」mutation |
-| default-branch direct push | 繞過 gate | 無 | **A2-HITL** | §3 僅限人類明確授權單次 emergency |
+| default-branch direct push | 繞過 gate | 無 | **A2-HITL**（§3 僅限人類明確授權單次 emergency） | **已由 GitHub server-side ruleset 實際拒絕**（#361：ruleset `main-default-branch-gate`，`bypass_actors: []`；negative probe 實測 owner identity 直寫被 HTTP 409 拒絕）——server-side enforcement 不取代 agent-side action-risk 判斷，兩者皆在（defense-in-depth） |
 | Issue comment／label／close（audit 驅動） | GitHub metadata（可 reopen） | 無 | **A1** | close 須遵守 Completion Gate 順序（治理規則，非 action-risk） |
 | repo settings／permissions／branch protection／credential／secret | GitHub/repository 權限面 | 無 | **A2-HITL**（最高） | 永不因 tool schema 可用而自動執行（challenge 7） |
 | Flyway applied-migration 修改／vault·archive 手動刪除 | canonical／不可重建資產 | 無 | **§4 紅線：未經人類明確授權禁止** | 紅線優先於任何 A-level |
@@ -131,11 +131,17 @@ diagnosis；本 gate 再補一層語意：
 > **「工具有能力做」不代表「agent 已被授權做」。**
 
 * 執行環境暴露 admin-capable connector、GitHub write、filesystem write 等能力時，agent
-  必須先依 §2/§3 判定 action-risk，再決定是否呼叫。
+  必須先依 §2/§3 判定 action-risk，再決定是否呼叫。**Git preflight（§3）額外確認**：
+  current branch、mutation target 是否 default branch、是否存在 PR path、是否屬人類
+  明確授權的 emergency——agent 不得因 connector 提供 `create_file`／`update_file`／
+  `delete_file` 就在 default branch 直接使用（#361 incident 即此誤用的實例）。
 * High-impact action **不得因 tool schema 可用就自動執行**；也不得把 environment 的
   approval mode（如 ChatGPT/Codex 的 permission 設定）當成本 repository 的授權來源——
   approval mode 是 preflight 事實，不是 policy。
 * 被 environment approval policy 阻擋時如實回報，不得繞道（含 UI／其他工具）完成。
+* **Defense-in-depth**：tool-side action-risk 判斷不能取代 GitHub server-side
+  enforcement（ruleset），GitHub enforcement 也不能取代 agent 判斷——兩層各自獨立成立
+  （#361）。direct push 失敗後不得無聲改走另一個 admin API 繞過（challenge 6）。
 
 ## 8. Challenge scenarios（table-driven governance review）
 

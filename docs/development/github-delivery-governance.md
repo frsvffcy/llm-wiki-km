@@ -19,6 +19,44 @@ Team、Enterprise Cloud 與 Enterprise Server 則支援 public 與 private repos
 沒有合適方案，從 public 改為 private 可能移除 server-enforced protection。來源：[About
 protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)。
 
+## Default-branch mutation enforcement 與 incident 記錄（#361，2026-09-13）
+
+### Incident（永久記錄，不以 force-push/rewrite 隱藏）
+
+2026-09-12 一次只需讀取／評估／建立 Issue 的工作中，agent connector 誤呼叫 GitHub
+file-write action，直接在 default branch `main` 建立 `__noop` 檔案；發現後立即刪除。Tree
+已恢復至 PR #359 merge tree（`3b0dc5a...`），**無產品碼殘留**，但 history 留下兩個未經
+PR／PR Gate 的直接 commit：
+
+```text
+pre-incident main = 86ff24d68f9041538b2114d93fd4519117f172bc
+accidental write  = c5cdb00d7ac33a01cc9dbb757bcd3f4b1e15d874
+rollback delete   = 39c53a1a0450962ee254c01b7e4480a580ed1636
+post-rollback tree= 3b0dc5a64d130fdf8c50a25a7428dd6608ab08d7
+```
+
+此事件是 #360「tool capability ≠ execution authorization」的具體 evidence，也是本節
+server-side enforcement 的動機。
+
+### Enforcement 狀態（2026-09-13 盤點＋調整後）
+
+| 控制面 | 設定 |
+| --- | --- |
+| Legacy branch protection（`main`） | `protected: true`；required status `PR Gate`（strict）；required PR reviews（0 approvals＝需 PR 免真人簽核）；`allow_force_pushes: false`；`allow_deletions: false`；**`enforce_admins: false`**（incident 前現況） |
+| **Repository ruleset `main-default-branch-gate`（id 23079243）** | `enforcement: active`；target `~DEFAULT_BRANCH`；rules：`pull_request`（0 approvals）、`required_status_checks`（`PR Gate`，strict）、`deletion`、`non_fast_forward`；**`bypass_actors: []`——含 owner/admin/connector 在內無任何 bypass** |
+
+* Legacy branch protection 的 **write** endpoints（PATCH protection／PUT enforce_admins）
+  對本 repo 的 OAuth token 一律回 HTTP 404（GET 200），故 admin enforcement 以
+  **ruleset** 實作（GitHub 原生 Option 2）；legacy protection 保留作 non-admins 的第二層。
+* **Negative write probe（2026-09-13）**：以 repo owner identity（admin: true）經 contents
+  API 直接寫 `main` → GitHub **HTTP 409 拒絕**："Repository rule violations found — Changes
+  must be made through a pull request. Required status check \"PR Gate\" is expected."；main
+  SHA 前後不變。正面路徑（branch → PR → PR Gate → merge）由本 issue 自身的 PR 交付即為
+  live evidence。
+* **Emergency path**：不設 standing bypass。如需 emergency direct-write，由人類明確授權後
+  暫時調整 ruleset enforcement，完成後立即恢復 `active`，並留下 reason／actor／timestamp／
+  affected refs 的 audit trail＋post-hoc review。agent 不得自行認定 emergency。
+
 ## Visibility 變更影響檢查表
 
 將本 repository 從 public 改為 private 前，必須取得人類明確授權，並記錄：
