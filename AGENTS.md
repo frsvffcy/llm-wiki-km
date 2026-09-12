@@ -170,7 +170,7 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 * CLI-first：local/remote 操作優先 `git`/`gh` CLI；遇 authentication/permission/approval failure 禁止無聲切換 UI 完成 commit/push/PR。
 * Branch 從最新 `main` 建立（舊 branch merge 後不得續用）；命名 `feature|fix|test|cleanup/<issue>-<slug>`。
 * PR：target `main`（stacked PR 須標示 parent 與進 main 路徑 + `PR-Metadata-Exception: stacked-pr`；非 issue-driven 加 `PR-Metadata-Exception: non-issue-driven`）；標題/說明繁體中文；body 至少含摘要、相關 Issue（逐一 non-closing reference `Refs #N`，禁止 `Closes/Fixes/Resolves #`）、主要變更、AC、驗證方式/結果（如實記錄，不得虛構或省略已知失敗）。
-* **禁止直接 push 功能修改至 `main`**；正常交付一律經 PR + PR Gate。除人類明確授權的單次 emergency 外，owner/admin 權限不得成為直接 push main 的交付方式。
+* **禁止直接 push 功能修改至 `main`**；正常交付一律經 PR + PR Gate。除人類明確授權的單次 emergency 外，owner/admin 權限不得成為直接 push main 的交付方式。此規則已有 **server-side enforcement（#361，2026-09-13）**：repository ruleset `main-default-branch-gate`（`~DEFAULT_BRANCH`：required PR＋required `PR Gate`＋禁 deletion/force-push，`bypass_actors: []`——owner/admin/connector 一律無 bypass）實際拒絕任何繞過 PR 的 main 寫入（negative probe 實測 HTTP 409）；emergency 須由人類明確授權暫時調整 ruleset 並於完成後立即恢復＋audit trail（詳 `docs/development/github-delivery-governance.md`）。
 * Merge 前確認 base=`main`、測試通過、AC 滿足；merge 後驗證 `gh pr view` + main 實際內容 + `gh issue view`；merge 不得自動關閉 Issue（PR title、PR body 與 source commit messages 均已禁 closing keyword；merge-time 人為編輯造成的提前關閉由 main push post-merge guard deterministic reopen 並在 audit 前保持 open）；linkage 異常但 fix 已在 main 時以 `gh issue close --reason completed` 補正（僅限 audit decision 已作出）。CI 失敗必須修正或如實記錄 blocker，不得以本機成功取代 CI 結果。
 
 ## 4. 安全紅線（最高級別）
