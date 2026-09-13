@@ -1,6 +1,7 @@
 package org.km.llmwiki.wiki;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 /** Review lifecycle for a persisted knowledge proposal. */
@@ -13,15 +14,22 @@ public enum KnowledgeProposalStatus {
     private static final Set<KnowledgeProposalStatus> FROM_DRAFT = EnumSet.of(REVIEW, REJECTED);
     private static final Set<KnowledgeProposalStatus> FROM_REVIEW = EnumSet.of(APPROVED, REJECTED);
 
-    public boolean canTransitionTo(KnowledgeProposalStatus next) {
-        if (next == null) {
-            return false;
-        }
+    /**
+     * The single transition authority (#370): every legal target is derived here and
+     * nowhere else — validation ({@link #canTransitionTo}) and the REST capability
+     * projection ({@code allowedTransitions} on the review response) both read this
+     * derivation, so the domain machine and the Browser render contract cannot drift.
+     */
+    public List<KnowledgeProposalStatus> allowedTransitions() {
         return switch (this) {
-            case DRAFT -> FROM_DRAFT.contains(next);
-            case REVIEW -> FROM_REVIEW.contains(next);
-            case APPROVED, REJECTED -> false;
+            case DRAFT -> List.copyOf(FROM_DRAFT);
+            case REVIEW -> List.copyOf(FROM_REVIEW);
+            case APPROVED, REJECTED -> List.of();
         };
+    }
+
+    public boolean canTransitionTo(KnowledgeProposalStatus next) {
+        return next != null && allowedTransitions().contains(next);
     }
 
     public void requireTransitionTo(KnowledgeProposalStatus next) {

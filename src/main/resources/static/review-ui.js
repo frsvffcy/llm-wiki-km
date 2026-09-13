@@ -28,9 +28,16 @@ const ACTION_LABELS = Object.freeze({
   REVIEW: "需人工複核"
 });
 
-const TRANSITIONS = Object.freeze({
-  DRAFT: [{ status: "REVIEW", label: "送入審核" }, { status: "REJECTED", label: "拒絕" }],
-  REVIEW: [{ status: "APPROVED", label: "核准" }, { status: "REJECTED", label: "拒絕" }]
+/**
+ * Presentation copy for transition targets only — NOT a state machine. Which
+ * transitions exist is decided by the backend's single domain authority and arrives
+ * as the additive `allowedTransitions` capability projection on every proposal
+ * response (#370). Unknown or missing capabilities fail closed: no mutation buttons.
+ */
+const TRANSITION_LABELS = Object.freeze({
+  REVIEW: "送入審核",
+  APPROVED: "核准",
+  REJECTED: "拒絕"
 });
 
 const DRAFT_STATUS_LABELS = Object.freeze({
@@ -182,17 +189,22 @@ export function renderProposalDetail(elements, detail, documentRef = document,
     appendTextElement(documentRef, item, "p", "proposal-evidence-content", text(data2.content));
     elements.proposalEvidence.append(item);
   });
-  // Status transitions are the backend's state machine; the buttons only mirror the
-  // known legal moves for the current status and rely on typed 400s for anything else.
+  // Render-only: the mutation buttons come exclusively from the response's
+  // allowedTransitions capability projection (#370). Missing/malformed/unknown
+  // capabilities fail closed — no mutation action is invented client-side.
   elements.proposalActions.replaceChildren();
-  const transitions = TRANSITIONS[text(data.status).toUpperCase()] || [];
-  transitions.forEach(transition => {
+  const allowed = Array.isArray(data.allowedTransitions) ? data.allowedTransitions : [];
+  allowed.forEach(target => {
+    const next = typeof target === "string" ? target.toUpperCase() : "";
+    if (!PROPOSAL_STATUSES.includes(next)) {
+      return;
+    }
     const button = documentRef.createElement("button");
     button.type = "button";
     button.className = "proposal-transition";
-    button.textContent = transition.label;
+    button.textContent = TRANSITION_LABELS[next] || next;
     button.addEventListener("click", () => {
-      if (typeof onTransition === "function") onTransition(data.id, transition.status);
+      if (typeof onTransition === "function") onTransition(data.id, next);
     });
     elements.proposalActions.append(button);
   });
@@ -358,6 +370,10 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
       });
       const envelope = await readEnvelope(response);
       if (!response.ok) {
+        // A typed stale/invalid transition failure re-reads the authoritative
+        // proposal state and capability so stale buttons disappear immediately (#370);
+        // the typed failure is surfaced after the re-read so it stays visible.
+        await selectProposal(proposalId);
         showTypedError(envelope && envelope.error ? envelope.error : undefined);
         return;
       }

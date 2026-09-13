@@ -38,6 +38,11 @@ class KnowledgeProposalReviewApiIntegrationTest extends IsolatedIntegrationTest 
                 .andExpect(jsonPath("$.data[0].sourceDocument.id").value(active.documentId()))
                 .andExpect(jsonPath("$.data[0].evidence[0].sourceChunkId").value(active.sourceChunkId()))
                 .andExpect(jsonPath("$.data[0].evidence[0].content").value("可供人工審核的來源內容"))
+                // #370: additive capability projection derived from the single domain
+                // transition authority — DRAFT may move to REVIEW or REJECTED.
+                .andExpect(jsonPath("$.data[0].allowedTransitions.length()").value(2))
+                .andExpect(jsonPath("$.data[0].allowedTransitions[0]").value("REVIEW"))
+                .andExpect(jsonPath("$.data[0].allowedTransitions[1]").value("REJECTED"))
                 .andExpect(jsonPath("$.page.number").value(0))
                 .andExpect(jsonPath("$.page.size").value(1))
                 .andExpect(jsonPath("$.page.totalElements").value(1));
@@ -87,11 +92,15 @@ class KnowledgeProposalReviewApiIntegrationTest extends IsolatedIntegrationTest 
         mockMvc.perform(patch("/api/v1/proposals/{proposalId}/status", fixture.proposalId())
                         .contentType("application/json").content("{\"status\":\"REVIEW\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("REVIEW"));
+                .andExpect(jsonPath("$.data.status").value("REVIEW"))
+                .andExpect(jsonPath("$.data.allowedTransitions.length()").value(2))
+                .andExpect(jsonPath("$.data.allowedTransitions[0]").value("APPROVED"))
+                .andExpect(jsonPath("$.data.allowedTransitions[1]").value("REJECTED"));
         mockMvc.perform(patch("/api/v1/proposals/{proposalId}/status", fixture.proposalId())
                         .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("APPROVED"));
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andExpect(jsonPath("$.data.allowedTransitions.length()").value(0));
 
         assertThat(statusOf(fixture.proposalId())).isEqualTo("APPROVED");
         assertThat(count("knowledge_proposal")).isEqualTo(1);
