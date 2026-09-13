@@ -24,7 +24,13 @@ public class CandidatePageTypeResolver {
 
     public WikiPageType resolve(KnowledgeCandidateType candidateType, WikiPageType requestedPageType) {
         if (candidateType == null) {
-            throw unsupported("Candidate type must not be null");
+            // ASK-sourced proposals (#374) have no candidate type: the normalized
+            // data's requested pageType is then the sole authority, and it is required.
+            if (requestedPageType == null) {
+                throw unsupported(
+                        "Candidate type is required when the normalized data declares no pageType");
+            }
+            return requestedPageType;
         }
         if (requestedPageType == null) {
             return switch (candidateType) {

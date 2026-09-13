@@ -15,6 +15,7 @@ import java.util.Optional;
 import static org.jooq.impl.DSL.cast;
 import static org.jooq.impl.DSL.coalesce;
 import static org.jooq.impl.DSL.count;
+import static org.jooq.impl.DSL.substring;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT_ANALYSIS;
 import static org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_CANDIDATE;
@@ -115,8 +116,7 @@ public class KnowledgeProposalRepository {
     public Optional<WikiDraftConversionSource> findDraftConversionSource(long workspaceId, long proposalId) {
         Condition condition = KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId)
                 .and(KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId))
-                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
-                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"));
+                .and(DOCUMENT.ID.isNull().or(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED")));
 
         return dsl.select(
                         KNOWLEDGE_PROPOSAL.ID,
@@ -132,39 +132,44 @@ public class KnowledgeProposalRepository {
                         KNOWLEDGE_CANDIDATE.SUMMARY
                 )
                 .from(KNOWLEDGE_PROPOSAL)
-                .join(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
-                .join(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID
+                .leftJoin(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
+                .leftJoin(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID
                         .eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
                 .where(condition)
-                .fetchOptional(r -> new WikiDraftConversionSource(
-                        r.get(KNOWLEDGE_PROPOSAL.ID).longValue(),
-                        r.get(KNOWLEDGE_PROPOSAL.WORKSPACE_ID).longValue(),
-                        r.get(KNOWLEDGE_PROPOSAL.DOCUMENT_ID).longValue(),
-                        LlmProposalAction.valueOf(r.get(KNOWLEDGE_PROPOSAL.ACTION)),
-                        KnowledgeProposalStatus.valueOf(r.get(KNOWLEDGE_PROPOSAL.STATUS)),
-                        r.get(KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE),
-                        r.get(KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON),
-                        KnowledgeCandidateType.valueOf(r.get(KNOWLEDGE_CANDIDATE.CANDIDATE_TYPE)),
-                        r.get(KNOWLEDGE_CANDIDATE.TITLE),
-                        r.get(KNOWLEDGE_CANDIDATE.SUMMARY),
-                        candidateEvidenceIds(r.get(KNOWLEDGE_CANDIDATE.ID).longValue()),
-                        evidenceFor(r.get(KNOWLEDGE_PROPOSAL.ID).longValue())
-                ));
+                .fetchOptional(r -> {
+                    // ASK-sourced proposals (#374) carry no analysis chain: the document/
+                    // candidate anchors are null and the draft converter takes everything
+                    // from the proposal's own normalized data and ask provenance.
+                    Long documentId = r.get(KNOWLEDGE_PROPOSAL.DOCUMENT_ID) == null ? null
+                            : r.get(KNOWLEDGE_PROPOSAL.DOCUMENT_ID).longValue();
+                    Long candidateId = r.get(KNOWLEDGE_CANDIDATE.ID) == null ? null
+                            : r.get(KNOWLEDGE_CANDIDATE.ID).longValue();
+                    return new WikiDraftConversionSource(
+                            r.get(KNOWLEDGE_PROPOSAL.ID).longValue(),
+                            r.get(KNOWLEDGE_PROPOSAL.WORKSPACE_ID).longValue(),
+                            documentId,
+                            LlmProposalAction.valueOf(r.get(KNOWLEDGE_PROPOSAL.ACTION)),
+                            KnowledgeProposalStatus.valueOf(r.get(KNOWLEDGE_PROPOSAL.STATUS)),
+                            r.get(KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE),
+                            r.get(KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON),
+                            r.get(KNOWLEDGE_CANDIDATE.CANDIDATE_TYPE) == null ? null
+                                    : KnowledgeCandidateType.valueOf(r.get(KNOWLEDGE_CANDIDATE.CANDIDATE_TYPE)),
+                            r.get(KNOWLEDGE_CANDIDATE.TITLE),
+                            r.get(KNOWLEDGE_CANDIDATE.SUMMARY),
+                            candidateId == null ? List.<Long>of()
+                                    : candidateEvidenceIds(candidateId),
+                            evidenceFor(r.get(KNOWLEDGE_PROPOSAL.ID).longValue()),
+                            evidenceDocumentIds(r.get(KNOWLEDGE_PROPOSAL.ID).longValue())
+                    );
+                });
     }
 
     public long countReviewable(long workspaceId, KnowledgeProposalStatus status) {
-        Condition condition = KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId)
-                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
-                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"));
-        if (status != null) {
-            condition = condition.and(KNOWLEDGE_PROPOSAL.STATUS.eq(status.name()));
-        }
-
         Integer count = dsl.select(count())
                 .from(KNOWLEDGE_PROPOSAL)
-                .join(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
-                .join(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
-                .where(condition)
+                .leftJoin(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
+                .leftJoin(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
+                .where(reviewableCondition(workspaceId, status))
                 .fetchOne(0, Integer.class);
 
         return count == null ? 0 : count.longValue();
@@ -172,31 +177,11 @@ public class KnowledgeProposalRepository {
 
     public List<KnowledgeProposalReview> findReviewable(long workspaceId, KnowledgeProposalStatus status,
                                                          long offset, int limit) {
-        Condition condition = KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId)
-                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
-                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"));
-        if (status != null) {
-            condition = condition.and(KNOWLEDGE_PROPOSAL.STATUS.eq(status.name()));
-        }
-
-        return dsl.select(
-                        KNOWLEDGE_PROPOSAL.ID,
-                        KNOWLEDGE_PROPOSAL.ACTION,
-                        KNOWLEDGE_PROPOSAL.STATUS,
-                        KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE,
-                        DOCUMENT.ID,
-                        coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("document_file_name"),
-                        DOCUMENT.SOURCE_PATH,
-                        KNOWLEDGE_CANDIDATE.ID,
-                        KNOWLEDGE_CANDIDATE.TITLE,
-                        KNOWLEDGE_CANDIDATE.SUMMARY,
-                        cast(KNOWLEDGE_CANDIDATE.CONFIDENCE, Double.class).as("confidence"),
-                        KNOWLEDGE_CANDIDATE.RATIONALE
-                )
+        return dsl.select(reviewColumns())
                 .from(KNOWLEDGE_PROPOSAL)
-                .join(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
-                .join(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
-                .where(condition)
+                .leftJoin(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
+                .leftJoin(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
+                .where(reviewableCondition(workspaceId, status))
                 .orderBy(KNOWLEDGE_PROPOSAL.ID.desc())
                 .limit(limit)
                 .offset((int) offset)
@@ -204,28 +189,13 @@ public class KnowledgeProposalRepository {
     }
 
     public Optional<KnowledgeProposalReview> findReviewableById(long workspaceId, long proposalId) {
-        Condition condition = KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId)
-                .and(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
-                .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED"))
+        Condition condition = reviewableCondition(workspaceId, null)
                 .and(KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId));
 
-        return dsl.select(
-                        KNOWLEDGE_PROPOSAL.ID,
-                        KNOWLEDGE_PROPOSAL.ACTION,
-                        KNOWLEDGE_PROPOSAL.STATUS,
-                        KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE,
-                        DOCUMENT.ID,
-                        coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("document_file_name"),
-                        DOCUMENT.SOURCE_PATH,
-                        KNOWLEDGE_CANDIDATE.ID,
-                        KNOWLEDGE_CANDIDATE.TITLE,
-                        KNOWLEDGE_CANDIDATE.SUMMARY,
-                        cast(KNOWLEDGE_CANDIDATE.CONFIDENCE, Double.class).as("confidence"),
-                        KNOWLEDGE_CANDIDATE.RATIONALE
-                )
+        return dsl.select(reviewColumns())
                 .from(KNOWLEDGE_PROPOSAL)
-                .join(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
-                .join(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
+                .leftJoin(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
+                .leftJoin(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
                 .where(condition)
                 .fetchOptional(this::toReview);
     }
@@ -333,21 +303,77 @@ public class KnowledgeProposalRepository {
                 .fetch(r -> r.get(KNOWLEDGE_CANDIDATE_EVIDENCE.SOURCE_CHUNK_ID).longValue());
     }
 
+    /**
+     * Review visibility across both proposal sources (#374): document-analysis proposals
+     * keep the document status exclusion; ASK-sourced proposals carry no document and are
+     * always reviewable within their workspace. ASK display fields coalesce from the ask
+     * provenance columns.
+     */
+    private Condition reviewableCondition(long workspaceId, KnowledgeProposalStatus status) {
+        Condition condition = KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId)
+                .and(DOCUMENT.ID.isNull().or(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED")));
+        if (status != null) {
+            condition = condition.and(KNOWLEDGE_PROPOSAL.STATUS.eq(status.name()));
+        }
+        return condition;
+    }
+
+    private org.jooq.SelectField<?>[] reviewColumns() {
+        return new org.jooq.SelectField<?>[] {
+                KNOWLEDGE_PROPOSAL.ID,
+                KNOWLEDGE_PROPOSAL.ACTION,
+                KNOWLEDGE_PROPOSAL.STATUS,
+                KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE,
+                DOCUMENT.ID,
+                coalesce(DOCUMENT.ORIGINAL_FILE_NAME, DOCUMENT.FILE_NAME).as("document_file_name"),
+                DOCUMENT.SOURCE_PATH,
+                KNOWLEDGE_CANDIDATE.ID,
+                coalesce(KNOWLEDGE_CANDIDATE.TITLE, KNOWLEDGE_PROPOSAL.ASK_QUESTION).as("display_title"),
+                coalesce(KNOWLEDGE_CANDIDATE.SUMMARY,
+                        substring(KNOWLEDGE_PROPOSAL.ASK_ANSWER_TEXT, 1, 400)).as("display_summary"),
+                cast(KNOWLEDGE_CANDIDATE.CONFIDENCE, Double.class).as("confidence"),
+                coalesce(KNOWLEDGE_CANDIDATE.RATIONALE,
+                        "Governed proposal created from an explicit Ask hand-off").as("display_rationale")
+        };
+    }
+
+    /**
+     * The distinct documents behind a proposal's evidence chunks: for ASK-sourced
+     * proposals (#374) this is the only document lineage, and it keeps the draft
+     * frontmatter provenance contract intact without fabricating a source document.
+     */
+    private List<Long> evidenceDocumentIds(long proposalId) {
+        return dsl.selectDistinct(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT.ID)
+                .from(org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PROPOSAL_EVIDENCE)
+                .join(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK)
+                .on(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK.ID
+                        .eq(org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PROPOSAL_EVIDENCE.SOURCE_CHUNK_ID))
+                .join(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT)
+                .on(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT.ID
+                        .eq(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK.DOCUMENT_ID))
+                .where(org.km.llmwiki.persistence.jooq.generated.Tables.KNOWLEDGE_PROPOSAL_EVIDENCE.KNOWLEDGE_PROPOSAL_ID
+                        .eq((int) proposalId))
+                .fetch(r -> r.value1().longValue());
+    }
+
     private KnowledgeProposalReview toReview(org.jooq.Record r) {
         long proposalId = r.get(KNOWLEDGE_PROPOSAL.ID).longValue();
+        Long documentId = r.get(DOCUMENT.ID) == null ? null : r.get(DOCUMENT.ID).longValue();
+        Long candidateId = r.get(KNOWLEDGE_CANDIDATE.ID) == null ? null
+                : r.get(KNOWLEDGE_CANDIDATE.ID).longValue();
         return new KnowledgeProposalReview(
                 proposalId,
                 LlmProposalAction.valueOf(r.get(KNOWLEDGE_PROPOSAL.ACTION)),
                 KnowledgeProposalStatus.valueOf(r.get(KNOWLEDGE_PROPOSAL.STATUS)),
                 r.get(KNOWLEDGE_PROPOSAL.MERGE_TARGET_REFERENCE),
-                r.get(DOCUMENT.ID).longValue(),
+                documentId,
                 r.get("document_file_name", String.class),
                 r.get(DOCUMENT.SOURCE_PATH),
-                r.get(KNOWLEDGE_CANDIDATE.ID).longValue(),
-                r.get(KNOWLEDGE_CANDIDATE.TITLE),
-                r.get(KNOWLEDGE_CANDIDATE.SUMMARY),
+                candidateId,
+                r.get("display_title", String.class),
+                r.get("display_summary", String.class),
                 r.get("confidence", Double.class),
-                r.get(KNOWLEDGE_CANDIDATE.RATIONALE),
+                r.get("display_rationale", String.class),
                 evidenceFor(proposalId)
         );
     }

@@ -16,6 +16,7 @@ import org.km.llmwiki.wiki.KnowledgeProposalNotFoundException;
 import org.km.llmwiki.wiki.WikiDraftLifecycleException;
 import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
 import org.km.llmwiki.wiki.PublishedWikiValidationException;
+import org.km.llmwiki.wiki.AskCitationInvalidException;
 import org.km.llmwiki.wiki.WikiDraftNotFoundException;
 import org.km.llmwiki.wiki.WikiPageNotFoundException;
 import org.km.llmwiki.wiki.WikiDraftTargetException;
@@ -86,6 +87,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(WikiDraftNotFoundException.class)
     public ResponseEntity<ApiError> handleWikiDraftNotFound(WikiDraftNotFoundException exception) {
         return respond(HttpStatus.NOT_FOUND, "WIKI_DRAFT_NOT_FOUND", publicMessage(exception), exception);
+    }
+
+    @ExceptionHandler(AskCitationInvalidException.class)
+    public ResponseEntity<ApiError> handleAskCitationInvalid(AskCitationInvalidException exception) {
+        return respond(HttpStatus.UNPROCESSABLE_ENTITY, "ASK_CITATION_INVALID",
+                publicMessage(exception), exception);
     }
 
     @ExceptionHandler(WikiPageNotFoundException.class)

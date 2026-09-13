@@ -68,6 +68,7 @@ class HistoricalUpgradeMatrixIntegrationTest {
 
             assertWorkspaceSemantics(connection);
             assertProjectionUpgradeSemantics(connection, baselineVersion);
+            assertAskIngressUpgradeSemantics(connection);
             assertMigrationIdempotency(connection, beforeManifest);
         }
     }
@@ -95,6 +96,36 @@ class HistoricalUpgradeMatrixIntegrationTest {
         assertThat(scalar(connection,
                 "SELECT status FROM wiki_publish_operation WHERE id = 9001"))
                 .isEqualTo("COMPLETED");
+    }
+
+    /**
+     * #374: the knowledge_proposal rebuild must preserve every legacy row's identity,
+     * evidence, drafts, and publish operations, and stamp legacy rows as
+     * DOCUMENT_ANALYSIS-sourced with no invented ask provenance.
+     */
+    private void assertAskIngressUpgradeSemantics(Connection connection) throws SQLException {
+        assertThat(scalar(connection,
+                "SELECT source_kind FROM knowledge_proposal WHERE id = 6001"))
+                .isEqualTo("DOCUMENT_ANALYSIS");
+        assertThat(scalar(connection,
+                "SELECT ask_question FROM knowledge_proposal WHERE id = 6001"))
+                .isNull();
+        assertThat(scalar(connection,
+                "SELECT COUNT(*) FROM knowledge_proposal_evidence WHERE knowledge_proposal_id = 6001"))
+                .isEqualTo("1");
+        assertThat(scalar(connection,
+                "SELECT COUNT(*) FROM wiki_draft WHERE proposal_id = 6001"))
+                .isEqualTo("1");
+        assertThat(scalar(connection,
+                "SELECT COUNT(*) FROM wiki_publish_operation WHERE proposal_id = 6001"))
+                .isEqualTo("1");
+        assertThat(scalar(connection,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' "
+                        + "AND name = 'idx_knowledge_proposal_ask_dedup'"))
+                .isEqualTo("1");
+        // Repeated migration must not re-run the rebuild or duplicate rows.
+        assertThat(scalar(connection,
+                "SELECT COUNT(*) FROM knowledge_proposal")).isEqualTo("1");
     }
 
     /** Derived projections may be invalidated, never fake-current or fake-READY. */

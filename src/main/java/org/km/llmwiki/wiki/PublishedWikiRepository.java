@@ -34,6 +34,14 @@ public class PublishedWikiRepository {
                 .fetchOptional(this::map);
     }
 
+    public Optional<StoredPublishedWiki> findPublishedByMarkdownPath(long workspaceId, String markdownPath) {
+        return dsl.selectFrom(KNOWLEDGE_PAGE)
+                .where(KNOWLEDGE_PAGE.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(KNOWLEDGE_PAGE.MARKDOWN_PATH.eq(markdownPath))
+                .and(KNOWLEDGE_PAGE.STATUS.eq(PageStatus.PUBLISHED.name()))
+                .fetchOptional(this::map);
+    }
+
     public List<StoredPublishedWiki> findAllPublished(long workspaceId) {
         return dsl.selectFrom(KNOWLEDGE_PAGE)
                 .where(KNOWLEDGE_PAGE.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))

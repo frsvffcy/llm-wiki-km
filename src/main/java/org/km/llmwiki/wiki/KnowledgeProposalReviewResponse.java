@@ -13,7 +13,7 @@ import java.util.List;
  * backend 仍透過 {@link KnowledgeProposalStatus#requireTransitionTo} 重新驗證 current state。
  */
 public record KnowledgeProposalReviewResponse(long id, LlmProposalAction action, KnowledgeProposalStatus status,
-                                              String title, String summary, String rationale, double confidence,
+                                              String title, String summary, String rationale, Double confidence,
                                               String targetReference, SourceDocument sourceDocument,
                                               List<KnowledgeProposalEvidence> evidence,
                                               List<KnowledgeProposalStatus> allowedTransitions) {
@@ -25,6 +25,6 @@ public record KnowledgeProposalReviewResponse(long id, LlmProposalAction action,
                 proposal.evidence(), proposal.status().allowedTransitions());
     }
 
-    public record SourceDocument(long id, String fileName, String sourcePath) {
+    public record SourceDocument(Long id, String fileName, String sourcePath) {
     }
 }
