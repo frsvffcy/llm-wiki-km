@@ -5,7 +5,7 @@
  * No framework, no inline script/style (strict CSP), no route-scoped re-rendering.
  */
 
-const ROUTES = Object.freeze(["home", "wiki", "inbox", "ask", "inspect", "review"]);
+const ROUTES = Object.freeze(["home", "wiki", "inbox", "ask", "inspect", "review", "quality"]);
 
 export const VIEW_TITLES = Object.freeze({
   home: "工作區",
@@ -13,7 +13,8 @@ export const VIEW_TITLES = Object.freeze({
   inbox: "收件匣",
   ask: "提問",
   inspect: "檢視器",
-  review: "審核"
+  review: "審核",
+  quality: "品質"
 });
 
 export function parseRoute(hash) {

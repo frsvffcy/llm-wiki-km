@@ -14,8 +14,9 @@
   <script type="module" src="/review-ui.js"></script>
   <script type="module" src="/ask-ui.js"></script>
   <script type="module" src="/graph-operations-ui.js"></script>
-  <script type="module" src="/retrieval-inspector-ui.js"></script>
-  <script type="module" src="/source-chunk-inspector-ui.js"></script>
+<script type="module" src="/retrieval-inspector-ui.js"></script>
+<script type="module" src="/source-chunk-inspector-ui.js"></script>
+<script type="module" src="/quality-ui.js"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -32,6 +33,7 @@
       <a href="#/ask" data-route-link="ask">提問</a>
       <a href="#/inspect" data-route-link="inspect">檢視器</a>
       <a href="#/review" data-route-link="review">審核</a>
+      <a href="#/quality" data-route-link="quality">品質</a>
     </nav>
 
     <section id="view-home" data-route="home" class="view" aria-label="工作區">
@@ -569,6 +571,73 @@
         <p class="panel-description">
           Publish 是明確的人類動作：僅 READY 且 publishReady 的 draft 可發布；
           發布結果以 backend typed response 為準，失敗不會被顯示為成功。
+        </p>
+      </section>
+    </section>
+
+    <section id="view-quality" data-route="quality" class="view" aria-label="品質" hidden>
+      <h2 data-view-heading tabindex="-1">品質</h2>
+
+      <section class="panel" aria-labelledby="triage-list-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">KNOWLEDGE QUALITY</p>
+            <h3 id="triage-list-heading">Vault 健康問題分類</h3>
+          </div>
+          <button id="triage-refresh" type="button" class="secondary-button">重新整理</button>
+        </div>
+        <p class="panel-description">
+          唯讀健康診斷：清單來自 backend Vault Lint 的當下掃描，不會修改 vault、
+          建立 proposal，也不判斷修復方式；每次開啟與重新整理都會重讀 authoritative 資料。
+        </p>
+        <form id="triage-filter-form" novalidate>
+          <div class="field-group">
+            <label for="triage-category-filter">類別篩選</label>
+            <select id="triage-category-filter" name="category">
+              <option value="">全部</option>
+              <option value="REFERENCE">參照</option>
+              <option value="CANONICAL_CONTENT">內容</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="triage-severity-filter">嚴重度篩選</label>
+            <select id="triage-severity-filter" name="severity">
+              <option value="">全部</option>
+              <option value="ERROR">錯誤</option>
+              <option value="WARNING">警告</option>
+            </select>
+          </div>
+          <button id="triage-filter-submit" type="submit">套用篩選</button>
+        </form>
+        <p id="triage-hint" class="form-hint" role="status" aria-live="polite"></p>
+        <p id="triage-meta" class="triage-meta" role="status"></p>
+        <p id="triage-empty" class="empty-state" hidden>
+          目前沒有符合條件的健康問題。
+        </p>
+        <ul id="triage-list" class="triage-list"></ul>
+      </section>
+
+      <section id="triage-detail" class="panel" aria-labelledby="triage-detail-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">FINDING DETAIL</p>
+            <h3 id="triage-detail-heading">問題內容與定位</h3>
+          </div>
+          <button id="triage-detail-close" type="button" class="secondary-button">關閉</button>
+        </div>
+        <h4 id="triage-detail-title" class="triage-detail-title"></h4>
+        <p id="triage-detail-meta" class="triage-detail-meta"></p>
+        <p id="triage-detail-explanation" class="triage-detail-text"></p>
+        <h4>權威內容</h4>
+        <div id="triage-page" class="triage-page"></div>
+        <p id="triage-page-hint" class="form-hint" role="status" aria-live="polite"></p>
+        <div class="triage-handoffs">
+          <a class="wiki-handoff" href="#/wiki">前往 Wiki 閱讀</a>
+          <a class="wiki-handoff" href="#/review">前往審核</a>
+        </div>
+        <p class="panel-description">
+          Finding 是診斷證據，不是修復授權；本視圖不提供修復操作。
+          若頁面已不存在，finding 可能已過時，請重新整理後再判讀。
         </p>
       </section>
     </section>

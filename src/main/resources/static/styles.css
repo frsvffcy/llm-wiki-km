@@ -501,3 +501,23 @@ button:disabled { cursor: wait; opacity: 0.62; }
   padding-left: 10px;
 }
 .source-preview-body .inspector-preview-truncated { color: var(--warning); font-size: 0.8rem; }
+/* --- Knowledge Quality triage (#383) --- */
+.triage-meta { color: var(--muted); font-size: 0.85rem; }
+.triage-list { list-style: none; padding: 0; }
+.triage-item { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+.triage-item-title { font-weight: 700; margin-bottom: 6px; }
+.triage-item-badges { margin-bottom: 6px; }
+.triage-item-badges .status-badge { margin-right: 6px; }
+.status-badge--triage-error { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+.status-badge--triage-warning { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+.status-badge--triage-reference,
+.status-badge--triage-canonical_content { background: var(--paper); color: var(--muted); }
+.triage-item-detail { color: var(--muted); font-size: 0.9rem; margin-bottom: 8px; }
+.triage-detail-title { margin-bottom: 6px; }
+.triage-detail-meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 8px; }
+.triage-detail-text { white-space: pre-wrap; margin-bottom: 12px; }
+.triage-page { border-left: 3px solid var(--accent); padding-left: 10px; margin-bottom: 8px; }
+.triage-page-title { font-weight: 700; }
+.triage-page-meta { color: var(--muted); font-size: 0.85rem; }
+.triage-handoffs { margin: 10px 0; }
+.triage-handoffs .wiki-handoff { margin-right: 12px; }
