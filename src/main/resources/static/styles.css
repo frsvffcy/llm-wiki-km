@@ -479,3 +479,25 @@ button:disabled { cursor: wait; opacity: 0.62; }
   max-height: 560px;
   overflow: auto;
 }
+
+/* --- Inline citation source preview (#381) --- */
+.source-preview-panel { border-left: 3px solid var(--accent); }
+.source-preview-meta { margin-bottom: 8px; }
+.source-preview-meta p { margin-bottom: 2px; }
+.source-preview-body {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px;
+}
+.source-preview-body .inspector-preview {
+  white-space: pre-wrap;
+  font-size: 0.92rem;
+  /* page-anchored highlight: the authoritative bounded preview IS the cited evidence;
+     it is presented as a highlighted block — precision beyond the chunk level is never
+     fabricated (#381). */
+  display: block;
+  border-left: 4px solid var(--accent-dark);
+  padding-left: 10px;
+}
+.source-preview-body .inspector-preview-truncated { color: var(--warning); font-size: 0.8rem; }

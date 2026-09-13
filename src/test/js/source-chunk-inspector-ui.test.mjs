@@ -258,7 +258,7 @@ test("index html wires the inspector panel through CSP-safe modules only", async
   assert.doesNotMatch(html, /on(load|click|error)=/);
 });
 
-test("opening a locator from a citation navigates to the diagnostics view (#375)", async () => {
+test("opening a locator does not navigate; rendering is owned by the calling view (#381)", async () => {
   const elements = {
     result: new FakeElement(), loading: new FakeElement(), error: new FakeElement(),
     errorTitle: new FakeElement(), errorMessage: new FakeElement(),
@@ -282,6 +282,6 @@ test("opening a locator from a citation navigates to the diagnostics view (#375)
   const controller = createSourceChunkInspectorController(elements, fetchImpl, documentRef);
   await controller.inspectSourceChunk(9);
 
-  assert.equal(navigator.location.hash, "#/inspect",
-    "the locator result must become visible in the diagnostics view");
+  assert.equal(navigator.location.hash, "#/ask",
+    "the locator renderer never navigates on its own: the calling view owns placement (#381)");
 });

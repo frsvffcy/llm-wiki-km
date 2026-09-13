@@ -47,11 +47,23 @@ function uiElements() {
     aiEgressLabel: new FakeElement(), aiEgressDetail: new FakeElement(),
     aiEgressToggle: new FakeElement(),
     toProposal: new FakeElement(), toProposalHint: new FakeElement(),
-    viewRetrieval: new FakeElement()
+    viewRetrieval: new FakeElement(),
+    sourcePreview: new FakeElement(), sourcePreviewLoading: new FakeElement(),
+    sourcePreviewMeta: new FakeElement(),
+    sourcePreviewBody: new FakeElement(), sourcePreviewClose: new FakeElement(),
+    sourcePreviewError: new FakeElement(), sourcePreviewErrorTitle: new FakeElement(),
+    sourcePreviewErrorMessage: new FakeElement(), sourcePreviewNotFound: new FakeElement(),
+    sourcePreviewNotFoundTitle: new FakeElement(),
+    sourcePreviewNotFoundMessage: new FakeElement()
   };
 }
 
 function event() { return { preventDefault() {} }; }
+
+function flatText(element) {
+  return [element.textContent,
+    ...element.children.map(child => flatText(child))].join(" ");
+}
 
 function diagnosticsText(element) {
   return element.children.map(row => row.children.map(child => child.textContent).join("::"))
@@ -724,4 +736,123 @@ test("the hand-off never fabricates a query before a grounded answer exists", as
   controller.viewRetrievalDiagnostics();
   assert.equal(inspectorQuestion.value, "",
     "no question may be prefilled or fabricated before any ask ran");
+});
+
+// --- Inline citation source preview (#381) ---
+
+function locatorPayload(overrides = {}) {
+  return { data: {
+    sourceChunkId: 201, documentId: 3, documentName: "a.pdf", chunkNo: 2,
+    pageNo: 4, section: "arch", headingPath: "system > arch",
+    currentness: "CURRENT", notCurrentReason: null,
+    preview: "Transformer uses self-attention <img src=x> as the core.",
+    previewTruncated: false, ...overrides } };
+}
+
+function locatorResponse(payload) {
+  return { ok: true, status: 200, async json() { return payload; } };
+}
+
+async function submitAndOpenPreview(customFetch) {
+  const elements = uiElements();
+  let answered = false;
+  const navigator = { location: { hash: "#/ask" } };
+  const documentRef = {
+    createElement: () => new FakeElement(),
+    defaultView: navigator
+  };
+  elements.question.value = "transformer 的核心架構原則是什麼？";
+  const controller = createAskController(elements, async url => {
+    if (String(url) === "/api/v1/ask") { answered = true; return groundedPayload(); }
+    return customFetch(url);
+  }, documentRef);
+  await elements.form.handlers.get("submit")({ preventDefault() {} });
+  assert.equal(answered, true);
+  await elements.citations.handlers.get("click")({
+    preventDefault() {}, target: { getAttribute: () => "201" } });
+  return { elements, navigator };
+}
+
+test("citation click renders the authoritative preview inline without navigation", async () => {
+  const { elements, navigator } = await submitAndOpenPreview(async url => {
+    if (String(url) === "/api/v1/source-chunks/201/locator") return locatorResponse(locatorPayload());
+    if (String(url) === "/api/v1/ask") { answered = true; return groundedPayload(); }
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  });
+
+  assert.equal(elements.sourcePreview.hidden, false);
+  const text = flatText(elements.sourcePreviewBody);
+  assert.match(text, /Transformer uses self-attention <img src=x> as the core\./u,
+    "preview renders as inert text — no HTML execution");
+  assert.match(flatText(elements.sourcePreviewMeta), /a\.pdf/u);
+  assert.match(flatText(elements.sourcePreviewMeta), /頁碼：4/u);
+  assert.equal(navigator.location.hash, "#/ask",
+    "the inline preview never navigates away from the answer");
+});
+
+test("coarse locators degrade deterministically without fabricating precision", async () => {
+  const { elements, navigator } = await submitAndOpenPreview(async url => {
+    if (String(url) === "/api/v1/source-chunks/201/locator") {
+      return locatorResponse(locatorPayload({ pageNo: null, section: null, headingPath: null }));
+    }
+    if (String(url) === "/api/v1/ask") { answered = true; return groundedPayload(); }
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  });
+
+  const meta = flatText(elements.sourcePreviewMeta);
+  assert.doesNotMatch(meta, /頁碼/u, "no page anchor exists — none is shown");
+  console.log("DEBUG31 body:", JSON.stringify(flatText(elements.sourcePreviewBody).slice(0, 120)),
+    "panelHidden:", elements.sourcePreview.hidden, "bodyHidden:", elements.sourcePreviewBody.hidden,
+    "meta:", JSON.stringify(flatText(elements.sourcePreviewMeta).slice(0, 80)),
+    "errorHidden:", elements.sourcePreviewError.hidden,
+    "errorTitle:", JSON.stringify(elements.sourcePreviewErrorTitle.textContent),
+    "notFoundHidden:", elements.sourcePreviewNotFound.hidden);
+  assert.match(flatText(elements.sourcePreviewBody), /self-attention/u,
+    "the bounded chunk preview is still the authoritative highlight");
+});
+
+test("stale sources expose the typed failure and never show cached content", async () => {
+  const { elements, navigator } = await submitAndOpenPreview(async url => {
+    if (String(url) === "/api/v1/source-chunks/201/locator") {
+      return locatorResponse(locatorPayload({ currentness: "NOT_CURRENT",
+        notCurrentReason: "STALE_REVISION", preview: null }));
+    }
+    if (String(url) === "/api/v1/ask") { answered = true; return groundedPayload(); }
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  });
+
+  assert.match(flatText(elements.sourcePreviewMeta), /已與 canonical 狀態不一致/u);
+  assert.doesNotMatch(flatText(elements.sourcePreviewBody), /self-attention/u,
+    "not-current sources must not expose content");
+});
+
+test("unknown sources render the safe not-found state inline", async () => {
+  const { elements, navigator } = await submitAndOpenPreview(async url => {
+    if (String(url) === "/api/v1/source-chunks/201/locator") {
+      return {
+        ok: false,
+        status: 404,
+        async json() {
+          return { error: { code: "SOURCE_CHUNK_NOT_FOUND", message: "gone" } };
+        }
+      };
+    }
+    if (String(url) === "/api/v1/ask") { answered = true; return groundedPayload(); }
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  });
+
+  assert.match(flatText(elements.sourcePreviewNotFoundTitle), /找不到來源位置/u,
+    "the inline not-found state carries the typed locator copy");
+});
+
+test("truncated previews are labelled", async () => {
+  const { elements, navigator } = await submitAndOpenPreview(async url => {
+    if (String(url) === "/api/v1/source-chunks/201/locator") {
+      return locatorResponse(locatorPayload({ previewTruncated: true }));
+    }
+    if (String(url) === "/api/v1/ask") { answered = true; return groundedPayload(); }
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  });
+
+  assert.match(flatText(elements.sourcePreviewBody), /預覽已截斷/u);
 });
