@@ -1,3 +1,4 @@
+import { inspectSourceChunk } from "./source-chunk-inspector-ui.js";
 const RETRIEVAL_MODES = Object.freeze([
   { value: "HYBRID_FTS", label: "Wiki 與來源文件（全文搜尋）" },
   { value: "WIKI_ONLY", label: "僅 Wiki" },
@@ -424,7 +425,18 @@ function elementsFrom(documentRef) {
     citationCount: documentRef.getElementById("citation-count"),
     toProposal: documentRef.getElementById("ask-to-proposal"),
     toProposalHint: documentRef.getElementById("ask-to-proposal-hint"),
-    viewRetrieval: documentRef.getElementById("ask-view-retrieval")
+    viewRetrieval: documentRef.getElementById("ask-view-retrieval"),
+    sourcePreview: documentRef.getElementById("ask-source-preview"),
+    sourcePreviewLoading: documentRef.getElementById("ask-source-preview-loading"),
+    sourcePreviewMeta: documentRef.getElementById("ask-source-preview-meta"),
+    sourcePreviewBody: documentRef.getElementById("ask-source-preview-body"),
+    sourcePreviewClose: documentRef.getElementById("ask-source-preview-close"),
+    sourcePreviewError: documentRef.getElementById("ask-source-preview-error"),
+    sourcePreviewErrorTitle: documentRef.getElementById("ask-source-preview-error-title"),
+    sourcePreviewErrorMessage: documentRef.getElementById("ask-source-preview-error-message"),
+    sourcePreviewNotFound: documentRef.getElementById("ask-source-preview-not-found"),
+    sourcePreviewNotFoundTitle: documentRef.getElementById("ask-source-preview-not-found-title"),
+    sourcePreviewNotFoundMessage: documentRef.getElementById("ask-source-preview-not-found-message")
   };
 }
 
@@ -557,6 +569,51 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     }
   }
 
+  // Inline citation preview (#381): the citation click renders the authoritative
+  // locator (same renderer as the diagnostics workspace) directly in the Ask view —
+  // the user never has to leave the answer to understand a source. Pure read-only.
+  async function openInlinePreview(chunkId) {
+    if (!elements.sourcePreview) return;
+    elements.sourcePreview.hidden = false;
+    await inspectInlineChunk(chunkId);
+  }
+
+  async function inspectInlineChunk(chunkId) {
+    // Same authoritative renderer as the diagnostics workspace; the inline panel owns a
+    // full state surface (result/not-found/error) so typed failures render inline too.
+    const inlineElements = {
+      result: elements.sourcePreview,
+      loading: elements.sourcePreviewLoading,
+      error: elements.sourcePreviewError,
+      errorTitle: elements.sourcePreviewErrorTitle,
+      errorMessage: elements.sourcePreviewErrorMessage,
+      notFound: elements.sourcePreviewNotFound,
+      notFoundTitle: elements.sourcePreviewNotFoundTitle,
+      notFoundMessage: elements.sourcePreviewNotFoundMessage,
+      metadata: elements.sourcePreviewMeta,
+      preview: elements.sourcePreviewBody
+    };
+    try {
+      await inspectSourceChunk(inlineElements, chunkId, fetchImpl, documentRef);
+    } catch {
+      elements.sourcePreviewMeta.textContent = "來源預覽暫時無法取得，請稍後再試。";
+    }
+  }
+
+  // Inline citation interaction (#381): citation "檢視來源位置" buttons render the
+  // authoritative locator preview directly in the Ask view.
+  if (elements.citations && typeof elements.citations.addEventListener === "function") {
+    elements.citations.addEventListener("click", clickEvent => {
+      const target = clickEvent.target;
+      const chunkId = target && typeof target.getAttribute === "function"
+        ? target.getAttribute("data-chunk-id")
+        : null;
+      if (chunkId) {
+        clickEvent.preventDefault();
+        return openInlinePreview(chunkId);
+      }
+    });
+  }
   elements.form.addEventListener("submit", submit);
   if (elements.toProposal) {
     elements.toProposal.addEventListener("click", proposeFromAnswer);
@@ -564,7 +621,12 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   if (elements.viewRetrieval) {
     elements.viewRetrieval.addEventListener("click", viewRetrievalDiagnostics);
   }
-  return { submit, proposeFromAnswer, viewRetrievalDiagnostics };
+  if (elements.sourcePreviewClose) {
+    elements.sourcePreviewClose.addEventListener("click", () => {
+      elements.sourcePreview.hidden = true;
+    });
+  }
+  return { submit, proposeFromAnswer, viewRetrievalDiagnostics, openInlinePreview };
 }
 
 export function bootstrapAskUi(documentRef = document) {

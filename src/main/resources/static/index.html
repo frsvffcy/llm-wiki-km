@@ -377,6 +377,32 @@
       </section>
     </section>
 
+    <section id="ask-source-preview" class="panel source-preview-panel"
+             aria-labelledby="ask-source-preview-heading" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">SOURCE PREVIEW</p>
+          <h3 id="ask-source-preview-heading">引用來源預覽</h3>
+        </div>
+        <button id="ask-source-preview-close" type="button" class="secondary-button">關閉</button>
+      </div>
+      <p id="ask-source-preview-loading" class="form-hint" hidden>正在取得來源預覽…</p>
+      <div id="ask-source-preview-meta" class="source-preview-meta"></div>
+      <div id="ask-source-preview-body" class="source-preview-body"></div>
+      <div id="ask-source-preview-error" class="result-state error-state" role="alert" hidden>
+        <h4 id="ask-source-preview-error-title"></h4>
+        <p id="ask-source-preview-error-message"></p>
+      </div>
+      <div id="ask-source-preview-not-found" class="empty-state" hidden>
+        <p id="ask-source-preview-not-found-title"></p>
+        <p id="ask-source-preview-not-found-message"></p>
+      </div>
+      <p class="panel-description">
+        預覽由 backend authoritative locator 提供（canonical 驗證）；highlight 僅呈現
+        locator 實際具備的定位精度，不偽造頁內位置。
+      </p>
+    </section>
+
     <section id="view-inspect" data-route="inspect" class="view" aria-label="檢視器" hidden>
       <h2 data-view-heading tabindex="-1">檢視器</h2>
       <section id="retrieval-inspector-panel" class="panel"

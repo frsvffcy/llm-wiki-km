@@ -120,9 +120,6 @@ export async function inspectSourceChunk(elements, chunkId, fetchImpl = fetch,
     showLocatorError(elements, undefined);
     return;
   }
-  // The locator panel lives in the diagnostics view (#375): bring it into view so a
-  // citation opened from the Ask view is actually visible to the user.
-  navigateToDiagnostics(documentRef);
   const sequence = ++inspectionSequence;
   elements.loading.hidden = false;
   // Repeated open must never show a stale previous locator: clear before fetching and on any
@@ -155,13 +152,6 @@ export async function inspectSourceChunk(elements, chunkId, fetchImpl = fetch,
     }
     elements.loading.hidden = true;
     showLocatorError(elements, undefined);
-  }
-}
-
-function navigateToDiagnostics(documentRef) {
-  const view = documentRef && documentRef.defaultView;
-  if (view && view.location) {
-    view.location.hash = "#/inspect";
   }
 }
 
