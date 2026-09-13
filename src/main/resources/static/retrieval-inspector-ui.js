@@ -183,6 +183,22 @@ export function createInspectorController(elements, fetchImpl = fetch, documentR
   }
 
   elements.form.addEventListener("submit", submit);
+  // Workspace isolation (#375): inspection results are current-workspace projections
+  // and must never survive a workspace switch.
+  if (documentRef && typeof documentRef.addEventListener === "function") {
+    documentRef.addEventListener("workspace-changed", () => {
+      elements.question.value = "";
+      elements.hint.textContent = "";
+      elements.result.hidden = true;
+      elements.fusion.hidden = true;
+      elements.error.hidden = true;
+      elements.empty.hidden = true;
+      elements.modalities.replaceChildren();
+      elements.selection.replaceChildren();
+      elements.finalEvidence.replaceChildren();
+    });
+  }
+
   return { submit };
 }
 

@@ -257,3 +257,31 @@ test("index html wires the inspector panel through CSP-safe modules only", async
   assert.match(html, /id="source-chunk-inspector-panel"/);
   assert.doesNotMatch(html, /on(load|click|error)=/);
 });
+
+test("opening a locator from a citation navigates to the diagnostics view (#375)", async () => {
+  const elements = {
+    result: new FakeElement(), loading: new FakeElement(), error: new FakeElement(),
+    errorTitle: new FakeElement(), errorMessage: new FakeElement(),
+    notFound: new FakeElement(), notFoundTitle: new FakeElement(),
+    notFoundMessage: new FakeElement(), metadata: new FakeElement(), preview: new FakeElement()
+  };
+  const navigator = { location: { hash: "#/ask" } };
+  const citations = new FakeElement();
+  const documentRef = {
+    createElement: () => new FakeElement(),
+    defaultView: navigator,
+    getElementById: id => id === "citations" ? citations : null,
+    addEventListener() {}
+  };
+  const locatorPayload = { data: {
+    sourceChunkId: 9, chunkNo: 1, section: "arch", headingPath: "h",
+    document: { id: 3, fileName: "a.pdf" }, currentPage: 1,
+    provenance: { parser: "tika", chunkPolicyVersion: "chunk-policy-v1-current" },
+    currentness: "CURRENT", boundedPreview: { content: "preview text" } } };
+  const fetchImpl = async () => jsonResponse(locatorPayload);
+  const controller = createSourceChunkInspectorController(elements, fetchImpl, documentRef);
+  await controller.inspectSourceChunk(9);
+
+  assert.equal(navigator.location.hash, "#/inspect",
+    "the locator result must become visible in the diagnostics view");
+});

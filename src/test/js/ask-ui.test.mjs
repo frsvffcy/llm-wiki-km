@@ -46,7 +46,8 @@ function uiElements() {
     contextDiagnosticsList: new FakeElement(), aiEgress: new FakeElement(),
     aiEgressLabel: new FakeElement(), aiEgressDetail: new FakeElement(),
     aiEgressToggle: new FakeElement(),
-    toProposal: new FakeElement(), toProposalHint: new FakeElement()
+    toProposal: new FakeElement(), toProposalHint: new FakeElement(),
+    viewRetrieval: new FakeElement()
   };
 }
 
@@ -670,7 +671,7 @@ test("double-submit is guarded and typed failures surface without success copy",
       return { ok: false, status: 422, json: async () => ({
         error: { code: "ASK_CITATION_INVALID", message: "stale" } }) };
     }
-    return jsonResponse({ data: { disclosures: [] } });
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
   };
   const staleElements = uiElements();
   const staleController = createAskController(staleElements, staleFetch, documentRef);
@@ -681,4 +682,46 @@ test("double-submit is guarded and typed failures surface without success copy",
     /引用的證據已失效/u, "stale citations surface a typed, actionable failure");
   assert.equal(staleElements.toProposal.disabled, false,
     "a failed hand-off stays retryable");
+});
+
+test("the retrieval diagnostics hand-off prefills the inspector question and navigates", async () => {
+  const elements = uiElements();
+  const fetchImpl = async url => {
+    if (String(url) === "/api/v1/ask") return groundedPayload();
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  };
+  const inspectorQuestion = new FakeElement();
+  const navigator = { location: { hash: "#/ask" } };
+  const documentRef = {
+    createElement: () => new FakeElement(),
+    getElementById: id => id === "inspector-question" ? inspectorQuestion : new FakeElement(),
+    defaultView: navigator
+  };
+  const controller = createAskController(elements, fetchImpl, documentRef);
+  elements.question.value = "transformer 的核心架構原則是什麼？";
+  await elements.form.handlers.get("submit")({ preventDefault() {} });
+
+  elements.viewRetrieval.handlers.get("click")();
+
+  assert.equal(inspectorQuestion.value, "transformer 的核心架構原則是什麼？",
+    "the inspector opens with the asked question");
+  assert.equal(navigator.location.hash, "#/inspect");
+});
+
+test("the hand-off never fabricates a query before a grounded answer exists", async () => {
+  const elements = uiElements();
+  const inspectorQuestion = new FakeElement();
+  const navigator = { location: { hash: "" } };
+  const documentRef = {
+    createElement: () => new FakeElement(),
+    getElementById: id => id === "inspector-question" ? inspectorQuestion : new FakeElement(),
+    defaultView: navigator
+  };
+  const controller = createAskController(elements, async () => {
+    throw new Error("must not fetch");
+  }, documentRef);
+
+  controller.viewRetrievalDiagnostics();
+  assert.equal(inspectorQuestion.value, "",
+    "no question may be prefilled or fabricated before any ask ran");
 });
