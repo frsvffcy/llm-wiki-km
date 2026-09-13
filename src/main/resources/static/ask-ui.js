@@ -423,7 +423,8 @@ function elementsFrom(documentRef) {
     citations: documentRef.getElementById("citations"),
     citationCount: documentRef.getElementById("citation-count"),
     toProposal: documentRef.getElementById("ask-to-proposal"),
-    toProposalHint: documentRef.getElementById("ask-to-proposal-hint")
+    toProposalHint: documentRef.getElementById("ask-to-proposal-hint"),
+    viewRetrieval: documentRef.getElementById("ask-view-retrieval")
   };
 }
 
@@ -543,11 +544,27 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     }
   }
 
+  // Diagnostics hand-off (#375): jump to the retrieval inspector with the same query,
+  // so the user can see why this evidence was found. Read-only navigation only.
+  function viewRetrievalDiagnostics() {
+    const inspectorQuestion = documentRef.getElementById("inspector-question");
+    if (inspectorQuestion && lastGroundedSubmission) {
+      inspectorQuestion.value = lastGroundedSubmission.question;
+    }
+    const view = documentRef.defaultView;
+    if (view && view.location) {
+      view.location.hash = "#/inspect";
+    }
+  }
+
   elements.form.addEventListener("submit", submit);
   if (elements.toProposal) {
     elements.toProposal.addEventListener("click", proposeFromAnswer);
   }
-  return { submit, proposeFromAnswer };
+  if (elements.viewRetrieval) {
+    elements.viewRetrieval.addEventListener("click", viewRetrievalDiagnostics);
+  }
+  return { submit, proposeFromAnswer, viewRetrievalDiagnostics };
 }
 
 export function bootstrapAskUi(documentRef = document) {

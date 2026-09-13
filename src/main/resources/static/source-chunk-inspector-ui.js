@@ -120,6 +120,9 @@ export async function inspectSourceChunk(elements, chunkId, fetchImpl = fetch,
     showLocatorError(elements, undefined);
     return;
   }
+  // The locator panel lives in the diagnostics view (#375): bring it into view so a
+  // citation opened from the Ask view is actually visible to the user.
+  navigateToDiagnostics(documentRef);
   const sequence = ++inspectionSequence;
   elements.loading.hidden = false;
   // Repeated open must never show a stale previous locator: clear before fetching and on any
@@ -155,6 +158,13 @@ export async function inspectSourceChunk(elements, chunkId, fetchImpl = fetch,
   }
 }
 
+function navigateToDiagnostics(documentRef) {
+  const view = documentRef && documentRef.defaultView;
+  if (view && view.location) {
+    view.location.hash = "#/inspect";
+  }
+}
+
 export function createSourceChunkInspectorController(elements, fetchImpl = fetch,
                                                      documentRef = document) {
   const citations = documentRef.getElementById("citations");
@@ -170,6 +180,16 @@ export function createSourceChunkInspectorController(elements, fetchImpl = fetch
       void inspectSourceChunk(elements, chunkId, fetchImpl, documentRef);
     }
   });
+  // Workspace isolation (#375): a locator is a current-workspace projection.
+  if (documentRef && typeof documentRef.addEventListener === "function") {
+    documentRef.addEventListener("workspace-changed", () => {
+      clearAll(elements);
+      elements.loading.hidden = true;
+      elements.error.hidden = true;
+      elements.notFound.hidden = true;
+    });
+  }
+
   return { inspectSourceChunk: chunkId => inspectSourceChunk(elements, chunkId, fetchImpl,
     documentRef) };
 }
