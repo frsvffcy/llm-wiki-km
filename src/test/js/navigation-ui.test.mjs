@@ -42,7 +42,7 @@ class FakeLink {
 
 class FakeDocument {
   constructor() {
-    this.sections = ["home", "inbox", "ask", "inspect", "review"]
+    this.sections = ["home", "wiki", "inbox", "ask", "inspect", "review", "quality"]
       .map(route => new FakeSection(route));
     this.links = this.sections.map(section => new FakeLink(section.dataset.route));
     this.defaultView = {
