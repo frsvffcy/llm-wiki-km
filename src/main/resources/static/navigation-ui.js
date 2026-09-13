@@ -5,10 +5,11 @@
  * No framework, no inline script/style (strict CSP), no route-scoped re-rendering.
  */
 
-const ROUTES = Object.freeze(["home", "inbox", "ask", "inspect", "review"]);
+const ROUTES = Object.freeze(["home", "wiki", "inbox", "ask", "inspect", "review"]);
 
 export const VIEW_TITLES = Object.freeze({
   home: "工作區",
+  wiki: "Wiki",
   inbox: "收件匣",
   ask: "提問",
   inspect: "檢視器",

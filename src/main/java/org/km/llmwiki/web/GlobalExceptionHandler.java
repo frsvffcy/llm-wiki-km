@@ -14,7 +14,10 @@ import org.km.llmwiki.source.DocumentNotFoundException;
 import org.km.llmwiki.source.SourceChunkNotFoundException;
 import org.km.llmwiki.wiki.KnowledgeProposalNotFoundException;
 import org.km.llmwiki.wiki.WikiDraftLifecycleException;
+import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
+import org.km.llmwiki.wiki.PublishedWikiValidationException;
 import org.km.llmwiki.wiki.WikiDraftNotFoundException;
+import org.km.llmwiki.wiki.WikiPageNotFoundException;
 import org.km.llmwiki.wiki.WikiDraftTargetException;
 import org.km.llmwiki.wiki.WikiPublishException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
@@ -83,6 +86,25 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(WikiDraftNotFoundException.class)
     public ResponseEntity<ApiError> handleWikiDraftNotFound(WikiDraftNotFoundException exception) {
         return respond(HttpStatus.NOT_FOUND, "WIKI_DRAFT_NOT_FOUND", publicMessage(exception), exception);
+    }
+
+    @ExceptionHandler(WikiPageNotFoundException.class)
+    public ResponseEntity<ApiError> handleWikiPageNotFound(WikiPageNotFoundException exception) {
+        return respond(HttpStatus.NOT_FOUND, "WIKI_PAGE_NOT_FOUND", publicMessage(exception), exception);
+    }
+
+    @ExceptionHandler(PublishedWikiValidationException.class)
+    public ResponseEntity<ApiError> handlePublishedWikiValidation(PublishedWikiValidationException exception) {
+        // Content failed canonical validation (missing/drifted/invalid): the metadata
+        // exists but the page is no longer a trustworthy read — a distinct "失效" state.
+        return respond(HttpStatus.CONFLICT, "WIKI_PAGE_UNAVAILABLE",
+                publicMessage(exception, "Published Wiki content is unavailable"), exception);
+    }
+
+    @ExceptionHandler(PublishedWikiUnavailableException.class)
+    public ResponseEntity<ApiError> handlePublishedWikiUnavailable(PublishedWikiUnavailableException exception) {
+        return respond(HttpStatus.SERVICE_UNAVAILABLE, "WIKI_PAGE_UNAVAILABLE",
+                publicMessage(exception, "Published Wiki content is temporarily unavailable"), exception);
     }
 
     @ExceptionHandler(WikiDraftLifecycleException.class)
