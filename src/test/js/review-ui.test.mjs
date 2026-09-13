@@ -108,6 +108,7 @@ function proposalDetailRow(overrides = {}) {
     sourceDocument: { id: 3, fileName: "notes.pdf", sourcePath: "/host/absolute/inbox/notes.pdf" },
     evidence: [{ sourceChunkId: 9, chunkNo: 2, pageNo: 1, section: "arch",
       headingPath: "system > arch", content: "transformer 使用 self-attention" }],
+    allowedTransitions: ["APPROVED", "REJECTED"],
     ...overrides
   };
 }
@@ -180,7 +181,8 @@ test("detail renders evidence as text and hides host paths from the browser", as
   assert.doesNotMatch(detailText, /\/host\/absolute\/inbox\/notes\.pdf/u,
     "workspace-relative stored path must not be rendered (challenge 9)");
   const buttons = elements.proposalActions.children.map(child => child.textContent);
-  assert.deepEqual(buttons, ["核准", "拒絕"], "REVIEW offers approve/reject only");
+  assert.deepEqual(buttons, ["核准", "拒絕"],
+    "mutation buttons are derived from the response's allowedTransitions");
 });
 
 test("proposal transition patches the existing contract and never auto-publishes", async () => {
@@ -211,19 +213,73 @@ test("proposal transition patches the existing contract and never auto-publishes
     "an APPROVED proposal unlocks the draft lifecycle entry");
 });
 
-test("illegal transition surfaces the typed backend 400 instead of guessing", async () => {
+test("mutation buttons render only from the response capability and fail closed", async () => {
   const elements = uiElements();
+  const documentRef = fakeDocument();
+  const fetchImpl = async url => {
+    if (String(url) === "/api/v1/proposals/12") {
+      return jsonResponse(200, proposalDetailPayload({
+        status: "APPROVED", allowedTransitions: [] }));
+    }
+    return jsonResponse(200, { data: [], page: { number: 0, totalPages: 0 } });
+  };
+  const controller = createReviewController(elements, fetchImpl, documentRef);
+  await controller.selectProposal(12);
+  assert.equal(elements.proposalActions.children.length, 0,
+    "a terminal state's empty capability renders no mutation buttons");
+});
+
+test("a missing or malformed capability fails closed with no invented default", async () => {
+  const elements = uiElements();
+  const fetchImpl = async url => jsonResponse(200, proposalDetailPayload({
+    allowedTransitions: undefined }));
+  const controller = createReviewController(elements, fetchImpl, fakeDocument());
+  await controller.selectProposal(12);
+  assert.equal(elements.proposalActions.children.length, 0,
+    "missing capability renders no mutation buttons (challenge 4)");
+
+  const malformedElements = uiElements();
+  const malformedFetch = async url => jsonResponse(200, proposalDetailPayload({
+    allowedTransitions: "APPROVED" }));
+  const malformedController = createReviewController(malformedElements, malformedFetch,
+    fakeDocument());
+  await malformedController.selectProposal(12);
+  assert.equal(malformedElements.proposalActions.children.length, 0,
+    "malformed capability renders no mutation buttons");
+});
+
+test("unknown future transition targets are dropped instead of being offered", async () => {
+  const elements = uiElements();
+  const fetchImpl = async url => jsonResponse(200, proposalDetailPayload({
+    status: "DRAFT", allowedTransitions: ["REVIEW", "FUTURE_STATE"] }));
+  const controller = createReviewController(elements, fetchImpl, fakeDocument());
+  await controller.selectProposal(12);
+  const targets = elements.proposalActions.children.map(child => child.textContent);
+  assert.deepEqual(targets, ["送入審核"],
+    "unknown statuses are not offered as transitions (challenge 8)");
+});
+
+test("a typed stale transition failure reloads the authoritative state and stays visible", async () => {
+  const elements = uiElements();
+  let authoritative = proposalDetailPayload({ status: "REVIEW",
+    allowedTransitions: ["APPROVED", "REJECTED"] });
   const fetchImpl = async (url, options) => {
     if (options?.method === "PATCH") {
       return jsonResponse(400, {
-        error: { code: "INVALID_REQUEST", message: "illegal transition" }
+        error: { code: "INVALID_REQUEST", message: "stale transition" }
       });
     }
-    return jsonResponse(200, proposalDetailPayload());
+    // After the failure the guard re-reads; the authoritative state has narrowed.
+    return jsonResponse(200, authoritative);
   };
   const controller = createReviewController(elements, fetchImpl, fakeDocument());
+  authoritative = proposalDetailPayload({ status: "APPROVED", allowedTransitions: [] });
   await controller.transitionProposal(12, "APPROVED");
-  assert.match(elements.reviewHint.textContent, /此狀態轉換不被允許/u);
+
+  assert.match(elements.reviewHint.textContent, /此狀態轉換不被允許/u,
+    "typed failure stays visible after the re-read");
+  assert.equal(elements.proposalActions.children.length, 0,
+    "buttons reflect the authoritative post-failure capability (challenge 3)");
 });
 
 test("create draft posts proposalId and renders the backend-owned draft state", async () => {
@@ -409,6 +465,17 @@ test("workspace switch clears proposal, draft, and publish state", async () => {
   assert.equal(elements.draftPanel.hidden, true);
   assert.equal(elements.publishResult.hidden, true);
   assert.match(calls.at(-1), /page=0&size=20$/u);
+});
+
+test("the browser holds no proposal transition state machine copy (#370)", async () => {
+  const source = await readFile(
+    new URL("../../main/resources/static/review-ui.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /TRANSITIONS\s*=/u,
+    "the removed hardcoded matrix must not return");
+  assert.doesNotMatch(source, /case\s+["']?APPROVED/u,
+    "no switch/if replacement of the transition matrix (challenge 1)");
+  assert.match(source, /allowedTransitions/u,
+    "mutation buttons are driven by the backend capability projection");
 });
 
 test("the module never injects markup via innerHTML", async () => {
