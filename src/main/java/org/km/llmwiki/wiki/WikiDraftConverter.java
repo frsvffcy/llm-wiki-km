@@ -55,7 +55,11 @@ public class WikiDraftConverter {
         List<WikiDraftSection> sections = sections(data, summary);
         List<WikiDraftWikilink> wikilinks = wikilinks(data);
 
-        WikiPage page = WikiPage.create(title, pageType, summary, tags, aliases, List.of(source.documentId()));
+        // Document lineage: analysis proposals carry their own document; ASK-sourced
+        // proposals (#374) derive it from their evidence chunks' documents.
+        List<Long> sourceDocumentIds = source.documentId() != null
+                ? List.of(source.documentId()) : source.evidenceDocumentIds();
+        WikiPage page = WikiPage.create(title, pageType, summary, tags, aliases, sourceDocumentIds);
         String authoritativeLogicalPath = pathAuthority.resolveLogicalPath(pageType, title);
         if (!page.logicalRelativePath().equals(authoritativeLogicalPath)) {
             throw new WikiDraftValidationException(WikiDraftValidationException.Reason.PATH_CONTRACT_MISMATCH,

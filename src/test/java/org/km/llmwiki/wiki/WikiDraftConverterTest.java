@@ -62,9 +62,9 @@ class WikiDraftConverterTest {
 
     @Test
     void rejectsNonApprovedAndUnsupportedActions() {
-        WikiDraftConversionSource review = new WikiDraftConversionSource(9, 1, 2, LlmProposalAction.CREATE,
+        WikiDraftConversionSource review = new WikiDraftConversionSource(9, 1, 2L, LlmProposalAction.CREATE,
                 KnowledgeProposalStatus.REVIEW, null, "{}", KnowledgeCandidateType.CONCEPT, "Title", "Summary",
-                List.of(11L), List.of(evidence(11, 1)));
+                List.of(11L), List.of(evidence(11, 1)), List.of(2L));
 
         assertThatThrownBy(() -> converter.convert(review))
                 .isInstanceOf(WikiDraftValidationException.class)
@@ -94,14 +94,14 @@ class WikiDraftConverterTest {
 
     @Test
     void keepsMergeTargetSemanticAndUnresolvedForLaterResolution() {
-        WikiDraftConversionSource merge = new WikiDraftConversionSource(9, 1, 2, LlmProposalAction.MERGE,
+        WikiDraftConversionSource merge = new WikiDraftConversionSource(9, 1, 2L, LlmProposalAction.MERGE,
                 KnowledgeProposalStatus.APPROVED, "wiki:deployment-runbook", """
                 {
                   "pageType":"HOWTO",
                   "sections":[{"heading":"Steps","content":"Deploy deterministically."}]
                 }
                 """, KnowledgeCandidateType.PROCEDURE, "Deployment Runbook", "Deployment steps",
-                List.of(11L), List.of(evidence(11, 1)));
+                List.of(11L), List.of(evidence(11, 1)), List.of(2L));
 
         WikiDraft draft = converter.convert(merge);
 
@@ -112,9 +112,9 @@ class WikiDraftConverterTest {
     }
 
     private static WikiDraftConversionSource source(LlmProposalAction action, String target, String data) {
-        return new WikiDraftConversionSource(9, 1, 2, action, KnowledgeProposalStatus.APPROVED, target, data,
+        return new WikiDraftConversionSource(9, 1, 2L, action, KnowledgeProposalStatus.APPROVED, target, data,
                 KnowledgeCandidateType.CONCEPT, "Candidate Title", "Candidate summary",
-                List.of(11L), List.of(evidence(22, 2), evidence(11, 1)));
+                List.of(11L), List.of(evidence(22, 2), evidence(11, 1)), List.of(2L));
     }
 
     private static KnowledgeProposalEvidence evidence(long id, int chunkNo) {

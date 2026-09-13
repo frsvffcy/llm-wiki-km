@@ -45,7 +45,8 @@ function uiElements() {
     citationCount: new FakeElement(), contextDiagnostics: new FakeElement(),
     contextDiagnosticsList: new FakeElement(), aiEgress: new FakeElement(),
     aiEgressLabel: new FakeElement(), aiEgressDetail: new FakeElement(),
-    aiEgressToggle: new FakeElement()
+    aiEgressToggle: new FakeElement(),
+    toProposal: new FakeElement(), toProposalHint: new FakeElement()
   };
 }
 
@@ -555,4 +556,129 @@ test("refreshes the indicator after every completed submit to avoid stale destin
   await controller.submit(event());
 
   assert.ok(egressCalls >= 1, "submit must refresh the egress indicator");
+});
+
+// --- Governed Ask -> Proposal hand-off (#374) ---
+
+function proposalEnvelope(duplicate = false) {
+  return {
+    ok: true,
+    async json() {
+      return { data: { proposal: { id: 77, status: "REVIEW" }, duplicate } };
+    }
+  };
+}
+
+function groundedPayload() {
+  return {
+    ok: true,
+    async json() {
+      return {
+        data: {
+          status: "ANSWERED",
+          answer: "Transformer 以 self-attention 為核心。",
+          insufficientEvidence: false,
+          citations: [
+            { citationId: "E1", evidenceKind: "SOURCE_CHUNK",
+              provenance: { type: "SOURCE", documentName: "a.pdf", sourceChunkId: 201 } },
+            { citationId: "E2", evidenceKind: "WIKI",
+              provenance: { type: "WIKI", title: "Attention", path: "vault/concepts/attention.md", revision: 2 } }
+          ],
+          providerMetadata: { provider: "openai-compatible", model: "gpt-test" }
+        }
+      };
+    }
+  };
+}
+
+test("the proposal hand-off is explicit, grounded-only, and posts the governed payload", async () => {
+  const elements = uiElements();
+  const calls = [];
+  let answered = false;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method, body: options?.body });
+    if (String(url) === "/api/v1/ask") {
+      answered = true;
+      return groundedPayload();
+    }
+    if (String(url) === "/api/v1/ask/proposals") {
+      return proposalEnvelope(false);
+    }
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  };
+  const controller = createAskController(elements, fetchImpl, documentRef);
+  elements.question.value = "transformer 的核心架構原則是什麼？";
+
+  // Before any ask, the hand-off must not be offered or callable.
+  await controller.proposeFromAnswer();
+  assert.equal(calls.filter(call => String(call.url).includes("/ask/proposals")).length, 0,
+    "no proposal can be created without a grounded answer");
+
+  await elements.form.handlers.get("submit")({ preventDefault() {} });
+  assert.equal(answered, true);
+  assert.equal(elements.toProposal.hidden, false);
+
+  await elements.toProposal.handlers.get("click")();
+  const proposalCall = calls.find(call => String(call.url) === "/api/v1/ask/proposals");
+  assert.equal(proposalCall.method, "POST");
+  const body = JSON.parse(proposalCall.body);
+  assert.equal(body.question, "transformer 的核心架構原則是什麼？");
+  assert.equal(body.answerText, "Transformer 以 self-attention 為核心。");
+  assert.equal(body.provider, "openai-compatible");
+  assert.equal(body.model, "gpt-test");
+  assert.equal(body.citations[0].sourceChunkId, 201);
+  assert.equal(body.citations[0].kind, "SOURCE");
+  assert.equal(body.citations[1].kind, "WIKI");
+  assert.equal(body.citations[1].wikiPath, "vault/concepts/attention.md");
+  assert.equal(body.citations[1].wikiRevision, 2);
+  assert.ok(!JSON.stringify(body).includes('"sourceChunkId":null'),
+    "WIKI citations must not carry a null chunk id");
+  assert.match(elements.toProposalHint.textContent, /Proposal 已建立並進入審核佇列/u);
+});
+
+test("double-submit is guarded and typed failures surface without success copy", async () => {
+  const elements = uiElements();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    if (String(url) === "/api/v1/ask") {
+      return groundedPayload();
+    }
+    if (String(url) === "/api/v1/ask/proposals") {
+      calls.push("proposal");
+      await gate;
+      return proposalEnvelope(false);
+    }
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  };
+  const controller = createAskController(elements, fetchImpl, documentRef);
+  elements.question.value = "transformer 的核心架構原則是什麼？";
+  await elements.form.handlers.get("submit")({ preventDefault() {} });
+  const first = elements.toProposal.handlers.get("click")();
+  const second = elements.toProposal.handlers.get("click")();
+  release();
+  await Promise.all([first, second]);
+  assert.equal(calls.filter(entry => entry === "proposal").length, 1,
+    "in-flight hand-off blocks a second submission");
+
+  // Typed failure: the stale-citation copy replaces any success hint.
+  let stale = true;
+  const staleFetch = async (url, options) => {
+    if (String(url) === "/api/v1/ask") return groundedPayload();
+    if (String(url) === "/api/v1/ask/proposals") {
+      return { ok: false, status: 422, json: async () => ({
+        error: { code: "ASK_CITATION_INVALID", message: "stale" } }) };
+    }
+    return jsonResponse({ data: { disclosures: [] } });
+  };
+  const staleElements = uiElements();
+  const staleController = createAskController(staleElements, staleFetch, documentRef);
+  staleElements.question.value = "transformer 的核心架構原則是什麼？";
+  await staleElements.form.handlers.get("submit")({ preventDefault() {} });
+  await staleElements.toProposal.handlers.get("click")();
+  assert.match(staleElements.toProposalHint.textContent,
+    /引用的證據已失效/u, "stale citations surface a typed, actionable failure");
+  assert.equal(staleElements.toProposal.disabled, false,
+    "a failed hand-off stays retryable");
 });

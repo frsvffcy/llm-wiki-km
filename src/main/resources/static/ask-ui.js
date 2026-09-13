@@ -318,6 +318,12 @@ export function renderAskResponse(elements, payload, documentRef = document) {
 
   elements.answer.hidden = false;
   renderContextDiagnostics(elements, data.executionMetadata, documentRef);
+  // The governed hand-off is offered only for a grounded answer (#374).
+  if (elements.toProposal) {
+    elements.toProposal.hidden = false;
+    elements.toProposal.disabled = false;
+    elements.toProposalHint.textContent = "";
+  }
   elements.answerText.textContent = data.answer;
   const citations = data.citations;
   elements.citationCount.textContent = `${citations.length} 筆`;
@@ -383,6 +389,13 @@ function showError(elements, error) {
   elements.citationCount.textContent = "";
   elements.metadata.hidden = true;
   elements.metadata.replaceChildren();
+  if (elements.toProposal) {
+    elements.toProposal.hidden = false;
+    elements.toProposal.disabled = false;
+  }
+  if (elements.toProposalHint) {
+    elements.toProposalHint.textContent = "";
+  }
 }
 
 function elementsFrom(documentRef) {
@@ -408,12 +421,16 @@ function elementsFrom(documentRef) {
     aiEgressLabel: documentRef.getElementById("ai-egress-label"),
     aiEgressDetail: documentRef.getElementById("ai-egress-detail"),
     citations: documentRef.getElementById("citations"),
-    citationCount: documentRef.getElementById("citation-count")
+    citationCount: documentRef.getElementById("citation-count"),
+    toProposal: documentRef.getElementById("ask-to-proposal"),
+    toProposalHint: documentRef.getElementById("ask-to-proposal-hint")
   };
 }
 
 export function createAskController(elements, fetchImpl = fetch, documentRef = document) {
   let inFlight = false;
+  let proposalInFlight = false;
+  let lastGroundedSubmission = null;
   const submitLabel = elements.submit.textContent || "取得回答";
 
   if (elements.aiEgressToggle && elements.aiEgressDetail) {
@@ -460,6 +477,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
       if (!response.ok || !payload.data) {
         showError(elements, payload.error, documentRef);
       } else {
+        lastGroundedSubmission = { question: question.trim(), data: payload.data };
         renderAskResponse(elements, payload, documentRef);
       }
     } catch {
@@ -474,8 +492,62 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     }
   }
 
+  // Explicit Ask -> Proposal hand-off (#374): a separate governed mutation command,
+  // never an Ask side effect. Only a grounded answer can be handed off, with a
+  // double-submit guard and typed failure display.
+  async function proposeFromAnswer() {
+    if (proposalInFlight || !lastGroundedSubmission) return;
+    const data = lastGroundedSubmission.data;
+    const citations = (data.citations || []).map(citation => ({
+      evidenceId: citation.citationId,
+      kind: citation.evidenceKind === "WIKI" ? "WIKI" : "SOURCE",
+      sourceChunkId: citation.provenance && citation.provenance.sourceChunkId,
+      wikiPath: citation.provenance && citation.provenance.path,
+      wikiRevision: citation.provenance && citation.provenance.revision
+    }));
+    proposalInFlight = true;
+    elements.toProposal.disabled = true;
+    elements.toProposalHint.textContent = "建立 Proposal 中…";
+    try {
+      const response = await fetchImpl("/api/v1/ask/proposals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          question: lastGroundedSubmission.question,
+          answerText: data.answer,
+          provider: data.providerMetadata && data.providerMetadata.provider,
+          model: data.providerMetadata && data.providerMetadata.model,
+          citations
+        })
+      });
+      let envelope;
+      try { envelope = await response.json(); } catch { envelope = {}; }
+      if (!response.ok) {
+        // A failed hand-off stays retryable: only a successful creation pins the button.
+        elements.toProposal.disabled = false;
+        const code = envelope && envelope.error && envelope.error.code;
+        elements.toProposalHint.textContent = code === "ASK_CITATION_INVALID"
+          ? "Proposal 建立失敗：引用的證據已失效或不在目前工作區，請重新提問後再試。"
+          : "Proposal 建立失敗，請稍後再試。";
+        return;
+      }
+      const duplicate = envelope.data && envelope.data.duplicate;
+      elements.toProposalHint.textContent = duplicate
+        ? "此結果先前已建立 Proposal，已在審核佇列中。可前往審核工作台繼續。"
+        : "Proposal 已建立並進入審核佇列（REVIEW）。後續仍需人工核准與發布。可前往審核工作台繼續。";
+      elements.toProposal.disabled = true;
+    } catch {
+      elements.toProposalHint.textContent = "Proposal 建立失敗，請稍後再試。";
+    } finally {
+      proposalInFlight = false;
+    }
+  }
+
   elements.form.addEventListener("submit", submit);
-  return { submit };
+  if (elements.toProposal) {
+    elements.toProposal.addEventListener("click", proposeFromAnswer);
+  }
+  return { submit, proposeFromAnswer };
 }
 
 export function bootstrapAskUi(documentRef = document) {
