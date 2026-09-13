@@ -442,3 +442,40 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .publish-outcome { font-weight: 700; color: var(--accent-dark); }
 .publish-outcome--created { color: var(--accent); }
 .publish-meta { font-size: 0.85rem; color: var(--muted); }
+
+/* --- Published Wiki workspace (#373) --- */
+.wiki-list { list-style: none; margin: 0; padding: 0; }
+.wiki-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.wiki-item-title { font-weight: 600; margin-bottom: 2px; }
+.wiki-item-meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 2px; }
+.wiki-item-id { color: var(--muted); font-size: 0.78rem; margin-bottom: 6px; }
+.wiki-list .wiki-open,
+.inbox-actions .wiki-handoff {
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.wiki-list .wiki-open:hover,
+.inbox-actions .wiki-handoff:hover { border-color: var(--accent); color: var(--accent-dark); }
+.wiki-read-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 4px; }
+.wiki-read-meta { margin-bottom: 8px; }
+.wiki-read-meta p { margin-bottom: 2px; }
+.wiki-read-meta .wiki-read-meta { color: var(--muted); }
+.wiki-read-hash { font-size: 0.75rem; color: var(--muted); word-break: break-all; }
+.wiki-read-body {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  max-height: 560px;
+  overflow: auto;
+}

@@ -10,6 +10,7 @@
   <script type="module" src="/navigation-ui.js"></script>
   <script type="module" src="/workspace-ui.js"></script>
   <script type="module" src="/inbox-ui.js"></script>
+  <script type="module" src="/wiki-ui.js"></script>
   <script type="module" src="/review-ui.js"></script>
   <script type="module" src="/ask-ui.js"></script>
   <script type="module" src="/graph-operations-ui.js"></script>
@@ -26,6 +27,7 @@
 
     <nav class="app-nav" aria-label="主要導覽">
       <a href="#/home" data-route-link="home">工作區</a>
+      <a href="#/wiki" data-route-link="wiki">Wiki</a>
       <a href="#/inbox" data-route-link="inbox">收件匣</a>
       <a href="#/ask" data-route-link="ask">提問</a>
       <a href="#/inspect" data-route-link="inspect">檢視器</a>
@@ -92,6 +94,66 @@
           </div>
         </div>
         <ul id="workspace-list" class="workspace-list"></ul>
+      </section>
+    </section>
+
+    <section id="view-wiki" data-route="wiki" class="view" aria-label="Wiki" hidden>
+      <h2 data-view-heading tabindex="-1">Wiki</h2>
+
+      <section class="panel" aria-labelledby="wiki-list-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PUBLISHED WIKI</p>
+            <h3 id="wiki-list-heading">已發布知識</h3>
+          </div>
+        </div>
+        <form id="wiki-filter-form" novalidate>
+          <div class="field-group">
+            <label for="wiki-type-filter">類型篩選</label>
+            <select id="wiki-type-filter" name="pageType">
+              <option value="">全部</option>
+              <option value="CONCEPT">概念</option>
+              <option value="TECHNOLOGY">技術</option>
+              <option value="TROUBLESHOOTING">疑難排解</option>
+              <option value="DECISION">決策</option>
+              <option value="PROJECT">專案</option>
+              <option value="REFERENCE">參考</option>
+              <option value="HOWTO">操作指南</option>
+              <option value="PERSON">人物</option>
+              <option value="ORGANIZATION">組織</option>
+            </select>
+          </div>
+          <button id="wiki-filter-submit" type="submit">套用篩選</button>
+        </form>
+        <p id="wiki-hint" class="form-hint" role="status" aria-live="polite"></p>
+        <p id="wiki-empty" class="empty-state" hidden>
+          目前沒有已發布的 Wiki 頁面。透過收件匣與審核工作台發布後即可在此閱讀。
+        </p>
+        <ul id="wiki-list" class="wiki-list"></ul>
+        <div class="inbox-pager">
+          <button id="wiki-prev-page" type="button" class="secondary-button">上一頁</button>
+          <span id="wiki-page-info" class="inbox-page-info"></span>
+          <button id="wiki-next-page" type="button" class="secondary-button">下一頁</button>
+        </div>
+      </section>
+
+      <section id="wiki-read-panel" class="panel" aria-labelledby="wiki-read-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">READ</p>
+            <h3 id="wiki-read-heading">閱讀</h3>
+          </div>
+          <button id="wiki-read-close" type="button" class="secondary-button">關閉</button>
+        </div>
+        <div id="wiki-read-meta" class="wiki-read-meta"></div>
+        <pre id="wiki-read-body" class="wiki-read-body"></pre>
+        <div class="inbox-actions" aria-label="後續動作">
+          <a class="wiki-handoff" href="#/ask">前往提問</a>
+          <a class="wiki-handoff" href="#/inspect">前往檢視器</a>
+        </div>
+        <p class="panel-description">
+          內容為 backend hash 驗證後的 canonical 版本；閱讀不會改變任何 persistent state。
+        </p>
       </section>
     </section>
 
