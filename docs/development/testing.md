@@ -1552,3 +1552,41 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Query transformation release decision 測試責任（#408）
+
+#408 只做 release decision（`CONDITIONAL GO / KEEP DISABLED`），不切換 production
+default、不新增 public retrieval mode。完整 procedure、re-gate evidence、三臂比較與
+decision 見 `docs/development/issue-408-query-transformation-release-decision.md`（本節只定義
+executable ownership，不另立相異規則）。
+
+- `ai.query.QueryRewriteLiveMeasurementProcedureTest`（unit tier）：`query-rewrite-live-
+  measurement-v1` 的 executable contract——procedure version 形狀、`UNAVAILABLE` 不得零填充、
+  `AVAILABLE` 至少一 counter、disabled provider fail-closed 無 egress、exact-token blocking
+  （無第二次 retrieval）、`DiagnosticRedaction`＋`ProviderEndpointSecurityPolicy` 一致性。
+  CI 永不使用 live provider／network／key。
+- `rag.QueryTransformationReleaseComparisonIntegrationTest`（integration tier）：同一
+  corpus（`query-transformation-evaluation-corpus-v1`）三臂比較——`BASELINE_ORIGINAL_K8`
+ （k=8 零 egress）、`SINGLE_REWRITE_K8`（protected fixture、original-first、fan-out ≤2、
+  k=8）、`PROVIDER_FREE_WINDOW_12`（evaluation-only bounded k=12、零 egress、單 input、
+  不改 production budget）。Blocking gates：forbidden／canonical／foreign、original-first、
+  fan-out、exact-token／graph-added retention、window-12 零 egress 形狀、兩次 pass 可重現；
+  per-query deltas 與 noise／code-point 成本並呈，不以 aggregate 掩蓋 query-class regression。
+  Report 寫出 `target/quality-reports/query-transformation-release-comparison-v1.{json,md}`
+ （git-ignored runtime evidence）。
+
+Live provider 欄位（token usage、rewrite latency、end-to-end delta、timeout／rate-limit
+分布、真實 rewrite 品質）在無 configured provider 時一律 typed `UNAVAILABLE`，不得偽造；
+`GO TO DEFAULT ENABLEMENT` 必須有 live evidence，否則只能 `KEEP DISABLED`。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='QueryRewriteLiveMeasurementProcedureTest' test -Pfast
+mvn -Dtest='QueryTransformationReleaseComparisonIntegrationTest,QueryTransformationEvaluationIntegrationTest' test -Pintegration
+mvn -Dtest='GraphRetrievalQualityGateTest,GraphRetrievalGeneralizationEvaluationTest,RerankEvaluationIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
