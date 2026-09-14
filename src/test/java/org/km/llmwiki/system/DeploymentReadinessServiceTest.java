@@ -2,6 +2,7 @@ package org.km.llmwiki.system;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.km.llmwiki.testsupport.OwnerCredentialFixtures;
 import org.km.llmwiki.web.security.OwnerSecurityProperties;
 
 import java.util.List;
@@ -11,23 +12,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("unit")
 class DeploymentReadinessServiceTest {
 
-    private static final String HASH =
-            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-
     private static final String REMOTE_HTTP_ORIGIN = "http://100.64.0.5:8766";
 
     private static OwnerSecurityProperties ownerDisabled() {
-        return new OwnerSecurityProperties(false, "", null, null, 0, false,
+        return new OwnerSecurityProperties(false, "", "", null, null, 0, false,
                 null, null, null, null, false, 0, null, 0, null);
     }
 
     private static OwnerSecurityProperties ownerEnabled() {
-        return new OwnerSecurityProperties(true, HASH, null, null, 0, true,
+        return new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
+                null, null, 0, true,
                 null, null, null, null, false, 0, null, 0, null);
     }
 
     private static OwnerSecurityProperties ownerHttpIngress() {
-        return new OwnerSecurityProperties(true, HASH, null, null, 0, false,
+        return new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
+                null, null, 0, false,
                 null,
                 List.of("localhost", "127.0.0.1", "100.64.0.5"),
                 List.of("http://localhost:8765", "http://127.0.0.1:8765", REMOTE_HTTP_ORIGIN),
@@ -95,8 +95,14 @@ class DeploymentReadinessServiceTest {
 
         // http ingress with a Secure cookie could never establish a Browser
         // session, so readiness must stay NOT_READY instead of SUPPORTED.
+        OwnerSecurityProperties secureRemote = new OwnerSecurityProperties(true, "",
+                OwnerCredentialFixtures.VERIFIER_600K,
+                null, null, 0, true, null,
+                List.of("localhost", "127.0.0.1", "100.64.0.5"),
+                List.of("http://localhost:8765", "http://127.0.0.1:8765", REMOTE_HTTP_ORIGIN),
+                null, false, 0, null, 0, null);
         DeploymentReadiness readiness =
-                new DeploymentReadinessService(properties, ownerEnabled(), "127.0.0.1", 8765)
+                new DeploymentReadinessService(properties, secureRemote, "127.0.0.1", 8765)
                         .current();
 
         assertThat(readiness.supportState()).isEqualTo(DeploymentReadiness.NOT_READY);
@@ -113,10 +119,35 @@ class DeploymentReadinessServiceTest {
 
         // Cookie transport matches (plain http), but the owner allowlists never
         // learned the remote ingress host/origin, so readiness stays NOT_READY.
-        OwnerSecurityProperties localhostCookieProfile = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties localhostCookieProfile = new OwnerSecurityProperties(true, "",
+                OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, false, null, null, null, null, false, 0, null, 0, null);
         DeploymentReadiness readiness =
                 new DeploymentReadinessService(properties, localhostCookieProfile, "127.0.0.1", 8765)
+                        .current();
+
+        assertThat(readiness.supportState()).isEqualTo(DeploymentReadiness.NOT_READY);
+    }
+
+    @Test
+    void privateIngressWithLegacyHashIsNotReady() {
+        // #423 §D: a weak legacy verifier must never be reported as a hardened
+        // remote security profile.
+        DeploymentProperties properties = new DeploymentProperties(
+                DeploymentMode.PRIVATE_INGRESS,
+                List.of("100.64.0.5:8766"),
+                "127.0.0.1:8765",
+                1,
+                REMOTE_HTTP_ORIGIN);
+
+        OwnerSecurityProperties legacyRemote = new OwnerSecurityProperties(true,
+                "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "",
+                null, null, 0, false, null,
+                List.of("localhost", "127.0.0.1", "100.64.0.5"),
+                List.of("http://localhost:8765", "http://127.0.0.1:8765", REMOTE_HTTP_ORIGIN),
+                null, false, 0, null, 0, null);
+        DeploymentReadiness readiness =
+                new DeploymentReadinessService(properties, legacyRemote, "127.0.0.1", 8765)
                         .current();
 
         assertThat(readiness.supportState()).isEqualTo(DeploymentReadiness.NOT_READY);

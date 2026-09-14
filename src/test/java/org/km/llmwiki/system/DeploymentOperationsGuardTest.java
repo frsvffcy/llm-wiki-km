@@ -91,7 +91,7 @@ class DeploymentOperationsGuardTest {
                 "OWNER_ALLOWED_ORIGINS=",
                 "OWNER_COOKIE_SECURE=",
                 "OWNER_AUTH_ENABLED=",
-                "OWNER_PASSWORD_HASH=",
+                "OWNER_PASSWORD_VERIFIER=",
                 "DEPLOYMENT_MODE=PRIVATE_INGRESS",
                 "DEPLOYMENT_FORWARDER_BINDS=",
                 "DEPLOYMENT_FORWARDER_TARGET=")) {
@@ -99,6 +99,12 @@ class DeploymentOperationsGuardTest {
                     .as("owner.env.example must document %s", required)
                     .contains(required);
         }
+        // #423: the example must teach the versioned verifier, never the legacy
+        // hash as a current credential line.
+        assertThat(example.lines().anyMatch(line ->
+                        line.strip().startsWith("OWNER_PASSWORD_HASH=")))
+                .as("owner.env.example must not offer a legacy hash credential line")
+                .isFalse();
         assertThat(example).doesNotContain("0.0.0.0");
     }
 

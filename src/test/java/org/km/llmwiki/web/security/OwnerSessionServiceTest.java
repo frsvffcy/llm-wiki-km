@@ -10,28 +10,16 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.km.llmwiki.testsupport.OwnerCredentialFixtures;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Tag("unit")
 class OwnerSessionServiceTest {
 
-    private static final String PASSWORD = "correct horse battery staple";
-    private static final String PASSWORD_HASH = sha256Hex(PASSWORD);
-    private static final String WRONG_HASH = sha256Hex("something else entirely");
-
-    static String sha256Hex(String value) {
-        try {
-            var digest = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder();
-            for (byte part : bytes) {
-                hex.append(String.format("%02x", part));
-            }
-            return hex.toString();
-        } catch (java.security.NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
-    }
+    private static final String PASSWORD = OwnerCredentialFixtures.PASSWORD;
+    private static final String VERIFIER = OwnerCredentialFixtures.VERIFIER_600K;
+    private static final String LEGACY_HASH = OwnerCredentialFixtures.LEGACY_HASH;
 
     static final class MutableClock extends Clock {
         private final AtomicReference<Instant> now;
@@ -61,7 +49,15 @@ class OwnerSessionServiceTest {
     }
 
     private OwnerSessionService service(MutableClock clock) {
-        OwnerSecurityProperties properties = new OwnerSecurityProperties(true, PASSWORD_HASH,
+        OwnerSecurityProperties properties = new OwnerSecurityProperties(true, "", VERIFIER,
+                Duration.ofHours(12), Duration.ofMinutes(30), 8, true, "km-owner-session",
+                List.of("localhost"), List.of("http://localhost:8765"), List.of(), false,
+                5, Duration.ofMinutes(1), 60, Duration.ofMinutes(1));
+        return new OwnerSessionService(properties, clock);
+    }
+
+    private OwnerSessionService legacyService(MutableClock clock) {
+        OwnerSecurityProperties properties = new OwnerSecurityProperties(true, LEGACY_HASH, "",
                 Duration.ofHours(12), Duration.ofMinutes(30), 8, true, "km-owner-session",
                 List.of("localhost"), List.of("http://localhost:8765"), List.of(), false,
                 5, Duration.ofMinutes(1), 60, Duration.ofMinutes(1));
@@ -77,6 +73,24 @@ class OwnerSessionServiceTest {
         assertThat(sessions.passwordMatches("wrong")).isFalse();
         assertThat(sessions.passwordMatches(null)).isFalse();
         assertThat(sessions.passwordMatches("")).isFalse();
+    }
+
+    @Test
+    void legacyHashRemainsUsableAsABoundedMigrationAid() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-14T00:00:00Z"));
+        OwnerSessionService sessions = legacyService(clock);
+
+        assertThat(sessions.passwordMatches(PASSWORD)).isTrue();
+        assertThat(sessions.passwordMatches("wrong")).isFalse();
+    }
+
+    @Test
+    void oversizedPasswordsFailClosedBeforeKeyDerivation() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-14T00:00:00Z"));
+        OwnerSessionService sessions = service(clock);
+
+        assertThat(sessions.passwordMatches("x".repeat(513))).isFalse();
+        assertThat(legacyService(clock).passwordMatches("x".repeat(513))).isFalse();
     }
 
     @Test
@@ -195,7 +209,7 @@ class OwnerSessionServiceTest {
     @Test
     void sessionBoundIsEnforcedByEvictingTheOldest() {
         MutableClock clock = new MutableClock(Instant.parse("2026-09-14T00:00:00Z"));
-        OwnerSecurityProperties properties = new OwnerSecurityProperties(true, WRONG_HASH,
+        OwnerSecurityProperties properties = new OwnerSecurityProperties(true, "", VERIFIER,
                 Duration.ofHours(12), Duration.ofMinutes(30), 2, true, "km-owner-session",
                 List.of("localhost"), List.of("http://localhost:8765"), List.of(), false,
                 5, Duration.ofMinutes(1), 60, Duration.ofMinutes(1));
