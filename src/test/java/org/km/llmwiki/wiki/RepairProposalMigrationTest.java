@@ -64,6 +64,12 @@ class RepairProposalMigrationTest {
                 .query(String.class).list())
                 .containsExactlyInAnyOrder("idx_knowledge_proposal_ask_dedup",
                         "idx_knowledge_proposal_repair_dedup");
+        assertThat(raw.sql("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_knowledge_proposal_ask_dedup'")
+                .query(String.class).single())
+                .contains("WHERE source_kind = 'ASK' AND status != 'REJECTED'");
+        assertThat(raw.sql("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_knowledge_proposal_repair_dedup'")
+                .query(String.class).single())
+                .contains("WHERE source_kind = 'REPAIR' AND status != 'REJECTED'");
 
         // The extended CHECK accepts REPAIR and rejects anything else.
         raw.sql("""

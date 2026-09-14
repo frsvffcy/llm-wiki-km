@@ -294,9 +294,18 @@ test("module carries no mutation affordance beyond the governed repair command",
   // No finding-code decision matrix: the action exists solely from the backend
   // capability, codes only map to presentation labels, unknown codes fail closed.
   // (The [^=] guards distinguish assignment from === / !== comparisons.)
-  assert.doesNotMatch(source, /entry\.repairEligible\s*=\s*[^=]/);
+  assert.doesNotMatch(source, /(?:\.repairEligible|\[\s*["']repairEligible["']\s*\])\s*=\s*[^=]/);
   assert.doesNotMatch(source, /repairEligible\s*=\s*[^=]true/);
-  assert.doesNotMatch(source, /case\s*"(BROKEN_INTERNAL_LINK|ORPHAN_PAGE|CANONICAL_CONTENT_INVALID)"/);
+  for (const code of [
+    "BROKEN_INTERNAL_LINK",
+    "ORPHAN_PAGE",
+    "CANONICAL_CONTENT_INVALID",
+    "CANONICAL_CONTENT_UNREADABLE",
+    "DUPLICATE_IDENTITY",
+    "DANGLING_PROVENANCE"
+  ]) {
+    assert.doesNotMatch(source, new RegExp(`case\\s*"${code}"`));
+  }
   assert.match(source, /workspace-changed/);
   assert.equal(repairRefusalLabel("AMBIGUOUS_TARGET"), "連結目標不明確，無法推導修復動作，僅供分類檢視。");
   assert.equal(repairRefusalLabel("SOMETHING_NEW"), "SOMETHING_NEW");
