@@ -12,19 +12,20 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Remote Personal Deployment baseline guard (#393 evaluation).
+ * Remote Personal Deployment security-boundary guard (#393 evaluation, #417 adoption).
  *
- * <p>Locks the localhost trust boundary the CONDITIONAL GO verdict depends on:
- * the application binds {@code 127.0.0.1} only, and no application-owned
- * Internet security boundary (authentication, session, CSRF, trusted-proxy
- * handling, TLS) exists yet. Any pull request that changes the bind address,
- * introduces such a boundary, or adds Origin checking to {@code /api/v1}
- * must consciously update this guard together with the #393 evaluation —
- * a silent {@code 0.0.0.0} flip fails here first.
+ * <p>Locks the invariants the CONDITIONAL GO verdict depends on: the
+ * application binds {@code 127.0.0.1} only, the single-user owner security
+ * boundary stays application-owned and bounded (no framework security chain,
+ * no multi-user schema, no silent {@code 0.0.0.0} flip), and {@code Origin}
+ * checking exists exactly in the MCP loopback guard and the owner
+ * {@code /api/v1} boundary — nowhere else.
  *
- * <p>When the Security adoption issue lands a real Internet boundary, rewrite
- * these assertions into the new contract (bind strategy, session, CSRF,
- * trusted-proxy allowlist); do not silently delete this class.
+ * <p>Rewritten by #417 from the pre-adoption tripwire (which asserted that no
+ * application Internet boundary existed) into the adoption contract. Any pull
+ * request that changes the bind address, widens the boundary, or adds Origin
+ * checking elsewhere must consciously update this guard together with the
+ * #393 evaluation — a silent exposure flip fails here first.
  */
 @Tag("unit")
 class RemotePersonalDeploymentBaselineGuardTest {
@@ -44,7 +45,7 @@ class RemotePersonalDeploymentBaselineGuardTest {
     }
 
     @Test
-    void noApplicationInternetSecurityBoundaryExistsYet() throws Exception {
+    void ownerBoundaryStaysApplicationOwnedWithoutFrameworkSecurityChain() throws Exception {
         List<Path> sources;
         try (Stream<Path> paths = Files.walk(PRODUCTION_ROOT)) {
             sources = paths.filter(path -> path.toString().endsWith(".java")).toList();
@@ -63,20 +64,49 @@ class RemotePersonalDeploymentBaselineGuardTest {
             }
         }
         assertThat(offenders)
-                .as("#393 evaluated an application with no auth/session/CSRF/trusted-proxy boundary; "
-                        + "the Security adoption must rewrite this guard into the new contract")
+                .as("#417 keeps the owner boundary application-owned: no framework security "
+                        + "chain, no trusted-proxy filter, no framework cross-origin config")
+                .isEmpty();
+    }
+
+    @Test
+    void ownerBoundaryHasNoMultiUserSchema() throws Exception {
+        List<Path> sources;
+        try (Stream<Path> paths = Files.walk(PRODUCTION_ROOT)) {
+            sources = paths.filter(path -> path.toString().endsWith(".java")).toList();
+        }
+        List<String> offenders = new ArrayList<>();
+        for (Path source : sources) {
+            if (!source.toString().contains("/web/security/")) {
+                continue;
+            }
+            String text = filesText(source);
+            for (String token : List.of("tenantId", "TenantRecord", "organizationId",
+                    "OrganizationRecord", "GrantedAuthority", "UserDetails")) {
+                if (text.contains(token)) {
+                    offenders.add(source + " contains " + token);
+                }
+            }
+        }
+        assertThat(offenders)
+                .as("single-user owner boundary must not grow tenant/organization/role schema")
                 .isEmpty();
 
         String yml = Files.readString(APPLICATION_YML);
         assertThat(yml)
-                .as("no trusted-proxy or TLS contract exists yet; Mode 3 stays REJECT until one lands")
-                .doesNotContain("forward-headers")
-                .doesNotContain("server.ssl")
-                .doesNotContain("ForwardedHeaderFilter");
+                .as("local-only stays the default; remote protection is opt-in")
+                .contains("auth-enabled: ${OWNER_AUTH_ENABLED:false}");
+        assertThat(yml)
+                .as("the default bind strategy never changes with the owner boundary")
+                .contains("address: 127.0.0.1");
+    }
+
+    private static String filesText(Path source) throws Exception {
+        return Files.readString(source);
     }
 
     @Test
-    void originCheckingRemainsMcpLoopbackOnly() throws Exception {
+    void originCheckingRemainsScopedToMcpAndOwnerBoundary() throws Exception {
         List<Path> sources;
         try (Stream<Path> paths = Files.walk(PRODUCTION_ROOT)) {
             sources = paths.filter(path -> path.toString().endsWith(".java")).toList();
@@ -84,17 +114,23 @@ class RemotePersonalDeploymentBaselineGuardTest {
         List<String> offenders = new ArrayList<>();
         for (Path source : sources) {
             String text = Files.readString(source);
-            if (text.contains("\"Origin\"") && !source.toString().contains("/mcp/")) {
-                offenders.add(source + " checks Origin outside the mcp package");
+            boolean scoped = source.toString().contains("/mcp/")
+                    || source.toString().contains("/web/security/");
+            if (text.contains("\"Origin\"") && !scoped) {
+                offenders.add(source + " checks Origin outside the mcp/owner boundary");
             }
         }
         assertThat(offenders)
-                .as("only the MCP loopback guard validates Origin; /api/v1 has no Origin/CSRF "
-                        + "checking yet (documented gap, #393 §2.2)")
+                .as("only the MCP loopback guard and the owner /api/v1 boundary validate "
+                        + "Origin (#393 §2.2 gap closed by #417 for the owner surface only)")
                 .isEmpty();
 
         String guard = Files.readString(
                 Path.of("src/main/java/org/km/llmwiki/mcp/McpTransportSecurityGuard.java"));
         assertThat(guard).contains("127.0.0.1").contains("localhost");
+
+        String filter = Files.readString(
+                Path.of("src/main/java/org/km/llmwiki/web/security/OwnerSecurityFilter.java"));
+        assertThat(filter).contains("OWNER_ORIGIN_REJECTED");
     }
 }

@@ -81,6 +81,27 @@ app:
     enabled: ${MCP_ADAPTER_ENABLED:false}
     auth-token: ${MCP_ADAPTER_AUTH_TOKEN:}
     max-body-bytes: ${MCP_ADAPTER_MAX_BODY_BYTES:262144}
+  owner:
+    # #417 single-user owner security boundary. Disabled by default: local-only
+    # keeps the #393 localhost trust model with every /api/v1 endpoint open.
+    # Enabling without a valid 64-hex SHA-256 password hash fails fast at startup.
+    # Enabling never changes server.address (still 127.0.0.1) and never adds
+    # multi-user, tenant, or organization schema.
+    auth-enabled: ${OWNER_AUTH_ENABLED:false}
+    password-hash: ${OWNER_PASSWORD_HASH:}
+    session-absolute-timeout: ${OWNER_SESSION_ABSOLUTE_TIMEOUT:12h}
+    session-idle-timeout: ${OWNER_SESSION_IDLE_TIMEOUT:30m}
+    max-sessions: ${OWNER_MAX_SESSIONS:8}
+    cookie-secure: ${OWNER_COOKIE_SECURE:true}
+    cookie-name: ${OWNER_COOKIE_NAME:km-owner-session}
+    allowed-hosts: ${OWNER_ALLOWED_HOSTS:localhost,127.0.0.1}
+    allowed-origins: ${OWNER_ALLOWED_ORIGINS:http://localhost:8765,http://127.0.0.1:8765}
+    trusted-proxies: ${OWNER_TRUSTED_PROXIES:}
+    trust-proxy-headers: ${OWNER_TRUST_PROXY_HEADERS:false}
+    login-max-attempts: ${OWNER_LOGIN_MAX_ATTEMPTS:5}
+    login-window: ${OWNER_LOGIN_WINDOW:1m}
+    mutation-max-requests: ${OWNER_MUTATION_MAX_REQUESTS:60}
+    mutation-window: ${OWNER_MUTATION_WINDOW:1m}
   rag:
     fusion:
       policy-version: ${KM_RAG_FUSION_POLICY_VERSION:fusion-rrf-v2-graph-damped}

@@ -8,6 +8,7 @@
   <title>Local Knowledge Ask</title>
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/navigation-ui.js"></script>
+  <script type="module" src="/owner-auth-ui.js"></script>
   <script type="module" src="/workspace-ui.js"></script>
   <script type="module" src="/inbox-ui.js"></script>
   <script type="module" src="/wiki-ui.js"></script>
@@ -25,6 +26,28 @@
       <h1>Ask your knowledge base</h1>
       <p class="intro">從已索引的 Wiki 與來源文件取得有依據的回答；第一次使用請先在工作區建立知識庫並放入文件。</p>
     </header>
+
+    <section id="owner-auth-panel" class="panel owner-auth-panel" aria-labelledby="owner-auth-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">OWNER</p>
+          <h3 id="owner-auth-heading">擁有者登入</h3>
+        </div>
+        <button id="owner-auth-logout" type="button" class="secondary-button" hidden>登出</button>
+      </div>
+      <p id="owner-auth-status" class="form-hint" role="status" aria-live="polite">本機模式：無需登入。</p>
+      <form id="owner-auth-form" novalidate hidden>
+        <div class="field-group">
+          <label for="owner-auth-password">擁有者密碼</label>
+          <input id="owner-auth-password" name="password" type="password" maxlength="512"
+                 autocomplete="current-password" required>
+        </div>
+        <button id="owner-auth-submit" type="submit">登入</button>
+      </form>
+      <p class="panel-description">
+        本機預設無需登入；啟用遠端保護後，登入以 HttpOnly cookie 維持工作階段，登出即於伺服器端失效。
+      </p>
+    </section>
 
     <nav class="app-nav" aria-label="主要導覽">
       <a href="#/home" data-route-link="home">工作區</a>
