@@ -86,14 +86,15 @@ public final class ProductAcceptanceHarness {
                     "system status missing data.status");
             return;
         }
-        // Fresh temp instance has no workspace yet (NOT_INITIALIZED) or is READY;
-        // anything else must be explicit, never a crash-shaped body.
-        if (List.of("NOT_INITIALIZED", "READY", "DEGRADED").contains(status)) {
+        // A fresh temp instance must have no workspace yet: anything but
+        // NOT_INITIALIZED means the harness is not running on a clean root
+        // (challenge case: silently reusing developer data/).
+        if ("NOT_INITIALIZED".equals(status)) {
             report.add("clean-startup", ProductAcceptanceReport.Verdict.PASS,
-                    "system status=" + status);
+                    "system status=NOT_INITIALIZED on clean root");
         } else {
             report.add("clean-startup", ProductAcceptanceReport.Verdict.FAIL,
-                    "unexpected system status=" + status);
+                    "expected NOT_INITIALIZED on clean root, got status=" + status);
         }
     }
 

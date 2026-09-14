@@ -32,7 +32,7 @@ public final class ProductAcceptanceProcessLifecycle implements AutoCloseable {
 
     public int start(Path logDirectory) throws IOException {
         port = freePort();
-        logFile = logDirectory.resolve("acceptance-jar-stdout.log");
+        logFile = logDirectory.resolve("acceptance-jar-" + port + "-stdout.log");
         List<String> command = new ArrayList<>(List.of(
                 javaExecutable(), "-jar", jar.toAbsolutePath().toString(),
                 "--server.port=" + port));
