@@ -635,6 +635,27 @@ provenance、null bounding box、parse-failure path 的空 blocks，以及
 `STRUCTURE_BLOCKS` resource limit。`source.DocumentParserResourceContractTest` 鎖定
 `maxStructureBlocks` 的 limits 契約與 property ceiling。
 
+Versioned normalization policy（#412，decision authority #380）：`source.NormalizationPolicy`
+為 versioned interface（`normalization-policy-v1-current` baseline/rollback target、
+`normalization-policy-v2-selected-cf-strip` production default），`source.NormalizationPolicyRegistry`
+以 unknown/blank/duplicate fail-fast 解析 active version（`app.extraction.normalization.policy-version`）。
+Strip matrix 唯一 authority 為 `source.NormalizationPolicyV2SelectedCfStrip`（僅 U+00AD/U+200B/U+2060/非開頭
+U+FEFF；ZWJ/ZWNJ/BiDi 永不 strip；deterministic、provider-free、locale-independent），經
+`source.ExtractedContentNormalizer` 單一 ordering 套用（line endings → NFC → selected-Cf policy →
+ISO-Control → trailing WS → repeated edges → blank-line collapse）。Lineage 由
+`source_chunk.normalization_policy_version` + `document_extracted_content.normalization_policy_version`
+承載（V34 migration，historical rows backfill 為 v1-current；chunking 與 normalization 為正交維度，不得重用
+`chunk_policy_version` 窗口）；`SourceChunkRepository.findDocumentIdsWithStaleNormalizationPolicy`
+為 executable stale hook，upgrade 唯一路徑為既有 re-extraction（bytes + version 同一 transaction 原子重寫，
+failure path 刪除兩側不留 mixed state；rollback 亦需 re-extraction）。`ExtractionResponse.normalizationPolicyVersion`
+與 `SourceChunk` read model 經 REST 暴露 current 版本（operator-safe metadata，無 path/secret）。
+`source.NormalizationPolicyV2SelectedCfStripTest`、`source.NormalizationPolicyRegistryTest`、
+`source.NormalizationPolicyNormalizerTest`（unit tier）持有 strip/keep/BOM-contextual/registry fail-fast 與
+production-normalizer matching 恢復；`source.NormalizationPolicyExtractionIntegrationTest`（integration tier）
+持有 extraction 蓋章、V1-stale → re-extraction upgrade、FTS clean-query matching、locator CURRENT/404、
+failure 無錯配；historical backfill 由 `persistence.HistoricalUpgradeMatrixIntegrationTest` 與
+`persistence.HistoricalUpgradeSmokeIntegrationTest` 持有。
+
 受影響測試與完整 gate：
 
 ```bash
@@ -921,6 +942,8 @@ SQLite installed-state upgrade gate：以 **repository-owned synthetic populated
 migration 語意轉折點，非 O(N²) 全排列）：**V18**（pre-CJK projection era，V19 recreate
 FTS + V20～V29 全鏈）、**V24**（pre-embedding generation ledger，V25～V27）、**V27**
 （pre-Graph lifecycle，V28）、**V28**（pre-versioned ChunkingPolicy backfill，V29）。
+V34（normalization policy version columns）無獨立 baseline——所有既有 boundaries 升級後皆須滿足
+V34 backfill 語意（全部歷史 rows 為 `normalization-policy-v1-current`，不得假裝 V2 current）。
 不宣稱 oldest-supported support window（目前無正式 released baseline 政策）。
 
 Gates（每個 boundary）：canonical data preservation 以 application-owned stable identity
@@ -933,7 +956,9 @@ backfill drift；derived projections 不 fake-current——FTS 由 V19 recreate 
 `cjk-bigram-v1`、embedding readiness 的歷史 READY row 保留為 legacy baseline 但無 invented
 operation history/snapshot token（target/applied generation = 0）、graph lifecycle 不得因
 migration 發明 READY row、V29 把全部歷史 chunks backfill 為 `chunk-policy-v1-current`（無
-silent 混用，stale-policy hook 回空）；repeated migrate idempotent（第二次 migrate
+silent 混用，stale-policy hook 回空）、V34 把全部歷史 `source_chunk`/`document_extracted_content`
+rows backfill 為 `normalization-policy-v1-current`（production V2 default 下 honest stale，
+stale-normalization hook 非空；不得 fake-current）；repeated migrate idempotent（第二次 migrate
 `migrationsExecuted = 0` 且 manifest byte-identical，destructive backfill 不得重跑）。Application-level readers 對非空 historical states 也有 gate：V24 的 legacy READY
 readiness row 經 production `EmbeddingProjectionReadinessRepository` 讀出後 target/applied
 generation 為 0 且無 snapshot token（invented history 禁令的 application-level 證明）。V28
@@ -945,7 +970,8 @@ health 的 corpus 語意為 corpus-pinned 斷言。
 `persistence.HistoricalUpgradeSmokeIntegrationTest`（integration tier、
 `@DynamicPropertySource` 綁定 fixture DB）以 latest application boundary 對最高風險的 V18
 boundary 做 open/read smoke：workspace 可安全 open、document/source chunk/published wiki
-canonical reads 可用、chunk-policy hook 回空、FTS 空 projection 查詢不炸且
+canonical reads 可用、chunk-policy hook 回空、normalization rows 為 v1 baseline 且在 V2 default 下
+honest stale（stale-normalization hook 非空直到 re-extraction）、FTS 空 projection 查詢不炸且
 `GET /api/v1/search/index/health` 回 `REBUILD_REQUIRED`（不 fake healthy）、embedding
 readiness 不得被發明、graph readiness 不得宣稱 READY（直到 explicit rebuild）、startup
 Flyway no-op + 二次 migrate no-op。

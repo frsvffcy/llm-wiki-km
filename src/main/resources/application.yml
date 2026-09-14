@@ -56,6 +56,11 @@ app:
     scanned-pdf:
       minimum-text-characters: ${EXTRACTION_SCANNED_PDF_MINIMUM_TEXT_CHARACTERS:50}
     normalization:
+      # #412 versioned policy: v2-selected-cf-strip is the production default (GO subset
+      # from #380). Rollback = set EXTRACTION_NORMALIZATION_POLICY_VERSION to
+      # normalization-policy-v1-current AND re-extract affected documents; changing the
+      # version alone never rewrites historical bytes in place.
+      policy-version: ${EXTRACTION_NORMALIZATION_POLICY_VERSION:normalization-policy-v2-selected-cf-strip}
       repeated-header-footer-enabled: ${EXTRACTION_REPEATED_HEADER_FOOTER_ENABLED:true}
       repeated-header-footer-minimum-occurrences: ${EXTRACTION_REPEATED_HEADER_FOOTER_MINIMUM_OCCURRENCES:2}
   graph:

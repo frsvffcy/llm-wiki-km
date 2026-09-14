@@ -44,6 +44,7 @@ public class SourceChunkRepository {
                             SOURCE_CHUNK.NORMALIZED_CONTENT,
                             SOURCE_CHUNK.CONTENT_HASH,
                             SOURCE_CHUNK.CHUNK_POLICY_VERSION,
+                            SOURCE_CHUNK.NORMALIZATION_POLICY_VERSION,
                             SOURCE_CHUNK.CREATED_AT,
                             SOURCE_CHUNK.UPDATED_AT
                     )
@@ -57,6 +58,7 @@ public class SourceChunkRepository {
                             chunk.normalizedContent(),
                             chunk.contentHash(),
                             chunk.chunkPolicyVersion(),
+                            chunk.normalizationPolicyVersion(),
                             now,
                             now
                     )
@@ -78,7 +80,8 @@ public class SourceChunkRepository {
                         r.getContent(),
                         r.getNormalizedContent(),
                         r.getContentHash(),
-                        r.getChunkPolicyVersion()
+                        r.getChunkPolicyVersion(),
+                        r.getNormalizationPolicyVersion()
                 ));
     }
 
@@ -88,6 +91,24 @@ public class SourceChunkRepository {
                 .join(DOCUMENT).on(DOCUMENT.ID.eq(SOURCE_CHUNK.DOCUMENT_ID))
                 .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
                 .and(SOURCE_CHUNK.CHUNK_POLICY_VERSION.ne(activeChunkPolicyVersion))
+                .orderBy(SOURCE_CHUNK.DOCUMENT_ID.asc())
+                .fetch(r -> r.get(SOURCE_CHUNK.DOCUMENT_ID).longValue());
+    }
+
+    /**
+     * Normalization-policy staleness hook (#412). Chunking and normalization are
+     * orthogonal dimensions: a document is normalization-current only when every
+     * chunk carries the active normalization version. Historical rows keep their
+     * baseline version via the migration default and become stale on policy
+     * adoption until explicit re-extraction rewrites them atomically.
+     */
+    public List<Long> findDocumentIdsWithStaleNormalizationPolicy(long workspaceId,
+                                                                   String activeNormalizationVersion) {
+        return dsl.selectDistinct(SOURCE_CHUNK.DOCUMENT_ID)
+                .from(SOURCE_CHUNK)
+                .join(DOCUMENT).on(DOCUMENT.ID.eq(SOURCE_CHUNK.DOCUMENT_ID))
+                .where(DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(SOURCE_CHUNK.NORMALIZATION_POLICY_VERSION.ne(activeNormalizationVersion))
                 .orderBy(SOURCE_CHUNK.DOCUMENT_ID.asc())
                 .fetch(r -> r.get(SOURCE_CHUNK.DOCUMENT_ID).longValue());
     }
@@ -103,7 +124,8 @@ public class SourceChunkRepository {
                         SOURCE_CHUNK.CONTENT,
                         SOURCE_CHUNK.NORMALIZED_CONTENT,
                         SOURCE_CHUNK.CONTENT_HASH,
-                        SOURCE_CHUNK.CHUNK_POLICY_VERSION
+                        SOURCE_CHUNK.CHUNK_POLICY_VERSION,
+                        SOURCE_CHUNK.NORMALIZATION_POLICY_VERSION
                 )
                 .from(SOURCE_CHUNK)
                 .join(DOCUMENT).on(DOCUMENT.ID.eq(SOURCE_CHUNK.DOCUMENT_ID))
@@ -120,7 +142,8 @@ public class SourceChunkRepository {
                         r.get(SOURCE_CHUNK.CONTENT),
                         r.get(SOURCE_CHUNK.NORMALIZED_CONTENT),
                         r.get(SOURCE_CHUNK.CONTENT_HASH),
-                        r.get(SOURCE_CHUNK.CHUNK_POLICY_VERSION)
+                        r.get(SOURCE_CHUNK.CHUNK_POLICY_VERSION),
+                        r.get(SOURCE_CHUNK.NORMALIZATION_POLICY_VERSION)
                 ));
     }
 

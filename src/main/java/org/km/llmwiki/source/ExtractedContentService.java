@@ -38,6 +38,7 @@ public class ExtractedContentService {
     private final ExtractedContentNormalizer extractedContentNormalizer;
     private final ScannedPdfDetector scannedPdfDetector;
     private final ChunkingPolicyRegistry chunkingPolicies;
+    private final NormalizationPolicyRegistry normalizationPolicies;
     private final SourceChunkRepository sourceChunkRepository;
     private final SourceChunkIndexingService sourceChunkIndexingService;
     private final EmbeddingProjectionJobService embeddingProjectionJobService;
@@ -49,6 +50,7 @@ public class ExtractedContentService {
                                    ExtractedContentNormalizer extractedContentNormalizer,
                                    ScannedPdfDetector scannedPdfDetector,
                                    ChunkingPolicyRegistry chunkingPolicies,
+                                   NormalizationPolicyRegistry normalizationPolicies,
                                    SourceChunkRepository sourceChunkRepository,
                                    SourceChunkIndexingService sourceChunkIndexingService,
                                    EmbeddingProjectionJobService embeddingProjectionJobService,
@@ -60,6 +62,7 @@ public class ExtractedContentService {
         this.extractedContentNormalizer = extractedContentNormalizer;
         this.scannedPdfDetector = scannedPdfDetector;
         this.chunkingPolicies = chunkingPolicies;
+        this.normalizationPolicies = normalizationPolicies;
         this.sourceChunkRepository = sourceChunkRepository;
         this.sourceChunkIndexingService = sourceChunkIndexingService;
         this.embeddingProjectionJobService = embeddingProjectionJobService;
@@ -98,15 +101,22 @@ public class ExtractedContentService {
                 documentRepository.markExtractionFailed(document.documentId(), DocumentStatus.NEED_OCR,
                         "OCR_REQUIRED", "PDF 缺乏可用文字層，需先進行 OCR");
                 return new ExtractionResponse(document.documentId(), DocumentStatus.NEED_OCR.name(), 0,
+                        normalizationPolicies.activeVersion(),
                         "OCR_REQUIRED", "PDF 缺乏可用文字層，需先進行 OCR");
             }
             int chunkCount = chunkCount(normalizedContent);
-            extractedContentRepository.save(document.documentId(), normalizedContent, chunkCount);
+            // Atomic lineage write (#412 C): extracted bytes, chunk rows and their
+            // normalization version commit in the same transaction. Any failure rolls
+            // back together, so no "new version metadata + old content" mixed state
+            // can survive; the explicit failure paths below delete both sides.
+            String normalizationVersion = normalizationPolicies.activeVersion();
+            extractedContentRepository.save(document.documentId(), normalizedContent, chunkCount,
+                    normalizationVersion);
             sourceChunkRepository.replaceForDocument(document.documentId(),
                     chunkingPolicies.active().chunk(parsed, canonicalNormalization));
             documentRepository.markExtractionSucceeded(document.documentId(), sha256(normalizedContent));
             return new ExtractionResponse(document.documentId(), DocumentStatus.PROCESSED.name(), chunkCount,
-                    null, null);
+                    normalizationVersion, null, null);
         } catch (DocumentParserResourceLimitException exception) {
             throw extractionFailure(document, DocumentStatus.FAILED,
                     "EXTRACTION_RESOURCE_LIMIT", "文件抽取超過同步資源上限");
@@ -158,7 +168,7 @@ public class ExtractedContentService {
         documentRepository.markExtractionFailed(document.documentId(), DocumentStatus.UNSUPPORTED,
                 errorCode, errorMessage);
         return new ExtractionResponse(document.documentId(), DocumentStatus.UNSUPPORTED.name(), 0,
-                errorCode, errorMessage);
+                normalizationPolicies.activeVersion(), errorCode, errorMessage);
     }
 
     /** FTS is refreshed only after canonical extraction state has committed successfully. */

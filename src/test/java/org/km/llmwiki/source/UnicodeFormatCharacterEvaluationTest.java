@@ -22,8 +22,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("unit")
 class UnicodeFormatCharacterEvaluationTest {
 
+    // Baseline pin: explicitly V1 so this decision-gate evidence stays a reproducible
+    // before-reference after #412 adopts V2 as the production default.
     private final ExtractedContentNormalizer normalizer = new ExtractedContentNormalizer(
-            new ExtractedContentNormalizationProperties());
+            new ExtractedContentNormalizationProperties(), new NormalizationPolicyRegistry(
+                    List.of(new NormalizationPolicyV1Current(),
+                            new NormalizationPolicyV2SelectedCfStrip()),
+                    NormalizationPolicyV1Current.VERSION));
 
     /** SOFT HYPHEN — PDF/Office extraction artifact (Cf, not ISO Control: survives baseline). */
     private static final String SOFT_HYPHEN = "\u00AD";

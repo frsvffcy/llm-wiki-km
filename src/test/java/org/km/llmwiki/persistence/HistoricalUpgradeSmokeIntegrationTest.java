@@ -98,6 +98,9 @@ class HistoricalUpgradeSmokeIntegrationTest {
     private SourceChunkRepository sourceChunks;
 
     @Autowired
+    private org.km.llmwiki.source.NormalizationPolicyRegistry normalizationPolicies;
+
+    @Autowired
     private PublishedWikiRepository publishedWikiRepository;
 
     @Autowired
@@ -120,6 +123,15 @@ class HistoricalUpgradeSmokeIntegrationTest {
         assertThat(sourceChunks.findByDocumentId(1001L)).hasSize(2);
         assertThat(sourceChunks.findDocumentIdsWithStaleChunkPolicy(HISTORICAL_WORKSPACE_ID,
                 "chunk-policy-v1-current")).isEmpty();
+        // #412: migrated rows carry the baseline normalization version, so under the
+        // production V2 default they are honestly stale until explicit re-extraction —
+        // never fake-current.
+        assertThat(sourceChunks.findByDocumentId(1001L)).allSatisfy(chunk ->
+                assertThat(chunk.normalizationPolicyVersion())
+                        .isEqualTo("normalization-policy-v1-current"));
+        assertThat(sourceChunks.findDocumentIdsWithStaleNormalizationPolicy(
+                HISTORICAL_WORKSPACE_ID, normalizationPolicies.activeVersion()))
+                .contains(1001L);
 
         // A foreign-workspace document never leaks into active-workspace reads.
         assertThat(documents.findActiveByWorkspaceAndSha256(HISTORICAL_WORKSPACE_ID,

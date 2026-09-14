@@ -19,13 +19,14 @@ public class ExtractedContentRepository {
         this.dsl = dsl;
     }
 
-    public void save(long documentId, String content, int chunkCount) {
+    public void save(long documentId, String content, int chunkCount, String normalizationPolicyVersion) {
         String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
         dsl.insertInto(DOCUMENT_EXTRACTED_CONTENT)
                 .columns(
                         DOCUMENT_EXTRACTED_CONTENT.DOCUMENT_ID,
                         DOCUMENT_EXTRACTED_CONTENT.CONTENT,
                         DOCUMENT_EXTRACTED_CONTENT.CHUNK_COUNT,
+                        DOCUMENT_EXTRACTED_CONTENT.NORMALIZATION_POLICY_VERSION,
                         DOCUMENT_EXTRACTED_CONTENT.CREATED_AT,
                         DOCUMENT_EXTRACTED_CONTENT.UPDATED_AT
                 )
@@ -33,6 +34,7 @@ public class ExtractedContentRepository {
                         (int) documentId,
                         content,
                         chunkCount,
+                        normalizationPolicyVersion,
                         now,
                         now
                 )
@@ -40,6 +42,8 @@ public class ExtractedContentRepository {
                 .doUpdate()
                 .set(DOCUMENT_EXTRACTED_CONTENT.CONTENT, excluded(DOCUMENT_EXTRACTED_CONTENT.CONTENT))
                 .set(DOCUMENT_EXTRACTED_CONTENT.CHUNK_COUNT, excluded(DOCUMENT_EXTRACTED_CONTENT.CHUNK_COUNT))
+                .set(DOCUMENT_EXTRACTED_CONTENT.NORMALIZATION_POLICY_VERSION,
+                        excluded(DOCUMENT_EXTRACTED_CONTENT.NORMALIZATION_POLICY_VERSION))
                 .set(DOCUMENT_EXTRACTED_CONTENT.UPDATED_AT, excluded(DOCUMENT_EXTRACTED_CONTENT.UPDATED_AT))
                 .execute();
     }
@@ -50,7 +54,8 @@ public class ExtractedContentRepository {
                 .fetchOptional(r -> new ExtractedContentRecord(
                         r.getDocumentId().longValue(),
                         r.getContent(),
-                        r.getChunkCount()
+                        r.getChunkCount(),
+                        r.getNormalizationPolicyVersion()
                 ));
     }
 

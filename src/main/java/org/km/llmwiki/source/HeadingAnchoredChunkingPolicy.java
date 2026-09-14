@@ -16,9 +16,12 @@ public class HeadingAnchoredChunkingPolicy implements ChunkingPolicy {
     static final String CHUNK_POLICY_VERSION = "chunk-policy-v2-heading-anchor";
 
     private final ExtractedContentNormalizer normalizer;
+    private final NormalizationPolicyRegistry normalizationPolicies;
 
-    public HeadingAnchoredChunkingPolicy(ExtractedContentNormalizer normalizer) {
+    public HeadingAnchoredChunkingPolicy(ExtractedContentNormalizer normalizer,
+                                         NormalizationPolicyRegistry normalizationPolicies) {
         this.normalizer = normalizer;
+        this.normalizationPolicies = normalizationPolicies;
     }
 
     @Override
@@ -97,6 +100,7 @@ public class HeadingAnchoredChunkingPolicy implements ChunkingPolicy {
         String normalizedContent = normalizer.normalizeChunk(originalContent, canonicalNormalization);
         return new ChunkingPolicySupport.ChunkCandidate(accumulator.pageNo(), accumulator.section(),
                 accumulator.headingPath(), originalContent, normalizedContent,
-                ChunkingPolicySupport.sha256(normalizedContent), CHUNK_POLICY_VERSION);
+                ChunkingPolicySupport.sha256(normalizedContent), CHUNK_POLICY_VERSION,
+                normalizationPolicies.activeVersion());
     }
 }

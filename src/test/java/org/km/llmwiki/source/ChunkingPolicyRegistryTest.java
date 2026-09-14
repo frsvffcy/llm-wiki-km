@@ -36,8 +36,11 @@ class ChunkingPolicyRegistryTest {
     }
 
     private ChunkingPolicy policy(String version) {
+        NormalizationPolicyRegistry normalizationPolicies = new NormalizationPolicyRegistry(
+                List.of(new NormalizationPolicyV1Current(), new NormalizationPolicyV2SelectedCfStrip()),
+                NormalizationPolicyV1Current.VERSION);
         return new FixedVersionPolicy(new ExtractedContentNormalizer(
-                new ExtractedContentNormalizationProperties()), version);
+                new ExtractedContentNormalizationProperties(), normalizationPolicies), version);
     }
 
     private record FixedVersionPolicy(ExtractedContentNormalizer normalizer,

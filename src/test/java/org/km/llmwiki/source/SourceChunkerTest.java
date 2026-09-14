@@ -149,13 +149,22 @@ class SourceChunkerTest {
     }
 
     private static SourceChunker chunker() {
-        return new SourceChunker(new ExtractedContentNormalizer(
-                new ExtractedContentNormalizationProperties()));
+        return new SourceChunker(normalizer(), normalizationPolicies());
+    }
+
+    private static NormalizationPolicyRegistry normalizationPolicies() {
+        return new NormalizationPolicyRegistry(
+                List.of(new NormalizationPolicyV1Current(), new NormalizationPolicyV2SelectedCfStrip()),
+                NormalizationPolicyV2SelectedCfStrip.VERSION);
+    }
+
+    private static ExtractedContentNormalizer normalizer() {
+        return new ExtractedContentNormalizer(new ExtractedContentNormalizationProperties(),
+                normalizationPolicies());
     }
 
     private static ExtractedContentNormalizer.CanonicalNormalization canonicalize(String content) {
-        return new ExtractedContentNormalizer(new ExtractedContentNormalizationProperties())
-                .canonicalize(content);
+        return normalizer().canonicalize(content);
     }
 
     /**
@@ -212,8 +221,7 @@ class SourceChunkerTest {
     private static LegacyCandidate toCandidate(LegacyAccumulator accumulator,
                                                ExtractedContentNormalizer.CanonicalNormalization canonicalNormalization) {
         String originalContent = accumulator.content();
-        String normalizedContent = new ExtractedContentNormalizer(
-                new ExtractedContentNormalizationProperties())
+        String normalizedContent = normalizer()
                 .normalizeChunk(originalContent, canonicalNormalization);
         return new LegacyCandidate(accumulator.pageNo(), accumulator.section(), accumulator.headingPath(),
                 originalContent, normalizedContent);
@@ -231,14 +239,15 @@ class SourceChunkerTest {
             pendingOriginalContent = null;
             chunks.add(new SourceChunkDraft(chunks.size() + 1, candidate.pageNo(), candidate.section(),
                     candidate.headingPath(), originalContent, candidate.normalizedContent(),
-                    sha256(candidate.normalizedContent()), SourceChunker.CHUNK_POLICY_VERSION));
+                    sha256(candidate.normalizedContent()), SourceChunker.CHUNK_POLICY_VERSION,
+                    NormalizationPolicyV2SelectedCfStrip.VERSION));
         }
         if (pendingOriginalContent != null && !chunks.isEmpty()) {
             SourceChunkDraft previous = chunks.removeLast();
             chunks.add(new SourceChunkDraft(previous.chunkNo(), previous.pageNo(), previous.section(),
                     previous.headingPath(), appendEvidence(previous.content(), pendingOriginalContent),
                     previous.normalizedContent(), previous.contentHash(),
-                    previous.chunkPolicyVersion()));
+                    previous.chunkPolicyVersion(), previous.normalizationPolicyVersion()));
         }
         return List.copyOf(chunks);
     }
