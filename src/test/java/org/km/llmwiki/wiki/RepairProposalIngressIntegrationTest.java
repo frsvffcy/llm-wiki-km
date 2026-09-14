@@ -428,4 +428,63 @@ class RepairProposalIngressIntegrationTest extends IsolatedIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(key).isNotNull();
         return key.longValue();
     }
+
+    @Test
+    void rejectedRepairCanBeProposedAgainInsteadOfForkingA500() throws Exception {
+        Fixture fixture = seedDriftedPageWithLineage();
+        awaitEmbeddingProjectionTasks();
+
+        MvcResult first = mockMvc.perform(post("/api/v1/repair/proposals")
+                        .contentType("application/json")
+                        .content("{\"knowledgeId\":\"" + fixture.knowledgeId() + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long firstId = ((Number) com.jayway.jsonpath.JsonPath.read(
+                first.getResponse().getContentAsString(), "$.data.proposal.id")).longValue();
+
+        // The human rejects the repair proposal; the finding itself is unchanged.
+        mockMvc.perform(patch("/api/v1/proposals/{id}/status", firstId)
+                        .contentType("application/json").content("{\"status\":\"REJECTED\"}"))
+                .andExpect(status().isOk());
+
+        // A retry must create a fresh proposal (the rejected one no longer occupies the
+        // dedup index), never an unexplainable server error replaying the old state.
+        MvcResult retry = mockMvc.perform(post("/api/v1/repair/proposals")
+                        .contentType("application/json")
+                        .content("{\"knowledgeId\":\"" + fixture.knowledgeId() + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.duplicate").value(false))
+                .andExpect(jsonPath("$.data.proposal.status").value("REVIEW"))
+                .andReturn();
+        long retryId = ((Number) com.jayway.jsonpath.JsonPath.read(
+                retry.getResponse().getContentAsString(), "$.data.proposal.id")).longValue();
+        org.assertj.core.api.Assertions.assertThat(retryId).isNotEqualTo(firstId);
+    }
+
+    @Test
+    void unreadableVaultTargetRefusesRepairInsteadOfCreatingADeadProposal() throws Exception {
+        Workspace active = createWorkspace("active");
+        activate(active.id());
+        seedPublishedPage(active, "wiki-gone", "Gone Page", "CONCEPT",
+                "# Gone Page\n\nBody.");
+        String logicalPath = db().sql("SELECT markdown_path FROM knowledge_page WHERE knowledge_id = 'wiki-gone'")
+                .query(String.class).single();
+        Files.deleteIfExists(active.root().resolve(logicalPath));
+
+        // The missing file reports as canonical-content-invalid, but its bytes can never
+        // be baselined, so the capability stays off and the command is typed-refused.
+        mockMvc.perform(get("/api/v1/vault-lint/findings"))
+                .andExpect(jsonPath("$.data.findings.length()").value(2))
+                .andExpect(jsonPath("$.data.findings[1].finding.code").value("CANONICAL_CONTENT_INVALID"))
+                .andExpect(jsonPath("$.data.findings[1].repairEligible").value(false))
+                .andExpect(jsonPath("$.data.findings[1].repairRefusalReason").value("TARGET_NOT_READABLE"));
+        mockMvc.perform(post("/api/v1/repair/proposals")
+                        .contentType("application/json")
+                        .content("{\"knowledgeId\":\"wiki-gone\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("REPAIR_NOT_ELIGIBLE"));
+        org.assertj.core.api.Assertions.assertThat(db()
+                .sql("SELECT COUNT(*) FROM knowledge_proposal WHERE source_kind = 'REPAIR'")
+                .query(Long.class).single()).isZero();
+    }
 }

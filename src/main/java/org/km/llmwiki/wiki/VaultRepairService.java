@@ -41,6 +41,7 @@ public class VaultRepairService {
     private final KnowledgeProposalRepository proposalRepository;
     private final RepairProposalIngressRepository repairRepository;
     private final WikiDraftConverter draftConverter;
+    private final WikiMarkdownSnapshotReader snapshotReader;
     private final ObjectMapper objectMapper;
 
     public VaultRepairService(WorkspaceService workspaceService,
@@ -49,6 +50,7 @@ public class VaultRepairService {
                               KnowledgeProposalRepository proposalRepository,
                               RepairProposalIngressRepository repairRepository,
                               WikiDraftConverter draftConverter,
+                              WikiMarkdownSnapshotReader snapshotReader,
                               ObjectMapper objectMapper) {
         this.workspaceService = workspaceService;
         this.publishedWikiRepository = publishedWikiRepository;
@@ -56,6 +58,7 @@ public class VaultRepairService {
         this.proposalRepository = proposalRepository;
         this.repairRepository = repairRepository;
         this.draftConverter = draftConverter;
+        this.snapshotReader = snapshotReader;
         this.objectMapper = objectMapper;
     }
 
@@ -73,6 +76,15 @@ public class VaultRepairService {
         if (page.isEmpty()) {
             return new RepairAssessment.Ineligible(RepairRefusalReason.NO_RESOLVABLE_LINEAGE);
         }
+        // Repair-baseline readability: the drifted (or missing) vault bytes are what the
+        // human reviews against, so a target that cannot be read as a regular file can
+        // never produce a draft — it is ineligible here instead of becoming a dead
+        // proposal whose draft creation would fail closed later.
+        try {
+            snapshotReader.hashActiveVaultFile(page.get().markdownPath());
+        } catch (WikiDraftTargetException unreadable) {
+            return new RepairAssessment.Ineligible(RepairRefusalReason.TARGET_NOT_READABLE);
+        }
         return buildPlan(workspaceId, page.get(), finding)
                 .<RepairAssessment>map(RepairAssessment.Eligible::new)
                 .orElseGet(() -> new RepairAssessment.Ineligible(RepairRefusalReason.NO_RESOLVABLE_LINEAGE));
@@ -80,10 +92,12 @@ public class VaultRepairService {
 
     /**
      * Command-time assessment: reloads the authoritative page row, re-runs lint, and
-     * requires the same finding (code, identity, and detail) to still be present before
-     * rebuilding the plan. Anything stale, changed, ineligible, or lineage-broken fails
-     * closed with a typed exception; the client-supplied knowledgeId is only a lookup
-     * key into workspace-scoped backend state.
+     * requires a current CANONICAL_CONTENT_INVALID finding for the same identity before
+     * rebuilding the plan (the plan and its dedup hash are derived from the current
+     * finding detail, so a changed failure class simply produces a new, freshly
+     * reviewed plan rather than replaying an old one). Anything stale, ineligible, or
+     * lineage-broken fails closed with a typed exception; the client-supplied
+     * knowledgeId is only a lookup key into workspace-scoped backend state.
      */
     public RepairPlan assessCommand(String knowledgeId) {
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()

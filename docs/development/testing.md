@@ -1435,11 +1435,14 @@ authorization token）。Contract 要點：
 - Eligibility 唯一 authority 為 backend（`VaultRepairService`）：v1 僅
   `CANONICAL_CONTENT_INVALID`＋resolvable governed lineage（origin proposal
   reviewable、action CREATE|MERGE、evidence 非空、origin data 經真實 converter
-  dry-run 可渲染）可修；其餘 code  typed 拒絕（ambiguous／semantic／unreadable／
-  duplicate／no-lineage）；Unicode normalization 不在 eligible 之列（#380 另開
-  Issue，不偷渡）。
+  dry-run 可渲染、target 對 `hashActiveVaultFile` 可讀——missing/symlink/非一般檔
+  typed 拒絕 `TARGET_NOT_READABLE`，不產生死提案）可修；其餘 code typed 拒絕
+ （ambiguous／semantic／unreadable／duplicate／no-lineage）；Unicode normalization
+  不在 eligible 之列（#380 另開 Issue，不偷渡）。
 - Command 只收 canonical `knowledgeId`：mutation 當下重驗 workspace、page row、
-  re-lint finding（同 code＋identity＋detail）、lineage；stale→409
+  re-lint finding（同一 identity 存在當前 `CANONICAL_CONTENT_INVALID` finding）、
+  lineage；plan 與 dedup hash 由當下 finding detail 重建（failure class 改變時以新
+  detail 產生新 plan 供完整 diff 審視，不重播舊狀態）；無任何 finding→409
   `REPAIR_FINDING_STALE`、ineligible→422 `REPAIR_NOT_ELIGIBLE`、foreign／unknown→
   404 `WIKI_PAGE_NOT_FOUND`（不洩漏存在性）；client detail／path／text 不作 authority。
 - Restore 語意：normalized data 為 origin 拷貝（render 與 origin 同 deterministic
@@ -1447,11 +1450,13 @@ authorization token）。Contract 要點：
   draft baseline pin 實際 drifted bytes（`planWriteRepair` 專屬 file-hash snapshot，
   strict MERGE 路徑不動——`rejectsMergeHashMismatch` 回歸鎖定）；publish 樂觀鎖、
   idempotency、no-auto-publish 維持既有語意。
-- Idempotency：`(workspace, dedup_hash)` partial unique index（V31；`source_kind`
-  CHECK 擴充 `REPAIR` 採 V30 rebuild 模式；jOOQ 無新 column 故 codegen 不變）＋
-  lost-race 回 winner；REJECTED 不擋重試；Browser double-submit guard。
-- V31 migration test 鎖定 rebuild preserve（proposal／evidence／draft rows、兩套
-  partial index 共存且 disjoint、CHECK 拒絕未知 kind）。
+- Idempotency：`(workspace, dedup_hash)` partial unique index（V31 建立採 V30
+  rebuild 模式；jOOQ 無新 column 故 codegen 不變）＋lost-race 回 winner；
+  REJECTED proposal 不佔用 index（V32：index predicate 加 `status != 'REJECTED'`），
+  被拒修復可重新提案為新 REVIEW proposal；Browser double-submit guard。
+- V31/V32 migration test 鎖定 rebuild preserve（proposal／evidence／draft／
+  publish_operation／publish_attempt rows、兩套 partial index 共存且 disjoint、
+  CHECK 拒絕未知 kind、REJECTED 後同 hash 可重插）。
 - Browser（`quality-ui.js`）：repair 按鈕只讀 backend `repairEligible`（靜態斷言無
   code matrix、POST 唯一且 body 僅 knowledgeId）；double-submit guard；201／200
   duplicate／409／422 typed 提示＋重讀 authoritative findings；無 innerHTML。
