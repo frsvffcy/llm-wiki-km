@@ -42,6 +42,7 @@ class RepairProposalMigrationTest {
         long askProposal = insertProposal(raw, workspaceId, "ASK", "ask-hash-1");
         insertEvidence(raw, analysisProposal, chunkId);
         insertDraft(raw, workspaceId, analysisProposal);
+        insertPublishLedger(raw, workspaceId, analysisProposal);
 
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
                 .load().migrate();
@@ -54,6 +55,10 @@ class RepairProposalMigrationTest {
         assertThat(raw.sql("SELECT COUNT(*) FROM knowledge_proposal_evidence").query(Long.class).single())
                 .isEqualTo(1);
         assertThat(raw.sql("SELECT COUNT(*) FROM wiki_draft").query(Long.class).single())
+                .isEqualTo(1);
+        assertThat(raw.sql("SELECT COUNT(*) FROM wiki_publish_operation").query(Long.class).single())
+                .isEqualTo(1);
+        assertThat(raw.sql("SELECT COUNT(*) FROM wiki_publish_attempt").query(Long.class).single())
                 .isEqualTo(1);
         assertThat(raw.sql("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_knowledge_proposal_%_dedup'")
                 .query(String.class).list())
@@ -94,6 +99,27 @@ class RepairProposalMigrationTest {
                             source_kind, source_dedup_hash, created_at, updated_at)
                         VALUES (:ws, 'MERGE', 'REVIEW', 'vault-lint', 'deterministic-restore-v1',
                             'vault-lint-restore', 'v1', 'v2', '{}', 'REPAIR', 'ask-hash-1', :now, :now)
+                        """).param("ws", workspaceId).param("now", "2026-09-01T00:00:00Z").update();
+
+        // V32 retry semantics: a REJECTED repair no longer occupies the dedup index, so
+        // the same finding state can be proposed again after a human rejection.
+        long repair = raw.sql("""
+                        INSERT INTO knowledge_proposal (workspace_id, action, status, provider, model,
+                            prompt_identifier, prompt_version, contract_version, normalized_data_json,
+                            source_kind, source_dedup_hash, created_at, updated_at)
+                        VALUES (:ws, 'MERGE', 'REVIEW', 'vault-lint', 'deterministic-restore-v1',
+                            'vault-lint-restore', 'v1', 'v2', '{}', 'REPAIR', 'retry-hash', :now, :now)
+                        RETURNING id
+                        """).param("ws", workspaceId).param("now", "2026-09-01T00:00:00Z")
+                .query(Long.class).single();
+        raw.sql("UPDATE knowledge_proposal SET status = 'REJECTED' WHERE id = :id")
+                .param("id", repair).update();
+        raw.sql("""
+                        INSERT INTO knowledge_proposal (workspace_id, action, status, provider, model,
+                            prompt_identifier, prompt_version, contract_version, normalized_data_json,
+                            source_kind, source_dedup_hash, created_at, updated_at)
+                        VALUES (:ws, 'MERGE', 'REVIEW', 'vault-lint', 'deterministic-restore-v1',
+                            'vault-lint-restore', 'v1', 'v2', '{}', 'REPAIR', 'retry-hash', :now, :now)
                         """).param("ws", workspaceId).param("now", "2026-09-01T00:00:00Z").update();
     }
 
@@ -158,6 +184,41 @@ class RepairProposalMigrationTest {
                             '2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
                             '{}', 'base', 'rendered', :now, :now)
                         """).param("ws", workspaceId).param("proposal", proposalId)
+                .param("now", "2026-09-01T00:00:00Z").update();
+    }
+
+    /** Minimal COMPLETED CREATE publish ledger rows so V31 preserve is actually proven. */
+    private void insertPublishLedger(JdbcClient raw, long workspaceId, long proposalId) {
+        raw.sql("""
+                        INSERT INTO knowledge_page (workspace_id, knowledge_id, title, normalized_title,
+                            type, markdown_path, status, content_hash, revision, created_at, updated_at)
+                        VALUES (:ws, 'wiki-ledger', 'Ledger', 'ledger', 'CONCEPT',
+                            'vault/concepts/ledger.md', 'PUBLISHED',
+                            '4123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+                            1, :now, :now)
+                        """).param("ws", workspaceId).param("now", "2026-09-01T00:00:00Z").update();
+        raw.sql("""
+                        INSERT INTO wiki_publish_operation (workspace_id, draft_id, proposal_id, action,
+                            knowledge_id, target_path, content_hash, revision, status, knowledge_page_id,
+                            created_at, updated_at, completed_at)
+                        VALUES (:ws, (SELECT id FROM wiki_draft WHERE proposal_id = :proposal),
+                            :proposal, 'CREATE', 'wiki-ledger', 'vault/concepts/t.md',
+                            '3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+                            1, 'COMPLETED', (SELECT id FROM knowledge_page LIMIT 1), :now, :now, :now)
+                        """)
+                .param("ws", workspaceId).param("proposal", proposalId)
+                .param("now", "2026-09-01T00:00:00Z").update();
+        raw.sql("""
+                        INSERT INTO wiki_publish_attempt (workspace_id, draft_id, proposal_id, operation_id,
+                            action, idempotency_key, target_path, before_content_hash, after_content_hash,
+                            revision, result, started_at, finished_at)
+                        VALUES (:ws, (SELECT id FROM wiki_draft WHERE proposal_id = :proposal),
+                            :proposal, (SELECT id FROM wiki_publish_operation WHERE proposal_id = :proposal),
+                            'CREATE', 'ledger-key', 'vault/concepts/t.md', NULL,
+                            '3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+                            1, 'PUBLISHED', :now, :now)
+                        """)
+                .param("ws", workspaceId).param("proposal", proposalId)
                 .param("now", "2026-09-01T00:00:00Z").update();
     }
 }
