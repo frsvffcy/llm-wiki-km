@@ -1471,3 +1471,62 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Query transformation recall evaluation 測試責任（#390）
+
+Query-side semantic transformation（rewriting／multi-query／HyDE）採 benchmark-first
+evaluation-only：不修改 production、不新增 public retrieval mode，決策門檻為
+GO TO ADOPTION ISSUE / CONDITIONAL GO / NO-GO / DEFER（完整方法論、結果與 adoption contract
+見 `docs/development/issue-390-query-transformation-evaluation.md`）。Contract 要點：
+
+- **Scope proof（source-level 鎖定）**：`rag.QueryTransformationScopeBoundaryTest`（unit）斷言
+  production 樹內無任何 semantic query-rewrite boundary 識別字、`AskService` 的 stage 順序
+  固定為 retrieve(question 原樣) → rerank → context projection（question 與 retrieval 之間
+  不得出現 query transformation stage）、唯一 query projection 是 #129 `cjk-bigram-v1`
+  deterministic lexical 鏈（provider-free）。
+- **Corpus／fixtures**：`rag.QueryTransformationEvaluationCorpusV1`
+  （`query-transformation-evaluation-corpus-v1`）逐字重用 #316 corpus 的 16 pages 與 15
+  queries，另加 `multi-intent`／`no-evidence` query shapes；rewrite fixtures
+  （`query-rewrite-fixtures-v1`）為 evaluation-only 擬真模擬（protected 候選／alt 措辭／
+  unprotected probe），方法論與 per-rewrite token-overlap audit 在報告發布以供 bias 審查。
+- **量測分離**：`rag.QueryTransformationEvaluationIntegrationTest`（integration）在
+  production-equivalent retrieval stack（真 FTS＋deterministic embeddings＋真 ArcadeDB
+  lifecycle＋production fusion/budget/authority）上量測 ORIGINAL_QUERY vs SINGLE_REWRITE vs
+  unprotected probe（unlock 後含 bounded multi-query）：candidate-generation pool recall（經
+  production `RetrievalInspectionCollector`，per-channel）與 fused-window recall@8/MRR
+  分開呈現；rerank 為 reorder-only 且 candidate 中立，刻意不重套。
+- **Typed miss taxonomy**：`AUTHORITY_CURRENTNESS_REJECTION`／`FUSION_BUDGET_CROWDOUT`／
+  `GRAPH_ONLY_REACHABILITY`／`CANDIDATE_GENERATION_LEXICAL_WORDING_MISMATCH`／
+  `..._SEMANTIC_PARAPHRASE_MISMATCH`／`BACKEND_UNAVAILABLE_CONTRIBUTION`（diagnostics 顯示
+  modality unavailable 時強制附加）；authority rejection 與 no-evidence 不得歸因 query
+  mismatch。
+- **Blocking gates**：forbidden（stale/foreign/deleted）identity 不得進入任何 variant 的
+  post-qualification evidence；所有 surfaced identity 屬 canonical universe（foreign 連 pool
+  都不得出現）；protected candidate 的 EXACT_TOKEN／graph-added retention；original query
+  永遠是第一個 retrieval input；fan-out ≤ 3 hard cap；四個 fallback scenario
+  （provider unavailable／malformed／duplicate／over-limit）typed fallback 且與
+  original-query 行為逐 identity 一致（不得誤譯 `INSUFFICIENT_EVIDENCE`）；兩次完整 pass
+  逐 identity 可重現。Backend-degradation scenario（移除 embedding projection）驗證 miss
+  歸因不把 backend 問題誤歸因 wording。
+- **Unlock ladder**：`MULTI_QUERY_BOUNDED` 僅在 SINGLE_REWRITE 有可重現 recall 增益
+  （pool 或 window）且零 violation 時量測；HyDE 於 deterministic core 鎖定（fixture
+  pseudo-document 必然 corpus-crafted，需 live-provider controlled measurement）。
+- **判定語意**：pool 無增益但存在可重現 fused-window recall recovery（本輪：`property-token`
+  0→1.0 recall@8，wording-mismatch 觸發的 crowd-out 經 protected rewrite 的 lexical 命中
+  恢復）→ **CONDITIONAL GO**；unprotected probe 同步證實 exact-token protection 為
+  adoption 硬性要件。adoption 須另開 Issue：versioned policy、typed applicability/no-op、
+  exact-token protection、hard fan-out、#323/#310 egress disclosure、Retrieval Inspector
+  可觀察但非 control plane、original query 可追溯、default 切換前重跑品質 gate＋live
+  measurement＋provider-free fusion-side levers 的 cost 比較。
+- **報告**：`target/quality-reports/query-transformation-evaluation-v1.{json,md}`
+  （git-ignored runtime evidence）；決策與理由記錄於報告與 issue 文件。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='QueryTransformationScopeBoundaryTest,QueryTransformationEvaluationIntegrationTest' test
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
