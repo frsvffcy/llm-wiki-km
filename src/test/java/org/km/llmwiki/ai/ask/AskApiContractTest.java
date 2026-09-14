@@ -9,6 +9,9 @@ import org.km.llmwiki.ai.answer.AnswerUsageMetadata;
 import org.km.llmwiki.ai.answer.ContextProjectionFailureType;
 import org.km.llmwiki.ai.answer.ProjectionKind;
 import org.km.llmwiki.ai.answer.ProviderUsageStatus;
+import org.km.llmwiki.ai.query.QueryTransformationApplicability;
+import org.km.llmwiki.ai.query.QueryTransformationExecution;
+import org.km.llmwiki.ai.query.QueryTransformationStatus;
 import org.km.llmwiki.rag.RerankNoOpReason;
 import org.km.llmwiki.rag.RerankStatus;
 import org.km.llmwiki.rag.RetrievalDiagnostics;
@@ -197,5 +200,39 @@ class AskApiContractTest {
         assertThat(projected.executionMetadata().rerankNoOpReason()).isNull();
         assertThat(projected.executionMetadata().contextDiagnostics().providerUsageStatus())
                 .isEqualTo(ProviderUsageStatus.NOT_ATTEMPTED);
+    }
+
+    @Test
+    void executionMetadataProjectsBoundedQueryTransformationOutcome() {
+        QueryTransformationExecution transformation = new QueryTransformationExecution(
+                "query-transform-single-rewrite-v1",
+                QueryTransformationStatus.REWRITE_APPLIED,
+                QueryTransformationApplicability.LEXICAL_MISS_CROWD_OUT,
+                ProviderUsageStatus.AVAILABLE, 2, 41L, 12, 5, 17);
+        var metadata = new AskExecutionMetadata(0, 0, 0, false,
+                AnswerContextDiagnostics.empty(), "rerank-policy-v1-exact-anchor",
+                RerankStatus.APPLIED, null, transformation);
+
+        AskApiResponse.QueryTransformationMetadata projected = AskApiResponse.from(
+                new AskResult(AskStatus.ANSWERED, Optional.of("answer"),
+                        List.of(new AskCitation("E1",
+                                org.km.llmwiki.rag.EvidenceKind.WIKI, "WIKI:wiki-x",
+                                "hash-wiki-x",
+                                new org.km.llmwiki.ai.answer.AnswerContextProvenance.Wiki(
+                                        "Wiki X", "vault/wiki-x.md", 1))),
+                        List.of(), Optional.empty(), Optional.empty(), Optional.empty(),
+                        metadata, RetrievalDiagnostics.lexical()))
+                .executionMetadata().queryTransformation();
+
+        assertThat(projected.policyVersion()).isEqualTo("query-transform-single-rewrite-v1");
+        assertThat(projected.status()).isEqualTo(QueryTransformationStatus.REWRITE_APPLIED);
+        assertThat(projected.applicability())
+                .isEqualTo(QueryTransformationApplicability.LEXICAL_MISS_CROWD_OUT);
+        assertThat(projected.providerUsageStatus()).isEqualTo(ProviderUsageStatus.AVAILABLE);
+        assertThat(projected.retrievalInputCount()).isEqualTo(2);
+        assertThat(projected.providerLatencyMs()).isEqualTo(41L);
+        assertThat(projected.providerInputTokens()).isEqualTo(12);
+        assertThat(projected.providerOutputTokens()).isEqualTo(5);
+        assertThat(projected.providerTotalTokens()).isEqualTo(17);
     }
 }

@@ -44,6 +44,7 @@ public record ProviderEgressDescriptor(
     /** Which provider boundary the descriptor describes. */
     public enum ProviderPurpose {
         ANSWER,
-        EMBEDDING
+        EMBEDDING,
+        QUERY_REWRITE
     }
 }

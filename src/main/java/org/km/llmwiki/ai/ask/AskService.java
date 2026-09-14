@@ -17,6 +17,9 @@ import org.km.llmwiki.rag.RetrievalService;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
 import org.km.llmwiki.rag.RetrievalDiagnostics;
 import org.km.llmwiki.rag.RetrievalStrategy;
+import org.km.llmwiki.ai.query.QueryTransformationService;
+import org.km.llmwiki.ai.query.QueryTransformationResult;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -39,14 +42,25 @@ public class AskService {
     private final EvidenceContextProjector contextProjector;
     private final org.km.llmwiki.rag.SecondStageRerankService rerankService;
     private final AnswerClient answerClient;
+    private final QueryTransformationService queryTransformationService;
 
     public AskService(RetrievalService retrievalService, EvidenceContextProjector contextProjector,
                       org.km.llmwiki.rag.SecondStageRerankService rerankService,
                       AnswerClient answerClient) {
+        this(retrievalService, contextProjector, rerankService, answerClient,
+                QueryTransformationService.disabled());
+    }
+
+    @Autowired
+    public AskService(RetrievalService retrievalService, EvidenceContextProjector contextProjector,
+                      org.km.llmwiki.rag.SecondStageRerankService rerankService,
+                      AnswerClient answerClient,
+                      QueryTransformationService queryTransformationService) {
         this.retrievalService = retrievalService;
         this.contextProjector = contextProjector;
         this.rerankService = rerankService;
         this.answerClient = answerClient;
+        this.queryTransformationService = queryTransformationService;
     }
 
     public AskResult ask(AskRequest request) {
@@ -66,6 +80,10 @@ public class AskService {
                     List.of(), retrievalFailureDiagnostics(request, exception));
         }
 
+        QueryTransformationResult transformation = queryTransformationService.apply(
+                request.retrievalRequest(), evidence, retrievalService);
+        evidence = transformation.evidence();
+
         // Second-stage reranking reorders the already-qualified evidence into an ordered
         // view; the policy can never add, drop, or re-identify evidence (blocking invariants
         // enforced inside the rerank execution boundary), and the existing retrieval-side
@@ -82,7 +100,8 @@ public class AskService {
         AnswerContextDiagnostics contextDiagnostics = AnswerContextDiagnostics.from(qualified,
                 projection, projectionLatencyMs, null, ProviderUsageStatus.NOT_ATTEMPTED, null);
         AskExecutionMetadata execution = AskExecutionMetadata.fromDiagnostics(contextDiagnostics)
-                .withRerankOutcome(rerank.policyVersion(), rerank.status(), rerank.noOpReason());
+                .withRerankOutcome(rerank.policyVersion(), rerank.status(), rerank.noOpReason())
+                .withQueryTransformation(transformation.execution());
         List<AskCitation> suppliedEvidence = context.blocks().stream()
                 .map(AskCitation::from).toList();
 

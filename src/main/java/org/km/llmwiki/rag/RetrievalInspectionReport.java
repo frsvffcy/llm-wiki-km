@@ -1,5 +1,7 @@
 package org.km.llmwiki.rag;
 
+import org.km.llmwiki.ai.query.QueryTransformationExecution;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,7 +27,9 @@ public record RetrievalInspectionReport(
         int searchedCandidateCount,
         int rejectedCandidateCount,
         boolean insufficientEvidence,
-        EvidenceBudget budget) {
+        EvidenceBudget budget,
+        QueryTransformationExecution queryTransformation,
+        List<InputObservation> retrievalInputs) {
 
     public RetrievalInspectionReport {
         if (query == null || query.isBlank()) {
@@ -45,6 +49,7 @@ public record RetrievalInspectionReport(
         if (budget == null) {
             throw new IllegalArgumentException("budget is required");
         }
+        retrievalInputs = List.copyOf(retrievalInputs);
         // A candidate selected at fusion time can still be dropped by the terminal or handoff
         // currentness guards; the surviving count must match the identities whose LAST recorded
         // disposition is still SELECTED.
@@ -59,6 +64,22 @@ public record RetrievalInspectionReport(
         if (finalEvidence.size() != surviving) {
             throw new IllegalArgumentException("final evidence must match surviving selections");
         }
+    }
+
+    /** Compatibility constructor for reports produced before query transformation observation. */
+    public RetrievalInspectionReport(String query, RetrievalMode mode, RetrievalStrategy strategy,
+                                     EvidenceWorkspace workspace, String fusionPolicyVersion,
+                                     List<ModalitySection> modalities, List<String> fusedOrder,
+                                     List<RetrievalInspectionTrace.SelectionTrace> selection,
+                                     List<FinalEvidence> finalEvidence,
+                                     Map<String, Set<CandidateSignal>> itemModalities,
+                                     FusedModalityDiagnostics modalityDiagnostics,
+                                     int searchedCandidateCount, int rejectedCandidateCount,
+                                     boolean insufficientEvidence, EvidenceBudget budget) {
+        this(query, mode, strategy, workspace, fusionPolicyVersion, modalities, fusedOrder,
+                selection, finalEvidence, itemModalities, modalityDiagnostics,
+                searchedCandidateCount, rejectedCandidateCount, insufficientEvidence, budget,
+                null, List.of());
     }
 
     public record ModalitySection(CandidateSignal modality, ModalityOutcome outcome,
@@ -80,6 +101,26 @@ public record RetrievalInspectionReport(
                 throw new IllegalArgumentException("final evidence ordinal must be positive");
             }
         }
+    }
+
+    /** One bounded retrieval input and the channel trace observed during that execution. */
+    public record InputObservation(int ordinal, InputRole role, String query,
+                                   List<ModalitySection> modalities,
+                                   List<String> fusedOrder,
+                                   List<RetrievalInspectionTrace.SelectionTrace> selection) {
+        public InputObservation {
+            if (ordinal < 1 || ordinal > 2 || role == null || query == null || query.isBlank()) {
+                throw new IllegalArgumentException("retrieval input observation is invalid");
+            }
+            modalities = List.copyOf(modalities);
+            fusedOrder = List.copyOf(fusedOrder);
+            selection = List.copyOf(selection);
+        }
+    }
+
+    public enum InputRole {
+        ORIGINAL,
+        REWRITE
     }
 
 }

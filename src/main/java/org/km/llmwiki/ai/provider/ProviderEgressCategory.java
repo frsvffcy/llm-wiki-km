@@ -17,5 +17,9 @@ public enum ProviderEgressCategory {
     /** The provider may return answer text and usage metadata. */
     PROVIDER_RESPONSE_METADATA,
     /** Application-selected text representations are sent to the embedding provider. */
-    EMBEDDING_INPUT_REPRESENTATION
+    EMBEDDING_INPUT_REPRESENTATION,
+    /** The original question and protected-token list may be sent for one rewrite. */
+    QUERY_REWRITE_INPUT,
+    /** The provider returns a semantic rewrite candidate and response metadata. */
+    QUERY_REWRITE_RESPONSE_METADATA
 }

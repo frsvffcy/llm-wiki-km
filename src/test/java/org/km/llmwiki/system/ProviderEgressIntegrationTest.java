@@ -17,7 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Full-context integration for the provider egress transparency contract (#323): the real
  * {@code ProviderEgressService} derives destination classes from the current configuration and
- * the #281 transport policy. With the default test configuration both provider boundaries are
+ * the #281 transport policy. With the default test configuration all three provider boundaries are
  * disabled, so the disclosure must say DISABLED without claiming any data category and without
  * exposing endpoints, credentials, or transport details.
  */
@@ -31,7 +31,7 @@ class ProviderEgressIntegrationTest extends IsolatedIntegrationTest {
     void exposesApplicationOwnedProviderEgressDescriptorsWithoutProviderDetails() throws Exception {
         mockMvc.perform(get("/api/v1/system/ai-provider-egress"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data.length()").value(3))
                 .andExpect(jsonPath("$.data[0].purpose").value("ANSWER"))
                 .andExpect(jsonPath("$.data[0].destinationClass").value("DISABLED"))
                 .andExpect(jsonPath("$.data[0].providerType").doesNotExist())
@@ -39,6 +39,11 @@ class ProviderEgressIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data[0].egressCategories.length()").value(0))
                 .andExpect(jsonPath("$.data[1].purpose").value("EMBEDDING"))
                 .andExpect(jsonPath("$.data[1].destinationClass").value("DISABLED"))
+                .andExpect(jsonPath("$.data[2].purpose").value("QUERY_REWRITE"))
+                .andExpect(jsonPath("$.data[2].destinationClass").value("DISABLED"))
+                .andExpect(jsonPath("$.data[2].providerType").doesNotExist())
+                .andExpect(jsonPath("$.data[2].modelDisplayName").doesNotExist())
+                .andExpect(jsonPath("$.data[2].egressCategories.length()").value(0))
                 .andExpect(content().string(not(containsString("https://"))))
                 .andExpect(content().string(not(containsString("apiKey"))))
                 .andExpect(content().string(not(containsString("bearer"))))

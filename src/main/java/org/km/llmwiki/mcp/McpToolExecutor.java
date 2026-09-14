@@ -179,6 +179,11 @@ public class McpToolExecutor {
                         "CONFIGURATION")));
         lines.add(new McpToolResult.ProviderEgressLine("ANSWER", result.executionMetadata()
                 .contextDiagnostics().providerUsageStatus().name(), "EXECUTION"));
+        if (result.executionMetadata().queryTransformation() != null) {
+            lines.add(new McpToolResult.ProviderEgressLine("QUERY_REWRITE",
+                    result.executionMetadata().queryTransformation().providerUsageStatus().name(),
+                    "EXECUTION"));
+        }
         return lines;
     }
 

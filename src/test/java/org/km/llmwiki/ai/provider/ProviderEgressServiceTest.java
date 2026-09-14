@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.answer.provider.openai.OpenAiCompatibleAnswerProperties;
 import org.km.llmwiki.ai.embedding.provider.openai.OpenAiCompatibleEmbeddingProperties;
+import org.km.llmwiki.ai.query.provider.openai.OpenAiCompatibleQueryRewriteProperties;
 
 import java.util.List;
 
@@ -31,7 +32,24 @@ class ProviderEgressServiceTest {
             embedding.setBaseUrl(embeddingBaseUrl);
         }
         embedding.setAllowInsecureTransport(embeddingInsecure);
-        return new ProviderEgressService(answer, embedding);
+        return new ProviderEgressService(answer, embedding,
+                new OpenAiCompatibleQueryRewriteProperties());
+    }
+
+    private ProviderEgressService serviceWithRewrite(boolean enabled, String baseUrl,
+                                                      boolean insecure, String model) {
+        OpenAiCompatibleAnswerProperties answer = new OpenAiCompatibleAnswerProperties();
+        OpenAiCompatibleEmbeddingProperties embedding =
+                new OpenAiCompatibleEmbeddingProperties();
+        OpenAiCompatibleQueryRewriteProperties rewrite =
+                new OpenAiCompatibleQueryRewriteProperties();
+        rewrite.setEnabled(enabled);
+        if (baseUrl != null) {
+            rewrite.setBaseUrl(baseUrl);
+        }
+        rewrite.setAllowInsecureTransport(insecure);
+        rewrite.setModel(model);
+        return new ProviderEgressService(answer, embedding, rewrite);
     }
 
     @Test
@@ -39,7 +57,7 @@ class ProviderEgressServiceTest {
         List<ProviderEgressDescriptor> descriptors = service(
                 false, null, false, null, false, null, false).descriptors();
 
-        assertThat(descriptors).hasSize(2);
+        assertThat(descriptors).hasSize(3);
         assertThat(descriptors.get(0).purpose()).isEqualTo(
                 ProviderEgressDescriptor.ProviderPurpose.ANSWER);
         assertThat(descriptors.get(0).destinationClass()).isEqualTo(ProviderDestination.DISABLED);
@@ -52,6 +70,39 @@ class ProviderEgressServiceTest {
         assertThat(descriptors.get(0).modelDisplayName()).isNull();
         assertThat(descriptors.get(1).providerType()).isNull();
         assertThat(descriptors.get(1).modelDisplayName()).isNull();
+        assertThat(descriptors.get(2).purpose())
+                .isEqualTo(ProviderEgressDescriptor.ProviderPurpose.QUERY_REWRITE);
+        assertThat(descriptors.get(2).destinationClass()).isEqualTo(ProviderDestination.DISABLED);
+        assertThat(descriptors.get(2).egressCategories()).isEmpty();
+        assertThat(descriptors.get(2).providerType()).isNull();
+        assertThat(descriptors.get(2).modelDisplayName()).isNull();
+    }
+
+    @Test
+    void enabledRewriteProviderDisclosesItsIndependentDestinationAndCategories() {
+        List<ProviderEgressDescriptor> descriptors = serviceWithRewrite(true,
+                "https://rewrite.example.com/v1", false, "rewrite-model").descriptors();
+
+        assertThat(descriptors.get(2).purpose())
+                .isEqualTo(ProviderEgressDescriptor.ProviderPurpose.QUERY_REWRITE);
+        assertThat(descriptors.get(2).destinationClass())
+                .isEqualTo(ProviderDestination.REMOTE_SECURE);
+        assertThat(descriptors.get(2).providerType()).isEqualTo("openai-compatible");
+        assertThat(descriptors.get(2).modelDisplayName()).isEqualTo("rewrite-model");
+        assertThat(descriptors.get(2).egressCategories()).containsExactly(
+                ProviderEgressCategory.QUERY_REWRITE_INPUT,
+                ProviderEgressCategory.QUERY_REWRITE_RESPONSE_METADATA);
+    }
+
+    @Test
+    void invalidRewriteEndpointDoesNotClaimEgressCategories() {
+        ProviderEgressDescriptor rewrite = serviceWithRewrite(true,
+                "http://rewrite.example.com/v1", false, "rewrite-model")
+                .descriptors().get(2);
+
+        assertThat(rewrite.destinationClass())
+                .isEqualTo(ProviderDestination.UNAVAILABLE_OR_INVALID);
+        assertThat(rewrite.egressCategories()).isEmpty();
     }
 
     @Test

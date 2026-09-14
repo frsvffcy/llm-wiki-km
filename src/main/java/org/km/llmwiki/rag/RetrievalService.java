@@ -159,7 +159,10 @@ public class RetrievalService {
                     infrastructureFailure);
         }
         recordChannelCandidates(page, CandidateSignal.LEXICAL, collector);
-        return assembleEvidence(request, active, page, RetrievalDiagnostics.lexical(), collector);
+        return assembleEvidence(request, active, page,
+                RetrievalDiagnostics.lexical().withLexicalOutcome(
+                        page.items().isEmpty() ? ModalityOutcome.EMPTY : ModalityOutcome.CONTRIBUTED),
+                collector);
     }
 
     /**
@@ -201,7 +204,9 @@ public class RetrievalService {
         if (vectorCandidateSearchService == null) {
             recordChannelCandidates(lexical, CandidateSignal.LEXICAL, collector);
             return assembleEvidence(request, active, lexical,
-                    RetrievalDiagnostics.degradedHybrid("vector candidate search is not configured"),
+                    RetrievalDiagnostics.degradedHybrid("vector candidate search is not configured")
+                            .withLexicalOutcome(lexical.items().isEmpty()
+                                    ? ModalityOutcome.EMPTY : ModalityOutcome.CONTRIBUTED),
                     collector);
         }
         if (collector != null) {
@@ -221,12 +226,17 @@ public class RetrievalService {
                     limits.candidateLimit());
             SearchCandidatePage fusedPage = new SearchCandidatePage(fused, 0,
                     limits.candidateLimit(), fused.size());
-            return assembleEvidence(request, active, fusedPage, RetrievalDiagnostics.hybrid(),
+            return assembleEvidence(request, active, fusedPage,
+                    RetrievalDiagnostics.hybrid().withLexicalOutcome(lexical.items().isEmpty()
+                            ? ModalityOutcome.EMPTY : ModalityOutcome.CONTRIBUTED),
                     collector);
         } catch (VectorCandidateSearchUnavailableException unavailable) {
             recordChannelCandidates(lexical, CandidateSignal.LEXICAL, collector);
             return assembleEvidence(request, active, lexical,
-                    RetrievalDiagnostics.degradedHybrid(unavailable.getMessage()), collector);
+                    RetrievalDiagnostics.degradedHybrid(unavailable.getMessage())
+                            .withLexicalOutcome(lexical.items().isEmpty()
+                                    ? ModalityOutcome.EMPTY : ModalityOutcome.CONTRIBUTED),
+                    collector);
         }
     }
 

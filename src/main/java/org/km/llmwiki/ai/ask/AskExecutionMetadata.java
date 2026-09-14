@@ -3,6 +3,7 @@ package org.km.llmwiki.ai.ask;
 import org.km.llmwiki.ai.answer.AnswerContextDiagnostics;
 import org.km.llmwiki.rag.RerankNoOpReason;
 import org.km.llmwiki.rag.RerankStatus;
+import org.km.llmwiki.ai.query.QueryTransformationExecution;
 
 import java.util.Objects;
 
@@ -15,7 +16,8 @@ public record AskExecutionMetadata(
         AnswerContextDiagnostics contextDiagnostics,
         String rerankPolicyVersion,
         RerankStatus rerankStatus,
-        RerankNoOpReason rerankNoOpReason
+        RerankNoOpReason rerankNoOpReason,
+        QueryTransformationExecution queryTransformation
 ) {
 
     /** Source-compatible constructor for callers predating context observability. */
@@ -23,7 +25,7 @@ public record AskExecutionMetadata(
                                 int contextCodePoints, boolean contextTruncated) {
         this(retrievedEvidenceItems, contextEvidenceItems, contextCodePoints, contextTruncated,
                 AnswerContextDiagnostics.legacy(retrievedEvidenceItems, contextEvidenceItems,
-                        contextCodePoints, contextTruncated), null, null, null);
+                        contextCodePoints, contextTruncated), null, null, null, null);
     }
 
     /** Source-compatible constructor for callers predating rerank observability. */
@@ -31,7 +33,17 @@ public record AskExecutionMetadata(
                                 int contextCodePoints, boolean contextTruncated,
                                 AnswerContextDiagnostics contextDiagnostics) {
         this(retrievedEvidenceItems, contextEvidenceItems, contextCodePoints, contextTruncated,
-                contextDiagnostics, null, null, null);
+                contextDiagnostics, null, null, null, null);
+    }
+
+    /** Source-compatible constructor for callers predating query transformation observability. */
+    public AskExecutionMetadata(int retrievedEvidenceItems, int contextEvidenceItems,
+                                int contextCodePoints, boolean contextTruncated,
+                                AnswerContextDiagnostics contextDiagnostics,
+                                String rerankPolicyVersion, RerankStatus rerankStatus,
+                                RerankNoOpReason rerankNoOpReason) {
+        this(retrievedEvidenceItems, contextEvidenceItems, contextCodePoints, contextTruncated,
+                contextDiagnostics, rerankPolicyVersion, rerankStatus, rerankNoOpReason, null);
     }
 
     /** Immutable copy carrying a provider outcome while preserving rerank metadata. */
@@ -41,7 +53,7 @@ public record AskExecutionMetadata(
         return new AskExecutionMetadata(retrievedEvidenceItems, contextEvidenceItems,
                 contextCodePoints, contextTruncated,
                 contextDiagnostics.withProviderUsage(status, usage, answerLatencyMs),
-                rerankPolicyVersion, rerankStatus, rerankNoOpReason);
+                rerankPolicyVersion, rerankStatus, rerankNoOpReason, queryTransformation);
     }
 
     /** Immutable copy carrying the rerank execution outcome for this Ask. */
@@ -49,7 +61,14 @@ public record AskExecutionMetadata(
                                                   RerankNoOpReason noOpReason) {
         return new AskExecutionMetadata(retrievedEvidenceItems, contextEvidenceItems,
                 contextCodePoints, contextTruncated, contextDiagnostics, policyVersion, status,
-                noOpReason);
+                noOpReason, queryTransformation);
+    }
+
+    /** Immutable copy carrying the bounded semantic rewrite outcome. */
+    public AskExecutionMetadata withQueryTransformation(QueryTransformationExecution execution) {
+        return new AskExecutionMetadata(retrievedEvidenceItems, contextEvidenceItems,
+                contextCodePoints, contextTruncated, contextDiagnostics, rerankPolicyVersion,
+                rerankStatus, rerankNoOpReason, execution);
     }
 
     /** Builds the legacy fields and diagnostics from one authoritative projection. */

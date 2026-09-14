@@ -2,8 +2,8 @@ package org.km.llmwiki.ai.provider;
 
 import org.km.llmwiki.ai.answer.provider.openai.OpenAiCompatibleAnswerProperties;
 import org.km.llmwiki.ai.embedding.provider.openai.OpenAiCompatibleEmbeddingProperties;
-import org.springframework.stereotype.Service;
-
+import org.km.llmwiki.ai.query.provider.openai.OpenAiCompatibleQueryRewriteProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.util.List;
 
 /**
@@ -14,21 +14,30 @@ import java.util.List;
  * or provider details, it is not a readiness/capability surface, and it never changes
  * provider behavior.
  */
-@org.springframework.stereotype.Component
+@org.springframework.stereotype.Service
 public class ProviderEgressService {
 
     private final OpenAiCompatibleAnswerProperties answerProperties;
     private final OpenAiCompatibleEmbeddingProperties embeddingProperties;
+    private final OpenAiCompatibleQueryRewriteProperties rewriteProperties;
 
     public ProviderEgressService(OpenAiCompatibleAnswerProperties answerProperties,
                                  OpenAiCompatibleEmbeddingProperties embeddingProperties) {
+        this(answerProperties, embeddingProperties, new OpenAiCompatibleQueryRewriteProperties());
+    }
+
+    @Autowired
+    public ProviderEgressService(OpenAiCompatibleAnswerProperties answerProperties,
+                                 OpenAiCompatibleEmbeddingProperties embeddingProperties,
+                                 OpenAiCompatibleQueryRewriteProperties rewriteProperties) {
         this.answerProperties = answerProperties;
         this.embeddingProperties = embeddingProperties;
+        this.rewriteProperties = rewriteProperties;
     }
 
     /** All provider-boundary descriptors the Browser may safely render. */
-    public java.util.List<ProviderEgressDescriptor> descriptors() {
-        return java.util.List.of(answerDescriptor(), embeddingDescriptor());
+    public List<ProviderEgressDescriptor> descriptors() {
+        return List.of(answerDescriptor(), embeddingDescriptor(), rewriteDescriptor());
     }
 
     private ProviderEgressDescriptor answerDescriptor() {
@@ -73,5 +82,22 @@ public class ProviderEgressService {
         return new ProviderEgressDescriptor(
                 ProviderEgressDescriptor.ProviderPurpose.EMBEDDING, destination,
                 embeddingProperties.getProvider(), embeddingProperties.getModel(), categories);
+    }
+
+    private ProviderEgressDescriptor rewriteDescriptor() {
+        if (!rewriteProperties.isEnabled()) {
+            return new ProviderEgressDescriptor(
+                    ProviderEgressDescriptor.ProviderPurpose.QUERY_REWRITE,
+                    ProviderDestination.DISABLED, null, null, java.util.List.of());
+        }
+        ProviderDestination destination = ProviderEndpointSecurityPolicy.classify(
+                rewriteProperties.getBaseUrl(), rewriteProperties.isAllowInsecureTransport());
+        java.util.List<ProviderEgressCategory> categories =
+                destination == ProviderDestination.UNAVAILABLE_OR_INVALID ? java.util.List.of()
+                        : java.util.List.of(ProviderEgressCategory.QUERY_REWRITE_INPUT,
+                        ProviderEgressCategory.QUERY_REWRITE_RESPONSE_METADATA);
+        return new ProviderEgressDescriptor(
+                ProviderEgressDescriptor.ProviderPurpose.QUERY_REWRITE, destination,
+                rewriteProperties.getProvider(), rewriteProperties.getModel(), categories);
     }
 }

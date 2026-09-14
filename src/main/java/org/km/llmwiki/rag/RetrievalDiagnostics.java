@@ -16,7 +16,8 @@ public record RetrievalDiagnostics(
         boolean graphSignalUsed,
         boolean graphDegraded,
         boolean graphUnavailable,
-        String graphDetail
+        String graphDetail,
+        ModalityOutcome lexicalOutcome
 ) {
     public RetrievalDiagnostics {
         if (strategy == null) {
@@ -28,6 +29,12 @@ public record RetrievalDiagnostics(
         if (!graphDegraded && !graphUnavailable && graphDetail != null) {
             throw new IllegalArgumentException("graph detail requires a degraded or unavailable graph signal");
         }
+        if (lexicalOutcome == null) {
+            throw new IllegalArgumentException("lexical outcome is required");
+        }
+        if (!lexicalSignalUsed && lexicalOutcome != ModalityOutcome.DISABLED) {
+            throw new IllegalArgumentException("unused lexical signal must be disabled");
+        }
     }
 
     /** Compatibility view for callers that predate the graph-grounded fused mode. */
@@ -35,7 +42,20 @@ public record RetrievalDiagnostics(
                                 boolean vectorSignalUsed, boolean degradedFallback,
                                 boolean vectorUnavailable, String vectorUnavailableReason) {
         this(strategy, lexicalSignalUsed, vectorSignalUsed, degradedFallback, vectorUnavailable,
-                vectorUnavailableReason, false, false, false, null);
+                vectorUnavailableReason, false, false, false, null,
+                lexicalSignalUsed ? ModalityOutcome.CONTRIBUTED : ModalityOutcome.DISABLED);
+    }
+
+    /** Compatibility constructor for graph-aware callers predating lexical outcome observation. */
+    public RetrievalDiagnostics(RetrievalStrategy strategy, boolean lexicalSignalUsed,
+                                boolean vectorSignalUsed, boolean degradedFallback,
+                                boolean vectorUnavailable, String vectorUnavailableReason,
+                                boolean graphSignalUsed, boolean graphDegraded,
+                                boolean graphUnavailable, String graphDetail) {
+        this(strategy, lexicalSignalUsed, vectorSignalUsed, degradedFallback, vectorUnavailable,
+                vectorUnavailableReason, graphSignalUsed, graphDegraded, graphUnavailable,
+                graphDetail,
+                lexicalSignalUsed ? ModalityOutcome.CONTRIBUTED : ModalityOutcome.DISABLED);
     }
 
     public static RetrievalDiagnostics lexical() {
@@ -95,6 +115,13 @@ public record RetrievalDiagnostics(
                 !vectorUnavailable, false, vectorUnavailable, vectorReason,
                 graph == ModalityOutcome.CONTRIBUTED || graph == ModalityOutcome.EMPTY
                         || graphDegraded,
-                graphDegraded, graphUnavailable, graphDetail);
+                graphDegraded, graphUnavailable, graphDetail, fusionDiagnostics.lexical());
+    }
+
+    /** Adds the channel outcome observed by the production lexical candidate path. */
+    public RetrievalDiagnostics withLexicalOutcome(ModalityOutcome outcome) {
+        return new RetrievalDiagnostics(strategy, lexicalSignalUsed, vectorSignalUsed,
+                degradedFallback, vectorUnavailable, vectorUnavailableReason, graphSignalUsed,
+                graphDegraded, graphUnavailable, graphDetail, outcome);
     }
 }

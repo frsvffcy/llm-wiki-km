@@ -143,7 +143,11 @@ function egressDestinationLabel(destination) {
 }
 
 function egressPurposeLabel(purpose) {
-  return purpose === "EMBEDDING" ? "Embedding 提供者" : "回答提供者";
+  return {
+    ANSWER: "回答提供者",
+    EMBEDDING: "Embedding 提供者",
+    QUERY_REWRITE: "查詢改寫提供者"
+  }[purpose] || "AI 提供者";
 }
 
 function egressCategoryLabel(category) {
@@ -153,7 +157,9 @@ function egressCategoryLabel(category) {
     INSTRUCTION_CONTEXT: "應用程式內建的指示脈絡",
     GENERATION_SETTINGS: "生成參數（不含機密）",
     PROVIDER_RESPONSE_METADATA: "回答與使用量 metadata",
-    EMBEDDING_INPUT_REPRESENTATION: "經挑選的文本表示"
+    EMBEDDING_INPUT_REPRESENTATION: "經挑選的文本表示",
+    QUERY_REWRITE_INPUT: "原始查詢與受保護的精確詞",
+    QUERY_REWRITE_RESPONSE_METADATA: "查詢改寫與使用量 metadata"
   }[category] || category;
 }
 
@@ -193,7 +199,6 @@ export async function loadAiEgress(elements, fetchImpl = fetch, documentRef = do
     }
     const byPurpose = new Map(descriptors.map(item => [item.purpose, item]));
     const answer = byPurpose.get("ANSWER") || descriptors[0];
-    const embedding = byPurpose.get("EMBEDDING");
     // The collapsed headline must never hide the most severe boundary (e.g. answer local but
     // embedding remote insecure); it always surfaces the worst destination across both.
     const worst = descriptors
@@ -208,10 +213,9 @@ export async function loadAiEgress(elements, fetchImpl = fetch, documentRef = do
     const rows = [];
     descriptors.forEach(descriptor => {
       egressRows(descriptor).forEach(([labelText, value]) => {
-        rows.push([
-          descriptor.purpose === "EMBEDDING" ? `Embedding · ${labelText}` : `回答 · ${labelText}`,
-          value
-        ]);
+        const prefix = { ANSWER: "回答", EMBEDDING: "Embedding", QUERY_REWRITE: "查詢改寫" }
+          [descriptor.purpose] || "AI";
+        rows.push([`${prefix} · ${labelText}`, value]);
       });
     });
     rows.push(["本次執行是否實際呼叫提供者", "見回答結果的 Context 與執行診斷（Provider usage）"]);

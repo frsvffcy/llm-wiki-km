@@ -37,6 +37,17 @@ app:
       context:
         compaction:
           policy-version: ${ANSWER_CONTEXT_COMPACTION_POLICY_VERSION:context-policy-v1-current}
+    query-transformation:
+      policy-version: ${QUERY_TRANSFORMATION_POLICY_VERSION:query-transform-disabled-v1}
+      provider:
+        enabled: ${QUERY_REWRITE_PROVIDER_ENABLED:false}
+        provider: ${QUERY_REWRITE_PROVIDER:openai-compatible}
+        base-url: ${QUERY_REWRITE_PROVIDER_BASE_URL:https://api.openai.com/v1}
+        allow-insecure-transport: ${QUERY_REWRITE_PROVIDER_ALLOW_INSECURE_TRANSPORT:false}
+        model: ${QUERY_REWRITE_PROVIDER_MODEL:}
+        api-key: ${QUERY_REWRITE_PROVIDER_API_KEY:}
+        connect-timeout: ${QUERY_REWRITE_PROVIDER_CONNECT_TIMEOUT:2s}
+        read-timeout: ${QUERY_REWRITE_PROVIDER_READ_TIMEOUT:10s}
   extraction:
     resource:
       max-input-bytes: ${EXTRACTION_MAX_INPUT_BYTES:52428800}
