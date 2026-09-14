@@ -2,6 +2,7 @@ package org.km.llmwiki.system;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.km.llmwiki.testsupport.OwnerCredentialFixtures;
 import org.km.llmwiki.web.security.OwnerSecurityProperties;
 
 import java.net.InetAddress;
@@ -26,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DeploymentNegativeExposureIntegrationTest {
 
     private static OwnerSecurityProperties ownerDisabled() {
-        return new OwnerSecurityProperties(false, "", null, null, 0, false,
+        return new OwnerSecurityProperties(false, "", "", null, null, 0, false,
                 null, null, null, null, false, 0, null, 0, null);
     }
 
@@ -65,7 +66,7 @@ class DeploymentNegativeExposureIntegrationTest {
                 "http://100.64.0.5:8766");
 
         OwnerSecurityProperties owner = new OwnerSecurityProperties(true,
-                "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, false,
                 null,
                 List.of("localhost", "127.0.0.1", "100.64.0.5"),

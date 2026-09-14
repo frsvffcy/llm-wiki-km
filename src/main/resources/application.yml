@@ -82,13 +82,19 @@ app:
     auth-token: ${MCP_ADAPTER_AUTH_TOKEN:}
     max-body-bytes: ${MCP_ADAPTER_MAX_BODY_BYTES:262144}
   owner:
-    # #417 single-user owner security boundary. Disabled by default: local-only
-    # keeps the #393 localhost trust model with every /api/v1 endpoint open.
-    # Enabling without a valid 64-hex SHA-256 password hash fails fast at startup.
-    # Enabling never changes server.address (still 127.0.0.1) and never adds
-    # multi-user, tenant, or organization schema.
+    # #417 single-user owner security boundary (+ #423 versioned credential
+    # hardening). Disabled by default: local-only keeps the #393 localhost
+    # trust model with every /api/v1 endpoint open. Enabling without a usable
+    # credential fails fast at startup. Enabling never changes server.address
+    # (still 127.0.0.1) and never adds multi-user, tenant, or organization
+    # schema.
+    # Current authority is password-verifier (versioned salted adaptive KDF,
+    # generated with OwnerPasswordVerifierTool, stored as OWNER_PASSWORD_VERIFIER).
+    # password-hash (64-hex unsalted SHA-256) is only a bounded LOCAL_ONLY
+    # migration aid: private ingress rejects it, and configuring both fails fast.
     auth-enabled: ${OWNER_AUTH_ENABLED:false}
     password-hash: ${OWNER_PASSWORD_HASH:}
+    password-verifier: ${OWNER_PASSWORD_VERIFIER:}
     session-absolute-timeout: ${OWNER_SESSION_ABSOLUTE_TIMEOUT:12h}
     session-idle-timeout: ${OWNER_SESSION_IDLE_TIMEOUT:30m}
     max-sessions: ${OWNER_MAX_SESSIONS:8}

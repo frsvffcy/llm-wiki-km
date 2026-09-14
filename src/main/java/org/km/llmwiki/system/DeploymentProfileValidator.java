@@ -10,9 +10,10 @@ import org.km.llmwiki.web.security.OwnerSecurityProperties;
  *
  * <p>Fixed enforcement order: raw backend bind stays loopback-only, then
  * single-instance, then forwarder target stays loopback, then per-mode
- * forwarder scope, browser-origin authority, and owner-authentication
- * prerequisite, then the cross-validation that makes a {@code SUPPORTED} claim
- * mean a Browser owner session can actually work: the owner Host/Origin
+ * forwarder scope, browser-origin authority, owner-authentication prerequisite,
+ * and hardened-credential prerequisite (private ingress never accepts the
+ * legacy unsalted hash), then the cross-validation that makes a
+ * {@code SUPPORTED} claim mean a Browser owner session can actually work: the owner Host/Origin
  * allowlists must accept the canonical browser ingress, the forwarder scope
  * must expose its port (and its address when the ingress host is an IP
  * literal), the cookie transport must match the ingress scheme, and proxy
@@ -136,6 +137,7 @@ public class DeploymentProfileValidator {
                     "Deployment profile is invalid: private ingress requires a non-loopback browser origin");
         }
         requireOwnerAuth();
+        requireHardenedVerifier();
         requireExplicitProxyTrust();
         requireAllowlistAcceptance(browser);
         requireForwarderCompatibility(binds, browser);
@@ -227,6 +229,15 @@ public class DeploymentProfileValidator {
         if (owner == null || !owner.authEnabled()) {
             throw new IllegalStateException(
                     "Deployment profile is invalid: non-local ingress requires owner authentication");
+        }
+    }
+
+    private void requireHardenedVerifier() {
+        // #423: the legacy unsalted hash is only a LOCAL_ONLY migration aid and
+        // must never be reported as a hardened remote security profile.
+        if (owner == null || owner.usesLegacyPasswordHash()) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: private ingress requires a versioned password verifier");
         }
     }
 

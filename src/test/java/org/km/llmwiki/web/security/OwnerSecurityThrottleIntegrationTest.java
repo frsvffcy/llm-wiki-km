@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Tag("integration")
 @TestPropertySource(properties = {
         "app.owner.auth-enabled=true",
-        "app.owner.password-hash=9148a9b37f4f80aa2e47430e455049e2e41c020df0febe085c306c40a2626393",
+        "app.owner.password-verifier=pbkdf2-sha256$v1$iter=600000$MDEyMzQ1Njc4OWFiY2RlZg$OExLF-y530K2YCU_905346sLUKmgzToFNdzTASr1_1Q",
         "app.owner.cookie-secure=false",
         "app.owner.allowed-hosts=localhost,127.0.0.1",
         "app.owner.allowed-origins=http://localhost:8765,http://127.0.0.1:8765",

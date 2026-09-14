@@ -12,13 +12,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TrustedIngressPolicyTest {
 
     private static OwnerSecurityProperties untrusted() {
-        return new OwnerSecurityProperties(false, "", null, null, 0, true, null,
+        return new OwnerSecurityProperties(false, "", "", null, null, 0, true, null,
                 List.of("localhost", "127.0.0.1"),
                 List.of("http://localhost:8765"), List.of(), false, 0, null, 0, null);
     }
 
     private static OwnerSecurityProperties trusted() {
-        return new OwnerSecurityProperties(false, "", null, null, 0, true, null,
+        return new OwnerSecurityProperties(false, "", "", null, null, 0, true, null,
                 List.of("localhost", "127.0.0.1"),
                 List.of("http://localhost:8765"), List.of("10.0.0.5"), true, 0, null, 0, null);
     }
@@ -71,7 +71,7 @@ class TrustedIngressPolicyTest {
 
     @Test
     void trustedFlagWithoutAllowlistedPeerStaysUntrusted() {
-        OwnerSecurityProperties properties = new OwnerSecurityProperties(false, "", null, null, 0,
+        OwnerSecurityProperties properties = new OwnerSecurityProperties(false, "", "", null, null, 0,
                 true, null, List.of("localhost"), List.of("http://localhost:8765"),
                 List.of("10.0.0.5"), false, 0, null, 0, null);
         MockHttpServletRequest request = new MockHttpServletRequest();

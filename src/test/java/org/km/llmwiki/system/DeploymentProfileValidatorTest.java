@@ -2,6 +2,7 @@ package org.km.llmwiki.system;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.km.llmwiki.testsupport.OwnerCredentialFixtures;
 import org.km.llmwiki.web.security.OwnerSecurityProperties;
 
 import java.util.List;
@@ -11,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Tag("unit")
 class DeploymentProfileValidatorTest {
 
-    private static final String HASH =
+    private static final String LEGACY_HASH =
             "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 
     private static final String REMOTE_HOST = "100.64.0.5";
@@ -19,18 +20,20 @@ class DeploymentProfileValidatorTest {
     private static final String REMOTE_HTTPS_ORIGIN = "https://100.64.0.5:8443";
 
     private static OwnerSecurityProperties ownerDisabled() {
-        return new OwnerSecurityProperties(false, "", null, null, 0, false,
+        return new OwnerSecurityProperties(false, "", "", null, null, 0, false,
                 null, null, null, null, false, 0, null, 0, null);
     }
 
     private static OwnerSecurityProperties ownerEnabled() {
-        return new OwnerSecurityProperties(true, HASH, null, null, 0, true,
+        return new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
+                null, null, 0, true,
                 null, null, null, null, false, 0, null, 0, null);
     }
 
     /** Fully aligned http-over-encrypted-tunnel owner profile (#422 §C). */
     private static OwnerSecurityProperties ownerHttpIngress() {
-        return new OwnerSecurityProperties(true, HASH, null, null, 0, false,
+        return new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
+                null, null, 0, false,
                 null,
                 List.of("localhost", "127.0.0.1", REMOTE_HOST),
                 List.of("http://localhost:8765", "http://127.0.0.1:8765", REMOTE_HTTP_ORIGIN),
@@ -39,11 +42,27 @@ class DeploymentProfileValidatorTest {
 
     /** Fully aligned private-TLS owner profile (#422 §C, preferred). */
     private static OwnerSecurityProperties ownerHttpsIngress() {
-        return new OwnerSecurityProperties(true, HASH, null, null, 0, true,
+        return new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
+                null, null, 0, true,
                 null,
                 List.of("localhost", "127.0.0.1", REMOTE_HOST),
                 List.of("http://localhost:8765", "http://127.0.0.1:8765", REMOTE_HTTPS_ORIGIN),
                 null, false, 0, null, 0, null);
+    }
+
+    /** Legacy-hash owner: LOCAL_ONLY migration aid only, never remote. */
+    private static OwnerSecurityProperties ownerLegacyIngress() {
+        return new OwnerSecurityProperties(true, LEGACY_HASH, "",
+                null, null, 0, false,
+                null,
+                List.of("localhost", "127.0.0.1", REMOTE_HOST),
+                List.of("http://localhost:8765", "http://127.0.0.1:8765", REMOTE_HTTP_ORIGIN),
+                null, false, 0, null, 0, null);
+    }
+
+    private static OwnerSecurityProperties ownerLegacyLocalhost() {
+        return new OwnerSecurityProperties(true, LEGACY_HASH, "",
+                null, null, 0, true, null, null, null, null, false, 0, null, 0, null);
     }
 
     private static DeploymentProperties localOnly() {
@@ -156,6 +175,24 @@ class DeploymentProfileValidatorTest {
     }
 
     @Test
+    void privateIngressRejectsLegacyHashAsMigrationAid() {
+        // #423 §D: the legacy unsalted hash must never be reported as a
+        // hardened remote security profile.
+        assertThatThrownBy(() -> new DeploymentProfileValidator(
+                        privateIngressHttp(), ownerLegacyIngress(), "127.0.0.1", 8765)
+                        .validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("versioned password verifier");
+    }
+
+    @Test
+    void localOnlyAcceptsLegacyHashAsMigrationAid() {
+        new DeploymentProfileValidator(
+                        localOnly(), ownerLegacyLocalhost(), "127.0.0.1", 8765)
+                .validate();
+    }
+
+    @Test
     void privateIngressWithValidatedHttpProfileValidates() {
         new DeploymentProfileValidator(
                         privateIngressHttp(), ownerHttpIngress(), "127.0.0.1", 8765)
@@ -177,7 +214,7 @@ class DeploymentProfileValidatorTest {
                 "127.0.0.1:8765",
                 1,
                 "http://localhost:8766");
-        OwnerSecurityProperties owner = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties owner = new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, false, null,
                 List.of("localhost", "127.0.0.1"),
                 List.of("http://localhost:8766", "http://127.0.0.1:8766"),
@@ -211,7 +248,7 @@ class DeploymentProfileValidatorTest {
 
     @Test
     void ownerHostAllowlistMustAcceptBrowserHost() {
-        OwnerSecurityProperties localhostOnly = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties localhostOnly = new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, false, null, null, null, null, false, 0, null, 0, null);
 
         assertThatThrownBy(() -> new DeploymentProfileValidator(
@@ -222,7 +259,7 @@ class DeploymentProfileValidatorTest {
 
     @Test
     void ownerOriginAllowlistMustAcceptBrowserOrigin() {
-        OwnerSecurityProperties hostOnly = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties hostOnly = new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, false, null,
                 List.of("localhost", "127.0.0.1", REMOTE_HOST),
                 List.of("http://localhost:8765", "http://127.0.0.1:8765"),
@@ -272,7 +309,7 @@ class DeploymentProfileValidatorTest {
                 "127.0.0.1:8765",
                 1,
                 "https://wiki.internal.example");
-        OwnerSecurityProperties owner = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties owner = new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, true, null,
                 List.of("localhost", "127.0.0.1", "wiki.internal.example"),
                 List.of("http://localhost:8765", "https://wiki.internal.example"),
@@ -283,7 +320,7 @@ class DeploymentProfileValidatorTest {
 
     @Test
     void httpIngressWithSecureCookieFailsFast() {
-        OwnerSecurityProperties secure = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties secure = new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, true, null,
                 List.of("localhost", "127.0.0.1", REMOTE_HOST),
                 List.of("http://localhost:8765", REMOTE_HTTP_ORIGIN),
@@ -297,7 +334,7 @@ class DeploymentProfileValidatorTest {
 
     @Test
     void httpsIngressWithoutSecureCookieFailsFast() {
-        OwnerSecurityProperties plain = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties plain = new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, false, null,
                 List.of("localhost", "127.0.0.1", REMOTE_HOST),
                 List.of("http://localhost:8765", REMOTE_HTTPS_ORIGIN),
@@ -313,7 +350,7 @@ class DeploymentProfileValidatorTest {
     void wildcardAllowlistEntriesCanNeverSatisfyBrowserIngress() {
         // Exact-match semantics: a wildcard entry matches nothing, so the
         // profile fails closed instead of opening the ingress.
-        OwnerSecurityProperties wildcard = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties wildcard = new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, false, null,
                 List.of("*"),
                 List.of("*"),
@@ -327,7 +364,7 @@ class DeploymentProfileValidatorTest {
 
     @Test
     void proxyTrustWithoutPeersFailsFast() {
-        OwnerSecurityProperties trusting = new OwnerSecurityProperties(true, HASH,
+        OwnerSecurityProperties trusting = new OwnerSecurityProperties(true, "", OwnerCredentialFixtures.VERIFIER_600K,
                 null, null, 0, false, null,
                 List.of("localhost", "127.0.0.1", REMOTE_HOST),
                 List.of("http://localhost:8765", REMOTE_HTTP_ORIGIN),

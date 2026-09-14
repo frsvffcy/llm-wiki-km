@@ -1664,9 +1664,11 @@ executable ownership，不另立相異規則）。
   authority——`http`/`https`＋explicit effective port＋lowercase canonical；
   userinfo／path／query／fragment／不支援 scheme／wildcard／空白全 fail-fast；
   loopback 與 IP-literal 判定供 validator 的 remote／DNS 分流。
-- `system.DeploymentProfileValidatorTest`（unit，#422 擴充）：PRIVATE_INGRESS 需
-  canonical browser origin（缺即 fail）＋非 loopback＋`host:port` forwarder
-  scope＋owner auth＋proxy trust 需 peer allowlist＋allowlists 接受 ingress＋
+- `system.DeploymentProfileValidatorTest`（unit，#422 擴充，#423 hardened）：
+  PRIVATE_INGRESS 需 canonical browser origin（缺即 fail）＋非 loopback＋
+  `host:port` forwarder scope＋owner auth＋**versioned password verifier**
+  （legacy hash 只許 LOCAL_ONLY，remote 即 fail）＋proxy trust 需 peer
+  allowlist＋allowlists 接受 ingress＋
   forwarder 暴露 ingress port（IP-literal 另需位址一致）＋cookie transport 與
   scheme 相容（https 需 Secure／http 需 explicit private-tunnel non-Secure）；
   LOCAL_ONLY 帶 browser origin 即 fail；REVERSE_PROXY 宣告的 origin 同驗；
@@ -1679,9 +1681,9 @@ executable ownership，不另立相異規則）。
   operator-safe。
 - `system.DeploymentReadinessServiceTest`（unit）：LOCAL_ONLY 與 validated
   PRIVATE_INGRESS 回 SUPPORTED、REVERSE_PROXY_CANDIDATE 永遠 CANDIDATE、缺
-  browser origin／cookie mismatch／localhost-only allowlist 的 PRIVATE_INGRESS
-  回 NOT_READY 而不拋出（#422 fail-safe）；projection 無 secret／path／RID／
-  provider material。
+  browser origin／cookie mismatch／localhost-only allowlist／**legacy hash
+  remote** 的 PRIVATE_INGRESS 回 NOT_READY 而不拋出（#422 fail-safe＋#423）；
+  projection 無 secret／path／RID／provider material。
 - `system.DeploymentOperationsGuardTest`（unit，source-level）：`deploy/` 無
   wildcard bind、forwarder 範例皆指 loopback backend、container 鎖 Java 21 +
   non-root + 單一實例、無 backup package/endpoint、無 PostgreSQL／Kubernetes／
@@ -1708,6 +1710,49 @@ executable ownership，不另立相異規則）。
 - `system.BackupRestoreSmokeIntegrationTest`（integration）：真實 WAL SQLite 檔
   + canonical 檔案走完 backup → restore → reopen（canonical row 仍在）+
   Flyway history 存在；partial／corrupt／derived-only 全 fail-closed。
+
+## Owner credential hardening 測試責任（#423）
+
+#423 將 owner password verifier 從 unsalted SHA-256 升級為 versioned salted
+adaptive KDF（PBKDF2-HMAC-SHA256 dependency-free baseline），不建 multi-user
+schema。完整 algorithm decision、calibration、migration contract 見
+`docs/development/issue-423-owner-credential-kdf.md`（本節只定義 executable
+ownership，不另立相異規則）。
+
+- `web/security.OwnerPasswordVerifierTest`（unit）：production KDF 對共享向量
+  可驗（跨實作校對）；同 password 兩次產生不同 verifier 且皆可驗；salt／cost／
+  key 竄改、截斷、unknown scheme／version、範圍外 cost、legacy 64-hex 全
+  fail-closed 且訊息不回顯值；cost 下限拒近 fast-hash；超長輸入 fail-closed；
+  format 無 plaintext。
+- `web/security.OwnerPasswordVerifierToolTest`（unit）：stdin 產生可驗
+  verifier（stdout 僅 verifier）；空 password／非法 iterations／`--password`
+  全 fail-closed 且 stdout 無殘留。
+- `web/security.OwnerSecurityPropertiesTest`（unit）：versioned verifier 通過、
+  legacy hash 為 bounded migration aid、雙配置 fail-fast、無 credential
+  fail-fast、malformed verifier fail-fast。
+- `web/security.OwnerSessionServiceTest`（unit）：hardened 驗證語意、legacy
+  migration aid 可驗、超長 fail-closed；session lifecycle 不因 KDF 退化。
+- `system.DeploymentProfileValidatorTest`、`system.DeploymentReadinessServiceTest`
+  （unit）：PRIVATE_INGRESS＋legacy 即 fail／NOT_READY；LOCAL_ONLY＋legacy 可
+  通過（migration aid）。
+- `web/security.OwnerSecurityIntegrationTest`、
+  `web/security.OwnerSecurityThrottleIntegrationTest`、
+  `system.DeploymentPrivateIngressIntegrationTest`、
+  `system.DeploymentBrowserTransportIntegrationTest`（integration）：一律改用
+  hardened verifier（含 KDF 在 limiter 之後的 abuse 順序證據）。
+- `system.DeploymentOperationsGuardTest`（unit，source-level）：範例教
+  `OWNER_PASSWORD_VERIFIER=` 且不提供 legacy 啟用行。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='OwnerPasswordVerifierTest,OwnerPasswordVerifierToolTest,OwnerSecurityPropertiesTest,OwnerSessionServiceTest,DeploymentProfileValidatorTest,DeploymentReadinessServiceTest,DeploymentOperationsGuardTest' test -Pfast
+mvn -Dtest='OwnerSecurityIntegrationTest,OwnerSecurityThrottleIntegrationTest,DeploymentPrivateIngressIntegrationTest,DeploymentBrowserTransportIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
 
 受影響測試與完整 gate：
 

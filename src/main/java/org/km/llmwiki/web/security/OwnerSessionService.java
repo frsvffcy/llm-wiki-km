@@ -52,9 +52,19 @@ public class OwnerSessionService {
     }
 
     public boolean passwordMatches(String candidate) {
-        if (candidate == null || properties.passwordHash() == null) {
+        if (candidate == null) {
             return false;
         }
+        String verifier = properties.passwordVerifier();
+        if (verifier != null && !verifier.isBlank()) {
+            // Current authority: versioned, salted, adaptive KDF with a
+            // constant-time final comparison. Malformed stored verifiers fail
+            // closed without distinguishing the failure.
+            return OwnerPasswordVerifier.verify(candidate, verifier);
+        }
+        // Bounded LOCAL_ONLY migration aid: the legacy unsalted SHA-256 hash.
+        // Remote ingress never reaches this path (rejected at startup), and the
+        // comparison still runs in constant time.
         byte[] expected = hex(properties.passwordHash());
         if (expected == null) {
             return false;

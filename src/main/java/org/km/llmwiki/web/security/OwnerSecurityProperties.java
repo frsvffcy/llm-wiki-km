@@ -6,7 +6,8 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * Application-owned single-user owner security configuration (#417).
+ * Application-owned single-user owner security configuration (#417, credential
+ * hardening #423).
  *
  * <p>Local-only remains the default: {@code auth-enabled=false} keeps every
  * {@code /api/v1} endpoint open exactly as the #393 baseline evaluated
@@ -15,6 +16,13 @@ import java.util.List;
  * (still {@code 127.0.0.1}) and without introducing multi-user, tenant, or
  * organization schema.
  *
+ * <p>The current credential authority is the versioned, salted, adaptive
+ * {@code password-verifier} (#423). The legacy 64-hex SHA-256
+ * {@code password-hash} is only a bounded {@code LOCAL_ONLY} migration aid:
+ * remote ingress never accepts it (see the deployment validator), and
+ * configuring both credentials fails fast so a stale weak verifier cannot
+ * linger silently beside the hardened one.
+ *
  * <p>Binding fails fast when remote protection is requested without a usable
  * credential or with non-positive timeouts/limits.
  */
@@ -22,6 +30,7 @@ import java.util.List;
 public record OwnerSecurityProperties(
         boolean authEnabled,
         String passwordHash,
+        String passwordVerifier,
         Duration sessionAbsoluteTimeout,
         Duration sessionIdleTimeout,
         int maxSessions,
@@ -39,6 +48,11 @@ public record OwnerSecurityProperties(
     private static final int PASSWORD_HASH_HEX_LENGTH = 64;
 
     public OwnerSecurityProperties {
+        if (passwordVerifier == null) {
+            passwordVerifier = "";
+        } else {
+            passwordVerifier = passwordVerifier.strip();
+        }
         if (sessionAbsoluteTimeout == null) {
             sessionAbsoluteTimeout = Duration.ofHours(12);
         }
@@ -85,9 +99,22 @@ public record OwnerSecurityProperties(
         if (!authEnabled) {
             return;
         }
-        if (passwordHash == null || !passwordHash.matches("[0-9a-fA-F]{64}")) {
+        boolean hasVerifier = passwordVerifier != null && !passwordVerifier.isBlank();
+        boolean hasLegacyHash = isLegacyHash(passwordHash);
+        if (hasVerifier && hasLegacyHash) {
             throw new IllegalStateException(
-                    "Owner authentication is enabled but no valid 64-hex password hash is configured");
+                    "Owner authentication must configure exactly one password credential");
+        }
+        if (hasVerifier) {
+            try {
+                OwnerPasswordVerifier.parse(passwordVerifier);
+            } catch (IllegalArgumentException malformed) {
+                throw new IllegalStateException(
+                        "Owner authentication is enabled but no valid password verifier is configured");
+            }
+        } else if (!hasLegacyHash) {
+            throw new IllegalStateException(
+                    "Owner authentication is enabled but no valid password verifier is configured");
         }
         // #422 §B: proxy locator headers are never trusted without an explicit peer
         // allowlist, so a remote origin cannot be forged through Forwarded material.
@@ -113,5 +140,20 @@ public record OwnerSecurityProperties(
 
     public static int passwordHashHexLength() {
         return PASSWORD_HASH_HEX_LENGTH;
+    }
+
+    /**
+     * Whether authentication still relies on the legacy unsalted SHA-256 hash.
+     * Only a bounded {@code LOCAL_ONLY} migration aid: remote ingress validators
+     * reject it so a weak verifier is never reported as a hardened remote profile.
+     */
+    public boolean usesLegacyPasswordHash() {
+        return authEnabled
+                && (passwordVerifier == null || passwordVerifier.isBlank())
+                && isLegacyHash(passwordHash);
+    }
+
+    static boolean isLegacyHash(String value) {
+        return value != null && value.matches("[0-9a-fA-F]{64}");
     }
 }
