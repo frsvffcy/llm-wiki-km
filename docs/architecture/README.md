@@ -32,5 +32,10 @@ Current docs（本目錄）   → 對上述 authority 的導航與解釋
 3. 不得引用 `legacy/` 的 table、endpoint、package、BigQuery／Spanner roadmap、Phase taxonomy 作為 current production surface。
 4. 對 current inventory 有疑問時，以 latest `main` 的 Flyway、Controllers、tests、ADR、Issues 為準，本目錄文字不覆寫它們。
 5. 本目錄不新增 executable behavior；任何 schema／API／default 行為變更必須另開 Issue 並走既有 gates。
+6. Anti-drift guard（`docs.ArchitectureVoTAntiDriftTest`，Refs #424）：current 文件不得重建固定
+   migration 區間 truth、不得把已完成的 Remote Deployment 寫成未完成、security／deployment
+   導航不得遺失、normalization current 語意不得退回舊 baseline、Mode 2／direct bind 不得誤升格；
+   legacy 正文保持 `HISTORICAL` 凍結。Guard 只讀文字不斷言 runtime；實際 mismatch 以
+   Flyway／Controllers／tests 為準。
 
-Refs #410。相關：#306（design-doc reconciliation）、#405（evaluation artifact governance）。
+Refs #410、#424。相關：#306（design-doc reconciliation）、#405（evaluation artifact governance）。

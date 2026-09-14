@@ -18,14 +18,20 @@
 - Inspector（`/api/v1/retrieval/inspect`）與 locator（`/api/v1/source-chunks/{chunkId}/locator`）為
   read-only observation／navigation；citation identity（`WIKI:<knowledgeId>`／`SOURCE_CHUNK:<id>`）不變。
 - MCP（`POST /api/mcp`）為 read-only-first、loopback-only adapter；另一個 adapter，不是新 authority。
+- Owner session（`POST`／`GET`／`DELETE /api/v1/owner/session`＋`/rotation`）為 single-user
+  admission boundary（`web/security/`；local-only 預設關閉；cookie／Bearer 雙 credential 同一
+  server-side authority；contract 細節以 controller＋tests 為準）。
+- Deployment readiness（`GET /api/v1/system/deployment`）為唯讀 operator-safe 投影
+ （`system/`；mode／supportState／backendBind＋bounded booleans；invalid 回 `NOT_READY`）。
 
 ## Current holders（導航級；實際 mapping 以 code／tests 為準）
 
 Workspace／Inbox／Extraction／Chunks／Analysis jobs／Proposals／Wiki drafts／publish／
 Search／Search index（含 embedding rebuild／readiness）／Retrieval inspect／Graph projection ops／
 Ask／Ask proposals／Repair proposals／Wiki read／Vault Lint findings／System status（含 ai-provider-egress）／
-MCP。新增 holder（如 Wiki read、Ask／Repair ingress、Vault Lint）皆經既有 Proposal → Draft → Human Review → Publish
-或 read-only observation 語意，不擴大 canonical mutation 面。
+Owner session／Deployment readiness／MCP。新增 holder（如 Wiki read、Ask／Repair ingress、Vault Lint、
+Owner session、Deployment readiness）皆經既有 Proposal → Draft → Human Review → Publish
+或 read-only observation／admission 語意，不擴大 canonical mutation 面。
 
 ## Typed errors 與 diagnostic boundary
 
@@ -58,4 +64,4 @@ Actual Graph contract 僅 `graph/projection/{readiness,rebuild,repair}`；`v1.5 
 `v1.8 Graph UI` 未實作（Future Candidate）。版本命名對照與完整 historical inventory 見
 `legacy/13-rest-api-v0.1.md` §150（含 Current／Historical 三態標記），但該 legacy 文件本身為 non-authoritative。
 
-Refs #410。相關：#282、#292、#293、#306、#327／#330 系、#373、#374、#375、#379、#381。
+Refs #410、#424。相關：#282、#292、#293、#306、#327／#330 系、#373、#374、#375、#379、#381、#417、#418、#422、#423。
