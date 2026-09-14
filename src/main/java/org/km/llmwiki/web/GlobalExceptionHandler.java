@@ -17,6 +17,8 @@ import org.km.llmwiki.wiki.WikiDraftLifecycleException;
 import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
 import org.km.llmwiki.wiki.PublishedWikiValidationException;
 import org.km.llmwiki.wiki.AskCitationInvalidException;
+import org.km.llmwiki.wiki.RepairFindingStaleException;
+import org.km.llmwiki.wiki.RepairNotEligibleException;
 import org.km.llmwiki.wiki.WikiDraftNotFoundException;
 import org.km.llmwiki.wiki.WikiPageNotFoundException;
 import org.km.llmwiki.wiki.WikiDraftTargetException;
@@ -92,6 +94,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AskCitationInvalidException.class)
     public ResponseEntity<ApiError> handleAskCitationInvalid(AskCitationInvalidException exception) {
         return respond(HttpStatus.UNPROCESSABLE_ENTITY, "ASK_CITATION_INVALID",
+                publicMessage(exception), exception);
+    }
+
+    @ExceptionHandler(RepairFindingStaleException.class)
+    public ResponseEntity<ApiError> handleRepairFindingStale(
+            RepairFindingStaleException exception) {
+        return respond(HttpStatus.CONFLICT, "REPAIR_FINDING_STALE",
+                publicMessage(exception), exception);
+    }
+
+    @ExceptionHandler(RepairNotEligibleException.class)
+    public ResponseEntity<ApiError> handleRepairNotEligible(
+            RepairNotEligibleException exception) {
+        return respond(HttpStatus.UNPROCESSABLE_ENTITY, "REPAIR_NOT_ELIGIBLE",
                 publicMessage(exception), exception);
     }
 

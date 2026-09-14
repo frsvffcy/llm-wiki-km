@@ -11,10 +11,13 @@ public class WikiTargetResolver {
 
     private final WikiLogicalPathAuthority pathAuthority;
     private final WikiTargetCatalog targetCatalog;
+    private final WikiMarkdownSnapshotReader snapshotReader;
 
-    public WikiTargetResolver(WikiLogicalPathAuthority pathAuthority, WikiTargetCatalog targetCatalog) {
+    public WikiTargetResolver(WikiLogicalPathAuthority pathAuthority, WikiTargetCatalog targetCatalog,
+                              WikiMarkdownSnapshotReader snapshotReader) {
         this.pathAuthority = pathAuthority;
         this.targetCatalog = targetCatalog;
+        this.snapshotReader = snapshotReader;
     }
 
     public WikiTargetSnapshot resolveCreate(long activeWorkspaceId, WikiDraft draft) {
@@ -40,6 +43,31 @@ public class WikiTargetResolver {
             throw failure(WikiTargetResolutionException.Reason.CANONICAL_INVARIANT_VIOLATION,
                     "MERGE draft must carry an unresolved exact reference");
         }
+        WikiTargetRecord target = resolveMergeTarget(activeWorkspaceId, draft);
+        return WikiTargetSnapshot.existing(target);
+    }
+
+    /**
+     * Repair-baseline merge resolution (#384): identical identity/type/path checks as
+     * {@link #resolveMerge}, but the snapshot pins the actual current file bytes instead
+     * of requiring file-equals-DB first. The drifted bytes become the optimistic base
+     * the human reviews against; publish still pins the base and fails closed on later
+     * drift. Only repair-kind proposals may take this path (selected by the planning
+     * service, never by reference shape).
+     */
+    public WikiTargetSnapshot resolveMergeForRepair(long activeWorkspaceId, WikiDraft draft) {
+        requireDraft(activeWorkspaceId, draft, LlmProposalAction.MERGE);
+        if (draft.target().kind() != WikiDraftTarget.Kind.EXISTING_REFERENCE) {
+            throw failure(WikiTargetResolutionException.Reason.CANONICAL_INVARIANT_VIOLATION,
+                    "MERGE draft must carry an unresolved exact reference");
+        }
+        WikiTargetRecord target = resolveMergeTarget(activeWorkspaceId, draft);
+        String fileHash = snapshotReader.hashActiveVaultFile(target.logicalRelativePath());
+        return new WikiTargetSnapshot(WikiTargetSnapshot.Kind.EXISTING, target.stableIdentifier(),
+                target.title(), target.pageType(), target.logicalRelativePath(), fileHash);
+    }
+
+    private WikiTargetRecord resolveMergeTarget(long activeWorkspaceId, WikiDraft draft) {
         WikiTargetReference reference = WikiTargetReference.parse(draft.target().reference());
         List<WikiTargetRecord> candidates = targetCatalog.findExact(reference);
         if (candidates.isEmpty()) {
@@ -68,7 +96,7 @@ public class WikiTargetResolver {
             throw failure(WikiTargetResolutionException.Reason.CANONICAL_INVARIANT_VIOLATION,
                     "MERGE target path does not match the active canonical path authority");
         }
-        return WikiTargetSnapshot.existing(target);
+        return target;
     }
 
     private static void requireDraft(long workspaceId, WikiDraft draft, LlmProposalAction expectedAction) {

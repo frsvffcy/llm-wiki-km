@@ -29,6 +29,31 @@ public class WikiMarkdownSnapshotReader {
         };
     }
 
+    /**
+     * SHA-256 of the current vault bytes for repair baselining (#384). Same read safety
+     * as {@link #capture} (no-follow, regular file) but no content-hash expectation:
+     * repair drafts pin the actual drifted bytes as their optimistic base instead of
+     * requiring file-equals-DB first. Callers still go through the unchanged publish
+     * pinning, so later drift fails closed.
+     */
+    public String hashActiveVaultFile(String logicalRelativePath) {
+        Path path = pathResolver.resolveAndValidateRealPath(logicalRelativePath);
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+            throw new WikiDraftTargetException(WikiDraftTargetException.Reason.TARGET_FILE_MISSING,
+                    "Repair target file does not exist in the active vault");
+        }
+        if (Files.isSymbolicLink(path) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+            throw new WikiDraftTargetException(WikiDraftTargetException.Reason.TARGET_NOT_REGULAR_FILE,
+                    "Repair target must be a regular non-symlink Markdown file");
+        }
+        try {
+            return WikiContentHash.sha256(Files.readAllBytes(path));
+        } catch (IOException exception) {
+            throw new WikiDraftTargetException(WikiDraftTargetException.Reason.TARGET_CONTENT_INVALID,
+                    "Repair target content could not be read", exception);
+        }
+    }
+
     private static WikiTargetBaseline captureCreate(Path path) {
         if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
             throw new WikiDraftTargetException(WikiDraftTargetException.Reason.CREATE_TARGET_EXISTS,

@@ -28,6 +28,9 @@ class AskProposalIngressIntegrationTest extends IsolatedIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private org.jooq.DSLContext dslContext;
+
     private long seededChunkId;
 
 
@@ -101,6 +104,22 @@ class AskProposalIngressIntegrationTest extends IsolatedIntegrationTest {
         mockMvc.perform(get("/api/v1/proposals"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.totalElements").value(1));
+    }
+
+    @Test
+    void duplicateAskInsertLosesTheRaceDeterministically() throws Exception {
+        seedWorkspaceWithSources();
+        long workspaceId = lookupWorkspaceId("active");
+        AskProposalIngressRepository repository = new AskProposalIngressRepository(dslContext);
+        CreateAskProposalRequest request =
+                new CreateAskProposalRequest("q", "a", "p", "m", java.util.List.of());
+        long first = repository.insertAskProposal(workspaceId, request, "{\"title\":\"T\"}", "[]",
+                java.util.List.of(seededChunkId), "ask-dedup-1");
+        org.assertj.core.api.Assertions.assertThat(first).isPositive();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> repository.insertAskProposal(
+                        workspaceId, request, "{\"title\":\"T\"}", "[]",
+                        java.util.List.of(seededChunkId), "ask-dedup-1"))
+                .isInstanceOf(DuplicateAskProposalException.class);
     }
 
     @Test

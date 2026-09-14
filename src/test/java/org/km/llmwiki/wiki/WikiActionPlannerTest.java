@@ -8,12 +8,14 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 @Tag("unit")
 class WikiActionPlannerTest {
 
     private final WikiActionPlanner planner = new WikiActionPlanner(
-            new WikiTargetResolver(new WikiPathContract()::resolveLogicalPath, new EmptyCatalog()));
+            new WikiTargetResolver(new WikiPathContract()::resolveLogicalPath, new EmptyCatalog(),
+                    mock(WikiMarkdownSnapshotReader.class)));
 
     @Test
     void linkOnlyIgnoreAndReviewNeverPlanMainWikiWrites() {

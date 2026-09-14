@@ -28,6 +28,22 @@ public class WikiActionPlanner {
         };
     }
 
+    /**
+     * Repair-baseline write plan (#384): same outcome and lifecycle as
+     * {@link #planWrite} for MERGE, except the target snapshot pins the actual drifted
+     * file bytes (see {@link WikiTargetResolver#resolveMergeForRepair}) so a repair
+     * draft can be created against drift it is about to revert. Selected only for
+     * repair-kind proposals by the planning service.
+     */
+    public WikiActionPlan planWriteRepair(long activeWorkspaceId, WikiDraft draft) {
+        if (draft.action() != LlmProposalAction.MERGE) {
+            throw new IllegalArgumentException("Repair baseline plans require a MERGE WikiDraft");
+        }
+        return new WikiActionPlan(draft.proposalId(), draft.action(),
+                WikiActionPlanOutcome.MERGE_MAIN_WIKI,
+                targetResolver.resolveMergeForRepair(activeWorkspaceId, draft), draft.sourceChunkIds());
+    }
+
     public WikiActionPlan planNonWrite(long proposalId, LlmProposalAction action, List<Long> sourceChunkIds) {
         if (action != LlmProposalAction.LINK_ONLY && action != LlmProposalAction.IGNORE
                 && action != LlmProposalAction.REVIEW) {

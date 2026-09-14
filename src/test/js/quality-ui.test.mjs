@@ -6,6 +6,7 @@ import {
   categoryLabel,
   codeLabel,
   createQualityController,
+  repairRefusalLabel,
   severityLabel,
   triageErrorMessage,
   FINDING_CATEGORIES,
@@ -47,7 +48,11 @@ function uiElements() {
     triageDetailExplanation: new FakeElement("p"),
     triagePage: new FakeElement("div"),
     triagePageHint: new FakeElement("p"),
-    triageDetailClose: new FakeElement("button")
+    triageDetailClose: new FakeElement("button"),
+    triageRepair: new FakeElement("div"),
+    triageRepairCreate: new FakeElement("button"),
+    triageRepairHint: new FakeElement("p"),
+    triageRefusal: new FakeElement("p")
   };
 }
 
@@ -81,6 +86,15 @@ function findingRow(overrides = {}) {
   };
 }
 
+function triageEntry(findingOverrides = {}, capabilityOverrides = {}) {
+  return {
+    finding: findingRow(findingOverrides),
+    repairEligible: false,
+    repairRefusalReason: "AMBIGUOUS_TARGET",
+    ...capabilityOverrides
+  };
+}
+
 function lintPayload(findings, checkedPageCount = 3) {
   return { data: { workspaceId: 7, checkedPageCount, findings } };
 }
@@ -109,6 +123,10 @@ function controllerWithLint(findings, pageResponse = pagePayload()) {
   return { elements, calls, controller };
 }
 
+function eligibleEntry(findingOverrides = {}) {
+  return triageEntry(findingOverrides, { repairEligible: true, repairRefusalReason: null });
+}
+
 test("label maps cover the finding taxonomy with raw fallback", () => {
   assert.deepEqual([...FINDING_CATEGORIES], ["REFERENCE", "CANONICAL_CONTENT"]);
   assert.deepEqual([...FINDING_SEVERITIES], ["ERROR", "WARNING"]);
@@ -121,8 +139,8 @@ test("label maps cover the finding taxonomy with raw fallback", () => {
 
 test("list renders backend order with badges and counts", async () => {
   const findings = [
-    findingRow(),
-    findingRow({ code: "ORPHAN_PAGE", category: "REFERENCE", severity: "WARNING", knowledgeId: "wiki-lonely", detail: "no inbound reference from other published pages" })
+    triageEntry(),
+    triageEntry({ code: "ORPHAN_PAGE", category: "REFERENCE", severity: "WARNING", knowledgeId: "wiki-lonely", detail: "no inbound reference from other published pages" })
   ];
   const { elements, controller } = controllerWithLint(findings);
   await controller.refresh();
@@ -140,9 +158,9 @@ test("list renders backend order with badges and counts", async () => {
 
 test("filters narrow the snapshot without refetching", async () => {
   const findings = [
-    findingRow(),
-    findingRow({ code: "ORPHAN_PAGE", severity: "WARNING", knowledgeId: "wiki-lonely" }),
-    findingRow({ code: "CANONICAL_CONTENT_INVALID", category: "CANONICAL_CONTENT", knowledgeId: "wiki-drift", detail: "hash differs" })
+    triageEntry(),
+    triageEntry({ code: "ORPHAN_PAGE", severity: "WARNING", knowledgeId: "wiki-lonely" }),
+    triageEntry({ code: "CANONICAL_CONTENT_INVALID", category: "CANONICAL_CONTENT", knowledgeId: "wiki-drift", detail: "hash differs" })
   ];
   const { elements, calls, controller } = controllerWithLint(findings);
   await controller.refresh();
@@ -171,7 +189,7 @@ test("empty snapshot shows the empty state", async () => {
 });
 
 test("detail renders finding, authoritative preview, and stale handling", async () => {
-  const { elements, controller } = controllerWithLint([findingRow()]);
+  const { elements, controller } = controllerWithLint([triageEntry()]);
   await controller.refresh();
   await controller.selectFinding(0);
 
@@ -191,7 +209,7 @@ test("stale page never fabricates content", async () => {
     if (url.startsWith("/api/v1/wiki/")) {
       return jsonResponse(404, { error: { code: "WIKI_PAGE_NOT_FOUND", message: "gone" } });
     }
-    return jsonResponse(200, lintPayload([findingRow()]));
+    return jsonResponse(200, lintPayload([triageEntry()]));
   };
   const controller = createQualityController(elements, fetchImpl, fakeDocument());
   await controller.refresh();
@@ -229,7 +247,7 @@ test("workspace switch clears state and re-reads authoritative data", async () =
     const calls = [];
     const fetchImpl = async (url) => {
       calls.push(url);
-      return jsonResponse(200, lintPayload([findingRow()]));
+      return jsonResponse(200, lintPayload([triageEntry()]));
     };
     return { elements, calls, controller: createQualityController(elements, fetchImpl, documentRef) };
   })();
@@ -243,7 +261,7 @@ test("workspace switch clears state and re-reads authoritative data", async () =
 });
 
 test("untrusted finding content renders as inert text only", async () => {
-  const evil = findingRow({
+  const evil = triageEntry({
     knowledgeId: "wiki-<script>alert(1)</script>",
     logicalPath: "vault/concepts/<img src=x onerror=alert(1)>.md",
     detail: "<img src=x onerror=alert(2)>"
@@ -260,15 +278,140 @@ test("untrusted finding content renders as inert text only", async () => {
   assert.match(body, /onerror/);
 });
 
-test("module carries no mutation affordance or second authority", async () => {
+test("module carries no mutation affordance beyond the governed repair command", async () => {
   const source = await readFile(
     new URL("../../main/resources/static/quality-ui.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /innerHTML/);
-  assert.doesNotMatch(source, /method:\s*"POST"/);
   assert.doesNotMatch(source, /method:\s*"PATCH"/);
   assert.doesNotMatch(source, /method:\s*"PUT"/);
   assert.doesNotMatch(source, /method:\s*"DELETE"/);
-  assert.doesNotMatch(source, /repairEligible/);
+  // Exactly one POST exists: the governed repair command carrying only the
+  // canonical identity. Finding detail, paths, and repair text never travel.
+  assert.equal(source.match(/method:\s*"POST"/g)?.length ?? 0, 1);
+  assert.match(source, /\/api\/v1\/repair\/proposals/);
+  assert.match(source, /JSON\.stringify\(\{\s*knowledgeId/);
   assert.doesNotMatch(source, /normalizeTitle|extractWikilink|frontmatter/i);
+  // No finding-code decision matrix: the action exists solely from the backend
+  // capability, codes only map to presentation labels, unknown codes fail closed.
+  // (The [^=] guards distinguish assignment from === / !== comparisons.)
+  assert.doesNotMatch(source, /entry\.repairEligible\s*=\s*[^=]/);
+  assert.doesNotMatch(source, /repairEligible\s*=\s*[^=]true/);
+  assert.doesNotMatch(source, /case\s*"(BROKEN_INTERNAL_LINK|ORPHAN_PAGE|CANONICAL_CONTENT_INVALID)"/);
   assert.match(source, /workspace-changed/);
+  assert.equal(repairRefusalLabel("AMBIGUOUS_TARGET"), "連結目標不明確，無法推導修復動作，僅供分類檢視。");
+  assert.equal(repairRefusalLabel("SOMETHING_NEW"), "SOMETHING_NEW");
+});
+
+test("repair action renders only from the backend capability", async () => {
+  const { elements, controller } = controllerWithLint([
+    eligibleEntry({ code: "CANONICAL_CONTENT_INVALID", category: "CANONICAL_CONTENT", knowledgeId: "wiki-drift", detail: "hash differs" }),
+    triageEntry({ code: "ORPHAN_PAGE", severity: "WARNING", knowledgeId: "wiki-lonely" },
+      { repairEligible: false, repairRefusalReason: "SEMANTIC_JUDGMENT_REQUIRED" })
+  ]);
+  await controller.refresh();
+
+  await controller.selectFinding(0);
+  assert.equal(elements.triageRepair.hidden, false);
+  assert.equal(elements.triageRefusal.hidden, true);
+
+  await controller.selectFinding(1);
+  assert.equal(elements.triageRepair.hidden, true);
+  assert.equal(elements.triageRefusal.hidden, false);
+  assert.match(elements.triageRefusal.textContent, /語意判斷/);
+});
+
+test("repair posts only the canonical identity and reports governed outcomes", async () => {
+  const elements = uiElements();
+  const posts = [];
+  let repairCalls = 0;
+  const fetchImpl = async (url, options) => {
+    if (url === "/api/v1/repair/proposals") {
+      repairCalls += 1;
+      posts.push(JSON.parse(options.body));
+      return jsonResponse(201, { data: { proposal: { id: 9 }, duplicate: false } });
+    }
+    if (url.startsWith("/api/v1/wiki/")) return jsonResponse(200, pagePayload());
+    return jsonResponse(200, lintPayload([
+      eligibleEntry({ code: "CANONICAL_CONTENT_INVALID", category: "CANONICAL_CONTENT", knowledgeId: "wiki-drift", detail: "hash differs" })
+    ]));
+  };
+  const controller = createQualityController(elements, fetchImpl, fakeDocument());
+  await controller.refresh();
+  await controller.selectFinding(0);
+  await controller.createRepairProposal();
+
+  assert.equal(repairCalls, 1);
+  assert.deepEqual(posts[0], { knowledgeId: "wiki-drift" });
+  assert.match(elements.triageRepairHint.textContent, /審核/);
+});
+
+test("duplicate repair reports the existing proposal without forking", async () => {
+  const elements = uiElements();
+  const fetchImpl = async (url, options) => {
+    if (url === "/api/v1/repair/proposals") {
+      return jsonResponse(200, { data: { proposal: { id: 9 }, duplicate: true } });
+    }
+    if (url.startsWith("/api/v1/wiki/")) return jsonResponse(200, pagePayload());
+    return jsonResponse(200, lintPayload([
+      eligibleEntry({ code: "CANONICAL_CONTENT_INVALID", category: "CANONICAL_CONTENT", knowledgeId: "wiki-drift", detail: "hash differs" })
+    ]));
+  };
+  const controller = createQualityController(elements, fetchImpl, fakeDocument());
+  await controller.refresh();
+  await controller.selectFinding(0);
+  await controller.createRepairProposal();
+
+  assert.match(elements.triageRepairHint.textContent, /已存在/);
+});
+
+test("stale and ineligible repair commands surface typed hints and reload", async () => {
+  for (const [code, payload, pattern] of [
+    [409, { error: { code: "REPAIR_FINDING_STALE" } }, /已變動/],
+    [422, { error: { code: "REPAIR_NOT_ELIGIBLE" } }, /無法修復/]
+  ]) {
+    const elements = uiElements();
+    let lintCalls = 0;
+    const fetchImpl = async (url) => {
+      if (url === "/api/v1/repair/proposals") return jsonResponse(code, payload);
+      if (url.startsWith("/api/v1/wiki/")) return jsonResponse(200, pagePayload());
+      lintCalls += 1;
+      return jsonResponse(200, lintPayload([
+        eligibleEntry({ code: "CANONICAL_CONTENT_INVALID", category: "CANONICAL_CONTENT", knowledgeId: "wiki-drift", detail: "hash differs" })
+      ]));
+    };
+    const controller = createQualityController(elements, fetchImpl, fakeDocument());
+    await controller.refresh();
+    await controller.selectFinding(0);
+    await controller.createRepairProposal();
+
+    assert.match(elements.triageRepairHint.textContent, pattern);
+    assert.ok(lintCalls >= 2);
+  }
+});
+
+test("concurrent repair clicks send a single command", async () => {
+  const elements = uiElements();
+  let repairCalls = 0;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const fetchImpl = async (url) => {
+    if (url === "/api/v1/repair/proposals") {
+      repairCalls += 1;
+      await gate;
+      return jsonResponse(201, { data: { proposal: { id: 9 }, duplicate: false } });
+    }
+    if (url.startsWith("/api/v1/wiki/")) return jsonResponse(200, pagePayload());
+    return jsonResponse(200, lintPayload([
+      eligibleEntry({ code: "CANONICAL_CONTENT_INVALID", category: "CANONICAL_CONTENT", knowledgeId: "wiki-drift", detail: "hash differs" })
+    ]));
+  };
+  const controller = createQualityController(elements, fetchImpl, fakeDocument());
+  await controller.refresh();
+  await controller.selectFinding(0);
+  const first = controller.createRepairProposal();
+  const second = controller.createRepairProposal();
+  release();
+  await Promise.all([first, second]);
+
+  assert.equal(repairCalls, 1);
 });

@@ -88,8 +88,12 @@ public class AskProposalIngressRepository {
         } catch (IntegrityConstraintViolationException violation) {
             // Only the dedup index translates into the idempotency contract; any other
             // constraint violation is a bug and must surface with its real cause.
+            // SQLite reports unique violations by constrained columns, not index names,
+            // and the ASK/REPAIR partial indexes are kind-disjoint — so a UNIQUE failure
+            // mentioning source_dedup_hash on an ASK insert can only be this index.
             if (violation.getMessage() != null
-                    && violation.getMessage().contains("idx_knowledge_proposal_ask_dedup")) {
+                    && violation.getMessage().contains("UNIQUE constraint failed")
+                    && violation.getMessage().contains("source_dedup_hash")) {
                 throw new DuplicateAskProposalException(violation.getMessage());
             }
             throw new IllegalStateException(

@@ -110,6 +110,18 @@ public class KnowledgeProposalRepository {
     }
 
     /**
+     * Source kind of one workspace-scoped proposal (#384 repair routing reads this to
+     * select the repair-baseline plan; the converter and lifecycle stay kind-agnostic).
+     */
+    public Optional<String> findSourceKind(long workspaceId, long proposalId) {
+        return dsl.select(KNOWLEDGE_PROPOSAL.SOURCE_KIND)
+                .from(KNOWLEDGE_PROPOSAL)
+                .where(KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId))
+                .and(KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId))
+                .fetchOptional(KNOWLEDGE_PROPOSAL.SOURCE_KIND);
+    }
+
+    /**
      * Loads the complete read-only source needed by STORY-402. The workspace and document joins are
      * deliberate authority checks; no untrusted proposal field is interpreted as a filesystem path.
      */
