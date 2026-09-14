@@ -9,6 +9,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 @Tag("unit")
 class WikiTargetResolverTest {
@@ -18,7 +19,8 @@ class WikiTargetResolverTest {
 
     private final WikiPathContract pathContract = new WikiPathContract();
     private final FakeCatalog catalog = new FakeCatalog();
-    private final WikiTargetResolver resolver = new WikiTargetResolver(pathContract::resolveLogicalPath, catalog);
+    private final WikiTargetResolver resolver = new WikiTargetResolver(pathContract::resolveLogicalPath,
+            catalog, mock(WikiMarkdownSnapshotReader.class));
 
     @Test
     void resolvesCreateToTheOnlyCanonicalNonExistingActiveWorkspaceTarget() {

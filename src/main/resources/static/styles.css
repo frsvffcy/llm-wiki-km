@@ -521,3 +521,5 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .triage-page-meta { color: var(--muted); font-size: 0.85rem; }
 .triage-handoffs { margin: 10px 0; }
 .triage-handoffs .wiki-handoff { margin-right: 12px; }
+.triage-repair { margin: 10px 0; }
+.triage-refusal { color: var(--muted); font-size: 0.9rem; }

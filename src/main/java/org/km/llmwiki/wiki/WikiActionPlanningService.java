@@ -40,7 +40,12 @@ public class WikiActionPlanningService {
                     "Only APPROVED knowledge proposals can produce Wiki action plans");
         }
         if (source.action() == LlmProposalAction.CREATE || source.action() == LlmProposalAction.MERGE) {
-            return actionPlanner.planWrite(workspace.id(), draftConverter.convert(source));
+            WikiDraft draft = draftConverter.convert(source);
+            if (proposalRepository.findSourceKind(workspace.id(), source.proposalId())
+                    .map("REPAIR"::equals).orElse(false)) {
+                return actionPlanner.planWriteRepair(workspace.id(), draft);
+            }
+            return actionPlanner.planWrite(workspace.id(), draft);
         }
         return actionPlanner.planNonWrite(source.proposalId(), source.action(), source.proposalEvidence().stream()
                 .map(KnowledgeProposalEvidence::sourceChunkId)

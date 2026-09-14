@@ -8,6 +8,7 @@
 
 const LINT_ENDPOINT = "/api/v1/vault-lint/findings";
 const WIKI_ENDPOINT = "/api/v1/wiki";
+const REPAIR_ENDPOINT = "/api/v1/repair/proposals";
 
 export const FINDING_CATEGORIES = Object.freeze(["REFERENCE", "CANONICAL_CONTENT"]);
 
@@ -34,7 +35,22 @@ const CODE_LABELS = Object.freeze({
 
 const ERROR_MESSAGES = Object.freeze({
   NO_ACTIVE_WORKSPACE: ["尚未開啟工作區", "請先至「工作區」建立或開啟知識庫，再回來重新整理。"],
-  WIKI_PAGE_NOT_FOUND: ["頁面已不存在", "該頁面已移出 Published，finding 可能已過時，請重新整理後再判讀。"]
+  WIKI_PAGE_NOT_FOUND: ["頁面已不存在", "該頁面已移出 Published，finding 可能已過時，請重新整理後再判讀。"],
+  REPAIR_FINDING_STALE: ["修復對象已變動", "finding 已消失或改變，不會套用舊狀態；已重新讀取最新診斷。"],
+  REPAIR_NOT_ELIGIBLE: ["無法修復", "此類 finding 只能分類檢視，不提供修復動作。"]
+});
+
+/**
+ * Presentation copy for backend refusal reasons only — NOT an eligibility matrix.
+ * Whether the repair action exists comes solely from the backend `repairEligible`
+ * capability on each finding; unknown codes render raw and never enable repair.
+ */
+const REPAIR_REFUSAL_LABELS = Object.freeze({
+  AMBIGUOUS_TARGET: "連結目標不明確，無法推導修復動作，僅供分類檢視。",
+  SEMANTIC_JUDGMENT_REQUIRED: "需要語意判斷，無法自動修復，僅供分類檢視。",
+  TARGET_NOT_READABLE: "目標內容無法讀取，僅供分類檢視。",
+  AMBIGUOUS_IDENTITY: "識別重複，無法判定修復對象，僅供分類檢視。",
+  NO_RESOLVABLE_LINEAGE: "找不到可重建的 governed 來源，僅供分類檢視。"
 });
 
 const GENERIC_ERROR = ["讀取失敗", "發生未預期的問題，請稍後再試。"];
@@ -72,9 +88,15 @@ export function appendTextElement(documentRef, parent, tag, className, value) {
   return element;
 }
 
+export function repairRefusalLabel(reason) {
+  const key = typeof reason === "string" ? reason.toUpperCase() : "";
+  return REPAIR_REFUSAL_LABELS[key] || text(reason);
+}
+
 export function renderFindingList(documentRef, listElement, findings) {
   listElement.replaceChildren();
-  findings.forEach((finding, index) => {
+  findings.forEach((entry, index) => {
+    const finding = entry && entry.finding ? entry.finding : {};
     const item = documentRef.createElement("li");
     item.className = "triage-item";
     appendTextElement(documentRef, item, "p", "triage-item-title",
@@ -125,16 +147,23 @@ async function readEnvelope(response) {
 
 export function createQualityController(elements, fetchImpl = fetch, documentRef = document) {
   const state = { category: "", severity: "", findings: [], checkedPageCount: 0, fetchedAt: "", selectedIndex: -1 };
+  let repairInFlight = false;
 
   function showTypedError(error, hint = elements.triageHint) {
     const { title, message } = triageErrorMessage(error);
     hint.textContent = `${title}：${message}`;
   }
 
+  function entryFinding(entry) {
+    return entry && entry.finding ? entry.finding : {};
+  }
+
   function visibleFindings() {
-    return state.findings.filter(finding =>
-      (state.category === "" || text(finding.category).toUpperCase() === state.category)
-      && (state.severity === "" || text(finding.severity).toUpperCase() === state.severity));
+    return state.findings.filter(entry => {
+      const finding = entryFinding(entry);
+      return (state.category === "" || text(finding.category).toUpperCase() === state.category)
+        && (state.severity === "" || text(finding.severity).toUpperCase() === state.severity);
+    });
   }
 
   function renderMeta() {
@@ -167,6 +196,10 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
     elements.triageDetailExplanation.textContent = "";
     elements.triagePage.replaceChildren();
     elements.triagePageHint.textContent = "";
+    elements.triageRepair.hidden = true;
+    elements.triageRepairHint.textContent = "";
+    elements.triageRefusal.hidden = true;
+    elements.triageRefusal.textContent = "";
     elements.triageHint.textContent = "";
     elements.triageMeta.textContent = "";
   }
@@ -209,10 +242,12 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
 
   async function selectFinding(index) {
     const visible = visibleFindings();
-    const finding = visible[index];
-    if (!finding) return;
+    const entry = visible[index];
+    if (!entry) return;
+    const finding = entryFinding(entry);
     state.selectedIndex = index;
     renderFindingDetail(documentRef, elements, finding);
+    renderRepairCapability(entry);
     elements.triageDetail.hidden = false;
     elements.triagePageHint.textContent = "";
     elements.triagePage.replaceChildren();
@@ -235,6 +270,63 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
       return;
     }
     renderPagePreview(documentRef, elements.triagePage, page);
+  }
+
+  function renderRepairCapability(entry) {
+    // The repair action exists if and only if the backend capability says so; the
+    // refusal reason is presentation copy for an already-decided backend verdict.
+    const eligible = entry && entry.repairEligible === true;
+    elements.triageRepair.hidden = !eligible;
+    elements.triageRepairCreate.disabled = false;
+    elements.triageRepairCreate.textContent = "建立修復 Proposal";
+    elements.triageRepairHint.textContent = "";
+    if (eligible) {
+      elements.triageRefusal.hidden = true;
+      elements.triageRefusal.textContent = "";
+    } else {
+      elements.triageRefusal.hidden = false;
+      elements.triageRefusal.textContent =
+        repairRefusalLabel(entry && entry.repairRefusalReason);
+    }
+  }
+
+  async function createRepairProposal() {
+    // Explicit human action with double-submit guard. Only the canonical identity
+    // travels to the backend; finding detail, paths, and repair text are rebuilt
+    // server-side at command time and stale states fail closed there.
+    if (repairInFlight) return;
+    const entry = visibleFindings()[state.selectedIndex];
+    const finding = entryFinding(entry);
+    if (!entry || entry.repairEligible !== true || text(finding.knowledgeId) === "") return;
+    repairInFlight = true;
+    elements.triageRepairCreate.disabled = true;
+    elements.triageRepairCreate.textContent = "建立修復 Proposal 中…";
+    elements.triageRepairHint.textContent = "";
+    try {
+      const response = await fetchImpl(REPAIR_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ knowledgeId: text(finding.knowledgeId) })
+      });
+      const envelope = await readEnvelope(response);
+      if (!response.ok) {
+        const { title, message } = triageErrorMessage(envelope && envelope.error);
+        elements.triageRepairHint.textContent = `${title}：${message}已重新讀取最新診斷。`;
+        await refresh();
+        return;
+      }
+      const duplicate = envelope && envelope.data && envelope.data.duplicate === true;
+      elements.triageRepairHint.textContent = duplicate
+        ? "已存在相同狀態的修復 Proposal，未重複建立；請至「審核」繼續。"
+        : "修復 Proposal 已建立並進入審核；核准後才會產生 Draft，核准不會自動發布。請至「審核」繼續。";
+      await refresh();
+    } catch {
+      elements.triageRepairHint.textContent = "建立修復 Proposal 失敗，請稍後再試。";
+    } finally {
+      repairInFlight = false;
+      elements.triageRepairCreate.disabled = false;
+      elements.triageRepairCreate.textContent = "建立修復 Proposal";
+    }
   }
 
   function closeDetail() {
@@ -263,13 +355,16 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
   if (elements.triageDetailClose) {
     elements.triageDetailClose.addEventListener("click", () => closeDetail());
   }
+  if (elements.triageRepairCreate) {
+    elements.triageRepairCreate.addEventListener("click", () => createRepairProposal());
+  }
   if (documentRef && typeof documentRef.addEventListener === "function") {
     documentRef.addEventListener("workspace-changed", () => {
       reset();
       refresh();
     });
   }
-  return { refresh, applyFilter, selectFinding, closeDetail, reset };
+  return { refresh, applyFilter, selectFinding, closeDetail, createRepairProposal, reset };
 }
 
 function elementsFrom(documentRef) {
@@ -289,7 +384,11 @@ function elementsFrom(documentRef) {
     triageDetailExplanation: byId("triage-detail-explanation"),
     triagePage: byId("triage-page"),
     triagePageHint: byId("triage-page-hint"),
-    triageDetailClose: byId("triage-detail-close")
+    triageDetailClose: byId("triage-detail-close"),
+    triageRepair: byId("triage-repair"),
+    triageRepairCreate: byId("triage-repair-create"),
+    triageRepairHint: byId("triage-repair-hint"),
+    triageRefusal: byId("triage-refusal")
   };
 }
 

@@ -43,17 +43,21 @@ class VaultLintApiIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data.workspaceId").value(active.id()))
                 .andExpect(jsonPath("$.data.checkedPageCount").value(3))
                 .andExpect(jsonPath("$.data.findings.length()").value(2))
-                .andExpect(jsonPath("$.data.findings[0].code").value("BROKEN_INTERNAL_LINK"))
-                .andExpect(jsonPath("$.data.findings[0].category").value("REFERENCE"))
-                .andExpect(jsonPath("$.data.findings[0].severity").value("ERROR"))
-                .andExpect(jsonPath("$.data.findings[0].knowledgeId").value("wiki-hub"))
-                .andExpect(jsonPath("$.data.findings[0].logicalPath").value(
+                .andExpect(jsonPath("$.data.findings[0].finding.code").value("BROKEN_INTERNAL_LINK"))
+                .andExpect(jsonPath("$.data.findings[0].finding.category").value("REFERENCE"))
+                .andExpect(jsonPath("$.data.findings[0].finding.severity").value("ERROR"))
+                .andExpect(jsonPath("$.data.findings[0].finding.knowledgeId").value("wiki-hub"))
+                .andExpect(jsonPath("$.data.findings[0].finding.logicalPath").value(
                         "vault/concepts/hub-page.md"))
-                .andExpect(jsonPath("$.data.findings[0].detail").value(
+                .andExpect(jsonPath("$.data.findings[0].finding.detail").value(
                         "wikilink target not published: missing page"))
-                .andExpect(jsonPath("$.data.findings[1].code").value("ORPHAN_PAGE"))
-                .andExpect(jsonPath("$.data.findings[1].severity").value("WARNING"))
-                .andExpect(jsonPath("$.data.findings[1].knowledgeId").value("wiki-lonely"))
+                .andExpect(jsonPath("$.data.findings[1].finding.code").value("ORPHAN_PAGE"))
+                .andExpect(jsonPath("$.data.findings[1].finding.severity").value("WARNING"))
+                .andExpect(jsonPath("$.data.findings[1].finding.knowledgeId").value("wiki-lonely"))
+                .andExpect(jsonPath("$.data.findings[0].repairEligible").value(false))
+                .andExpect(jsonPath("$.data.findings[0].repairRefusalReason").value("AMBIGUOUS_TARGET"))
+                .andExpect(jsonPath("$.data.findings[1].repairEligible").value(false))
+                .andExpect(jsonPath("$.data.findings[1].repairRefusalReason").value("SEMANTIC_JUDGMENT_REQUIRED"))
                 .andExpect(result -> assertNoFilesystemPaths(result.getResponse().getContentAsString()));
 
         // A second read is byte-identical: the projection is deterministic.
@@ -78,11 +82,11 @@ class VaultLintApiIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data.workspaceId").value(active.id()))
                 .andExpect(jsonPath("$.data.checkedPageCount").value(1))
                 .andExpect(jsonPath("$.data.findings.length()").value(2))
-                .andExpect(jsonPath("$.data.findings[0].code").value("BROKEN_INTERNAL_LINK"))
-                .andExpect(jsonPath("$.data.findings[0].knowledgeId").value("wiki-local"))
-                .andExpect(jsonPath("$.data.findings[0].detail").value(
+                .andExpect(jsonPath("$.data.findings[0].finding.code").value("BROKEN_INTERNAL_LINK"))
+                .andExpect(jsonPath("$.data.findings[0].finding.knowledgeId").value("wiki-local"))
+                .andExpect(jsonPath("$.data.findings[0].finding.detail").value(
                         "wikilink target not published: foreign page"))
-                .andExpect(jsonPath("$.data.findings[1].code").value("ORPHAN_PAGE"));
+                .andExpect(jsonPath("$.data.findings[1].finding.code").value("ORPHAN_PAGE"));
     }
 
     @Test
