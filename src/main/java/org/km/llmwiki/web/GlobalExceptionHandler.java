@@ -12,6 +12,10 @@ import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
 import org.km.llmwiki.source.DocumentNotFoundException;
 import org.km.llmwiki.source.SourceChunkNotFoundException;
+import org.km.llmwiki.web.security.OwnerAuthenticationException;
+import org.km.llmwiki.web.security.OwnerHostRejectedException;
+import org.km.llmwiki.web.security.OwnerOriginRejectedException;
+import org.km.llmwiki.web.security.OwnerRateLimitedException;
 import org.km.llmwiki.wiki.KnowledgeProposalNotFoundException;
 import org.km.llmwiki.wiki.WikiDraftLifecycleException;
 import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
@@ -60,6 +64,39 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException exception) {
         return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Request body is not readable", exception);
+    }
+
+    /**
+     * Typed owner security semantics (#417 §E). Controller-level owner failures
+     * (login with a wrong credential, logout/rotation/status without a valid
+     * session) use the same stable 401 contract as the filter so a wrong
+     * credential, an expired session, and a revoked session are
+     * indistinguishable to the caller and never leak workspace or content
+     * existence. Bodies carry fixed messages only — never session material,
+     * secrets, paths, or backend identities.
+     */
+    @ExceptionHandler(OwnerAuthenticationException.class)
+    public ResponseEntity<ApiError> handleOwnerAuthentication(OwnerAuthenticationException exception) {
+        return respond(HttpStatus.UNAUTHORIZED, "OWNER_AUTH_REQUIRED",
+                "Owner authentication is required", exception);
+    }
+
+    @ExceptionHandler(OwnerHostRejectedException.class)
+    public ResponseEntity<ApiError> handleOwnerHostRejected(OwnerHostRejectedException exception) {
+        return respond(HttpStatus.FORBIDDEN, "OWNER_HOST_REJECTED",
+                "Request host is not allowed", exception);
+    }
+
+    @ExceptionHandler(OwnerOriginRejectedException.class)
+    public ResponseEntity<ApiError> handleOwnerOriginRejected(OwnerOriginRejectedException exception) {
+        return respond(HttpStatus.FORBIDDEN, "OWNER_ORIGIN_REJECTED",
+                "Request origin is not allowed", exception);
+    }
+
+    @ExceptionHandler(OwnerRateLimitedException.class)
+    public ResponseEntity<ApiError> handleOwnerRateLimited(OwnerRateLimitedException exception) {
+        return respond(HttpStatus.TOO_MANY_REQUESTS, "OWNER_RATE_LIMITED",
+                "Too many requests, please retry later", exception);
     }
 
     @ExceptionHandler(DuplicateWorkspaceException.class)

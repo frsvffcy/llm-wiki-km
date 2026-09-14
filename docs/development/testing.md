@@ -1625,14 +1625,17 @@ Security＋Operations adoption contracts 見
 `docs/development/issue-393-remote-personal-deployment-evaluation.md`（本節只定義
 executable ownership，不另立相異規則）。
 
-- `web.RemotePersonalDeploymentBaselineGuardTest`（unit tier，source-level tripwire）：
-  `application.yml` 維持 `address: 127.0.0.1` 且無 `0.0.0.0`；`src/main/java` 無
+- `web.RemotePersonalDeploymentBaselineGuardTest`（unit tier，source-level tripwire；
+  #417 已按本節預告改寫為 adoption contract）：`application.yml` 維持
+  `address: 127.0.0.1` 且無 `0.0.0.0`；`src/main/java` 無
   `SecurityFilterChain`／`EnableWebSecurity`／`ForwardedHeaderFilter`／
-  `CorsConfiguration`／`PreAuthorize` 且 yml 無 `forward-headers`／`server.ssl`
-  （absence 即 finding：今日無 auth／session／CSRF／trusted-proxy／TLS boundary，
-  Mode 3 因此 REJECT）；`"Origin"` 檢查只存在 mcp package（`/api/v1` 無
-  Origin／CSRF 檢查的已知缺口）。Security adoption 落地時必須把本 guard
-  改寫為新 contract 斷言，不得靜默刪除。
+  `CorsConfiguration`／`PreAuthorize`（owner boundary 維持 application-owned，
+  不引入 framework security chain）；`web/security/` 無 tenant／organization／
+  role 概念（single-user，無 multi-user schema）；owner auth 預設關閉
+  （`OWNER_AUTH_ENABLED:false`，local-only 不變）；`"Origin"` 檢查只存在 mcp
+  package 與 `web/security/` owner boundary（`/api/v1` 的 Origin/CSRF 缺口由
+  #417 對 owner surface 關閉）。任何改變 bind、放寬 boundary 或在別處新增
+  Origin 檢查的 PR 必須同步更新本 guard 與 #393 evaluation，不得靜默刪除。
 
 受影響測試與完整 gate：
 
