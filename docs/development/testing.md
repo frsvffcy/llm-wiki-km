@@ -1616,3 +1616,28 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Remote Personal Deployment baseline guard 測試責任（#393）
+
+#393 為 architecture／threat-model／decision-gate evaluation（CONDITIONAL GO），不修改
+production、不新增 public mode、不改 bind default。完整盤點、threat model、四模式決策與
+Security＋Operations adoption contracts 見
+`docs/development/issue-393-remote-personal-deployment-evaluation.md`（本節只定義
+executable ownership，不另立相異規則）。
+
+- `web.RemotePersonalDeploymentBaselineGuardTest`（unit tier，source-level tripwire）：
+  `application.yml` 維持 `address: 127.0.0.1` 且無 `0.0.0.0`；`src/main/java` 無
+  `SecurityFilterChain`／`EnableWebSecurity`／`ForwardedHeaderFilter`／
+  `CorsConfiguration`／`PreAuthorize` 且 yml 無 `forward-headers`／`server.ssl`
+  （absence 即 finding：今日無 auth／session／CSRF／trusted-proxy／TLS boundary，
+  Mode 3 因此 REJECT）；`"Origin"` 檢查只存在 mcp package（`/api/v1` 無
+  Origin／CSRF 檢查的已知缺口）。Security adoption 落地時必須把本 guard
+  改寫為新 contract 斷言，不得靜默刪除。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='RemotePersonalDeploymentBaselineGuardTest' test -Pfast
+mvn test -Pfast
+git diff --check
+```
