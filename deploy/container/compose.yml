@@ -1,0 +1,33 @@
+# Single-container deployment for llm-wiki-km (#418).
+#
+# Exactly one container owns the writable volumes (single-instance /
+# single-writer). Host networking keeps the application on the host loopback
+# backend (127.0.0.1:8765) so the host-local forwarder topology from
+# ../forwarder/ applies unchanged. Do NOT add wildcard port publishing and
+# do NOT add a replicas/scale stanza: a second writer against these volumes
+# corrupts SQLite and ArcadeDB file ownership.
+services:
+  llm-wiki-km:
+    build: .
+    image: llm-wiki-km:0.1.0
+    network_mode: host
+    env_file:
+      - /etc/llm-wiki-km/owner.env
+    environment:
+      DEPLOYMENT_MODE: PRIVATE_INGRESS
+      DEPLOYMENT_FORWARDER_BINDS: 100.64.0.5:8766
+      DEPLOYMENT_FORWARDER_TARGET: 127.0.0.1:8765
+      DEPLOYMENT_MAX_INSTANCES: 1
+    volumes:
+      - llmwiki-vault:/app/vault
+      - llmwiki-archive:/app/archive
+      - llmwiki-data:/app/data
+      - llmwiki-config:/app/config
+      - /opt/llm-wiki-km/native:/opt/native:ro
+    restart: unless-stopped
+
+volumes:
+  llmwiki-vault:
+  llmwiki-archive:
+  llmwiki-data:
+  llmwiki-config:

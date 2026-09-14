@@ -1,0 +1,35 @@
+[Unit]
+Description=llm-wiki-km single-instance personal knowledge base
+Documentation=file:///opt/llm-wiki-km/docs/development/issue-418-remote-deployment-operations.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=llmwiki
+Group=llmwiki
+WorkingDirectory=/opt/llm-wiki-km
+# Secrets and owner material come only from this root-owned file (mode 0600),
+# never from the unit file, the image, or version control.
+EnvironmentFile=/etc/llm-wiki-km/owner.env
+# Pinned Java 21 runtime; adjust the path to the local installation.
+ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java -jar /opt/llm-wiki-km/llm-wiki-km.jar
+# Single instance: systemd owns exactly one service. Do not template this
+# unit, do not start a second copy, and do not share the writable state
+# directories between processes.
+Restart=on-failure
+RestartSec=5
+# Graceful stop lets Spring release SQLite/ArcadeDB ownership cleanly.
+TimeoutStopSec=60
+# Logs go to the journal; rotate with journald (SystemMaxUse) instead of
+# growing an unbounded file under the workspace.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=llm-wiki-km
+# Harden the service user while keeping the workspace directories writable
+# for exactly this UID/GID (chown -R llmwiki:llmwiki /opt/llm-wiki-km).
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

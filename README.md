@@ -42,6 +42,15 @@ java -jar target/llm-wiki-km-0.1.0.jar
 
 The application listens only on `127.0.0.1:8765` by default.
 
+Supported deployment modes: `LOCAL_ONLY` (current baseline) and `PRIVATE_INGRESS`
+(remote over a private network / VPN / overlay through bounded host-local
+forwarding to the loopback backend, with the owner session enabled). Public
+HTTPS reverse proxy stays a candidate and raw Internet bind stays unsupported.
+The current profile is reported at `GET /api/v1/system/deployment`; packaging,
+backup/restore, and the operator runbook live in
+[docs/development/issue-418-remote-deployment-operations.md](docs/development/issue-418-remote-deployment-operations.md)
+and [deploy/](deploy/README.md).
+
 ## Current architecture
 
 Phase 1 currently includes SQLite FTS5, FTS-backed Retrieval, Evidence Assembly, the
