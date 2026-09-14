@@ -13,8 +13,15 @@ import { pathToFileURL } from "node:url";
 const CLOSING_KEYWORD_PATTERN =
   /\b((?:close[sd]?|fix(?:e[sd]?)?|resolve[sd]?))\s*:?\s*(?:(?:([\w.-]+)\/([\w.-]+))?#(\d+)|https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/(\d+))\b/giu;
 const ISSUE_REFERENCE_PATTERN = /(?:^|[^\w])#(\d+)\b/gu;
+// Explicit Pull Request lineage/reference grammar (#411): Issue linkage (`Refs #N`,
+// bare `#N`) and PR lineage (`PR #N`, `Pull Request #N`, `/pull/N` URL) are distinct
+// contracts. PR references never satisfy the Issue-linkage requirement and never
+// trigger Issue-existence validation.
+const PR_TEXT_REFERENCE_PATTERN = /\b(?:PRs?|Pull\s+Requests?)\s*:?\s*#\s*(\d+)\b/giu;
+const PULL_URL_PATTERN = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?!\d)/giu;
 const EXCEPTION_PATTERN = /^PR-Metadata-Exception:\s*(stacked-pr|non-issue-driven)\s*$/gimu;
 const MAX_ISSUE_REFERENCES = 20;
+const MAX_PULL_REFERENCES = 20;
 const MAX_COMMIT_PAGES = 5;
 const MAX_COMMIT_MESSAGES = MAX_COMMIT_PAGES * 100;
 
@@ -44,17 +51,79 @@ export function findClosingReferences(text = "", source = "PR_BODY", { stripMark
   }));
 }
 
+/**
+ * Explicit Pull Request lineage/reference authority (#411).
+ * Finds `PR #N` / `Pull Request #N` text forms and `/pull/N` URLs. Returned refs are
+ * typed ({ owner, repository, pullNumber, source, kind }) so Issue linkage and PR
+ * lineage can never be confused. `Refs #N` stays an Issue reference even when N
+ * happens to be a PR number — that case still fails closed via Issue existence lookup.
+ */
+export function findPullReferences(text = "", source = "PR_BODY", { stripMarkdown = true } = {}) {
+  const scanned = stripMarkdown ? semanticMarkdown(text) : String(text);
+  const references = [];
+  for (const match of scanned.matchAll(PR_TEXT_REFERENCE_PATTERN)) {
+    references.push({
+      owner: null,
+      repository: null,
+      pullNumber: Number(match[1]),
+      source,
+      kind: "text",
+      index: match.index ?? 0,
+      length: match[0].length,
+    });
+  }
+  for (const match of scanned.matchAll(PULL_URL_PATTERN)) {
+    references.push({
+      owner: match[1],
+      repository: match[2],
+      pullNumber: Number(match[3]),
+      source,
+      kind: "url",
+      index: match.index ?? 0,
+      length: match[0].length,
+    });
+  }
+  references.sort((a, b) => a.index - b.index);
+  return references;
+}
+
+function maskPullReferenceSpans(scanned = "", pullReferences = []) {
+  const chars = [...scanned];
+  for (const reference of pullReferences) {
+    const start = reference.index ?? 0;
+    const end = start + (reference.length ?? 0);
+    for (let i = start; i < end && i < chars.length; i++) {
+      // Preserve newlines so `^` anchors keep working; everything else becomes blank.
+      if (chars[i] !== "\n") {
+        chars[i] = " ";
+      }
+    }
+  }
+  return chars.join("");
+}
+
 export function inspectPrBody(body = "") {
   const closingReferences = findClosingReferences(body, "PR_BODY");
   const closingIssueNumbers = [...new Set(closingReferences.map((reference) => reference.issueNumber))];
+  const stripped = semanticMarkdown(body);
+  const pullReferences = findPullReferences(body, "PR_BODY");
+  const masked = maskPullReferenceSpans(stripped, pullReferences);
+  const referencedPullNumbers = [...new Set(pullReferences.map((reference) => reference.pullNumber))];
   const referencedIssueNumbers = [
-    ...new Set([...semanticMarkdown(body).matchAll(ISSUE_REFERENCE_PATTERN)].map((match) => Number(match[1]))),
+    ...new Set([...masked.matchAll(ISSUE_REFERENCE_PATTERN)].map((match) => Number(match[1]))),
   ];
   const exceptions = new Set(
-    [...semanticMarkdown(body).matchAll(EXCEPTION_PATTERN)].map((match) => match[1].toLowerCase()),
+    [...stripped.matchAll(EXCEPTION_PATTERN)].map((match) => match[1].toLowerCase()),
   );
 
-  return { closingReferences, closingIssueNumbers, referencedIssueNumbers, exceptions };
+  return {
+    closingReferences,
+    closingIssueNumbers,
+    referencedIssueNumbers,
+    referencedPullNumbers,
+    pullReferences,
+    exceptions,
+  };
 }
 
 /**
@@ -85,15 +154,42 @@ function commitSubject(message = "") {
   return String(message).split("\n", 1)[0].slice(0, 80);
 }
 
-export async function validatePrMetadata(event, { issueLookup, commitMessagesFetcher } = {}) {
+export async function validatePrMetadata(
+  event,
+  { issueLookup, commitMessagesFetcher, currentPrFetcher } = {},
+) {
   const errors = [];
-  const base = event?.pull_request?.base?.ref;
-  const title = String(event?.pull_request?.title ?? "");
-  const body = event?.pull_request?.body ?? "";
   const repository = event?.repository?.full_name;
   const pullNumber = event?.pull_request?.number;
-  const { closingReferences, closingIssueNumbers, referencedIssueNumbers, exceptions } =
-    inspectPrBody(body);
+  // Current metadata authority (#411): a rerun reuses the stale `pull_request` event
+  // snapshot, so when a fetcher is configured the validator must decide on the current
+  // GitHub PR title/body/base, never silently on the possibly-expired event payload.
+  let base = event?.pull_request?.base?.ref;
+  let title = String(event?.pull_request?.title ?? "");
+  let body = event?.pull_request?.body ?? "";
+  let metadataSource = "event";
+  if (typeof currentPrFetcher === "function") {
+    const current = await currentPrFetcher(repository, pullNumber);
+    if (!current?.ok) {
+      metadataSource = "current-fetch-failed";
+      errors.push(
+        `無法取得當下 PR metadata 以驗證 current title/body/base（${current?.reason ?? "unknown reason"}）；依 fail-closed 政策擋下，不得以可能過期的 event payload 假裝 current。`,
+      );
+    } else {
+      base = current.base;
+      title = String(current.title ?? "");
+      body = current.body ?? "";
+      metadataSource = "current";
+    }
+  }
+  const {
+    closingReferences,
+    closingIssueNumbers,
+    referencedIssueNumbers,
+    referencedPullNumbers,
+    pullReferences,
+    exceptions,
+  } = inspectPrBody(body);
   const titleClosingReferences = inspectPrTitle(title).closingReferences;
   closingReferences.push(...titleClosingReferences);
   const isMainTarget = base === "main";
@@ -168,6 +264,12 @@ export async function validatePrMetadata(event, { issueLookup, commitMessagesFet
     );
   }
 
+  // PR lineage never satisfies the Issue-linkage requirement (#411) and never
+  // triggers Issue-existence validation; only the bound below applies to it.
+  if (referencedPullNumbers.length > MAX_PULL_REFERENCES) {
+    errors.push(`Pull Request references 超過上限 ${MAX_PULL_REFERENCES}，請縮小 PR scope。`);
+  }
+
   if (referencedIssueNumbers.length > MAX_ISSUE_REFERENCES) {
     errors.push(`Issue references 超過上限 ${MAX_ISSUE_REFERENCES}，請縮小 PR scope。`);
   } else if (referencedIssueNumbers.length > 0 && !isNonIssueDriven) {
@@ -192,12 +294,18 @@ export async function validatePrMetadata(event, { issueLookup, commitMessagesFet
 
   return {
     valid: errors.length === 0,
-    errors: errors.slice(0, MAX_ISSUE_REFERENCES + 5),
+    errors: errors.slice(0, MAX_ISSUE_REFERENCES + MAX_PULL_REFERENCES + 5),
     referencedIssueNumbers,
+    referencedPullNumbers,
+    pullReferences,
     closingIssueNumbers,
     closingReferences,
     commitMessageCount,
     exception: isStacked ? "stacked-pr" : isNonIssueDriven ? "non-issue-driven" : null,
+    metadataSource,
+    validatedBase: base,
+    validatedTitle: title,
+    validatedBody: body,
   };
 }
 
@@ -286,6 +394,58 @@ export function githubCommitMessages(token = process.env.GITHUB_TOKEN, fetchImpl
   };
 }
 
+/**
+ * Fetches the current GitHub PR title/body/base (#411). A workflow rerun reuses the
+ * stale `pull_request` event snapshot, so the metadata job must re-read the live PR;
+ * any retrieval failure returns { ok: false } so the gate fails closed instead of
+ * silently validating an expired body and pretending it is current.
+ */
+export function githubCurrentPullMetadata(token = process.env.GITHUB_TOKEN, fetchImpl = fetch) {
+  return async (repository, pullNumber) => {
+    if (!repository || !pullNumber) {
+      return { ok: false, reason: "event缺少 repository.full_name 或 pull_request.number" };
+    }
+    const headers = {
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "llm-wiki-km-pr-metadata-guard",
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    let response;
+    try {
+      response = await fetchImpl(`https://api.github.com/repos/${repository}/pulls/${pullNumber}`, {
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (error) {
+      return { ok: false, reason: `GitHub API request failed: ${error.name}` };
+    }
+    if (!response.ok) {
+      return { ok: false, reason: `GitHub API HTTP ${response.status}` };
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      return { ok: false, reason: `GitHub API response parse failed: ${error.name}` };
+    }
+    const base = payload?.base?.ref;
+    if (!base) {
+      return { ok: false, reason: "GitHub API response missing base ref" };
+    }
+    return {
+      ok: true,
+      title: String(payload?.title ?? ""),
+      body: payload?.body ?? "",
+      base,
+    };
+  };
+}
+
 async function main() {
   const eventPath = process.env.GITHUB_EVENT_PATH ?? process.argv[2];
   if (!eventPath) {
@@ -296,6 +456,7 @@ async function main() {
   const result = await validatePrMetadata(event, {
     issueLookup: githubIssueLookup(),
     commitMessagesFetcher: githubCommitMessages(),
+    currentPrFetcher: githubCurrentPullMetadata(),
   });
   if (!result.valid) {
     console.error("PR metadata validation failed:");
@@ -310,8 +471,12 @@ async function main() {
     result.referencedIssueNumbers.length > 0
       ? `referenced Issue: ${result.referencedIssueNumbers.map((number) => `#${number}`).join(", ")}`
       : `reviewed exception: ${result.exception}`;
+  const lineage =
+    result.referencedPullNumbers.length > 0
+      ? `; PR lineage: ${result.referencedPullNumbers.map((number) => `PR #${number}`).join(", ")}`
+      : "";
   console.log(
-    `PR metadata validation passed (${linkage}; PR title + ${result.commitMessageCount ?? "unknown"} commit messages inspected).`,
+    `PR metadata validation passed (${linkage}${lineage}; metadata source: ${result.metadataSource}; PR title + ${result.commitMessageCount ?? "unknown"} commit messages inspected).`,
   );
 }
 
