@@ -79,6 +79,30 @@ class DeploymentOperationsGuardTest {
     }
 
     @Test
+    void ownerEnvExampleCoversTheFullBrowserIngressContract() throws Exception {
+        // #422 §F: copy-and-configure must not leave an operator guessing the
+        // Host/Origin/cookie lines — a partial copy can never report SUPPORTED.
+        String example = Files.readString(
+                DEPLOY_ROOT.resolve("systemd/owner.env.example"));
+
+        for (String required : List.of(
+                "DEPLOYMENT_BROWSER_ORIGIN=",
+                "OWNER_ALLOWED_HOSTS=",
+                "OWNER_ALLOWED_ORIGINS=",
+                "OWNER_COOKIE_SECURE=",
+                "OWNER_AUTH_ENABLED=",
+                "OWNER_PASSWORD_HASH=",
+                "DEPLOYMENT_MODE=PRIVATE_INGRESS",
+                "DEPLOYMENT_FORWARDER_BINDS=",
+                "DEPLOYMENT_FORWARDER_TARGET=")) {
+            assertThat(example)
+                    .as("owner.env.example must document %s", required)
+                    .contains(required);
+        }
+        assertThat(example).doesNotContain("0.0.0.0");
+    }
+
+    @Test
     void noBackupPackageOrEndpointIsIntroduced() throws Exception {
         assertThat(PRODUCTION_ROOT.resolve("backup")).doesNotExist();
 

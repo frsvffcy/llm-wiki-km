@@ -50,7 +50,8 @@ public class DeploymentReadinessService {
                     backendBind(),
                     true,
                     true,
-                    "Private-ingress deployment with bounded host-local forwarding"
+                    "Private-ingress deployment with a validated browser origin,"
+                            + " allowlisted ingress, and matching cookie transport"
                             + " to the loopback backend.");
             case REVERSE_PROXY_CANDIDATE -> new DeploymentReadiness(
                     DeploymentMode.REVERSE_PROXY_CANDIDATE.name(),

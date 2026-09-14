@@ -44,7 +44,11 @@ The application listens only on `127.0.0.1:8765` by default.
 
 Supported deployment modes: `LOCAL_ONLY` (current baseline) and `PRIVATE_INGRESS`
 (remote over a private network / VPN / overlay through bounded host-local
-forwarding to the loopback backend, with the owner session enabled). Public
+forwarding to the loopback backend, with the owner session enabled and a
+validated canonical browser origin: the owner Host/Origin allowlists, the
+forwarder scope, and the cookie transport are cross-validated against
+`DEPLOYMENT_BROWSER_ORIGIN`, and a profile without that alignment reports
+`NOT_READY` instead of `SUPPORTED`). Public
 HTTPS reverse proxy stays a candidate and raw Internet bind stays unsupported.
 The current profile is reported at `GET /api/v1/system/deployment`; packaging,
 backup/restore, and the operator runbook live in

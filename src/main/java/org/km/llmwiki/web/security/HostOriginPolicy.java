@@ -57,7 +57,14 @@ public final class HostOriginPolicy {
         });
     }
 
-    static String canonicalOrigin(String value) {
+    /**
+     * Canonicalizes an origin to {@code scheme://host[:port]} for exact comparison (#422).
+     *
+     * <p>Shared truth reused by the deployment browser-origin contract so Host validation
+     * and Origin validation never drift into independent grammars. Returns {@code null}
+     * for any malformed, wildcard-shaped, or non-http(s) value.
+     */
+    public static String canonicalOrigin(String value) {
         try {
             URI origin = URI.create(value);
             String scheme = origin.getScheme();

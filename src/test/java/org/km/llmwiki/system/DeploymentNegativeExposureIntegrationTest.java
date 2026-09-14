@@ -48,7 +48,7 @@ class DeploymentNegativeExposureIntegrationTest {
     @Test
     void wildcardBackendBindIsRejected() {
         DeploymentProperties properties = new DeploymentProperties(
-                DeploymentMode.LOCAL_ONLY, List.of(), "127.0.0.1:8765", 1);
+                DeploymentMode.LOCAL_ONLY, List.of(), "127.0.0.1:8765", 1, "");
 
         assertThatThrownBy(() -> new DeploymentProfileValidator(
                         properties, ownerDisabled(), "0.0.0.0", 8765).validate())
@@ -61,11 +61,16 @@ class DeploymentNegativeExposureIntegrationTest {
                 DeploymentMode.PRIVATE_INGRESS,
                 List.of("0.0.0.0:8766"),
                 "127.0.0.1:8765",
-                1);
+                1,
+                "http://100.64.0.5:8766");
 
         OwnerSecurityProperties owner = new OwnerSecurityProperties(true,
                 "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-                null, null, 0, true, null, null, null, null, false, 0, null, 0, null);
+                null, null, 0, false,
+                null,
+                List.of("localhost", "127.0.0.1", "100.64.0.5"),
+                List.of("http://localhost:8765", "http://100.64.0.5:8766"),
+                null, false, 0, null, 0, null);
 
         assertThatThrownBy(() -> new DeploymentProfileValidator(
                         properties, owner, "127.0.0.1", 8765).validate())
@@ -75,7 +80,7 @@ class DeploymentNegativeExposureIntegrationTest {
     @Test
     void rejectionRepeatsAfterRestart() {
         DeploymentProperties properties = new DeploymentProperties(
-                DeploymentMode.LOCAL_ONLY, List.of(), "127.0.0.1:8765", 1);
+                DeploymentMode.LOCAL_ONLY, List.of(), "127.0.0.1:8765", 1, "");
         DeploymentProfileValidator validator = new DeploymentProfileValidator(
                 properties, ownerDisabled(), "0.0.0.0", 8765);
 

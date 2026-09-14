@@ -103,16 +103,28 @@ app:
     mutation-max-requests: ${OWNER_MUTATION_MAX_REQUESTS:60}
     mutation-window: ${OWNER_MUTATION_WINDOW:1m}
   deployment:
-    # #418 single-instance Remote Personal Deployment profile. LOCAL_ONLY is the
-    # default/supported baseline. PRIVATE_INGRESS (Mode 1) requires explicit
-    # bounded forwarder binds plus owner authentication and keeps the raw backend
-    # on the loopback listener. REVERSE_PROXY_CANDIDATE (Mode 2) is never
-    # reported SUPPORTED by this operations contract. The backend bind below
-    # stays loopback-only; remote traffic must arrive via host-local forwarding.
+    # #418 single-instance Remote Personal Deployment profile (+ #422 validated
+    # Browser ingress contract). LOCAL_ONLY is the default/supported baseline.
+    # PRIVATE_INGRESS (Mode 1) requires an explicit canonical browser origin plus
+    # bounded forwarder binds plus owner authentication, and keeps the raw backend
+    # on the loopback listener. The browser origin is the single external truth:
+    # allowed-hosts must accept its host, allowed-origins its exact origin, and
+    # the forwarder scope must expose its port (and its address when the host is
+    # an IP literal). Cookie transport must match the scheme: https needs
+    # OWNER_COOKIE_SECURE=true (private TLS, preferred); http needs
+    # OWNER_COOKIE_SECURE=false and is only valid as an explicit bounded profile
+    # whose encryption comes from the private network / VPN / overlay itself
+    # (WireGuard/Tailscale/SSH). Plain http over public/LAN is never supported.
+    # Pure SSH-tunnel access keeps LOCAL_ONLY with owner auth and a localhost
+    # Browser origin instead of declaring a private ingress.
+    # REVERSE_PROXY_CANDIDATE (Mode 2) is never reported SUPPORTED by this
+    # operations contract. The backend bind below stays loopback-only; remote
+    # traffic must arrive via host-local forwarding.
     mode: ${DEPLOYMENT_MODE:LOCAL_ONLY}
     forwarder-binds: ${DEPLOYMENT_FORWARDER_BINDS:}
     forwarder-target: ${DEPLOYMENT_FORWARDER_TARGET:127.0.0.1:8765}
     max-instances: ${DEPLOYMENT_MAX_INSTANCES:1}
+    browser-origin: ${DEPLOYMENT_BROWSER_ORIGIN:}
   rag:
     fusion:
       policy-version: ${KM_RAG_FUSION_POLICY_VERSION:fusion-rrf-v2-graph-damped}

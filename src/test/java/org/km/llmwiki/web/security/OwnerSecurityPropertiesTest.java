@@ -73,4 +73,16 @@ class OwnerSecurityPropertiesTest {
 
         assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void proxyTrustWithoutPeersFailsFast() {
+        // #422 §B: remote origins must never be trusted via arbitrary
+        // Forwarded / X-Forwarded-* material without an explicit peer allowlist.
+        OwnerSecurityProperties properties = new OwnerSecurityProperties(true, HASH,
+                Duration.ofHours(12), Duration.ofMinutes(30), 8, true, "km-owner-session",
+                List.of("localhost"), List.of("http://localhost:8765"), List.of(), true,
+                5, Duration.ofMinutes(1), 60, Duration.ofMinutes(1));
+
+        assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
+    }
 }

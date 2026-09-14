@@ -17,22 +17,25 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Mode 1 private-ingress evidence (#418 §C).
+ * Mode 1 private-ingress evidence (#418 §C, Browser ingress contract #422).
  *
- * <p>Runs with an explicit bounded forwarder plus the application-owned owner
- * boundary and proves the topology contract end to end: the deployment surface
- * reports supported, the owner session still guards it (unauthenticated reads
- * fail closed without existence leakage), and the domain authority underneath
- * is unchanged.
+ * <p>Runs with an explicit bounded forwarder, a canonical browser origin, and
+ * the application-owned owner boundary. The remote-facing ingress values are
+ * used on the wire — never {@code localhost} standing in for remote — and the
+ * cookie transport matches the {@code http} private-tunnel profile. Wrong Host
+ * and wrong Origin fail closed over the same path.
  */
 @Tag("integration")
 @TestPropertySource(properties = {
         "app.deployment.mode=PRIVATE_INGRESS",
         "app.deployment.forwarder-binds=100.64.0.5:8766",
         "app.deployment.forwarder-target=127.0.0.1:8765",
+        "app.deployment.browser-origin=http://100.64.0.5:8766",
         "app.owner.auth-enabled=true",
         "app.owner.password-hash=9148a9b37f4f80aa2e47430e455049e2e41c020df0febe085c306c40a2626393",
         "app.owner.cookie-secure=false",
+        "app.owner.allowed-hosts=localhost,127.0.0.1,100.64.0.5",
+        "app.owner.allowed-origins=http://localhost:8765,http://127.0.0.1:8765,http://100.64.0.5:8766",
         "app.owner.login-max-attempts=100",
         "app.owner.login-window=1m",
         "app.owner.mutation-max-requests=1000",
@@ -40,7 +43,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class DeploymentPrivateIngressIntegrationTest extends IsolatedIntegrationTest {
 
     private static final String PASSWORD = "owner-test-password";
-    private static final String ORIGIN = "http://localhost:8765";
+    private static final String REMOTE_HOST = "100.64.0.5:8766";
+    private static final String REMOTE_ORIGIN = "http://100.64.0.5:8766";
 
     @Autowired
     private MockMvc mvc;
@@ -50,13 +54,13 @@ class DeploymentPrivateIngressIntegrationTest extends IsolatedIntegrationTest {
     @Test
     void privateIngressReportsSupportedBehindOwnerSession() throws Exception {
         mvc.perform(get("/api/v1/system/deployment")
-                        .header("Host", "localhost:8765"))
+                        .header("Host", REMOTE_HOST))
                 .andExpect(status().isUnauthorized());
 
         String token = loginToken();
 
         MvcResult result = mvc.perform(get("/api/v1/system/deployment")
-                        .header("Host", "localhost:8765")
+                        .header("Host", REMOTE_HOST)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -69,10 +73,27 @@ class DeploymentPrivateIngressIntegrationTest extends IsolatedIntegrationTest {
         assertThat(data.get("singleInstance").asBoolean()).isTrue();
     }
 
+    @Test
+    void wrongHostAndOriginFailClosedOnTheSameIngress() throws Exception {
+        mvc.perform(post("/api/v1/owner/session")
+                        .header("Host", "evil.example")
+                        .header("Origin", REMOTE_ORIGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(post("/api/v1/owner/session")
+                        .header("Host", REMOTE_HOST)
+                        .header("Origin", "http://evil.example")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isForbidden());
+    }
+
     private String loginToken() throws Exception {
         MvcResult result = mvc.perform(post("/api/v1/owner/session")
-                        .header("Host", "localhost:8765")
-                        .header("Origin", ORIGIN)
+                        .header("Host", REMOTE_HOST)
+                        .header("Origin", REMOTE_ORIGIN)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isCreated())
