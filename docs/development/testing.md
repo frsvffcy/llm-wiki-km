@@ -1789,3 +1789,48 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Versioned golden-workspace product-journey acceptance 測試責任（#429）
+
+`acceptance.ProductAcceptanceCorpusV1`（`product-acceptance-corpus-v1`）是版本級
+release-journey 的 fixture authority：UTF-8 Markdown／Tika-structured HTML／繁中／
+exact-token anchors，無私人資料與 secret；`ProductAcceptanceHarness` 經 public
+`/api/v1` 完成 workspace→ingest→extract→FTS/inspect/locator→grounded Ask→explicit
+Ask→Proposal→Draft→Review→Publish→Wiki read→Vault Lint→restart/currentness，
+user action 不得經 direct DB insert／vault write shortcut（由
+`ProductAcceptanceCorpusContractTest` 靜態邊界鎖定），async 等待一律 bounded
+polling（禁止 sleep-luck）。
+
+- `ProductAcceptanceCorpusContractTest`（contract）：corpus 版本／shapes／privacy／
+  stub 向量 determinism／report redaction／harness 無 persistence 依賴。
+- `ProductAcceptanceBaselineJourneyIntegrationTest`（integration）：DEFINED_PORT
+  真實 loopback HTTP（RANDOM_PORT 違反 deployment fail-fast，故每類固定空閒埠＋
+  對齊 forwarder-target）、temp SQLite、production defaults；optional provider
+  disabled 保持 typed 503，不拖垮 baseline。
+- `ProductAcceptanceFullCapabilityJourneyIntegrationTest`（integration）：
+  deterministic loopback stub 經真正 production OpenAI-compatible transport seam
+ （`JdkOpenAiCompatible*Transport` 實際執行，service 下方無 stub）完成 embedding
+  READY、graph rebuild READY、`HYBRID_GRAPH` ANSWERED 與完整治理鏈；sqlite-vec
+  缺席時 semantic KNN 為 typed SKIP 並阻止 release FULL-GO（絕不 fake-green）。
+- `ProductAcceptanceJarProcessIntegrationTest`（integration）：clean built JAR 子行程
+  ＋controlled restart（canonical／Flyway／readiness／citation currentness 不漂移）；
+  JAR 缺席時 prerequisite abort（SKIP 明示），release workflow 先 `mvn package`
+  再執行（`scripts/run-product-acceptance.sh`）。
+- `WikiDraftApiIntegrationTest` 新增 #429 acceptance finding 迴歸：pristine
+  workspace 首個 CONCEPT draft 會建立缺失的 `vault/concepts`（production 修正於
+  `WikiDraftPersistenceService.createReadyDraft`，僅 CREATE_NEW、containment＋
+  symlink-safe），escaping symlink 仍 fail-closed 且不向外寫入。
+
+Report（`target/release-evidence/`，git-ignored）是 evidence 不是 authority，不含
+secret／raw provider payload／canonical 全文。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='ProductAcceptanceCorpusContractTest' test -Pfast
+mvn -Dtest='ProductAcceptanceBaselineJourneyIntegrationTest,ProductAcceptanceFullCapabilityJourneyIntegrationTest,ProductAcceptanceJarProcessIntegrationTest,WikiDraftApiIntegrationTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```

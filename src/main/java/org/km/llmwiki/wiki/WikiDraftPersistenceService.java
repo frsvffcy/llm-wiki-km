@@ -8,6 +8,11 @@ import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+
 /** Orchestrates #89 conversion, #90 planning, deterministic rendering, and persisted Draft review. */
 @Service
 public class WikiDraftPersistenceService {
@@ -102,6 +107,9 @@ public class WikiDraftPersistenceService {
         requireMatchingContracts(structured, plan);
 
         WikiTargetSnapshot target = plan.target();
+        if (target.kind() == WikiTargetSnapshot.Kind.CREATE_NEW) {
+            ensureCreateTargetParent(target.logicalRelativePath());
+        }
         WikiTargetBaseline baseline = snapshotReader.capture(target);
         String structuredJson = serialize(structured);
         String rendered = markdownRenderer.render(structured);
@@ -116,6 +124,63 @@ public class WikiDraftPersistenceService {
         long id = repository.insertDraft(newDraft);
         repository.transition(workspaceId, id, WikiDraftStatus.DRAFT, WikiDraftStatus.READY, null);
         return require(workspaceId, id);
+    }
+
+    /**
+     * First-publish repair (found by the #429 golden-workspace acceptance): an
+     * API-created workspace only contains the seven top-level layout directories,
+     * so the first draft for a page type whose {@code vault/<type>/} directory does
+     * not exist yet would fail strict real-path resolution. Draft creation is an
+     * explicit governed mutation, so it creates the missing type directory here —
+     * bounded to the active vault with the same containment/symlink posture as the
+     * strict snapshot read that re-verifies the path immediately afterwards.
+     */
+    private void ensureCreateTargetParent(String logicalRelativePath) {
+        if (logicalRelativePath == null || !logicalRelativePath.startsWith("vault/")) {
+            throw new WikiPathValidationException(
+                    WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY,
+                    "CREATE target must stay inside the workspace vault");
+        }
+        WorkspaceResponse workspace = activeWorkspace();
+        Path vaultRoot;
+        try {
+            vaultRoot = Path.of(workspace.vaultPath()).toRealPath();
+        } catch (IOException exception) {
+            throw new WikiPathValidationException(
+                    WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY,
+                    "Cannot resolve real path of vault root", exception);
+        }
+        Path parent = vaultRoot
+                .resolve(logicalRelativePath.substring("vault/".length())).normalize().getParent();
+        if (parent == null || !parent.startsWith(vaultRoot)) {
+            throw new WikiPathValidationException(
+                    WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY,
+                    "CREATE target parent escapes the workspace vault");
+        }
+        // Deepest existing ancestor must already resolve inside the vault; this keeps
+        // symlink-escape posture identical to the strict read (interior links that stay
+        // inside remain usable, escapes fail closed before anything is created).
+        Path ancestor = parent;
+        while (ancestor != null && !Files.exists(ancestor, LinkOption.NOFOLLOW_LINKS)) {
+            ancestor = ancestor.getParent();
+        }
+        if (ancestor == null || !ancestor.startsWith(vaultRoot)) {
+            throw new WikiPathValidationException(
+                    WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY,
+                    "CREATE target parent escapes the workspace vault");
+        }
+        try {
+            if (!ancestor.toRealPath().startsWith(vaultRoot)) {
+                throw new WikiPathValidationException(
+                        WikiPathValidationException.Reason.SYMLINK_ESCAPE,
+                        "CREATE target parent resolves outside the workspace vault");
+            }
+            Files.createDirectories(parent);
+        } catch (IOException exception) {
+            throw new WikiPathValidationException(
+                    WikiPathValidationException.Reason.OUTSIDE_VAULT_BOUNDARY,
+                    "CREATE target parent directory is unavailable", exception);
+        }
     }
 
     private StoredWikiDraft refreshValidity(long workspaceId, StoredWikiDraft draft) {

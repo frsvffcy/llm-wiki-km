@@ -100,6 +100,68 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void createsFirstDraftWhenTypeSubdirectoryDoesNotExistYet() throws Exception {
+        // #429 acceptance finding: an API-created workspace only contains the seven
+        // top-level layout directories, so the first draft for a page type must create
+        // its vault/<type>/ directory instead of failing real-path resolution.
+        Path root = tempDir.resolve("pristine");
+        Files.createDirectories(root.resolve("vault"));
+        Files.createDirectories(root.resolve("inbox"));
+        Files.createDirectories(root.resolve("archive"));
+        Files.createDirectories(root.resolve("data"));
+        long workspaceId = insert("""
+                INSERT INTO workspace (name, root_path, inbox_path, archive_path, vault_path, data_path, status,
+                    created_at, updated_at)
+                VALUES (:name, :root, :inbox, :archive, :vault, :data, 'ACTIVE', :now, :now)
+                """, "name", "pristine", "root", root.toString(), "inbox", root.resolve("inbox").toString(),
+                "archive", root.resolve("archive").toString(), "vault", root.resolve("vault").toString(),
+                "data", root.resolve("data").toString(), "now", "2026-08-29T00:00:00Z");
+        Proposal proposal = createProposal(workspaceId, LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Pristine Topic");
+
+        assertThat(root.resolve("vault/concepts")).doesNotExist();
+
+        mockMvc.perform(post("/api/v1/wiki-drafts").contentType("application/json")
+                        .content("{\"proposalId\":" + proposal.id() + "}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("READY"))
+                .andExpect(jsonPath("$.data.targetPath").value("vault/concepts/pristine-topic.md"));
+
+        assertThat(root.resolve("vault/concepts")).isDirectory();
+        // Draft creation prepares the directory only; no vault file is written before publish.
+        assertThat(root.resolve("vault/concepts/pristine-topic.md")).doesNotExist();
+    }
+
+    @Test
+    void refusesToCreateTypeSubdirectoryThroughEscapingSymlink() throws Exception {
+        // The first-draft directory repair must keep symlink-escape posture: a vault/<type>
+        // link pointing outside fails closed and writes nothing through the link.
+        Path outside = tempDir.resolve("outside-429");
+        Files.createDirectories(outside);
+        Path root = tempDir.resolve("linkescape");
+        Files.createDirectories(root.resolve("vault"));
+        Files.createDirectories(root.resolve("inbox"));
+        Files.createDirectories(root.resolve("archive"));
+        Files.createDirectories(root.resolve("data"));
+        Files.createSymbolicLink(root.resolve("vault/concepts"), outside);
+        long workspaceId = insert("""
+                INSERT INTO workspace (name, root_path, inbox_path, archive_path, vault_path, data_path, status,
+                    created_at, updated_at)
+                VALUES (:name, :root, :inbox, :archive, :vault, :data, 'ACTIVE', :now, :now)
+                """, "name", "linkescape", "root", root.toString(), "inbox", root.resolve("inbox").toString(),
+                "archive", root.resolve("archive").toString(), "vault", root.resolve("vault").toString(),
+                "data", root.resolve("data").toString(), "now", "2026-08-29T00:00:00Z");
+        Proposal proposal = createProposal(workspaceId, LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Linkescape Topic");
+
+        mockMvc.perform(post("/api/v1/wiki-drafts").contentType("application/json")
+                        .content("{\"proposalId\":" + proposal.id() + "}"))
+                .andExpect(status().is5xxServerError());
+
+        assertThat(outside).isEmptyDirectory();
+    }
+
+    @Test
     void invalidatesAndRegeneratesWithoutRollingBackApprovedProposal() throws Exception {
         Workspace workspace = createWorkspace("regenerate", "ACTIVE");
         Proposal proposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
