@@ -102,6 +102,17 @@ app:
     login-window: ${OWNER_LOGIN_WINDOW:1m}
     mutation-max-requests: ${OWNER_MUTATION_MAX_REQUESTS:60}
     mutation-window: ${OWNER_MUTATION_WINDOW:1m}
+  deployment:
+    # #418 single-instance Remote Personal Deployment profile. LOCAL_ONLY is the
+    # default/supported baseline. PRIVATE_INGRESS (Mode 1) requires explicit
+    # bounded forwarder binds plus owner authentication and keeps the raw backend
+    # on the loopback listener. REVERSE_PROXY_CANDIDATE (Mode 2) is never
+    # reported SUPPORTED by this operations contract. The backend bind below
+    # stays loopback-only; remote traffic must arrive via host-local forwarding.
+    mode: ${DEPLOYMENT_MODE:LOCAL_ONLY}
+    forwarder-binds: ${DEPLOYMENT_FORWARDER_BINDS:}
+    forwarder-target: ${DEPLOYMENT_FORWARDER_TARGET:127.0.0.1:8765}
+    max-instances: ${DEPLOYMENT_MAX_INSTANCES:1}
   rag:
     fusion:
       policy-version: ${KM_RAG_FUSION_POLICY_VERSION:fusion-rrf-v2-graph-damped}
