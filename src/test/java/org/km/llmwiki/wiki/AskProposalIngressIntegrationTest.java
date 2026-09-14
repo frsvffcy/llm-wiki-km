@@ -107,6 +107,37 @@ class AskProposalIngressIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void rejectedAskProposalDoesNotBlockRetryWithTheSameAnswer() throws Exception {
+        seedWorkspaceWithSources();
+        activate(lookupWorkspaceId("active"));
+
+        mockMvc.perform(post("/api/v1/ask/proposals")
+                        .contentType("application/json").content(requestBody()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.duplicate").value(false));
+
+        mockMvc.perform(patch("/api/v1/proposals/{id}/status", firstProposalId())
+                        .contentType("application/json").content("{\"status\":\"REJECTED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REJECTED"));
+
+        mockMvc.perform(post("/api/v1/ask/proposals")
+                        .contentType("application/json").content(requestBody()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.duplicate").value(false))
+                .andExpect(jsonPath("$.data.proposal.status").value("REVIEW"));
+
+        mockMvc.perform(post("/api/v1/ask/proposals")
+                        .contentType("application/json").content(requestBody()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.duplicate").value(true));
+
+        mockMvc.perform(get("/api/v1/proposals"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(2));
+    }
+
+    @Test
     void duplicateAskInsertLosesTheRaceDeterministically() throws Exception {
         seedWorkspaceWithSources();
         long workspaceId = lookupWorkspaceId("active");
