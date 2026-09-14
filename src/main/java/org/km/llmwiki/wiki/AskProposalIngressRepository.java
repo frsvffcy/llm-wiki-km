@@ -29,6 +29,7 @@ public class AskProposalIngressRepository {
                 .where(KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId))
                 .and(KNOWLEDGE_PROPOSAL.SOURCE_KIND.eq("ASK"))
                 .and(KNOWLEDGE_PROPOSAL.SOURCE_DEDUP_HASH.eq(dedupHash))
+                .and(KNOWLEDGE_PROPOSAL.STATUS.ne("REJECTED"))
                 .fetchOptional(record -> new KnowledgeProposalReview(
                         record.getId().longValue(),
                         LlmProposalAction.valueOf(record.getAction()),
