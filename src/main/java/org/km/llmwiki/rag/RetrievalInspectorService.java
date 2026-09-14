@@ -1,5 +1,9 @@
 package org.km.llmwiki.rag;
 
+import org.km.llmwiki.ai.query.QueryTransformationResult;
+import org.km.llmwiki.ai.query.QueryTransformationService;
+import org.km.llmwiki.ai.query.QueryTransformationStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -16,20 +20,59 @@ public class RetrievalInspectorService {
 
     private final RetrievalService retrievalService;
     private final FusionRankingPolicyProvider fusionPolicyProvider;
+    private final QueryTransformationService queryTransformationService;
 
     public RetrievalInspectorService(RetrievalService retrievalService,
                                      FusionRankingPolicyProvider fusionPolicyProvider) {
+        this(retrievalService, fusionPolicyProvider, QueryTransformationService.disabled());
+    }
+
+    @Autowired
+    public RetrievalInspectorService(RetrievalService retrievalService,
+                                     FusionRankingPolicyProvider fusionPolicyProvider,
+                                     QueryTransformationService queryTransformationService) {
         this.retrievalService = retrievalService;
         this.fusionPolicyProvider = fusionPolicyProvider;
+        this.queryTransformationService = queryTransformationService;
     }
 
     public RetrievalInspectionReport inspect(RetrievalRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("retrieval request must not be null");
         }
-        RetrievalInspectionCollector channelCollector = new RetrievalInspectionCollector();
-        EvidenceBundle bundle = retrievalService.retrieve(request, channelCollector);
-        RetrievalInspectionTrace trace = channelCollector.toTrace();
+        RetrievalInspectionCollector originalCollector = new RetrievalInspectionCollector();
+        EvidenceBundle originalBundle = retrievalService.retrieve(request, originalCollector);
+        RetrievalInspectionTrace originalTrace = originalCollector.toTrace();
+        List<RetrievalInspectionReport.InputObservation> inputs = new ArrayList<>();
+        inputs.add(inputObservation(1, RetrievalInspectionReport.InputRole.ORIGINAL,
+                request, originalBundle, originalTrace));
+
+        QueryTransformationResult transformed = queryTransformationService.apply(
+                request, originalBundle, rewriteRequest -> {
+                    RetrievalInspectionCollector rewriteCollector =
+                            new RetrievalInspectionCollector();
+                    try {
+                        EvidenceBundle rewriteBundle = retrievalService.retrieve(
+                                rewriteRequest, rewriteCollector);
+                        inputs.add(inputObservation(2,
+                                RetrievalInspectionReport.InputRole.REWRITE,
+                                rewriteRequest, rewriteBundle, rewriteCollector.toTrace()));
+                        return rewriteBundle;
+                    } catch (RetrievalUnavailableException failure) {
+                        inputs.add(failedInputObservation(2,
+                                RetrievalInspectionReport.InputRole.REWRITE,
+                                rewriteRequest, rewriteCollector.toTrace()));
+                        throw failure;
+                    }
+                });
+        EvidenceBundle bundle = transformed.evidence();
+        boolean rewriteApplied = transformed.execution().status()
+                == QueryTransformationStatus.REWRITE_APPLIED;
+        List<RetrievalInspectionTrace.SelectionTrace> finalSelection = rewriteApplied
+                ? bundle.items().stream().map(item ->
+                        RetrievalInspectionTrace.SelectionTrace.selected(item.stableIdentity()))
+                        .toList()
+                : originalTrace.selection();
         return new RetrievalInspectionReport(
                 bundle.query(),
                 bundle.mode(),
@@ -37,16 +80,37 @@ public class RetrievalInspectorService {
                 bundle.workspace(),
                 request.strategy() == RetrievalStrategy.FUSED
                         ? fusionPolicyProvider.policy().version() : null,
-                modalitySections(bundle, trace),
-                trace.fusedOrder(),
-                trace.selection(),
+                modalitySections(originalBundle, originalTrace),
+                originalTrace.fusedOrder(),
+                finalSelection,
                 finalEvidence(bundle),
-                trace.itemModalities(),
-                modalityDiagnostics(bundle, trace),
+                originalTrace.itemModalities(),
+                modalityDiagnostics(originalBundle, originalTrace),
                 bundle.searchedCandidateCount(),
                 bundle.rejectedCandidateCount(),
                 bundle.insufficientEvidence(),
-                bundle.budget());
+                bundle.budget(),
+                transformed.execution(),
+                inputs);
+    }
+
+    private RetrievalInspectionReport.InputObservation inputObservation(
+            int ordinal, RetrievalInspectionReport.InputRole role, RetrievalRequest request,
+            EvidenceBundle bundle, RetrievalInspectionTrace trace) {
+        return new RetrievalInspectionReport.InputObservation(ordinal, role, request.query(),
+                modalitySections(bundle, trace), trace.fusedOrder(), trace.selection());
+    }
+
+    private static RetrievalInspectionReport.InputObservation failedInputObservation(
+            int ordinal, RetrievalInspectionReport.InputRole role, RetrievalRequest request,
+            RetrievalInspectionTrace trace) {
+        List<RetrievalInspectionReport.ModalitySection> sections = trace.modalities().stream()
+                .map(modality -> new RetrievalInspectionReport.ModalitySection(
+                        modality.modality(), ModalityOutcome.UNAVAILABLE,
+                        modality.candidates(), modality.rejected()))
+                .toList();
+        return new RetrievalInspectionReport.InputObservation(ordinal, role, request.query(),
+                sections, trace.fusedOrder(), trace.selection());
     }
 
     private List<RetrievalInspectionReport.ModalitySection> modalitySections(

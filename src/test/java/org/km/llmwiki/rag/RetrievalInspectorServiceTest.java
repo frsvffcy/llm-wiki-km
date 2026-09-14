@@ -2,6 +2,11 @@ package org.km.llmwiki.rag;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.km.llmwiki.ai.query.DisabledQueryTransformationPolicy;
+import org.km.llmwiki.ai.query.QueryTransformationPolicyRegistry;
+import org.km.llmwiki.ai.query.QueryTransformationService;
+import org.km.llmwiki.ai.query.QueryTransformationStatus;
+import org.km.llmwiki.ai.query.SingleRewritePolicyV1;
 
 import java.util.List;
 import java.util.Map;
@@ -130,6 +135,94 @@ class RetrievalInspectorServiceTest {
     }
 
     @Test
+    void observesOriginalThenRewriteThroughSharedProductionTransformationBoundary() {
+        RetrievalService retrievalService = mock(RetrievalService.class);
+        doAnswer(invocation -> {
+            RetrievalRequest input = invocation.getArgument(0);
+            RetrievalInspectionCollector collector = invocation.getArgument(1);
+            if (input.query().equals("資料庫 busy_timeout")) {
+                collector.channelCandidate(CandidateSignal.LEXICAL, "WIKI:2");
+                collector.selected("WIKI:2");
+                return bundleFor(input.query(), RetrievalDiagnostics.hybrid(), item("WIKI", "2"));
+            }
+            collector.ensureChannel(CandidateSignal.LEXICAL);
+            collector.channelCandidate(CandidateSignal.VECTOR, "WIKI:1");
+            collector.selected("WIKI:1");
+            return bundleFor(input.query(), RetrievalDiagnostics.hybrid()
+                    .withLexicalOutcome(ModalityOutcome.EMPTY), item("WIKI", "1"));
+        }).when(retrievalService).retrieve(any(), any());
+        QueryTransformationService transformation = new QueryTransformationService(
+                new QueryTransformationPolicyRegistry(List.of(
+                        new DisabledQueryTransformationPolicy(), new SingleRewritePolicyV1()),
+                        SingleRewritePolicyV1.VERSION),
+                (query, protectedTokens) -> "資料庫 busy_timeout");
+        RetrievalInspectorService service = new RetrievalInspectorService(
+                retrievalService, policyProvider, transformation);
+
+        RetrievalInspectionReport report = service.inspect(RetrievalRequest.defaults(
+                "資料庫連線的 busy_timeout 預設值要怎麼設定？",
+                RetrievalMode.HYBRID_VECTOR));
+
+        assertThat(report.queryTransformation().status())
+                .isEqualTo(QueryTransformationStatus.REWRITE_APPLIED);
+        assertThat(report.queryTransformation().retrievalInputCount()).isEqualTo(2);
+        assertThat(report.retrievalInputs()).extracting(
+                        RetrievalInspectionReport.InputObservation::ordinal,
+                        RetrievalInspectionReport.InputObservation::role,
+                        RetrievalInspectionReport.InputObservation::query)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(1,
+                                RetrievalInspectionReport.InputRole.ORIGINAL,
+                                "資料庫連線的 busy_timeout 預設值要怎麼設定？"),
+                        org.assertj.core.groups.Tuple.tuple(2,
+                                RetrievalInspectionReport.InputRole.REWRITE,
+                                "資料庫 busy_timeout"));
+        assertThat(report.finalEvidence()).extracting(
+                        RetrievalInspectionReport.FinalEvidence::identity)
+                .containsExactly("WIKI:1", "WIKI:2");
+    }
+
+    @Test
+    void recordsAttemptedRewriteInputWhenSecondRetrievalIsUnavailable() {
+        RetrievalService retrievalService = mock(RetrievalService.class);
+        doAnswer(invocation -> {
+            RetrievalRequest input = invocation.getArgument(0);
+            RetrievalInspectionCollector collector = invocation.getArgument(1);
+            if (input.query().equals("資料庫 busy_timeout")) {
+                collector.ensureChannel(CandidateSignal.LEXICAL);
+                throw new RetrievalUnavailableException(
+                        RetrievalUnavailableException.Dependency.SEARCH_INDEX,
+                        new IllegalStateException("offline"));
+            }
+            collector.ensureChannel(CandidateSignal.LEXICAL);
+            collector.channelCandidate(CandidateSignal.VECTOR, "WIKI:1");
+            collector.selected("WIKI:1");
+            return bundleFor(input.query(), RetrievalDiagnostics.hybrid()
+                    .withLexicalOutcome(ModalityOutcome.EMPTY), item("WIKI", "1"));
+        }).when(retrievalService).retrieve(any(), any());
+        QueryTransformationService transformation = new QueryTransformationService(
+                new QueryTransformationPolicyRegistry(List.of(
+                        new DisabledQueryTransformationPolicy(), new SingleRewritePolicyV1()),
+                        SingleRewritePolicyV1.VERSION),
+                (query, protectedTokens) -> "資料庫 busy_timeout");
+
+        RetrievalInspectionReport report = new RetrievalInspectorService(
+                retrievalService, policyProvider, transformation).inspect(
+                RetrievalRequest.defaults("資料庫 busy_timeout 預設值要怎麼設定？",
+                        RetrievalMode.HYBRID_VECTOR));
+
+        assertThat(report.queryTransformation().status())
+                .isEqualTo(QueryTransformationStatus.FALLBACK_RETRIEVAL_UNAVAILABLE);
+        assertThat(report.retrievalInputs()).hasSize(2);
+        assertThat(report.retrievalInputs().get(1).query()).isEqualTo("資料庫 busy_timeout");
+        assertThat(report.retrievalInputs().get(1).modalities()).singleElement()
+                .extracting(RetrievalInspectionReport.ModalitySection::outcome)
+                .isEqualTo(ModalityOutcome.UNAVAILABLE);
+        assertThat(report.finalEvidence()).extracting(
+                RetrievalInspectionReport.FinalEvidence::identity).containsExactly("WIKI:1");
+    }
+
+    @Test
     void reportInvariantRejectsSurvivorCountsThatDoNotMatchFinalEvidence() {
         assertThatIllegalArgumentException().isThrownBy(() -> report(
                 List.of(RetrievalInspectionTrace.SelectionTrace.selected("WIKI:1"),
@@ -186,6 +279,14 @@ class RetrievalInspectorServiceTest {
                 new EvidenceWorkspace(7L, "ws"), items,
                 new EvidenceBudget(8, 12_000, items.size(), 10, 3, false),
                 3, 1, items.isEmpty(), diagnostics);
+    }
+
+    private static EvidenceBundle bundleFor(String query, RetrievalDiagnostics diagnostics,
+                                            EvidenceItem... items) {
+        return new EvidenceBundle(query, RetrievalMode.HYBRID_VECTOR,
+                new EvidenceWorkspace(7L, "ws"), List.of(items),
+                new EvidenceBudget(8, 12_000, items.length, 10, 3, false),
+                3, 1, items.length == 0, diagnostics);
     }
 
     private static EvidenceItem item(String kind, String stableId) {

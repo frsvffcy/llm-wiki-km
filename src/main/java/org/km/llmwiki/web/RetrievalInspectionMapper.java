@@ -85,6 +85,39 @@ public final class RetrievalInspectionMapper {
                         report.budget().usedItems(),
                         report.budget().usedCharacters(),
                         report.budget().estimatedTokens(),
-                        report.budget().truncated()));
+                        report.budget().truncated()),
+                queryTransformation(report),
+                report.retrievalInputs().stream().map(input ->
+                        new RetrievalInspectionResponse.RetrievalInput(
+                                input.ordinal(), input.role().name(), input.query(),
+                                input.modalities().stream().map(section ->
+                                        new RetrievalInspectionResponse.Modality(
+                                                section.modality().name(), section.outcome().name(),
+                                                section.candidates().stream().map(candidate ->
+                                                        new RetrievalInspectionResponse.Candidate(
+                                                                candidate.identity(),
+                                                                candidate.ordinal())).toList(),
+                                                section.rejected().stream().map(rejected ->
+                                                        new RetrievalInspectionResponse.Rejected(
+                                                                rejected.identity(),
+                                                                rejected.reasonCode())).toList()))
+                                        .toList(),
+                                input.fusedOrder(),
+                                input.selection().stream().map(trace ->
+                                        new RetrievalInspectionResponse.Selection(trace.identity(),
+                                                trace.disposition().name(), trace.reasonCode()))
+                                        .toList()))
+                        .toList());
+    }
+
+    private static RetrievalInspectionResponse.QueryTransformation queryTransformation(
+            RetrievalInspectionReport report) {
+        var execution = report.queryTransformation();
+        return execution == null ? null : new RetrievalInspectionResponse.QueryTransformation(
+                execution.policyVersion(), execution.status().name(),
+                execution.applicability().name(), execution.providerUsageStatus(),
+                execution.retrievalInputCount(), execution.providerLatencyMs(),
+                execution.providerInputTokens(), execution.providerOutputTokens(),
+                execution.providerTotalTokens());
     }
 }

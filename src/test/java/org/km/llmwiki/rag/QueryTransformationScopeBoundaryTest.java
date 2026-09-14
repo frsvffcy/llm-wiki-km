@@ -12,13 +12,8 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Query-transformation scope proof (#390): the production Ask/retrieval path must not contain
- * any semantic query rewriting / multi-query / HyDE boundary. The only query-side
- * transformation in production is the deterministic lexical projection chain
- * (validation/NFC → {@code cjk-bigram-v1} at the FTS boundary, bare NFC for the embedding
- * input); semantic rewriting is an evaluation-only candidate in test sources and can only
- * enter production through a dedicated adoption issue. Source-level boundary check mirrors
- * the Ask read-only boundary test (#374).
+ * Query-transformation production boundary (#401): semantic rewriting is limited to one
+ * versioned single-rewrite stage. Multi-query, HyDE, and planner boundaries remain excluded.
  */
 @Tag("unit")
 class QueryTransformationScopeBoundaryTest {
@@ -26,12 +21,11 @@ class QueryTransformationScopeBoundaryTest {
     private static final Path PRODUCTION_ROOT = Path.of("src/main/java/org/km/llmwiki");
 
     private static final List<String> FORBIDDEN_BOUNDARY_TOKENS = List.of(
-            "QueryRewrite", "queryRewrite", "QueryTransformation", "QueryExpansion",
-            "MultiQuery", "multiQueryFanOut", "HyDE", "HypotheticalDocument",
+            "QueryExpansion", "MultiQuery", "multiQueryFanOut", "HyDE", "HypotheticalDocument",
             "hypotheticalDocument", "SemanticQueryPlanner");
 
     @Test
-    void productionQueryPathContainsNoSemanticRewriteBoundary() throws Exception {
+    void productionQueryPathContainsNoUnadoptedQueryExpansionBoundary() throws Exception {
         List<Path> sources;
         try (Stream<Path> paths = Files.walk(PRODUCTION_ROOT)) {
             sources = paths.filter(path -> path.toString().endsWith(".java")).toList();
@@ -47,25 +41,26 @@ class QueryTransformationScopeBoundaryTest {
             }
         }
         assertThat(offenders)
-                .as("production must not grow a semantic query-rewrite boundary outside a "
-                        + "dedicated adoption issue (#390 decision gate)")
+                .as("#401 permits one rewrite only; expansion, HyDE, and planners remain excluded")
                 .isEmpty();
     }
 
     @Test
-    void askServiceHandsTheQuestionToRetrievalWithoutAnyQueryStage() throws Exception {
+    void askServiceKeepsOriginalRetrievalBeforeTransformationRerankAndProjection() throws Exception {
         String askService = Files.readString(
                 Path.of("src/main/java/org/km/llmwiki/ai/ask/AskService.java"));
         assertThat(askService).isNotBlank();
-        // The production stage order is fixed: retrieval on the request's own question, then
-        // second-stage rerank over the qualified bundle, then context projection. No query
-        // transformation stage may appear between the question and retrieval.
+        // The production stage order is fixed: original retrieval first, bounded optional
+        // transformation second, then rerank and context projection.
         assertThat(askService).contains("retrievalService.retrieve(request.retrievalRequest())");
+        assertThat(askService).contains("queryTransformationService.apply(");
         assertThat(askService).contains("rerankService.apply(");
         int retrieveAt = askService.indexOf("retrievalService.retrieve(request.retrievalRequest())");
+        int transformAt = askService.indexOf("queryTransformationService.apply(");
         int rerankAt = askService.indexOf("rerankService.apply(");
         int projectAt = askService.indexOf("contextProjector.project(");
-        assertThat(rerankAt).isGreaterThan(retrieveAt);
+        assertThat(transformAt).isGreaterThan(retrieveAt);
+        assertThat(rerankAt).isGreaterThan(transformAt);
         assertThat(projectAt).isGreaterThan(rerankAt);
     }
 

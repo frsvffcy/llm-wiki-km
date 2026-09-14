@@ -1,5 +1,7 @@
 package org.km.llmwiki.web;
 
+import org.km.llmwiki.ai.answer.ProviderUsageStatus;
+
 import java.util.List;
 
 /**
@@ -20,7 +22,9 @@ public record RetrievalInspectionResponse(
         int searchedCandidateCount,
         int rejectedCandidateCount,
         boolean insufficientEvidence,
-        Budget budget) {
+        Budget budget,
+        QueryTransformation queryTransformation,
+        List<RetrievalInput> retrievalInputs) {
 
     public record Modality(String modality, String outcome,
                            List<Candidate> candidates, List<Rejected> rejected) {
@@ -43,5 +47,17 @@ public record RetrievalInspectionResponse(
 
     public record Budget(int maxItems, int maxCharacters, int usedItems, int usedCharacters,
                          int estimatedTokens, boolean truncated) {
+    }
+
+    public record QueryTransformation(String policyVersion, String status, String applicability,
+                                      ProviderUsageStatus providerUsageStatus,
+                                      int retrievalInputCount, Long providerLatencyMs,
+                                      Integer providerInputTokens, Integer providerOutputTokens,
+                                      Integer providerTotalTokens) {
+    }
+
+    public record RetrievalInput(int ordinal, String role, String query,
+                                 List<Modality> modalities, List<String> fusedOrder,
+                                 List<Selection> selection) {
     }
 }

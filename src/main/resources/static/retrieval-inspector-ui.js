@@ -32,6 +32,21 @@ const OUTCOME_NOTICES = Object.freeze({
   DISABLED: "此模式未啟用此訊號。"
 });
 
+const TRANSFORMATION_STATUS_LABELS = Object.freeze({
+  REWRITE_APPLIED: "已套用單次改寫",
+  NO_OP_POLICY_DISABLED: "政策未啟用",
+  NO_OP_NOT_APPLICABLE: "查詢不適用",
+  NO_OP_DUPLICATE: "改寫與原查詢相同",
+  FALLBACK_PROVIDER_UNAVAILABLE: "改寫提供者無法使用，已回退",
+  FALLBACK_PROVIDER_INVALID: "改寫回應無效，已回退",
+  FALLBACK_OUTPUT_OVER_LIMIT: "改寫超出界線，已回退",
+  FALLBACK_EXACT_TOKEN_LOSS: "改寫遺失精確詞，已回退",
+  FALLBACK_RETRIEVAL_UNAVAILABLE: "改寫檢索無法使用，已回退",
+  FALLBACK_RETRIEVAL_INVALID: "改寫檢索無效，已回退"
+});
+
+const INPUT_ROLE_LABELS = Object.freeze({ ORIGINAL: "原始查詢", REWRITE: "改寫查詢" });
+
 export function validateQuestion(question) {
   return typeof question === "string" && question.trim() ? null : "請先輸入查詢。";
 }
@@ -76,6 +91,33 @@ export function renderInspection(elements, payload, documentRef = document) {
   }
 
   elements.result.hidden = false;
+
+  const transformation = data.queryTransformation;
+  if (transformation && typeof transformation === "object") {
+    const summary = documentRef.createElement("li");
+    summary.className = "inspector-transformation";
+    appendTextElement(documentRef, summary, "p", "inspector-modality-title",
+      `查詢轉換 · ${TRANSFORMATION_STATUS_LABELS[transformation.status] || text(transformation.status)}`);
+    appendTextElement(documentRef, summary, "p", "inspector-transformation-policy",
+      `policy：${text(transformation.policyVersion)}`);
+    appendTextElement(documentRef, summary, "p", "inspector-transformation-applicability",
+      `適用性：${text(transformation.applicability)}`);
+    elements.modalities.append(summary);
+  }
+
+  const retrievalInputs = Array.isArray(data.retrievalInputs) ? data.retrievalInputs : [];
+  retrievalInputs.forEach(input => {
+    const item = documentRef.createElement("li");
+    item.className = "inspector-retrieval-input";
+    appendTextElement(documentRef, item, "p", "inspector-modality-title",
+      `${text(input.ordinal)}. ${INPUT_ROLE_LABELS[input.role] || text(input.role)}`);
+    appendTextElement(documentRef, item, "p", "inspector-input-query", text(input.query));
+    const inputModalities = Array.isArray(input.modalities) ? input.modalities : [];
+    inputModalities.forEach(modality => appendTextElement(documentRef, item, "p",
+      "inspector-input-modality", `${text(modality.modality)} · ${OUTCOME_LABELS[modality.outcome]
+        || text(modality.outcome)}`));
+    elements.modalities.append(item);
+  });
 
   const modalities = Array.isArray(data.modalities) ? data.modalities : [];
   modalities.forEach(section => {

@@ -47,6 +47,21 @@ function inspectionPayload() {
     query: "檢索架構",
     mode: "HYBRID_GRAPH",
     strategy: "FUSED",
+    queryTransformation: {
+      policyVersion: "query-transform-single-rewrite-v1",
+      status: "REWRITE_APPLIED",
+      applicability: "LEXICAL_MISS_CROWD_OUT",
+      providerUsageStatus: "AVAILABLE",
+      retrievalInputCount: 2
+    },
+    retrievalInputs: [
+      { ordinal: 1, role: "ORIGINAL", query: "檢索架構怎麼設定",
+        modalities: [{ modality: "LEXICAL", outcome: "EMPTY", candidates: [], rejected: [] }],
+        fusedOrder: [], selection: [] },
+      { ordinal: 2, role: "REWRITE", query: "檢索架構",
+        modalities: [{ modality: "LEXICAL", outcome: "CONTRIBUTED", candidates: [], rejected: [] }],
+        fusedOrder: [], selection: [] }
+    ],
     fusionPolicyVersion: "fusion-rrf-v2-graph-damped",
     modalities: [
       {
@@ -99,6 +114,12 @@ test("renders modality candidates, fusion policy, selection and final evidence a
   assert.equal(elements.result.hidden, false);
   assert.equal(elements.error.hidden, true);
   const modalityText = flatText(elements.modalities);
+  assert.match(modalityText, /查詢轉換 · 已套用單次改寫/);
+  assert.match(modalityText, /query-transform-single-rewrite-v1/);
+  assert.match(modalityText, /LEXICAL_MISS_CROWD_OUT/);
+  assert.match(modalityText, /1\. 原始查詢/);
+  assert.match(modalityText, /2\. 改寫查詢/);
+  assert.match(modalityText, /檢索架構怎麼設定/);
   assert.match(modalityText, /LEXICAL · 已貢獻/);
   assert.match(modalityText, /1\. WIKI:arch/);
   assert.match(modalityText, /WIKI:stale（INELIGIBLE）/);

@@ -486,6 +486,13 @@ test("loads and renders the provider egress trust indicator with safe text only"
           providerType: "openai-compatible",
           modelDisplayName: null,
           egressCategories: ["EMBEDDING_INPUT_REPRESENTATION"]
+        },
+        {
+          purpose: "QUERY_REWRITE",
+          destinationClass: "REMOTE_SECURE",
+          providerType: "openai-compatible",
+          modelDisplayName: "rewrite-model",
+          egressCategories: ["QUERY_REWRITE_INPUT", "QUERY_REWRITE_RESPONSE_METADATA"]
         }
       ] })
     }
@@ -505,6 +512,8 @@ test("loads and renders the provider egress trust indicator with safe text only"
   assert.match(detailText, /遠端安全連線/);
   assert.match(detailText, /使用者問題文字/);
   assert.match(detailText, /經挑選的文本表示/);
+  assert.match(detailText, /查詢改寫 · 用途::查詢改寫提供者/);
+  assert.match(detailText, /原始查詢與受保護的精確詞/);
   assert.doesNotMatch(detailText, /https?:\/\//);
   assert.doesNotMatch(detailText, /api-key|bearer|secret/i);
   assert.equal(elements.aiEgress.className, "ai-egress ai-egress--remote");

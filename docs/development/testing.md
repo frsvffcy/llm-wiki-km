@@ -1474,16 +1474,17 @@ git diff --check
 
 ## Query transformation recall evaluation 測試責任（#390）
 
-Query-side semantic transformation（rewriting／multi-query／HyDE）採 benchmark-first
-evaluation-only：不修改 production、不新增 public retrieval mode，決策門檻為
+Query-side semantic transformation（rewriting／multi-query／HyDE）先採 benchmark-first
+evaluation；#390 本身不修改 production、不新增 public retrieval mode，決策門檻為
 GO TO ADOPTION ISSUE / CONDITIONAL GO / NO-GO / DEFER（完整方法論、結果與 adoption contract
 見 `docs/development/issue-390-query-transformation-evaluation.md`）。Contract 要點：
 
-- **Scope proof（source-level 鎖定）**：`rag.QueryTransformationScopeBoundaryTest`（unit）斷言
-  production 樹內無任何 semantic query-rewrite boundary 識別字、`AskService` 的 stage 順序
-  固定為 retrieve(question 原樣) → rerank → context projection（question 與 retrieval 之間
-  不得出現 query transformation stage）、唯一 query projection 是 #129 `cjk-bigram-v1`
-  deterministic lexical 鏈（provider-free）。
+- **Scope proof（source-level 鎖定）**：#401 adoption 後，
+  `rag.QueryTransformationScopeBoundaryTest`（unit）斷言 `AskService` 的 stage 順序固定為
+  retrieve(question 原樣) → bounded query transformation → rerank → context projection；
+  transformation 必須透過 application-owned shared service，且不得新增 public retrieval mode、
+  persistence 或 canonical mutation。#129 `cjk-bigram-v1` 仍是 provider-free deterministic lexical
+  projection，不能與 semantic rewrite 混稱。
 - **Corpus／fixtures**：`rag.QueryTransformationEvaluationCorpusV1`
   （`query-transformation-evaluation-corpus-v1`）逐字重用 #316 corpus 的 16 pages 與 15
   queries，另加 `multi-intent`／`no-evidence` query shapes；rewrite fixtures
@@ -1520,6 +1521,27 @@ GO TO ADOPTION ISSUE / CONDITIONAL GO / NO-GO / DEFER（完整方法論、結果
   measurement＋provider-free fusion-side levers 的 cost 比較。
 - **報告**：`target/quality-reports/query-transformation-evaluation-v1.{json,md}`
   （git-ignored runtime evidence）；決策與理由記錄於報告與 issue 文件。
+
+## Query transformation production adoption 測試責任（#401）
+
+#401 只建立 disabled-by-default 的 production seam；enabled candidate 是
+`query-transform-single-rewrite-v1`，rollback target 是 `query-transform-disabled-v1`，完整 contract 與
+default 切換 gate 見 `docs/development/issue-401-query-transformation-production-adoption.md`。
+
+- `ai.query.QueryTransformationPolicyRegistryTest`：version selection、unknown／blank／duplicate fail-fast，
+  rollback 不依賴 projection rebuild。
+- `ai.query.QueryTransformationServiceTest`：strict lexical miss／crowd-out applicability、original-first、
+  fan-out ≤2、protected exact token、NFC／code-point／projected-term bounds、typed fallback、workspace／
+  stable identity／budget authority及 provider usage。
+- `ai.query.provider.openai.OpenAiCompatibleQueryRewriteClientTest`：configuration／transport timeout、
+  request payload、bounded structured response、usage、interrupt 與 safe failure mapping；CI 不使用 live provider。
+- `rag.RetrievalInspectorServiceTest`、`mcp.McpAdapterParityTest`：Inspector 重用 production service，
+  original／rewrite per-input observation 與 REST/MCP additive parity；Inspector 不是 control plane。
+- `system.ProviderEgressIntegrationTest`、`ai.provider.ProviderEgressServiceTest`、Ask／Inspector JS tests：
+  #323 configuration disclosure、#310 execution metadata與 safe DOM rendering。
+
+任何 default 切換前必須重跑 #390、#272／#280／#316、完成 live-provider controlled measurement，
+Ask context shape 改變時另重跑 #308；這些是 release decision evidence，不納入無 credential 的 CI。
 
 受影響測試與完整 gate：
 

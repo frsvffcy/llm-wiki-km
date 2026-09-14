@@ -213,6 +213,13 @@ class McpAdapterParityTest {
                 .isEqualTo(rest.finalEvidence());
         assertThat(((RetrievalInspectionResponse) mcp.payload()).modalityDiagnostics())
                 .isEqualTo(rest.modalityDiagnostics());
+        assertThat(((RetrievalInspectionResponse) mcp.payload()).queryTransformation())
+                .isEqualTo(rest.queryTransformation());
+        assertThat(((RetrievalInspectionResponse) mcp.payload()).retrievalInputs())
+                .isEqualTo(rest.retrievalInputs());
+        assertThat(rest.queryTransformation().status()).isEqualTo("NO_OP_POLICY_DISABLED");
+        assertThat(rest.retrievalInputs()).hasSize(1);
+        assertThat(rest.retrievalInputs().getFirst().role()).isEqualTo("ORIGINAL");
     }
 
     @Test
@@ -228,6 +235,10 @@ class McpAdapterParityTest {
         assertThat(mcp.payload()).isEqualTo(rest);
         assertThat(rest.modalityDiagnostics()).isEqualTo(
                 ((RetrievalInspectionResponse) mcp.payload()).modalityDiagnostics());
+        assertThat(rest.queryTransformation()).isEqualTo(
+                ((RetrievalInspectionResponse) mcp.payload()).queryTransformation());
+        assertThat(rest.retrievalInputs()).isEqualTo(
+                ((RetrievalInspectionResponse) mcp.payload()).retrievalInputs());
     }
 
     @Test

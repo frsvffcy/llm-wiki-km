@@ -11,6 +11,7 @@ import org.km.llmwiki.ai.answer.ProjectionKind;
 import org.km.llmwiki.ai.answer.ProviderUsageStatus;
 import org.km.llmwiki.rag.EvidenceKind;
 import org.km.llmwiki.rag.RetrievalDiagnostics;
+import org.km.llmwiki.ai.query.QueryTransformationStatus;
 
 import java.util.List;
 import java.util.Map;
@@ -122,7 +123,8 @@ public record AskApiResponse(
             ContextDiagnostics contextDiagnostics,
             String rerankPolicyVersion,
             RerankStatus rerankStatus,
-            RerankNoOpReason rerankNoOpReason
+            RerankNoOpReason rerankNoOpReason,
+            QueryTransformationMetadata queryTransformation
     ) {
         static ExecutionMetadata from(AskExecutionMetadata metadata) {
             return new ExecutionMetadata(metadata.retrievedEvidenceItems(),
@@ -130,7 +132,31 @@ public record AskApiResponse(
                     metadata.contextTruncated(),
                     ContextDiagnostics.from(metadata.contextDiagnostics()),
                     metadata.rerankPolicyVersion(), metadata.rerankStatus(),
-                    metadata.rerankNoOpReason());
+                    metadata.rerankNoOpReason(),
+                    QueryTransformationMetadata.from(metadata.queryTransformation()));
+        }
+    }
+
+    /** Bounded per-Ask query transformation facts; query content is never exposed here. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record QueryTransformationMetadata(
+            String policyVersion,
+            QueryTransformationStatus status,
+            org.km.llmwiki.ai.query.QueryTransformationApplicability applicability,
+            ProviderUsageStatus providerUsageStatus,
+            int retrievalInputCount,
+            Long providerLatencyMs,
+            Integer providerInputTokens,
+            Integer providerOutputTokens,
+            Integer providerTotalTokens
+    ) {
+        static QueryTransformationMetadata from(
+                org.km.llmwiki.ai.query.QueryTransformationExecution execution) {
+            return execution == null ? null : new QueryTransformationMetadata(
+                    execution.policyVersion(), execution.status(), execution.applicability(),
+                    execution.providerUsageStatus(), execution.retrievalInputCount(),
+                    execution.providerLatencyMs(), execution.providerInputTokens(),
+                    execution.providerOutputTokens(), execution.providerTotalTokens());
         }
     }
 
