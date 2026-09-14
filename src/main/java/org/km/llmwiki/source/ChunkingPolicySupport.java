@@ -25,13 +25,15 @@ final class ChunkingPolicySupport {
             pendingOriginalContent = null;
             chunks.add(new SourceChunkDraft(chunks.size() + 1, candidate.pageNo(), candidate.section(),
                     candidate.headingPath(), originalContent, candidate.normalizedContent(),
-                    candidate.contentHash(), candidate.chunkPolicyVersion()));
+                    candidate.contentHash(), candidate.chunkPolicyVersion(),
+                    candidate.normalizationPolicyVersion()));
         }
         if (pendingOriginalContent != null && !chunks.isEmpty()) {
             SourceChunkDraft previous = chunks.removeLast();
             chunks.add(new SourceChunkDraft(previous.chunkNo(), previous.pageNo(), previous.section(),
                     previous.headingPath(), appendEvidence(previous.content(), pendingOriginalContent),
-                    previous.normalizedContent(), previous.contentHash(), previous.chunkPolicyVersion()));
+                    previous.normalizedContent(), previous.contentHash(), previous.chunkPolicyVersion(),
+                    previous.normalizationPolicyVersion()));
         }
         return List.copyOf(chunks);
     }
@@ -119,6 +121,7 @@ final class ChunkingPolicySupport {
     }
 
     record ChunkCandidate(Integer pageNo, String section, String headingPath, String originalContent,
-                          String normalizedContent, String contentHash, String chunkPolicyVersion) {
+                          String normalizedContent, String contentHash, String chunkPolicyVersion,
+                          String normalizationPolicyVersion) {
     }
 }

@@ -12,8 +12,12 @@ import static org.assertj.core.groups.Tuple.tuple;
 @Tag("unit")
 class HeadingAnchoredChunkingPolicyTest {
 
+    private final NormalizationPolicyRegistry normalizationPolicies = new NormalizationPolicyRegistry(
+            List.of(new NormalizationPolicyV1Current(), new NormalizationPolicyV2SelectedCfStrip()),
+            NormalizationPolicyV2SelectedCfStrip.VERSION);
     private final ExtractedContentNormalizer normalizer =
-            new ExtractedContentNormalizer(new ExtractedContentNormalizationProperties());
+            new ExtractedContentNormalizer(new ExtractedContentNormalizationProperties(),
+                    normalizationPolicies);
 
     @Test
     void reportsVersionTwoPolicyIdentity() {
@@ -120,7 +124,7 @@ class HeadingAnchoredChunkingPolicyTest {
     }
 
     private HeadingAnchoredChunkingPolicy policy() {
-        return new HeadingAnchoredChunkingPolicy(normalizer);
+        return new HeadingAnchoredChunkingPolicy(normalizer, normalizationPolicies);
     }
 
     private ExtractedContentNormalizer.CanonicalNormalization normalize(ParsedDocument parsed) {

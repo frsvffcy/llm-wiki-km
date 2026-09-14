@@ -3,6 +3,8 @@ package org.km.llmwiki.source;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Tag("unit")
@@ -34,7 +36,8 @@ class ExtractedContentNormalizerTest {
     void keepsRepeatedPageHeadersAndFootersWhenStrategyIsDisabled() {
         ExtractedContentNormalizationProperties properties = new ExtractedContentNormalizationProperties();
         properties.setRepeatedHeaderFooterEnabled(false);
-        ExtractedContentNormalizer normalizer = new ExtractedContentNormalizer(properties);
+        ExtractedContentNormalizer normalizer = new ExtractedContentNormalizer(properties,
+                normalizationRegistry(NormalizationPolicyV2SelectedCfStrip.VERSION));
         String content = "Monthly report\nFirst page\nConfidential\f"
                 + "Monthly report\nSecond page\nConfidential";
 
@@ -45,7 +48,8 @@ class ExtractedContentNormalizerTest {
     void respectsConfiguredMinimumOccurrencesForRepeatedHeadersAndFooters() {
         ExtractedContentNormalizationProperties properties = new ExtractedContentNormalizationProperties();
         properties.setRepeatedHeaderFooterMinimumOccurrences(3);
-        ExtractedContentNormalizer normalizer = new ExtractedContentNormalizer(properties);
+        ExtractedContentNormalizer normalizer = new ExtractedContentNormalizer(properties,
+                normalizationRegistry(NormalizationPolicyV2SelectedCfStrip.VERSION));
         String content = "Monthly report\nFirst page\nConfidential\f"
                 + "Monthly report\nSecond page\nConfidential";
 
@@ -61,6 +65,13 @@ class ExtractedContentNormalizerTest {
     }
 
     private static ExtractedContentNormalizer normalizer() {
-        return new ExtractedContentNormalizer(new ExtractedContentNormalizationProperties());
+        return new ExtractedContentNormalizer(new ExtractedContentNormalizationProperties(),
+                normalizationRegistry(NormalizationPolicyV2SelectedCfStrip.VERSION));
+    }
+
+    private static NormalizationPolicyRegistry normalizationRegistry(String activeVersion) {
+        return new NormalizationPolicyRegistry(
+                List.of(new NormalizationPolicyV1Current(), new NormalizationPolicyV2SelectedCfStrip()),
+                activeVersion);
     }
 }

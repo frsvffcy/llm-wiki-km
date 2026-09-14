@@ -18,9 +18,12 @@ public class SourceChunker implements ChunkingPolicy {
     static final int TARGET_MAX_CHUNK_LENGTH = 3_000;
 
     private final ExtractedContentNormalizer normalizer;
+    private final NormalizationPolicyRegistry normalizationPolicies;
 
-    public SourceChunker(ExtractedContentNormalizer normalizer) {
+    public SourceChunker(ExtractedContentNormalizer normalizer,
+                         NormalizationPolicyRegistry normalizationPolicies) {
         this.normalizer = normalizer;
+        this.normalizationPolicies = normalizationPolicies;
     }
 
     @Override
@@ -92,6 +95,7 @@ public class SourceChunker implements ChunkingPolicy {
         String normalizedContent = normalizer.normalizeChunk(originalContent, canonicalNormalization);
         return new ChunkingPolicySupport.ChunkCandidate(accumulator.pageNo(), accumulator.section(),
                 accumulator.headingPath(), originalContent, normalizedContent,
-                ChunkingPolicySupport.sha256(normalizedContent), CHUNK_POLICY_VERSION);
+                ChunkingPolicySupport.sha256(normalizedContent), CHUNK_POLICY_VERSION,
+                normalizationPolicies.activeVersion());
     }
 }

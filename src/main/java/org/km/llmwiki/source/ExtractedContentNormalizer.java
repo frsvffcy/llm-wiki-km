@@ -14,6 +14,12 @@ import java.util.stream.Collectors;
 
 /**
  * Applies syntax-level cleanup only. It deliberately does not rewrite the text's meaning.
+ *
+ * <p>Selected Unicode format-character handling (#412) is delegated to the active
+ * {@link NormalizationPolicy} — the single authority for the strip matrix. This class
+ * owns the ordering (line endings → NFC → selected-Cf policy → ISO-Control removal
+ * → trailing whitespace → repeated edges → blank-line collapse) and the
+ * document-scoped repeated-edge context shared by extracted content and chunks.
  */
 @Component
 public class ExtractedContentNormalizer {
@@ -21,9 +27,12 @@ public class ExtractedContentNormalizer {
     private static final String PAGE_BREAK = "\f";
 
     private final ExtractedContentNormalizationProperties properties;
+    private final NormalizationPolicyRegistry normalizationPolicies;
 
-    public ExtractedContentNormalizer(ExtractedContentNormalizationProperties properties) {
+    public ExtractedContentNormalizer(ExtractedContentNormalizationProperties properties,
+                                      NormalizationPolicyRegistry normalizationPolicies) {
         this.properties = properties;
+        this.normalizationPolicies = normalizationPolicies;
     }
 
     public String normalize(String content) {
@@ -48,11 +57,17 @@ public class ExtractedContentNormalizer {
                 canonicalNormalization.repeatedEdges());
     }
 
-    private static String prepare(String content) {
+    private String prepare(String content) {
         String normalized = normalizeLineEndings(content);
         normalized = Normalizer.normalize(normalized, Normalizer.Form.NFC);
+        normalized = normalizationPolicies.active().apply(normalized);
         normalized = removeControlCharacters(normalized);
         return removeTrailingWhitespace(normalized);
+    }
+
+    /** Active normalization policy version stamping this output (operator-safe lineage). */
+    public String activeNormalizationVersion() {
+        return normalizationPolicies.activeVersion();
     }
 
     private String normalizePrepared(String content, RepeatedEdges repeatedEdges) {

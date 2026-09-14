@@ -218,6 +218,20 @@ class HistoricalUpgradeMatrixIntegrationTest {
                             + " IS NULL OR chunk_policy_version != 'chunk-policy-v1-current'"))
                     .isEqualTo("0");
         }
+        // NormalizationPolicy (#412): the V34 backfill stamps every historical row with
+        // the baseline v1 version — never the new v2 default — so old bytes cannot pose
+        // as new-policy current without explicit re-extraction.
+        assertThat(scalar(connection,
+                "SELECT COUNT(*) FROM source_chunk WHERE normalization_policy_version"
+                        + " IS NULL OR normalization_policy_version"
+                        + " != 'normalization-policy-v1-current'"))
+                .isEqualTo("0");
+        assertThat(scalar(connection,
+                "SELECT COUNT(*) FROM document_extracted_content"
+                        + " WHERE normalization_policy_version"
+                        + " IS NULL OR normalization_policy_version"
+                        + " != 'normalization-policy-v1-current'"))
+                .isEqualTo("0");
     }
 
     /**

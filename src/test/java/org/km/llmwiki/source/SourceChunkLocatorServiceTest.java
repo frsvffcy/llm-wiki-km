@@ -163,7 +163,8 @@ class SourceChunkLocatorServiceTest {
         when(sourceChunkRepository.findByIdAndWorkspaceId(chunkId, WORKSPACE_ID))
                 .thenReturn(Optional.of(new SourceChunk(chunkId, documentId, 3, 17,
                         "Graph lifecycle", "Projection > Generation ownership", "raw",
-                        "normalized", "0".repeat(64), "chunk-policy-v1-current")));
+                        "normalized", "0".repeat(64), "chunk-policy-v1-current",
+                        NormalizationPolicyV2SelectedCfStrip.VERSION)));
     }
 
     private void authorityDocument(SourceSearchAuthorityDocument document) {
