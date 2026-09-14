@@ -1754,6 +1754,31 @@ mvn clean verify -Pfull
 git diff --check
 ```
 
+## Architecture VoT anti-drift 測試責任（#424）
+
+#424 將 Architecture VoT 對齊 latest `main`（V34 normalization lineage、
+selected-Cf default、owner security、remote deployment current truth），並以
+executable guard 降低下一次 migration／controller／capability 新增後的 silent
+drift 機率。Current docs 繼續只是導航／解釋，不升格為 schema／API authority
+（mismatch 仍以 Flyway／Controllers／tests 為準）。Legacy 正文保持
+`HISTORICAL` 凍結。
+
+- `docs.ArchitectureVoTAntiDriftTest`（unit）：current 文件不得重建固定
+  migration 區間 truth、use-cases 不得把已完成的 Remote Deployment 留給 #393、
+  api／capability 導航須到達 owner session 與 deployment readiness、
+  normalization current 語意不得退回舊 baseline、Mode 2／direct bind 不得誤升格、
+  Issue lineage（#417／#422／#423）有效、legacy 快照保持 `HISTORICAL` 凍結。
+  本 guard 只讀文字不斷言 runtime；舊文件經反向驗證 6／7 紅（legacy 凍結項綠），
+  證明 drift 類別可被捕捉。
+
+受影響測試與完整 gate：
+
+```bash
+mvn -Dtest='ArchitectureVoTAntiDriftTest' test -Pfast
+mvn test -Pfast
+git diff --check
+```
+
 受影響測試與完整 gate：
 
 ```bash

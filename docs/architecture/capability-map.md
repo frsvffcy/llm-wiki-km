@@ -48,6 +48,9 @@ org.km.llmwiki
 | Retrieval Inspector／Source locator | `web/`＋`rag/`＋`source/` | `RetrievalInspectorController`、`SourceChunkController`（locator） | read-only（無新 canonical table） | #292／#293 |
 | Vault Lint／Quality triage／repair | `wiki/` | `VaultLintController`（findings read-only）＋repair ingress | findings 為 report projection（非 persistent canonical）；repair 經 proposal 表 | #379／#383／#384 |
 | Provider egress disclosure | `ai/`＋`system/` | `SystemStatusController`（`ai-provider-egress`） | 無（allowlisted metadata only） | #323；#310 execution 分離 |
+| Owner authentication／session boundary | `web/security/`（application-owned；無 multi-user schema） | `OwnerAuthController`（session＋rotation；local-only 預設關閉） | 無 canonical table（in-memory sessions；credential 為 config-owned verifier） | #417；credential hardening #423 |
+| Deployment profile／readiness | `system/`（validator＋readiness；`deploy/` 為 operator artifact，非 package authority） | `DeploymentReadinessController`（`GET /api/v1/system/deployment` 唯讀投影） | 無 canonical table（宣告式配置；invalid 回 `NOT_READY`） | #418；ingress contract #422 |
+| Text normalization policy | `source/`（versioned policy；與 chunking 正交） | 無獨立 endpoint（extraction 內） | `source_chunk`／`document_extracted_content` 的 `normalization_policy_version`（V34 lineage） | #412；Flyway |
 | MCP read-only adapter | `mcp/` | `McpServerController`（`POST /api/mcp`；另 adapter 非 authority） | 無（委派既有 application boundary） | #327／#330／#331／#334／#335／#340／#341 |
 | System status／health | `system/` | `SystemStatusController` | `flyway_schema_history`＋readiness 投影 | Controllers＋tests |
 
@@ -61,4 +64,4 @@ org.km.llmwiki
   `DELETE /api/v1/inbox/files/{id}`、`/graph/traverse` 系、`/quality/*`——Historical 規劃名或從未實作，
   不得視為 current（見 `api.md` 與 legacy）。
 
-Refs #410。對帳來源：#306、#312、13 §150 inventory、12 §52 overview（歷史快照；current 以 latest `main` 為準）。
+Refs #410、#424。對帳來源：#306、#312、13 §150 inventory、12 §52 overview（歷史快照；current 以 latest `main` 為準）。

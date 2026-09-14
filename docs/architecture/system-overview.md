@@ -1,7 +1,8 @@
 # System overview
 
-> 狀態：`CURRENT`（對應 latest `main`；盤點基線含 Flyway V1～V33、MCP read-only adapter、
-> Query transformation seam 預設 disabled）。
+> 狀態：`CURRENT`（對應 latest `main`；Flyway 以目錄為準，另見 `schema.md` 盤點方法；
+> MCP read-only adapter、Query transformation seam 預設 disabled、owner security boundary、
+> validated private-ingress deployment、selected-Cf normalization 皆為 current）。
 > Executable authority：schema → Flyway migrations；API → Controllers＋contract tests；
 > decisions → ADR 0001～0014；roadmap → GitHub Issues＋`AGENTS.md`。
 > 本文件為責任鏈導航，不複製 DDL 或 endpoint contract。
@@ -29,7 +30,9 @@ L1 Durable operational state（SQLite control plane）
         │
         ▼
 L2 Rebuildable projections（可刪除重建，不得反寫 L0/L1 authority）
-  source chunks（versioned ChunkingPolicy，預設 chunk-policy-v1-current；V29 欄位標版本）
+  source chunks（versioned ChunkingPolicy，預設 chunk-policy-v1-current；
+  versioned NormalizationPolicy，預設 normalization-policy-v2-selected-cf-strip，
+  rollback 為 normalization-policy-v1-current；兩者皆需 re-extraction，見 schema.md）
   + FTS5 indexes（cjk-bigram-v1 projection）
   + embedding projection（generation-aware readiness；STALE/QUEUED/REBUILDING 非 serving state，僅 READY 可 serve）
   + Graph projection（ArcadeDB embedded derived projection；SQLite 只持 lifecycle/control proof）
@@ -52,6 +55,26 @@ L5 Grounded answer（ephemeral，citation-validated）
   grounded-answer@v2 contract；provider／model identity 由 adapter 產生，不信 model-generated metadata。
   Browser 只呼叫本機 REST（/api/v1）；成功 {"data":...}，錯誤 {"error":{code,message,timestamp,traceId}}。
 ```
+
+## Owner security 與 deployment（current trust boundary）
+
+- Single-user owner boundary（`web/security/`，#417；credential hardening #423）：
+  預設 `auth-enabled=false`（local-only localhost trust）；non-local ingress 必開。
+  Session 為 in-memory opaque token（HttpOnly cookie 給 Browser＋in-memory Bearer 並存，
+  同一 server-side authority；restart 即登出）。`Host`／`Origin` allowlist＋
+  cookie-mutation Origin 等值＋login／mutation rate limit；upstream identity headers 永不可信。
+  Credential 為 versioned salted adaptive KDF（`pbkdf2-sha256$v1`，PBKDF2-HMAC-SHA256；
+  legacy unsalted hash 僅 LOCAL_ONLY migration aid）。
+- Single-instance deployment profile（`system/`＋`deploy/` operator artifacts，#418；
+  Browser ingress contract #422）：raw backend 永遠 `127.0.0.1` loopback-only；
+  Mode 0 `LOCAL_ONLY` SUPPORTED／CURRENT；Mode 1 `PRIVATE_INGRESS`
+ （private network／VPN／overlay → bounded host-local forwarder → loopback，
+  canonical browser origin＋allowlists＋forwarder＋cookie transport 四方對齊才 SUPPORTED，
+  否則 `NOT_READY`；`GET /api/v1/system/deployment` 為唯讀 operator-safe 投影）；
+  Mode 2 public HTTPS `REVERSE_PROXY_CANDIDATE`（永 CANDIDATE）；direct raw Internet bind
+  無 enum 值、validator 直接拒（REJECT）。SSH 無 listener 情境維持 `LOCAL_ONLY`＋owner auth。
+- Application auth 只做 admission：workspace／currentness／Proposal／Draft／Human Review／
+  explicit Publish／repair／Evidence authority 不變；MCP 維持 loopback read-only。
 
 ## 不變式
 
@@ -86,5 +109,6 @@ L5 Grounded answer（ephemeral，citation-validated）
 - Egress：#323；Ask observability：#310；Inspector／Locator：#292／#293
 - Quality／repair：#379／#383／#384；Ask→Proposal：#374；Wiki read：#373
 - Query transformation：#390／#401／#408（本文件不改其 default decision）
+- Owner security／credential：#417／#423；Deployment／ingress contract：#393／#418／#422
 
-Refs #410。
+Refs #410、#424。

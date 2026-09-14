@@ -21,10 +21,12 @@ find src/main/java/db/migration -name '*.java'  # Java chain（至少含 V3 file
 grep -h "^CREATE TABLE" src/main/resources/db/migration/*.sql | sort -u  # persistent tables 概覽
 ```
 
-盤點基線（本文件撰寫時；之後以實際 `main` 為準）：SQL V1～V2、V4～V33 加 Java V3，
-即 V1～V33 連續區間（含 Java V3；不得再引用「目前 V1～V29」舊區間）。
-V30～V33 為 Ask／repair ingress 與 retry 語意（analysis-chain FK nullable＋`source_kind`＋dedup；
-REJECTED 可重試）。新增 persistent application table 必須同步檢查
+盤點基線（最近 capability lineage，不作固定區間 truth；之後一律以實際 `main` 目錄為準，
+舊「V1～V29」／「V1～V33」區間引用皆已停用）：
+SQL chain 加 Java V3（filename backfill）；近期 lineage 為 V29 chunking policy version、
+V30～V33 Ask／repair ingress 與 retry 語意（analysis-chain FK nullable＋`source_kind`＋dedup；
+REJECTED 可重試）、V34 normalization policy version lineage。
+新增 persistent application table 必須同步檢查
 `testsupport.IsolatedIntegrationTest` reset hook 與 `DatabaseCleanupPolicy` completeness guard。
 
 ## Responsibility：三層
@@ -49,6 +51,12 @@ REJECTED 可重試）。新增 persistent application table 必須同步檢查
 - Graph：SQLite 只持 lifecycle／control proof；內容在 ArcadeDB derived backend；READY 需 SQLite lifecycle＋
   backend proof＋canonical fingerprint 三方驗證；canonical drift 在 readiness check 持久化降級。
 - Chunking：persisted chunk 帶 `chunk_policy_version`；policy 切換需 re-extraction（沿既有 FTS／embedding 路徑重建）。
+- Normalization（#412；與 chunking 正交，不得重用 `chunk_policy_version` 語意）：
+  versioned `NormalizationPolicy`（production default `normalization-policy-v2-selected-cf-strip`，
+  僅 strip U+00AD／U+200B／U+2060／非開頭 U+FEFF；rollback target `normalization-policy-v1-current`）；
+  `source_chunk`／`document_extracted_content.normalization_policy_version` 記 lineage
+ （historical rows 以 v1 保留 baseline 身份；upgrade／rollback 皆需 explicit re-extraction，
+  經既有 FTS／embedding／graph invalidation＋rebuild）。
 
 ## 明確不是 current schema 的歷史名詞
 
@@ -59,4 +67,4 @@ REJECTED 可重試）。新增 persistent application table 必須同步檢查
 SQLite 只持 `graph_projection_lifecycle` control plane。v0.1 歷史 DDL 只在 `legacy/12-*` 保留，
 不得視為最新 executable schema。
 
-Refs #410。相關：#306、#312、ADR 0008～0012、testing.md reset／cleanup 治理。
+Refs #410、#424。相關：#306、#312、#412、ADR 0008～0012、testing.md reset／cleanup 治理。

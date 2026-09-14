@@ -40,6 +40,16 @@
 - Graph projection readiness 查詢與 explicit rebuild／repair（經 canonical assembler＋SQLite lifecycle；`clear` 刻意不 public）。
 - Bounded Graph Retrieval／GraphRAG 經 admission 進入 Evidence；backend unavailable 維持 baseline。
 
+### Remote deployment 與 owner session（single-user／single-instance）
+
+- Single-user owner 登入／工作階段（預設 local-only 免登入；non-local 必開；
+  versioned salted adaptive credential；Host／Origin／throttling boundary）。
+- Mode 0 `LOCAL_ONLY`：SUPPORTED／CURRENT（loopback backend；SSH 無 listener 情境維持此 mode＋owner auth）。
+- Mode 1 `PRIVATE_INGRESS`：SUPPORTED（private network／VPN／overlay → bounded host-local
+  forwarder → loopback；canonical browser origin 四方對齊＋transport smoke 證據；#422）。
+- Mode 2 public HTTPS：`CANDIDATE`（contract 明確，不升格）；direct raw Internet bind：REJECT。
+- Application auth 只做 admission；domain／publish／repair／Evidence authority 不變；MCP 維持 loopback read-only。
+
 ### MCP（read-only adapter）
 
 - Loopback-only MCP Streamable HTTP adapter（`POST /api/mcp`）；五個唯讀 tools 經 shared application boundary 委派；無 write tools／remote bind／agent loop。
@@ -50,7 +60,6 @@
   `/graph/status`、`/ontology/*`、`/quality/*` 等——從未實作的 Historical／Conceptual design（見 `api.md`）。
 - BigQuery／Spanner cloud adapter critical path、Phase 3E／3F 線性路線——早期 Historical roadmap proposal，未執行。
 - `v1.8 Graph UI`、Agent／MCP write、claim ledger、metadata filtering 等——未批准 future candidate，需 evidence gate＋另開 Issue。
-- Remote Deployment security contract——由 #393 持有，不在本文件承諾範圍。
 
 ## Future candidate 規則
 
@@ -58,4 +67,4 @@ Evaluation 或 review 提及的 future candidate，不得因本文件存在而�
 Adoption 需另開 Issue 並回答 pain evidence、current 不足、authority／egress／migration／rollback 邊界、
 provider-free alternative、regression gate（見 `evaluations/README.md`）。
 
-Refs #410。相關：#306、#373、#374、#375、#379、#381、#383、#384、#393、#408。
+Refs #410、#424。相關：#306、#373、#374、#375、#379、#381、#383、#384、#393、#408、#417、#418、#422、#423。

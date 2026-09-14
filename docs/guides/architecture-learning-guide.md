@@ -48,8 +48,10 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
 - 單一 canonical metadata DB（預設 `data/knowledge.db`，可由 `KNOWLEDGE_DB_PATH` 覆寫）；
   每連線 `foreign_keys=ON、journal_mode=WAL、synchronous=NORMAL、busy_timeout>0`（預設 5000）。
 - Flyway 為唯一 schema authority：`src/main/resources/db/migration/`（SQL）＋
-  `src/main/java/db/migration/`（Java，至少含 V3）構成 V1～V33 chain（撰寫時盤點；之後以 `main` 為準，
-  不再引用舊「V1～V17」或「V1～V29」區間）。已發布 migration 不得修改；新 schema 只以新 `V{n}` 交付。
+  `src/main/java/db/migration/`（Java，至少含 V3）構成連續 chain（以 `main` 目錄為準；
+  本指南不硬編固定區間，舊「V1～V17」／「V1～V29」／「V1～V33」引用皆已停用）。
+  近期 lineage：chunking policy version、Ask／repair ingress 與 retry、normalization policy
+  version（見 `../architecture/schema.md`）。已發布 migration 不得修改；新 schema 只以新 `V{n}` 交付。
 - jOOQ `Tables`／`Records` 為 build-time generated（`-Pfull` 重生成；禁 DAO／POJO），留在 persistence 層，
   不得成為 domain／REST contract。Production runtime 只經 `DSLContext`＋repository 邊界；
   不新增 `JdbcClient`／`JdbcTemplate` inline SQL。
@@ -113,6 +115,11 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
 - Structure-preserving ingestion：typed blocks＋versioned `ChunkingPolicy`
  （預設 `chunk-policy-v1-current`；`source_chunk.chunk_policy_version`；policy 變更需 re-extraction）。
   Parsed structure 與 chunks 為 derived projection，永不成為 citation authority。
+- Versioned `NormalizationPolicy`（#412；與 chunking 正交）：production default
+  `normalization-policy-v2-selected-cf-strip`（僅 strip U+00AD／U+200B／U+2060／非開頭 U+FEFF；
+  ZWJ／ZWNJ／BiDi 永不 strip），rollback target `normalization-policy-v1-current`；
+  `source_chunk`／`document_extracted_content` 以 `normalization_policy_version` 記 lineage，
+  upgrade／rollback 皆需 explicit re-extraction（經既有 FTS／embedding／graph 重建路徑）。
 - Bounded extraction（#287）：input／output／metadata／structure 上限為 typed fail-closed contract，不得退化。
 
 ## 8. Hybrid fusion／reranking
@@ -192,7 +199,6 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   `../development/issue-408-query-transformation-release-decision.md`。
 
 ## 14. Proposal → Draft → Human Review → Publish
-
 - 唯一合法 durable knowledge ingress：Proposal（PENDING／ACCEPTED／REJECTED／EDITED／APPLIED；
   action CREATE／MERGE／LINK_ONLY／IGNORE／REVIEW）→ Draft → Human Review → explicit Publish。
 - Review 工作台按 backend `allowedTransitions` 驅動；核准不自動 publish；publish 為明確人類動作
@@ -205,7 +211,30 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
 - Vault Lint（#379）為 deterministic read-only 健康掃描（broken link／orphan／content validation／dangling provenance；
   typed finding＋deterministic ordering）；Quality 視圖（#383）為唯讀 triage（零 mutation，無 innerHTML）。
 
-## 15. Current／Historical／Proposed 文件治理
+## 15. Owner security 與 remote deployment trust boundary
+
+- Single-user owner boundary（#417；`web/security/`）：預設關閉（local-only localhost
+  trust）；開啟後 `/api/v1` 需 owner session。Session 為 in-memory opaque token
+ （HttpOnly cookie 給 Browser ambient credential＋in-memory Bearer 並存；rotation／logout／
+  restart 登出同一 authority）。`Host`／`Origin` allowlist＋cookie-mutation 需 allowlisted
+  Origin＋login／mutation rate limit；`Forwarded`／`X-Forwarded-*` 預設不可信。
+- Credential hardening（#423）：versioned salted adaptive KDF
+ （`pbkdf2-sha256$v1`，PBKDF2-HMAC-SHA256，per-verifier salt＋cost metadata；
+  以 `OwnerPasswordVerifierTool` 產生，plaintext 不進 CLI／history／Git）；
+  legacy unsalted hash 僅 LOCAL_ONLY migration aid，remote 拒收。
+- Deployment profile（#418；ingress contract #422；`system/`＋`deploy/`）：
+  raw backend 永遠 loopback-only；`LOCAL_ONLY` SUPPORTED／CURRENT；
+  `PRIVATE_INGRESS` 需 canonical browser origin＋allowlists＋forwarder＋cookie transport
+  四方對齊才 SUPPORTED（`GET /api/v1/system/deployment` 唯讀投影；否則 `NOT_READY`）；
+  public HTTPS 永為 CANDIDATE；direct raw bind REJECT。SSH 無 listener 情境用
+  `LOCAL_ONLY`＋owner auth。Auth 只做 admission，不碰 domain／publish／repair／Evidence authority；
+  MCP 維持 loopback read-only。
+- 相關：`../architecture/system-overview.md`（trust boundary 節）、`../architecture/api.md`、
+  `../architecture/capability-map.md`、`../architecture/use-cases.md`、
+  `../development/issue-418-remote-deployment-operations.md`（§12）、
+  `../development/issue-423-owner-credential-kdf.md`。
+
+## 16. Current／Historical／Proposed 文件治理
 
 - 三態只描述文件時間語意：`CURRENT`（latest `main` 可執行）／`HISTORICAL`（曾有效或早期設計）／
   `PROPOSED`／`CONDITIONAL`（未批准或條件式候選）。L1～L5 只描述 Issue 複雜度，不綁 model／effort。
@@ -215,7 +244,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   `GO` 不等於自動 adoption；`DEFER` 需 trigger 才重評。
 - 本指南若與 Flyway／Controllers／tests／ADR／Issues 衝突，以後者為準；發現衝突請開 Issue，不靜默改寫任一邊。
 
-## 16. 建議閱讀順序（對照傳統 Spring Boot）
+## 17. 建議閱讀順序（對照傳統 Spring Boot）
 
 1. `InboxController → ExtractedContentService → SourceChunkRepository`（先看 ingestion，不先看 prompt）。
 2. Analysis job（`DocumentAnalysisController`＋`processing/`）→ proposal／evidence contract。
@@ -224,4 +253,4 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
 5. Egress／MCP／Quality／repair：只看 adapter 邊界與 disclosure，不進 provider 實作。
 6. 需要決策理由時才進 `adr/`；需要驗證命令時進 `development/testing.md`。
 
-Refs #410。相關：#306、#405、#408、#393、ADR 0001～0014。
+Refs #410、#424。相關：#306、#405、#408、#393、#412、#417、#418、#422、#423、ADR 0001～0014。
