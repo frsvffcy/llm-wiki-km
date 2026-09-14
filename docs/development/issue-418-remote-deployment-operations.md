@@ -2,6 +2,9 @@
 
 - 狀態：implementation complete（待 PR Gate + Completion Audit）
 - 前置：#393 CONDITIONAL GO（evaluation）、#417 CLOSED（Security adoption）
+- 後續修正：#422 Browser ingress contract（`DEPLOYMENT_BROWSER_ORIGIN` 單一
+  truth＋Host/Origin/forwarder/cookie cross-validation＋真實 socket transport
+  smoke；本文件 §12 addendum，未改 topology 與 authority 劃分）
 - 性質：Operations adoption；**不新增 domain authority、不改 storage authority、不改
   `server.address` default、不新增 backup/tenant/multi-instance 能力或 endpoint**
 - Branch：`feature/418-remote-deployment-operations`
@@ -28,7 +31,11 @@ Mode 3  DIRECT_APP_INTERNET_BIND
 Mode 1 升格的依據是本 Issue 交付的全部 evidence（§4）：explicit profile、
 negative exposure tests、restart/redeploy re-validation、packaging artifacts、
 backup/restore smoke、operability runbook，以及前置 #417 owner boundary 已在
-latest `main`（`ea60ff1`）落地的事實。Mode 2 維持 CANDIDATE：proxy/TLS
+latest `main`（`ea60ff1`）落地的事實。#422 之後 Mode 1 的 SUPPORTED 另以
+validated Browser ingress contract 為條件（§12）：沒有 canonical browser
+origin＋allowlist＋forwarder＋cookie transport 四方對齊的 profile 回
+`NOT_READY`，不再只憑 owner auth＋non-wildcard forwarder 就宣稱
+Browser-ready。Mode 2 維持 CANDIDATE：proxy/TLS
 operations contract 已明確（§5、`deploy/reverse-proxy/`），但 public HTTPS
 support 需要未來的 adoption，不在本 Issue 宣稱。
 
@@ -59,7 +66,13 @@ Executable 位置：`system/DeploymentMode.java`、`system/DeploymentProperties.
 DEPLOYMENT_MODE=LOCAL_ONLY                    # default；三種 enum 值以外啟動即錯
 DEPLOYMENT_FORWARDER_BINDS=                   # default 空；Mode 1 必填，LOCAL_ONLY 必空
 DEPLOYMENT_FORWARDER_TARGET=127.0.0.1:8765    # 永遠 loopback backend + server.port
+DEPLOYMENT_BROWSER_ORIGIN=                    # default 空；Mode 1 必填 canonical
+                                              # scheme://host[:port]，LOCAL_ONLY 必空
 DEPLOYMENT_MAX_INSTANCES=1                    # 鎖 1；≠1 即 fail-fast
+OWNER_ALLOWED_HOSTS=localhost,127.0.0.1,<ingress-host>
+OWNER_ALLOWED_ORIGINS=http://localhost:8765,http://127.0.0.1:8765,<browser-origin>
+OWNER_COOKIE_SECURE=false                     # 僅 http-over-encrypted-tunnel；
+                                              # https ingress 必須 true（見 §12）
 ```
 
 Validator 固定順序：backend bind loopback → single-instance → forwarder target
@@ -68,11 +81,14 @@ loopback → per-mode scope + owner-auth prerequisite。所有拒絕訊息為固
 restart/redeploy 重新套用同一封閉邊界；`DeploymentReadinessService.current()`
 每次重驗，invalid 回 `NOT_READY` 而不拋出。
 
-- LOCAL_ONLY：forwarder scope 必空；owner auth 可開可關。
+- LOCAL_ONLY：forwarder scope 必空（browser origin 亦必空）；owner auth 可開可關。
 - PRIVATE_INGRESS：forwarder binds 非空、逐項拒 wildcard（`0.0.0.0`、`::`、
   `*` 等價形），且 `app.owner.auth-enabled=true` 必開（network admission ≠
   application authorization；upstream identity headers 仍永不可信，由 #417
-  filter 持有）。
+  filter 持有）。另需 #422 Browser ingress contract（§12）：canonical browser
+  origin 必填且非 loopback，owner Host/Origin allowlists 必須接受它，forwarder
+  scope 必須暴露它的 port（IP-literal 另需位址一致），cookie transport 必須與
+  scheme 相容，proxy-header trust 無 peer allowlist 即拒。
 - REVERSE_PROXY_CANDIDATE：topology 驗證同上（含 owner auth），但 readiness
   永遠回 `CANDIDATE`，絕不回 `SUPPORTED`。
 
@@ -225,3 +241,72 @@ Procedure：`deploy/backup/backup.sh` / `restore.sh`。
 - Tests + gates：`mvn test -Pfast`、`mvn test -Pintegration`、
   `mvn clean verify -Pfull`、`git diff --check`、PR Gate。
 - Merge 後 latest main Completion Audit，再 explicit close。
+
+## 12. Addendum：#422 validated Browser ingress contract
+
+#418 合併後盤點發現 supported-mode correctness gap：只憑
+`owner.auth-enabled=true`＋non-wildcard forwarder 就報 SUPPORTED，但官方範例
+複製後 remote Browser 仍可能 Host/Origin 被拒，或 `Secure` cookie 在實際
+transport 上根本建不起工作階段。#422 把 Mode 1 的 SUPPORTED 改成可驗證的
+contract；topology（§2）與 authority 劃分不變。
+
+### 12.1 單一 browser-origin truth
+
+`app.deployment.browser-origin`（`DEPLOYMENT_BROWSER_ORIGIN`）是唯一的外部
+Browser ingress 描述（`scheme://host[:port]`，`http`/`https` only；userinfo、
+path/query/fragment、wildcard、不支援 scheme 全 fail-fast）。Host validation
+與 Origin validation 共用 `HostOriginPolicy` 同一套 canonicalization，不再有
+三套各自 drift 的設定。`LOCAL_ONLY` 必須留空；純 SSH-tunnel 存取維持
+`LOCAL_ONLY`＋owner auth＋localhost Browser origin，不宣告 private ingress。
+
+### 12.2 Cookie / Browser transport 決策
+
+維持 HttpOnly cookie，不引進 localStorage Bearer：
+
+- **Profile B（preferred）private HTTPS ingress**：private network/VPN 上的 TLS
+  termination＋HttpOnly Secure cookie（`OWNER_COOKIE_SECURE=true`）。
+- **Profile A（bounded）private HTTP over encrypted tunnel**：加密由 private
+  network / VPN / overlay 本身提供（WireGuard/Tailscale/SSH），此時必須
+  `OWNER_COOKIE_SECURE=false`，且只在 `PRIVATE_INGRESS`＋http browser origin
+  的 explicit profile 內有效。`https`＋`Secure=false`（silent downgrade）與
+  remote `http`＋`Secure=true`（Browser 永不送出，fake-green）一律 fail-closed。
+
+Threat model：plain HTTP 只在受信任的加密 overlay 內合法；public／不可信 LAN
+上的 plain HTTP 永遠不是 supported transport。密碼與 session cookie 不得經
+未受保護的傳輸暴露。
+
+### 12.3 Validator / readiness cross-validation
+
+固定順序：backend loopback → single-instance → forwarder target loopback →
+forwarder scope 語法（逐項 `host:port`、拒 wildcard）→ browser origin 語法 →
+非 loopback → owner auth → proxy trust 需 peer allowlist → allowlists 接受
+browser ingress → forwarder 暴露 ingress port（IP-literal 另需位址一致；DNS
+名稱的解析是 operator 責任，runbook 以 `getent hosts` 確認，validator 保持
+deterministic 離線安全）→ cookie transport 與 scheme 相容。任一不合即 startup
+fail-fast／readiness `NOT_READY`，固定 safe 訊息不回顯位址／secret。
+
+`REVERSE_PROXY_CANDIDATE` 維持永遠 `CANDIDATE`；已宣告的 browser origin 同樣
+被 cross-validation，避免 candidate 文件 drift。
+
+### 12.4 Transport evidence
+
+`system.DeploymentBrowserTransportIntegrationTest`：真實 TCP forwarder
+socket → 真實 loopback backend → production owner filter chain，raw-socket
+HTTP client 用真正的 remote `Host`/`Origin` 走完 login → session cookie →
+authenticated `GET /api/v1/system/deployment`（`SUPPORTED`），外加 wrong
+Host／wrong Origin／wrong password／無 session／cookie-mutation 無 Origin 全
+fail-closed，以及重建後仍成立。CI 內 forwarder socket 綁 loopback 是已揭露的
+stand-in（免 network namespace），HTTP ingress 值一律用真正 remote 值；
+socket 綁定位址正確性由 validator unit＋negative exposure test 持有。
+`DeploymentPrivateIngressIntegrationTest` 同步改用 remote Host/Origin，不再以
+`localhost` 冒充 remote。
+
+### 12.5 Operator 操作
+
+照 `deploy/systemd/owner.env.example` 複製 Profile A 或 B 的**全部**行（含
+`DEPLOYMENT_BROWSER_ORIGIN`、`OWNER_ALLOWED_HOSTS`、
+`OWNER_ALLOWED_ORIGINS`、`OWNER_COOKIE_SECURE`），缺任一即 `NOT_READY` 而非
+壞掉的 SUPPORTED。DNS 情境先確認名稱解析到 forwarder 位址且 port 對齊。
+SSH 無 listener 情境用 `LOCAL_ONLY`＋owner auth＋本機 forward（範例見該檔案
+尾段）。`Forwarded`／`X-Forwarded-*` 預設永不可信；需要 proxy headers 時必須
+同時宣告 `OWNER_TRUSTED_PROXIES`＋`OWNER_TRUST_PROXY_HEADERS=true`。

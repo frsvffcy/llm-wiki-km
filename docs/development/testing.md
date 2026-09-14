@@ -1660,15 +1660,28 @@ executable ownership，不另立相異規則）。
   loopback、wildcard forwarder、非 loopback target、多實例、local-only 帶
   forwarder scope、私有 ingress 無 scope 或無 owner auth 全 fail-fast；驗證可
   重複執行（restart 語意）。
+- `system.BrowserOriginPolicyTest`（unit，#422）：canonical browser origin 語法
+  authority——`http`/`https`＋explicit effective port＋lowercase canonical；
+  userinfo／path／query／fragment／不支援 scheme／wildcard／空白全 fail-fast；
+  loopback 與 IP-literal 判定供 validator 的 remote／DNS 分流。
+- `system.DeploymentProfileValidatorTest`（unit，#422 擴充）：PRIVATE_INGRESS 需
+  canonical browser origin（缺即 fail）＋非 loopback＋`host:port` forwarder
+  scope＋owner auth＋proxy trust 需 peer allowlist＋allowlists 接受 ingress＋
+  forwarder 暴露 ingress port（IP-literal 另需位址一致）＋cookie transport 與
+  scheme 相容（https 需 Secure／http 需 explicit private-tunnel non-Secure）；
+  LOCAL_ONLY 帶 browser origin 即 fail；REVERSE_PROXY 宣告的 origin 同驗；
+  十字覆蓋 wrong／malformed 全 fail-closed 且訊息不回顯值。
 - `system.PersistentStateClassifierTest`、`system.BackupConsistencyPolicyTest`
  （unit）：authoritative（vault／archive／knowledge.db／workspace-state／
   deployment-config）vs rebuildable（FTS5／vector／graph／cache／logs／temp）；
   未知 kind fail-closed；DB-only、檔案-only、derived-only、含 secret、未做 WAL
   checkpoint 全判 incomplete；partial／corrupt restore 全 fail-closed；理由維持
   operator-safe。
-- `system.DeploymentReadinessServiceTest`（unit）：LOCAL_ONLY 與 PRIVATE_INGRESS
-  回 SUPPORTED、REVERSE_PROXY_CANDIDATE 永遠 CANDIDATE、invalid 回 NOT_READY 而
-  不拋出；projection 無 secret／path／RID／provider material。
+- `system.DeploymentReadinessServiceTest`（unit）：LOCAL_ONLY 與 validated
+  PRIVATE_INGRESS 回 SUPPORTED、REVERSE_PROXY_CANDIDATE 永遠 CANDIDATE、缺
+  browser origin／cookie mismatch／localhost-only allowlist 的 PRIVATE_INGRESS
+  回 NOT_READY 而不拋出（#422 fail-safe）；projection 無 secret／path／RID／
+  provider material。
 - `system.DeploymentOperationsGuardTest`（unit，source-level）：`deploy/` 無
   wildcard bind、forwarder 範例皆指 loopback backend、container 鎖 Java 21 +
   non-root + 單一實例、無 backup package/endpoint、無 PostgreSQL／Kubernetes／
@@ -1679,7 +1692,16 @@ executable ownership，不另立相異規則）。
 - `system.DeploymentReadinessIntegrationTest`（integration）：default 配置回
   LOCAL_ONLY + SUPPORTED + loopback bind。
 - `system.DeploymentPrivateIngressIntegrationTest`（integration）：Mode 1 配置 +
-  owner boundary 下 deployment surface 回 SUPPORTED，未登入讀取 401 fail-closed。
+  owner boundary 下 deployment surface 回 SUPPORTED，未登入讀取 401 fail-closed；
+  線上值一律用真正 remote Host／Origin（#422，不再以 localhost 冒充），另含
+  wrong Host／wrong Origin fail-closed。
+- `system.DeploymentBrowserTransportIntegrationTest`（integration，#422 §E）：
+  真實 TCP forwarder socket＋raw-socket HTTP client 走 production filter chain，
+  用真正 remote Host／Origin 完成 login → session cookie（http profile 斷言
+  HttpOnly＋SameSite=Lax＋無 Secure）→ authenticated deployment GET
+  （SUPPORTED）＋重建後仍成立；wrong Host／Origin／password／無 session／
+  cookie-mutation 無 Origin 全 fail-closed；backend 綁定位址維持 loopback。
+  MockMvc-only 不得作為 SUPPORTED 的唯一 transport evidence。
 - `system.DeploymentNegativeExposureIntegrationTest`（integration）：
   loopback-bound listener 即 loopback-only 的 socket 語意，wildcard backend 與
   wildcard forwarder 被拒且拒絕可重複（restart 仍成立）。
@@ -1690,8 +1712,8 @@ executable ownership，不另立相異規則）。
 受影響測試與完整 gate：
 
 ```bash
-mvn -Dtest='DeploymentPropertiesTest,DeploymentProfileValidatorTest,PersistentStateClassifierTest,BackupConsistencyPolicyTest,DeploymentReadinessServiceTest,DeploymentOperationsGuardTest,DeploymentApiContractTest' test -Pfast
-mvn -Dtest='DeploymentReadinessIntegrationTest,DeploymentPrivateIngressIntegrationTest,DeploymentNegativeExposureIntegrationTest,BackupRestoreSmokeIntegrationTest' test -Pintegration
+mvn -Dtest='DeploymentPropertiesTest,BrowserOriginPolicyTest,DeploymentProfileValidatorTest,PersistentStateClassifierTest,BackupConsistencyPolicyTest,DeploymentReadinessServiceTest,DeploymentOperationsGuardTest,DeploymentApiContractTest' test -Pfast
+mvn -Dtest='DeploymentReadinessIntegrationTest,DeploymentPrivateIngressIntegrationTest,DeploymentBrowserTransportIntegrationTest,DeploymentNegativeExposureIntegrationTest,BackupRestoreSmokeIntegrationTest' test -Pintegration
 mvn test -Pfast
 mvn test -Pintegration
 mvn clean verify -Pfull

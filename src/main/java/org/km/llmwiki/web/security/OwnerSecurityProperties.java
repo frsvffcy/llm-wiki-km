@@ -89,6 +89,12 @@ public record OwnerSecurityProperties(
             throw new IllegalStateException(
                     "Owner authentication is enabled but no valid 64-hex password hash is configured");
         }
+        // #422 §B: proxy locator headers are never trusted without an explicit peer
+        // allowlist, so a remote origin cannot be forged through Forwarded material.
+        if (trustProxyHeaders && trustedProxies.isEmpty()) {
+            throw new IllegalStateException(
+                    "Owner proxy-header trust requires explicit trusted proxies");
+        }
         if (sessionAbsoluteTimeout.isZero() || sessionAbsoluteTimeout.isNegative()
                 || sessionIdleTimeout.isZero() || sessionIdleTimeout.isNegative()) {
             throw new IllegalStateException("Owner session timeouts must be positive");

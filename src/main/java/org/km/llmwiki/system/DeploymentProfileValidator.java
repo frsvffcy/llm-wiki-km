@@ -1,22 +1,41 @@
 package org.km.llmwiki.system;
 
+import org.km.llmwiki.system.BrowserOriginPolicy.BrowserOrigin;
+import org.km.llmwiki.web.security.HostOriginPolicy;
 import org.km.llmwiki.web.security.OwnerSecurityProperties;
 
 /**
- * Fail-fast validator for the explicit deployment profile (#418 §A/B).
+ * Fail-fast validator for the explicit deployment profile (#418 §A/B, browser
+ * ingress contract #422 §B/C/D).
  *
  * <p>Fixed enforcement order: raw backend bind stays loopback-only, then
  * single-instance, then forwarder target stays loopback, then per-mode
- * forwarder scope and owner-authentication prerequisite. Any violation throws
- * {@link IllegalStateException} with a fixed operator-safe message (no
- * addresses, paths, or secrets echoed) so startup and redeploy fail closed and
- * a restart can never silently widen exposure.
+ * forwarder scope, browser-origin authority, and owner-authentication
+ * prerequisite, then the cross-validation that makes a {@code SUPPORTED} claim
+ * mean a Browser owner session can actually work: the owner Host/Origin
+ * allowlists must accept the canonical browser ingress, the forwarder scope
+ * must expose its port (and its address when the ingress host is an IP
+ * literal), the cookie transport must match the ingress scheme, and proxy
+ * locator headers must never be trusted without an explicit peer allowlist.
+ * Any violation throws {@link IllegalStateException} with a fixed
+ * operator-safe message (no addresses, paths, or secrets echoed) so startup
+ * and redeploy fail closed and a restart can never silently widen exposure.
  *
  * <p>Network admission through a private network / VPN / overlay is never
  * treated as application authorization: every non-local mode additionally
  * requires the application-owned owner boundary (#417) to be enabled. Upstream
  * identity headers still never authenticate; that invariant stays with the
  * owner filter.
+ *
+ * <p>Cookie transport decision (#422 §C): {@code https} browser ingress
+ * requires {@code cookie-secure=true} (HttpOnly Secure cookie over private
+ * TLS); {@code http} browser ingress requires {@code cookie-secure=false} and
+ * is only valid as an explicit bounded {@code PRIVATE_INGRESS} profile whose
+ * transport encryption comes from the private network / VPN / overlay itself
+ * (for example WireGuard, Tailscale, or SSH). Plain {@code http} over a public
+ * or untrusted LAN is never a supported transport, and a {@code Secure} cookie
+ * over a remote {@code http} ingress would never be sent by the Browser, so
+ * that combination fails closed instead of reporting a fake-green session.
  */
 public class DeploymentProfileValidator {
 
@@ -95,6 +114,10 @@ public class DeploymentProfileValidator {
             throw new IllegalStateException(
                     "Deployment profile is invalid: local-only mode declares no forwarder scope");
         }
+        if (!deployment.browserOrigin().isEmpty()) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: local-only mode declares no browser origin");
+        }
     }
 
     private void validatePrivateIngress() {
@@ -102,21 +125,101 @@ public class DeploymentProfileValidator {
             throw new IllegalStateException(
                     "Deployment profile is invalid: private ingress requires explicit forwarder scope");
         }
-        validateForwarderScope();
+        if (deployment.browserOrigin().isEmpty()) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: private ingress requires an explicit browser origin");
+        }
+        var binds = validateForwarderScope();
+        BrowserOrigin browser = parseBrowserOrigin();
+        if (BrowserOriginPolicy.isLoopbackHost(browser.host())) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: private ingress requires a non-loopback browser origin");
+        }
         requireOwnerAuth();
+        requireExplicitProxyTrust();
+        requireAllowlistAcceptance(browser);
+        requireForwarderCompatibility(binds, browser);
+        requireCookieTransport(browser);
     }
 
     private void validateReverseProxyCandidate() {
-        validateForwarderScope();
+        var binds = validateForwarderScope();
         requireOwnerAuth();
+        requireExplicitProxyTrust();
+        // The candidate direction keeps its topology contract but never reports
+        // SUPPORTED; a declared browser origin is cross-validated when present so
+        // candidate documentation cannot drift from the same ingress truth.
+        if (!deployment.browserOrigin().isEmpty()) {
+            BrowserOrigin browser = parseBrowserOrigin();
+            requireAllowlistAcceptance(browser);
+            requireForwarderCompatibility(binds, browser);
+            requireCookieTransport(browser);
+        }
     }
 
-    private void validateForwarderScope() {
+    private record ForwarderBind(String host, int port) {
+    }
+
+    private java.util.List<ForwarderBind> validateForwarderScope() {
+        java.util.List<ForwarderBind> parsed = new java.util.ArrayList<>();
         for (String bind : deployment.forwarderBinds()) {
             if (isWildcardBind(bind)) {
                 throw new IllegalStateException(
                         "Deployment profile is invalid: forwarder scope must not bind all interfaces");
             }
+            parsed.add(parseForwarderBind(bind));
+        }
+        return java.util.List.copyOf(parsed);
+    }
+
+    static ForwarderBind parseForwarderBind(String bind) {
+        String value = bind == null ? "" : bind.strip();
+        int separator = value.lastIndexOf(':');
+        if (separator <= 0 || separator == value.length() - 1) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: forwarder scope must declare an explicit host and port");
+        }
+        String host = value.substring(0, separator).strip();
+        String portText = value.substring(separator + 1).strip();
+        if (host.isEmpty() || host.indexOf(',') >= 0 || host.indexOf('@') >= 0
+                || host.indexOf(' ') >= 0 || host.indexOf('/') >= 0
+                || host.indexOf('?') >= 0 || host.indexOf('#') >= 0) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: forwarder scope must declare an explicit host and port");
+        }
+        if (host.startsWith("[") != host.endsWith("]")) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: forwarder scope must declare an explicit host and port");
+        }
+        String bareHost = host.startsWith("[") && host.endsWith("]")
+                ? host.substring(1, host.length() - 1).strip()
+                : host;
+        if (bareHost.isEmpty() || (!host.startsWith("[") && bareHost.indexOf(':') >= 0)) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: forwarder scope must declare an explicit host and port");
+        }
+        int port;
+        try {
+            if (!portText.chars().allMatch(Character::isDigit)) {
+                throw new NumberFormatException("non-numeric port");
+            }
+            port = Integer.parseInt(portText);
+        } catch (NumberFormatException malformed) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: forwarder scope must declare an explicit host and port");
+        }
+        if (port < 1 || port > 65535) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: forwarder scope must declare an explicit host and port");
+        }
+        return new ForwarderBind(bareHost.toLowerCase(java.util.Locale.ROOT), port);
+    }
+
+    private BrowserOrigin parseBrowserOrigin() {
+        try {
+            return BrowserOriginPolicy.parse(deployment.browserOrigin());
+        } catch (IllegalArgumentException malformed) {
+            throw new IllegalStateException(malformed.getMessage());
         }
     }
 
@@ -124,6 +227,58 @@ public class DeploymentProfileValidator {
         if (owner == null || !owner.authEnabled()) {
             throw new IllegalStateException(
                     "Deployment profile is invalid: non-local ingress requires owner authentication");
+        }
+    }
+
+    private void requireExplicitProxyTrust() {
+        if (owner != null && owner.trustProxyHeaders() && owner.trustedProxies().isEmpty()) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: proxy-header trust requires explicit trusted proxies");
+        }
+    }
+
+    private void requireAllowlistAcceptance(BrowserOrigin browser) {
+        if (owner == null
+                || !HostOriginPolicy.validHost(browser.host(), owner.allowedHosts())
+                || !HostOriginPolicy.validOrigin(browser.canonical(), owner.allowedOrigins())) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: the owner allowlists must accept the browser ingress");
+        }
+    }
+
+    private void requireForwarderCompatibility(
+            java.util.List<ForwarderBind> binds, BrowserOrigin browser) {
+        boolean portExposed = binds.stream().anyMatch(bind -> bind.port() == browser.port());
+        if (!portExposed) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: forwarder scope must expose the browser ingress port");
+        }
+        // IP-literal ingress must name its listener exactly; DNS names stay the
+        // operator's resolution responsibility (documented in the runbook) so the
+        // validator stays deterministic and offline-safe.
+        if (BrowserOriginPolicy.isIpLiteral(browser.host())) {
+            boolean addressExposed = binds.stream().anyMatch(bind ->
+                    bind.port() == browser.port() && bind.host().equalsIgnoreCase(browser.host()));
+            if (!addressExposed) {
+                throw new IllegalStateException(
+                        "Deployment profile is invalid: forwarder scope must expose the browser ingress address");
+            }
+        }
+    }
+
+    private void requireCookieTransport(BrowserOrigin browser) {
+        if (owner == null) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: non-local ingress requires owner authentication");
+        }
+        boolean secure = owner.cookieSecure();
+        if ("https".equals(browser.scheme()) && !secure) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: secure browser ingress requires a secure cookie transport");
+        }
+        if ("http".equals(browser.scheme()) && secure) {
+            throw new IllegalStateException(
+                    "Deployment profile is invalid: plain browser ingress requires an explicit private-tunnel cookie transport");
         }
     }
 
