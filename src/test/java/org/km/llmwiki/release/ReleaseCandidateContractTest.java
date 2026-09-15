@@ -181,10 +181,22 @@ class ReleaseCandidateContractTest {
         assertThat(smoke).contains("release_identity_jar_manifest_version");
         assertThat(smoke).contains("release_identity_jar_app_version");
         assertThat(smoke).contains("version identity PASS");
+        // Refs #458: exact Maven-derived resolution, never an mtime pick.
+        assertThat(smoke).doesNotContain("ls -t");
+        assertThat(smoke).doesNotContain("head -1");
+        assertThat(smoke).contains("help:evaluate -Dexpression=project.artifactId");
+        assertThat(smoke).contains("help:evaluate -Dexpression=project.version");
+        assertThat(smoke).contains("release_identity_expected_basename");
+        assertThat(smoke).contains("release_identity_resolve_candidate_jar");
+        assertThat(smoke).contains("release_identity_verify_jar_internal_version");
+        assertThat(smoke).contains("release_identity_verify_candidate_sidecar_if_present");
     }
 
     @Test
     void backupRestoreSmokeReusesTheAuthoritativeContractOnFreshRoot() throws Exception {
+        // NOTE: this script keeps one `head -1` for the just-created backup
+        // artifact under a fresh mktemp dir (not candidate selection); the
+        // candidate JAR itself must never resolve by mtime recency.
         String smoke = read(Path.of("scripts/candidate-backup-restore-smoke.sh"));
         assertThat(smoke).contains("deploy/backup/backup.sh");
         assertThat(smoke).contains("deploy/backup/restore.sh");
@@ -195,6 +207,19 @@ class ReleaseCandidateContractTest {
         assertThat(smoke).contains("/api/v1/retrieval/inspect");
         // Secrets never enter the ordinary backup; corrupt/partial fail closed.
         assertThat(smoke).contains("secrets=excluded");
+        // Refs #458: the candidate JAR itself never resolves by mtime
+        // recency (the one remaining `head -1` below selects the
+        // just-created backup artifact under a fresh mktemp dir, never the
+        // release candidate).
+        assertThat(smoke).doesNotContain("ls -t target/release-candidate");
+        assertThat(smoke).doesNotContain("ls -t");
+        assertThat(smoke).contains("release-identity.sh");
+        assertThat(smoke).contains("help:evaluate -Dexpression=project.artifactId");
+        assertThat(smoke).contains("help:evaluate -Dexpression=project.version");
+        assertThat(smoke).contains("release_identity_expected_basename");
+        assertThat(smoke).contains("release_identity_resolve_candidate_jar");
+        assertThat(smoke).contains("release_identity_verify_jar_internal_version");
+        assertThat(smoke).contains("release_identity_verify_candidate_sidecar_if_present");
     }
 
     @Test
@@ -311,22 +336,53 @@ class ReleaseCandidateContractTest {
         assertThat(smoke).contains("empty-state");
         assertThat(smoke).contains("target/release-candidate/");
         assertThat(smoke).contains("BOOT-INF/classes/static/");
-        // Refs #456 R3: canonicalize before cd; never assemble via $OLDPWD.
-        assertThat(smoke).contains("release_identity_canonicalize");
+        // Refs #456 R3 (via #458 resolver): exact resolution canonicalizes
+        // before cd; never assemble via $OLDPWD.
+        assertThat(smoke).contains("release_identity_resolve_candidate_jar");
         assertThat(smoke).contains("START_DIR");
         assertThat(smoke).doesNotContain("$OLDPWD/$JAR");
+        // Refs #458: exact Maven-derived resolution, never an mtime pick.
+        assertThat(smoke).doesNotContain("ls -t");
+        assertThat(smoke).doesNotContain("head -1");
+        assertThat(smoke).contains("help:evaluate -Dexpression=project.artifactId");
+        assertThat(smoke).contains("help:evaluate -Dexpression=project.version");
+        assertThat(smoke).contains("release_identity_expected_basename");
+        assertThat(smoke).contains("release_identity_resolve_candidate_jar");
+        assertThat(smoke).contains("release_identity_verify_jar_internal_version");
+        assertThat(smoke).contains("release_identity_verify_candidate_sidecar_if_present");
+    }
+
+    @Test
+    void candidateSmokeGatesShareTheExactResolverWithoutMtime() throws Exception {
+        // Refs #458: Browser packaged smoke, clean-install smoke and
+        // backup/restore smoke resolve the same Maven-derived exact filename
+        // through the single library function — no gate keeps its own
+        // `ls -t | head -1` selection.
+        for (String script : List.of(
+                "scripts/browser-first-mile-smoke.sh",
+                "scripts/clean-install-smoke.sh",
+                "scripts/candidate-backup-restore-smoke.sh")) {
+            String smoke = read(Path.of(script));
+            assertThat(smoke).as("%s must not select by mtime", script).doesNotContain("ls -t");
+            assertThat(smoke).as("%s must reuse the exact resolver", script)
+                    .contains("release_identity_resolve_candidate_jar");
+            assertThat(smoke).as("%s must revalidate the sidecar contract", script)
+                    .contains("release_identity_verify_candidate_sidecar_if_present");
+        }
     }
 
     @Test
     void releaseIdentityHelpersAreSingleSourcedAndTested() throws Exception {
         // The fail-closed helpers live in exactly one library sourced by all
-        // four consumers; behavior is proven by the hermetic shell suite.
+        // five consumers; behavior is proven by the hermetic shell suite.
         Path library = Path.of("scripts/release-identity.sh");
         assertThat(library).isRegularFile();
         String helpers = Files.readString(library);
         for (String fn : List.of(
                 "release_identity_canonicalize",
                 "release_identity_expected_basename",
+                "release_identity_resolve_candidate_jar",
+                "release_identity_verify_candidate_sidecar_if_present",
                 "release_identity_verify_jar_internal_version",
                 "release_identity_verify_sidecar",
                 "release_identity_cross_check_source_commit",
@@ -337,7 +393,8 @@ class ReleaseCandidateContractTest {
                 "scripts/run-product-acceptance.sh",
                 "scripts/browser-first-mile-smoke.sh",
                 "scripts/check-release-readiness.sh",
-                "scripts/clean-install-smoke.sh")) {
+                "scripts/clean-install-smoke.sh",
+                "scripts/candidate-backup-restore-smoke.sh")) {
             assertThat(read(Path.of(consumer)))
                     .as("%s must source the single identity library", consumer)
                     .contains("release-identity.sh");

@@ -1,10 +1,11 @@
 #!/bin/sh
-# Release identity helpers (Refs #456 R2-R4).
+# Release identity helpers (Refs #456 R2-R4; #458 exact-resolver convergence).
 #
 # Single implementation for candidate/manifest/report identity checks shared
 # by run-product-acceptance.sh, browser-first-mile-smoke.sh,
-# check-release-readiness.sh and clean-install-smoke.sh, so the
-# fail-closed contract cannot drift between scripts.
+# check-release-readiness.sh, clean-install-smoke.sh and
+# candidate-backup-restore-smoke.sh, so the fail-closed contract cannot
+# drift between scripts.
 #
 # This file is a library: it sets no options, changes no directory, and
 # performs no network or build side effects. Every function prints its
@@ -211,6 +212,74 @@ release_identity_cross_check_source_commit() {
     echo "[identity] FAIL: report sourceCommit $_report_commit != manifest $2 ($1)" >&2
     return 1
   fi
+}
+
+# Resolve the exact release-candidate JAR deterministically (Refs #458).
+#
+# Args: explicitJarOrEmpty expectedFilename [candidateDir]
+# Prints the canonical absolute path on stdout. Fails closed when:
+#   - the explicit input is missing / not a regular file / wrong filename;
+#   - the default exact file candidateDir/expectedFilename is missing.
+# Never falls back to mtime globbing (`ls -t | head -1`): a stale or
+# wrong-version file with a newer mtime is never selected, and multiple
+# coexisting candidates do not resolve by recency. Callers keep Maven as
+# the version truth: expectedFilename is "<artifactId>-<version>.jar"
+# derived via release_identity_expected_basename. MUST be called before
+# the caller changes directory so relative inputs anchor to the caller's
+# cwd (same contract as release_identity_canonicalize).
+release_identity_resolve_candidate_jar() {
+  _explicit="${1:-}"
+  _expected="${2:-}"
+  _dir="${3:-target/release-candidate}"
+  if [ -z "$_expected" ]; then
+    echo "[identity] FAIL: expected filename is required" >&2
+    return 1
+  fi
+  if [ -n "$_explicit" ]; then
+    _canon="$(release_identity_canonicalize "$_explicit")" || return 1
+    release_identity_assert_regular_file "$_canon" "explicit --jar candidate" || return 1
+    release_identity_assert_exact_filename "$_canon" "$_expected" || return 1
+    printf '%s\n' "$_canon"
+    return 0
+  fi
+  _exact="$_dir/$_expected"
+  if [ ! -f "$_exact" ]; then
+    echo "[identity] FAIL: exact candidate $_exact missing; refusing to guess." >&2
+    echo "[identity] present files (if any):" >&2
+    ls "$_dir"/llm-wiki-km-*.jar "$_dir"/*.jar 2>/dev/null >&2 || true
+    echo "[identity] build the candidate first (or pass --jar with the exact file)." >&2
+    return 1
+  fi
+  _canon="$(release_identity_canonicalize "$_exact")" || return 1
+  release_identity_assert_exact_filename "$_canon" "$_expected" || return 1
+  printf '%s\n' "$_canon"
+}
+
+# Verify the sidecar manifest for the exact candidate when present
+# (Refs #458, challenge cases 3/4).
+#
+# Args: candidateDir expectedBasename expectedFilename expectedVersion candidateJar
+# Returns 0 when the sidecar is absent (warn-only plain-package flow: JAR
+# selection stays exact but provenance is unverified, and
+# check-release-readiness.sh still refuses READY without it) or when the
+# sidecar describes this exact JAR; returns 1 on any mismatch so the
+# caller never enters the smoke body with a swapped/stale artifact.
+release_identity_verify_candidate_sidecar_if_present() {
+  _dir="${1:-}"
+  _basename="${2:-}"
+  _filename="${3:-}"
+  _version="${4:-}"
+  _jar="${5:-}"
+  if [ -z "$_dir" ] || [ -z "$_basename" ] || [ -z "$_filename" ] || [ -z "$_version" ] || [ -z "$_jar" ]; then
+    echo "[identity] FAIL: candidate dir/basename/filename/version/jar are required" >&2
+    return 1
+  fi
+  if [ ! -f "$_dir/$_basename-manifest.json" ]; then
+    echo "[identity] WARN: no release sidecar manifest at $_dir/$_basename-manifest.json; provenance sidecar not verified here (readiness still refuses READY without it)." >&2
+    return 0
+  fi
+  _manifest="$(release_identity_canonicalize "$_dir/$_basename-manifest.json")" || return 1
+  release_identity_verify_sidecar "$_manifest" "$_version" "$_filename" "$_jar" || return 1
 }
 
 # Require exactly one file matching dir/pattern (no head-1 guessing between

@@ -1887,15 +1887,23 @@ R1–R4 把版本、artifact、report 與 manifest 收斂為 fail-closed 單一�
   `scripts/tests/test-release-identity.sh`（無 Maven／無網路／temp fixture），覆蓋
   mtime 無關的 exact 解析、相對／絕對路徑一致且不依賴 `$OLDPWD`、stale 內部版本、
   sidecar 過期交換、report/manifest commit 交叉比對、單一 manifest/bundle
-  歧義 fail-closed（challenge cases 2–7）。
+  歧義 fail-closed（challenge cases 2–7），以及 #458 的 exact resolver
+ （stale mtime 下仍選 Maven candidate、explicit 重驗、sidecar 缺席 warn-only／
+  存在必驗、SHA 交換 fail-closed）。
 - `scripts/clean-install-smoke.sh` 在 booted candidate 上證明 runtime ==
   manifest `Implementation-Version` == `app.version` == Maven（R1 packaged
   證明；challenge case 1 的執行期側）。
 - `scripts/run-product-acceptance.sh`（R2）、`scripts/browser-first-mile-smoke.sh`
   （R3）、`scripts/check-release-readiness.sh`（R4）的結構契約（無 `ls -t` 挑選、
   canonicalize 呼叫點、sourceCommit 比對點、單一 manifest 要求）由
-  `ReleaseCandidateContractTest` 靜態鎖定；共用實作唯一來源是
-  `scripts/release-identity.sh`（四個 consumer 皆 source 它，由
+  `ReleaseCandidateContractTest` 靜態鎖定；#458 起 Browser packaged smoke、
+  clean-install smoke、backup/restore smoke 皆重用
+  `release_identity_resolve_candidate_jar`＋
+  `release_identity_verify_candidate_sidecar_if_present` 的同一 exact artifact
+  identity contract（無 `ls -t`／`head -1`、Maven 推導檔名、啟動前驗內部雙版本
+  與 sidecar；無 sidecar 為明確較弱模式，readiness 仍拒絕 READY），由
+  `candidateSmokeGatesShareTheExactResolverWithoutMtime` 鎖定；共用實作唯一來源是
+  `scripts/release-identity.sh`（五個 consumer 皆 source 它，由
   `releaseIdentityHelpersAreSingleSourcedAndTested` 鎖定）。
 - 本 Issue 不重發／重建 `v0.1.1`，不觸碰任何既有 tag／Release／assets。
 

@@ -17,8 +17,13 @@
 # Usage:
 #   scripts/browser-first-mile-smoke.sh [--jar <path>]
 #
-# Default JAR is the newest target/release-candidate/*.jar (Maven version truth;
-# no second hardcoded version). Exits 0 on PASS, 1 on FAIL.
+# Candidate identity (Refs #456 R2-R3; #458): the exact filename is derived
+# from the Maven authority (project.artifactId + project.version) and
+# resolved via release_identity_resolve_candidate_jar — never by mtime
+# recency. An explicit --jar must name that same file; its
+# JAR-internal versions are verified and, when the release sidecar
+# manifest exists, the sidecar must describe this exact JAR before the
+# smoke body runs. Exits 0 on PASS, 1 on FAIL.
 #
 # Path handling (Refs #456 R3): the input is canonicalized to an absolute path
 # BEFORE any directory change, so relative and absolute --jar inputs resolve
@@ -30,7 +35,7 @@ set -eu
 JAR=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --jar) JAR="$2"; shift 2 ;;
+    --jar) JAR="${2:-}"; [ -n "$JAR" ] || { echo "[browser-smoke] FAIL: --jar requires a path" >&2; exit 2; }; shift 2 ;;
     *) echo "[browser-smoke] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -38,18 +43,28 @@ done
 fail() { echo "[browser-smoke] FAIL: $1" >&2; exit 1; }
 pass() { echo "[browser-smoke] PASS: $1"; }
 
-if [ -z "$JAR" ]; then
-  JAR="$(ls -t target/release-candidate/*.jar 2>/dev/null | head -1 || true)"
-fi
-[ -n "${JAR:-}" ] && [ -f "$JAR" ] || fail "candidate JAR missing; run scripts/build-release-candidate.sh first"
-# Canonicalize before cd: absolute inputs stay absolute, relative inputs anchor
-# to the caller's cwd now — $OLDPWD is never consulted (Refs #456 R3).
-JAR="$(release_identity_canonicalize "$JAR")" || fail "cannot resolve candidate JAR path: ${JAR:-<empty>}"
-[ -f "$JAR" ] || fail "candidate JAR missing; run scripts/build-release-candidate.sh first"
+# Version truth is Maven only (no second hardcoded version, no mtime pick).
+ARTIFACT_ID="$(mvn --batch-mode -q help:evaluate -Dexpression=project.artifactId -DforceStdout 2>/dev/null || true)"
+PROJECT_VERSION="$(mvn --batch-mode -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || true)"
+[ -n "${ARTIFACT_ID:-}" ] || fail "cannot derive Maven artifactId"
+[ -n "${PROJECT_VERSION:-}" ] || fail "cannot derive Maven project version"
+EXPECTED_BASENAME="$(release_identity_expected_basename "$ARTIFACT_ID" "$PROJECT_VERSION")" \
+  || fail "cannot derive expected candidate name"
+EXPECTED_FILENAME="${EXPECTED_BASENAME}.jar"
+CANDIDATE_DIR="target/release-candidate"
+# Deterministic exact resolution before cd: relative --jar anchors to the
+# caller's cwd now — $OLDPWD is never consulted (Refs #456 R3, #458).
+JAR="$(release_identity_resolve_candidate_jar "$JAR" "$EXPECTED_FILENAME" "$CANDIDATE_DIR")" \
+  || fail "exact candidate ${EXPECTED_FILENAME} unusable; run scripts/build-release-candidate.sh first"
 case "$JAR" in
   *target/release-candidate/*) ;;
   *) fail "must use the release-candidate JAR, not $JAR" ;;
 esac
+release_identity_verify_jar_internal_version "$JAR" "$PROJECT_VERSION" \
+  || fail "candidate JAR identity does not match Maven $PROJECT_VERSION"
+release_identity_verify_candidate_sidecar_if_present "$CANDIDATE_DIR" \
+  "$EXPECTED_BASENAME" "$EXPECTED_FILENAME" "$PROJECT_VERSION" "$JAR" \
+  || fail "sidecar manifest does not describe this exact candidate"
 echo "[browser-smoke] candidate: $JAR"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/browser-smoke.XXXXXX")"
