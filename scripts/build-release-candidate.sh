@@ -180,7 +180,11 @@ if grep -Ei 'api[_-]?key|password|verifier|secret|BEGIN .*PRIVATE|/Users/|/home/
 fi
 
 # --- 10. Bounded release bundle (JAR + manifest + inventory + notes only) ---------
-cp docs/release/v0.1.0-release-notes.md "$OUT_DIR/${BASENAME}-release-notes.md"
+# Versioned notes are derived from Maven (no second version truth): v0.1.0 notes
+# stay immutable for the v0.1.0 tag; v0.1.1+ candidates bundle their own versioned notes.
+NOTES_SOURCE="docs/release/v${PROJECT_VERSION}-release-notes.md"
+[ -f "$NOTES_SOURCE" ] || fail "versioned release notes missing: $NOTES_SOURCE (keep v0.1.0 immutable, add v${PROJECT_VERSION})"
+cp "$NOTES_SOURCE" "$OUT_DIR/${BASENAME}-release-notes.md"
 cp docs/release/native-capability-matrix.md "$OUT_DIR/${BASENAME}-native-matrix.md"
 BUNDLE="$OUT_DIR/${BASENAME}-bundle.tar.gz"
 tar --create --gzip --file "$BUNDLE" --directory "$OUT_DIR" \

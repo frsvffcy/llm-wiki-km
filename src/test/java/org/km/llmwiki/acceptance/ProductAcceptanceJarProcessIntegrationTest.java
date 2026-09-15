@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /**
  * Built-JAR process acceptance with controlled restart (Refs #429 §B, §G).
  *
- * <p>Preferred release path: clean built {@code target/llm-wiki-km-0.1.0.jar} as
+ * <p>Preferred release path: clean built {@code target/llm-wiki-km-0.1.1.jar} as
  * an actual OS process over a real loopback HTTP socket with a temp knowledge
  * root. When the JAR is absent (ordinary {@code mvn test} before
  * {@code package}), the test aborts with an explicit prerequisite message
@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @Tag("integration")
 class ProductAcceptanceJarProcessIntegrationTest {
 
-    private static final Path JAR = Path.of("target/llm-wiki-km-0.1.0.jar");
+    private static final Path JAR = Path.of("target/llm-wiki-km-0.1.1.jar");
     private static final Path TEMP_ROOT = createTempRoot();
     private static DeterministicAcceptanceProviderStub stub;
 
@@ -69,6 +69,10 @@ class ProductAcceptanceJarProcessIntegrationTest {
                     + "deterministic loopback stub via production adapter seam.");
             var harness = new ProductAcceptanceHarness(client, report, workspaceRoot);
             harness.runAll(true, true);
+            // #454 §B + §D: exact-artifact dogfood must prove fresh-workspace
+            // Document Analysis on the packaged JAR (no Files.write / DB shortcut).
+            assertThat(verdictOf(report, "document-analysis"))
+                    .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
             assertThat(verdictOf(report, "governed-mutation"))
                     .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
             publishedKnowledgeId = publishedId(client);

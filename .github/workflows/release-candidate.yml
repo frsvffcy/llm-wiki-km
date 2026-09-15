@@ -1,11 +1,12 @@
 name: Release Candidate
 
-# v0.1.0 release-candidate pipeline (Refs #430).
+# v0.1.1 release-candidate pipeline (Refs #430; #454 §C/E patch).
 #
 # Default behavior is build / verify / smoke / evidence ONLY:
 #   clean candidate build (twice, bit-identical) -> manifest/provenance
 #   -> dependency inventory -> clean-install smoke -> backup/restore smoke
-#   -> #429 product-journey gate -> readiness verdict -> workflow artifacts.
+#   -> browser first-mile packaged gate -> #429 + #454 §B product-journey gate
+#   -> readiness verdict -> workflow artifacts.
 #
 # This workflow NEVER creates Git tags, GitHub Releases, public assets,
 # visibility changes, or registry publications. Publication stays A2 explicit
@@ -46,6 +47,9 @@ jobs:
       - name: Run candidate backup to fresh-root restore and restart smoke
         run: sh scripts/candidate-backup-restore-smoke.sh
 
+      - name: Verify Browser first-mile fixes in the exact candidate JAR (Refs #454 §C)
+        run: sh scripts/browser-first-mile-smoke.sh
+
       - name: Provision pinned sqlite-vec native for acceptance (Refs #435)
         run: |
           curl --fail --location --silent --show-error \
@@ -59,7 +63,7 @@ jobs:
           echo "VECTOR_CAPABILITY_ENABLED=true" >> "$GITHUB_ENV"
           echo "VECTOR_EXTENSION_PATH=$PWD/target/sqlite-vec-linux/vec0.so" >> "$GITHUB_ENV"
 
-      - name: Consume the #429 product-journey gate with the candidate JAR
+      - name: Consume the #429 + #454 §B product-journey gate with the candidate JAR
         run: sh scripts/run-product-acceptance.sh --skip-build
 
       - name: Evaluate release readiness (never fakes READY on failure or skip)

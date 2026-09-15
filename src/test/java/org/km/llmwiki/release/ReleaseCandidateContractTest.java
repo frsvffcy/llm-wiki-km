@@ -25,7 +25,9 @@ class ReleaseCandidateContractTest {
     private static final Path POM = Path.of("pom.xml");
     private static final Path WORKFLOW = Path.of(".github/workflows/release-candidate.yml");
     private static final Path PROCEDURE = Path.of("docs/release/release-candidate-procedure-v1.md");
-    private static final Path NOTES = Path.of("docs/release/v0.1.0-release-notes.md");
+    private static final Path NOTES_V010 = Path.of("docs/release/v0.1.0-release-notes.md");
+    private static final Path NOTES = Path.of("docs/release/v0.1.1-release-notes.md");
+    private static final Path BROWSER_CHECKLIST = Path.of("docs/release/v0.1.1-browser-smoke-checklist.md");
     private static final Path MATRIX = Path.of("docs/release/native-capability-matrix.md");
 
     private static final List<String> SCRIPTS = List.of(
@@ -35,7 +37,8 @@ class ReleaseCandidateContractTest {
             "scripts/check-release-bundle-hygiene.sh",
             "scripts/clean-install-smoke.sh",
             "scripts/candidate-backup-restore-smoke.sh",
-            "scripts/check-release-readiness.sh");
+            "scripts/check-release-readiness.sh",
+            "scripts/browser-first-mile-smoke.sh");
 
     private static String read(Path path) throws Exception {
         assertThat(path).as("%s must exist", path).isRegularFile();
@@ -46,8 +49,25 @@ class ReleaseCandidateContractTest {
     void reproducibleTimestampIsPinnedInPom() throws Exception {
         String pom = read(POM);
         assertThat(pom).contains("<project.build.outputTimestamp>2026-09-15T00:00:00Z</project.build.outputTimestamp>");
-        assertThat(pom).contains("<version>0.1.0</version>");
+        // #454 §A: project identity is now 0.1.1; v0.1.0 tag/artifacts stay immutable.
+        assertThat(pom).contains("<version>0.1.1</version>");
         assertThat(pom).contains("<java.version>21</java.version>");
+    }
+
+    @Test
+    void v010NotesStayImmutableAndV011NotesExist() throws Exception {
+        // v0.1.0 notes are the immutable source for the v0.1.0 tag; the patch
+        // must not modify them (challenge case 4: no retag / asset overwrite).
+        String v010 = read(NOTES_V010);
+        assertThat(v010).contains("# v0.1.0 Release notes");
+        String v011 = read(NOTES);
+        assertThat(v011).contains("# v0.1.1 Release notes");
+        for (String token : List.of("#448", "#450", "#451", "SUPPORTED", "CANDIDATE", "NOT SUPPORTED")) {
+            assertThat(v011).as("v0.1.1 notes must cover %s", token).contains(token);
+        }
+        String checklist = read(BROWSER_CHECKLIST);
+        assertThat(checklist).contains("Browser first-mile smoke checklist");
+        assertThat(checklist).contains("Workspace → Inbox");
     }
 
     @Test
@@ -58,6 +78,13 @@ class ReleaseCandidateContractTest {
             assertThat(Files.isExecutable(path)).as("%s must be executable", script).isTrue();
             assertThat(Files.readString(path)).as("%s must fail closed", script).contains("set -eu");
         }
+    }
+
+    @Test
+    void runtimeVersionMatchesMavenIdentity() throws Exception {
+        String service = read(Path.of("src/main/java/org/km/llmwiki/system/SystemStatusService.java"));
+        assertThat(service).contains("return \"0.1.1\"");
+        assertThat(service).doesNotContain("return \"0.1.0\"");
     }
 
     @Test
@@ -207,6 +234,7 @@ class ReleaseCandidateContractTest {
         assertThat(workflow).contains("verify-reproducible-build.sh");
         assertThat(workflow).contains("clean-install-smoke.sh");
         assertThat(workflow).contains("candidate-backup-restore-smoke.sh");
+        assertThat(workflow).contains("browser-first-mile-smoke.sh");
         assertThat(workflow).contains("run-product-acceptance.sh");
         assertThat(workflow).contains("check-release-readiness.sh");
     }
@@ -219,9 +247,56 @@ class ReleaseCandidateContractTest {
         assertThat(readiness).contains("NO-GO");
         // Challenge 10: #429 failure/skip blocks READY.
         assertThat(readiness).contains("release-evidence");
-        assertThat(readiness).contains("v0.1.0-product-acceptance.json");
+        // #454 §A: version-agnostic report glob (no second version truth).
+        assertThat(readiness).contains("*-product-acceptance.json");
+        assertThat(readiness).doesNotContain("v0.1.0-product-acceptance.json");
         // Publication stays human-authorized.
         assertThat(readiness).contains("human authorization");
+    }
+
+    @Test
+    void buildBundlesVersionedNotesWithoutSecondTruth() throws Exception {
+        String build = read(Path.of("scripts/build-release-candidate.sh"));
+        // Notes source is derived from Maven version, never a hardcoded v0.1.0.
+        assertThat(build).contains("v${PROJECT_VERSION}-release-notes.md");
+        assertThat(build).doesNotContain("v0.1.0-release-notes.md");
+        assertThat(build).contains("versioned release notes missing");
+    }
+
+    @Test
+    void acceptanceRunnerDerivesJarFromMavenTruth() throws Exception {
+        String acceptance = read(Path.of("scripts/run-product-acceptance.sh"));
+        assertThat(acceptance).contains("target/llm-wiki-km-*.jar");
+        assertThat(acceptance).doesNotContain("target/llm-wiki-km-0.1.0.jar");
+    }
+
+    @Test
+    void browserFirstMileGateLocksPackagedFixes() throws Exception {
+        String smoke = read(Path.of("scripts/browser-first-mile-smoke.sh"));
+        assertThat(smoke).contains("[hidden]");
+        assertThat(smoke).contains("data-parse-status");
+        assertThat(smoke).contains("LIFECYCLE_FILTER_STATUSES");
+        assertThat(smoke).contains("empty-state");
+        assertThat(smoke).contains("target/release-candidate/");
+        assertThat(smoke).contains("BOOT-INF/classes/static/");
+    }
+
+    @Test
+    void productAcceptanceHarnessOwnsDocumentAnalysisJourney() throws Exception {
+        String harness = read(Path.of(
+                "src/test/java/org/km/llmwiki/acceptance/ProductAcceptanceHarness.java"));
+        assertThat(harness).contains("documentAnalysisJourney");
+        assertThat(harness).contains("/api/v1/analysis/readiness");
+        assertThat(harness).contains("/api/v1/analysis/jobs");
+        assertThat(harness).contains("successCount");
+        // No filesystem / DB shortcut: user actions only via public HTTP boundary.
+        // Check executable patterns (with paren / SQL verb) so prose comments
+        // describing the prohibition do not trip the guard.
+        assertThat(harness).doesNotContain("Files.write(");
+        assertThat(harness).doesNotContain("Files.createFile(");
+        assertThat(harness).doesNotContain("INSERT INTO setting");
+        assertThat(harness).doesNotContain("INSERT INTO document_analysis");
+        assertThat(harness).doesNotContain("INSERT INTO processing_job");
     }
 
     @Test

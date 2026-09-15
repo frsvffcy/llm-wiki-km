@@ -1,5 +1,5 @@
 #!/bin/sh
-# v0.1.0 product-journey acceptance runner (Refs #429).
+# v0.1.1 product-journey acceptance runner (Refs #429, #454 §B).
 #
 # Produces the versioned golden-workspace gate:
 #   clean built JAR -> temp knowledge root -> loopback HTTP -> public /api/v1
@@ -82,13 +82,17 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
   echo "[acceptance] building clean application JAR..."
   mvn --batch-mode clean package -DskipTests
 else
-  echo "[acceptance] skipping build; requiring existing target/llm-wiki-km-0.1.0.jar"
+  echo "[acceptance] skipping build; requiring existing candidate JAR"
 fi
 
-if [ ! -f target/llm-wiki-km-0.1.0.jar ]; then
-  echo "[acceptance] FAIL: target/llm-wiki-km-0.1.0.jar missing; cannot prove JAR boundary." >&2
+# Version truth is Maven (no second hardcoded version): accept the current
+# versioned JAR (v0.1.1 canonical) without maintaining a second constant.
+CANDIDATE_JAR="$(ls -t target/llm-wiki-km-*.jar 2>/dev/null | head -1 || true)"
+if [ -z "$CANDIDATE_JAR" ] || [ ! -f "$CANDIDATE_JAR" ]; then
+  echo "[acceptance] FAIL: target/llm-wiki-km-*.jar missing; cannot prove JAR boundary." >&2
   exit 1
 fi
+echo "[acceptance] candidate JAR: $CANDIDATE_JAR"
 
 # Vector native provisioning happens AFTER the clean build on purpose:
 # `mvn clean` wipes target/, so any native staged under target/ before the

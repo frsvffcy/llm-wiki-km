@@ -1859,13 +1859,37 @@ Executable procedure authority 是 `scripts/build-release-candidate.sh`
 `scripts/candidate-backup-restore-smoke.sh`（candidate clean install→bounded
 fixture→backup→fresh root restore→same candidate restart→Flyway／currentness／
 readiness→chunks／retrieval 可讀；workspace 絕對路徑經 operator rewiring 遷移，
-非 user-flow shortcut）、`scripts/check-release-readiness.sh`（消費 #429
-`target/release-evidence/v0.1.0-product-acceptance.json`；FAIL→NO-GO、
+非 user-flow shortcut）、`scripts/browser-first-mile-smoke.sh`（#454 §C：驗證 exact candidate JAR
+內含 #450 `[hidden]` authority＋#451 lifecycle／parseStatus 雙投影；manual 層見
+`docs/release/v0.1.1-browser-smoke-checklist.md`，不導入 headless framework）、
+`scripts/check-release-readiness.sh`（消費 #429＋#454 §B
+`target/release-evidence/*-product-acceptance.json`（version-agnostic glob；FAIL→NO-GO、
 SKIP／missing→CONDITIONAL 阻止 READY；READY 後仍需 A2 human auth 才可 publish），
 文件見 `docs/release/release-candidate-procedure-v1.md`、
 `docs/release/native-capability-matrix.md`、
-`docs/release/v0.1.0-release-notes.md`，workflow 為
+`docs/release/v0.1.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source）、
+`docs/release/v0.1.1-browser-smoke-checklist.md`，workflow 為
 `.github/workflows/release-candidate.yml`（retention 14 天，無 secrets）。
+
+## v0.1.1 patch acceptance 測試責任（#454)
+
+`acceptance.ProductAcceptanceHarness.documentAnalysisJourney` 是 #429 ownership 上的 additive hardening，
+不另造第二套 acceptance framework：fresh-workspace blocking journey 經 production
+workspace／inbox／extraction／analysis public／application boundary
+（`GET /api/v1/analysis/readiness` → `POST /api/v1/analysis/jobs` → bounded poll
+`GET /api/v1/analysis/jobs/{jobId}`），驗證 prompt 由 bootstrap 自動存在（`promptStatus=READY`）、
+readiness `analysisReady=true`（`provider=stub`／`model=offline` production offline fallback）、
+extract `parseStatus=PROCESSED`、job `successCount>0`／`failedCount=0`。Harness 禁止直接
+`Files.write` prompt、禁止直接 INSERT `setting`／`document_analysis`／`processing_job`；
+missing／invalid prompt typed regression 仍由 #448 suites 持有。
+
+Browser first-mile 為三層 evidence（single source of truth 見
+`docs/release/v0.1.1-browser-smoke-checklist.md`）：Node contracts
+（`hidden-visibility.test.mjs`＋`inbox-ui.test.mjs`，PR Fast 持有 mutually-exclusive empty state
+與 dual-state projection）＋ packaged-artifact content gate
+（`browser-first-mile-smoke.sh`，exact candidate JAR 的 `BOOT-INF/classes/static/` 必須含修正 bits）
+＋ bounded manual checklist（exact artifact＋clean root＋fresh workspace，無 DOM／DB 偽造）。
+無 headless real-browser 即無法可靠防回歸的具體 evidence 出現前，不導入 Playwright／Selenium。
 
 受影響測試與 release dry run：
 
@@ -1875,6 +1899,7 @@ sh scripts/build-release-candidate.sh --allow-dirty
 sh scripts/verify-reproducible-build.sh --allow-dirty
 sh scripts/clean-install-smoke.sh
 sh scripts/candidate-backup-restore-smoke.sh
+sh scripts/browser-first-mile-smoke.sh
 sh scripts/run-product-acceptance.sh --skip-build
 sh scripts/check-release-readiness.sh
 mvn test -Pfast

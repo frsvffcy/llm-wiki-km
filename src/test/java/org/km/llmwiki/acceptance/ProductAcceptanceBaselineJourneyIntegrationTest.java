@@ -67,6 +67,10 @@ class ProductAcceptanceBaselineJourneyIntegrationTest {
                 .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
         assertThat(verdictOf(report, "ingest-extract"))
                 .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
+        // #454 §B: fresh-workspace Document Analysis blocking journey runs even
+        // in LOCAL_ONLY baseline via the production offline fallback (stub/offline).
+        assertThat(verdictOf(report, "document-analysis"))
+                .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
         assertThat(verdictOf(report, "baseline-retrieval"))
                 .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
         assertThat(verdictOf(report, "ask-provider-disabled-typed"))
