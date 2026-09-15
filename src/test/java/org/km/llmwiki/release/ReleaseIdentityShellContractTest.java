@@ -11,11 +11,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Executes the hermetic shell regression for the release identity helpers
- * (Refs #456 R2-R4, challenge cases 2-7) inside the fast tier.
+ * (Refs #456 R2-R4, challenge cases 2-7; Refs #458 exact-resolver convergence)
+ * inside the fast tier.
  *
  * <p>The shell suite covers what static text guards cannot prove: mtime
  * independence, absolute/relative path handling, swapped-artifact detection,
- * report/manifest source-commit cross-checks, and multi-candidate ambiguity.
+ * report/manifest source-commit cross-checks, multi-candidate ambiguity, and
+ * the #458 exact candidate resolver plus sidecar-if-present verification.
  * Static structure (no {@code ls -t} selection, canonicalization call sites,
  * cross-check call sites) stays locked by {@link ReleaseCandidateContractTest}.
  */

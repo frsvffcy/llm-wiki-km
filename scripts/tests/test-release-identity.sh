@@ -1,5 +1,5 @@
 #!/bin/sh
-# Behavioral regression for scripts/release-identity.sh (Refs #456 R2-R4).
+# Behavioral regression for scripts/release-identity.sh (Refs #456 R2-R4; #458).
 #
 # Hermetic: temp dirs only, no Maven, no network, no repository state.
 # Fake JARs are assembled with python3 zipfile (deterministic bytes).
@@ -137,6 +137,60 @@ echo '{}' > "$WORK/rc/b-manifest.json"
 expect_fail release_identity_require_single_file "$WORK/rc" "*-manifest.json"
 mkdir -p "$WORK/empty"
 expect_fail release_identity_require_single_file "$WORK/empty" "*-manifest.json"
+
+echo "[test] #458 exact resolver: default ignores mtime, explicit revalidates"
+mkdir -p "$WORK/cands"
+make_jar "$WORK/cands/llm-wiki-km-0.1.0.jar" "0.1.0" "0.1.0"
+make_jar "$WORK/cands/llm-wiki-km-0.1.1.jar" "0.1.1" "0.1.1"
+# Stale 0.1.0 is newer by mtime but the Maven 0.1.1 candidate must win.
+touch -t 202001010000 "$WORK/cands/llm-wiki-km-0.1.1.jar"
+touch -t 203001010000 "$WORK/cands/llm-wiki-km-0.1.0.jar"
+RESOLVED="$(release_identity_resolve_candidate_jar "" "llm-wiki-km-0.1.1.jar" "$WORK/cands")" \
+  && [ "$(basename -- "$RESOLVED")" = "llm-wiki-km-0.1.1.jar" ] \
+  && ok "default picks Maven candidate despite stale mtime" \
+  || bad "default picks Maven candidate despite stale mtime"
+# Same-version duplicate content: exact name still resolves deterministically.
+RESOLVED2="$(release_identity_resolve_candidate_jar "" "llm-wiki-km-0.1.1.jar" "$WORK/cands")" \
+  && [ "$RESOLVED" = "$RESOLVED2" ] \
+  && ok "exact resolution is deterministic" \
+  || bad "exact resolution is deterministic"
+# Wrong-version default is fail-closed even when a newer-mtime file exists.
+expect_fail release_identity_resolve_candidate_jar "" "llm-wiki-km-9.9.9.jar" "$WORK/cands"
+# Explicit inputs revalidate filename and existence.
+expect_pass release_identity_resolve_candidate_jar "$WORK/cands/llm-wiki-km-0.1.1.jar" "llm-wiki-km-0.1.1.jar" "$WORK/cands"
+expect_fail release_identity_resolve_candidate_jar "$WORK/cands/llm-wiki-km-0.1.0.jar" "llm-wiki-km-0.1.1.jar" "$WORK/cands"
+expect_fail release_identity_resolve_candidate_jar "$WORK/cands/missing.jar" "missing.jar" "$WORK/cands"
+expect_fail release_identity_resolve_candidate_jar "" "" "$WORK/cands"
+# Relative and absolute explicit inputs agree and ignore OLDPWD.
+CANON_REL_EXPLICIT="$(cd "$WORK/cands" && release_identity_resolve_candidate_jar llm-wiki-km-0.1.1.jar llm-wiki-km-0.1.1.jar "$WORK/cands")"
+CANON_ABS_EXPLICIT="$(cd / && release_identity_resolve_candidate_jar "$WORK/cands/llm-wiki-km-0.1.1.jar" llm-wiki-km-0.1.1.jar "$WORK/cands")"
+[ "$CANON_REL_EXPLICIT" = "$CANON_ABS_EXPLICIT" ] \
+  && ok "explicit relative == absolute" || bad "explicit relative/absolute disagree"
+OLDPWD="/nonexistent-bogus" CANON_AGAIN_EXPLICIT="$(cd "$WORK/cands" && release_identity_resolve_candidate_jar llm-wiki-km-0.1.1.jar llm-wiki-km-0.1.1.jar "$WORK/cands")"
+[ "$CANON_AGAIN_EXPLICIT" = "$CANON_REL_EXPLICIT" ] \
+  && ok "explicit resolution independent of OLDPWD" || bad "explicit OLDPWD leak"
+
+echo "[test] #458 sidecar-if-present: absent warns, present must describe exact JAR"
+mkdir -p "$WORK/sidecar"
+make_jar "$WORK/sidecar/llm-wiki-km-0.1.1.jar" "0.1.1" "0.1.1"
+SHA_SIDE="$(release_identity_sha256 "$WORK/sidecar/llm-wiki-km-0.1.1.jar")"
+# Absent sidecar is warn-only (plain-package flow), never a hard fail here.
+expect_pass release_identity_verify_candidate_sidecar_if_present \
+  "$WORK/sidecar" "llm-wiki-km-0.1.1" "llm-wiki-km-0.1.1.jar" "0.1.1" \
+  "$WORK/sidecar/llm-wiki-km-0.1.1.jar"
+make_manifest "$WORK/sidecar/llm-wiki-km-0.1.1-manifest.json" \
+  "0.1.1" "llm-wiki-km-0.1.1.jar" "$SHA_SIDE" "$COMMIT_A"
+expect_pass release_identity_verify_candidate_sidecar_if_present \
+  "$WORK/sidecar" "llm-wiki-km-0.1.1" "llm-wiki-km-0.1.1.jar" "0.1.1" \
+  "$WORK/sidecar/llm-wiki-km-0.1.1.jar"
+# Same bytes swapped: manifest points at A but the JAR changed -> fail before body.
+make_jar "$WORK/sidecar/llm-wiki-km-0.1.1.jar" "0.1.1" "0.1.1-swapped"
+expect_fail release_identity_verify_candidate_sidecar_if_present \
+  "$WORK/sidecar" "llm-wiki-km-0.1.1" "llm-wiki-km-0.1.1.jar" "0.1.1" \
+  "$WORK/sidecar/llm-wiki-km-0.1.1.jar"
+expect_fail release_identity_verify_candidate_sidecar_if_present \
+  "$WORK/sidecar" "llm-wiki-km-0.1.1" "llm-wiki-km-0.1.1.jar" "" \
+  "$WORK/sidecar/llm-wiki-km-0.1.1.jar"
 
 echo "[test] result: pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]
