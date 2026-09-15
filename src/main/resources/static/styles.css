@@ -309,6 +309,18 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .workspace-layout--broken { color: var(--danger); }
 .workspace-problem { color: var(--danger); }
 .workspace-repaired { color: var(--accent-dark); }
+
+/* --- Analysis readiness panel (#448) --- */
+.analysis-readiness { margin: 8px 0 4px; font-weight: 600; }
+.analysis-readiness--ready { color: var(--accent-dark); }
+.analysis-readiness--missing,
+.analysis-readiness--invalid,
+.analysis-readiness--unavailable { color: var(--danger); }
+.analysis-readiness--unknown,
+.analysis-readiness--queued,
+.analysis-readiness--running,
+.analysis-readiness--partial { color: var(--muted); }
+.analysis-readiness-detail { margin-bottom: 4px; }
 .workspace-list { list-style: none; margin: 0; padding: 0; }
 .workspace-list-item {
   display: flex;

@@ -57,6 +57,12 @@ public class AnalysisJobQueryService {
             case "PROVIDER_UNAVAILABLE" -> "Document analysis provider unavailable";
             case "PROVIDER_TIMEOUT" -> "Document analysis provider timed out";
             case "PROMPT_CONFIGURATION_FAILED" -> "Document analysis prompt configuration failed";
+            case "PROMPT_TEMPLATE_NOT_FOUND" ->
+                    "Document analysis prompt template is missing; repair the workspace or restore config/prompts/document-analysis.md";
+            case "PROMPT_TEMPLATE_INVALID" -> "Document analysis prompt template is invalid";
+            case "PROMPT_VARIABLE_MISSING" ->
+                    "Document analysis prompt is missing required variables";
+            case "ANALYSIS_SETTING_INVALID" -> "Document analysis settings are invalid";
             case "PERSISTENCE_FAILED" -> "Document analysis persistence failed";
             case "MALFORMED_JSON", "CONTRACT_VALIDATION_FAILED", "UNKNOWN_ENUM",
                     "ILLEGAL_EVIDENCE", "INSUFFICIENT_EVIDENCE" ->

@@ -454,6 +454,12 @@ raw exception、stack trace、path、SQL、credentials 與 provider/backend deta
 server-side log。status query 不會 retry、repair、rebuild 或修改任何 canonical／projection
 state。
 
+呼叫端不得只看 `status: "COMPLETED"` 就視為成功：必須同時檢查 `failedCount`／`failureCode`。
+`COMPLETED + failedCount > 0` 一律為 `failureCode: "PARTIAL_FAILURE"` 的部分完成；`FAILED` 的
+analysis job 會回傳 typed prompt 失敗碼（`PROMPT_TEMPLATE_NOT_FOUND`／`PROMPT_TEMPLATE_INVALID`／
+`PROMPT_VARIABLE_MISSING`／`ANALYSIS_SETTING_INVALID`）與可操作的安全摘要，item-level 失敗以
+最新失敗碼投影（persisted `processing_job_item`／`document_analysis` 同為 typed code）。
+
 Operation status 與 `/api/v1/search/index/health` 職責不同：job status 描述單一 operation 的
 生命週期、counters、immutable operation metadata 與 failure projection；health 描述 active
 workspace／corpus 目前是否可供 FTS serving，以及 missing、stale、orphan 等 projection
@@ -490,6 +496,11 @@ curl -X POST http://127.0.0.1:8765/api/v1/workspaces \
 
 Returns `201 Created`. The root path must be absolute and must not be the filesystem root or an existing file; existing directories are reused without touching their contents. Registering the same root twice returns `409 Conflict`. The new workspace becomes the single `ACTIVE` workspace (any previous one is deactivated automatically); at most one workspace is ACTIVE at any time, and startup repairs the invariant if it was ever violated.
 
+建立 workspace 時會一併以版本化預設樣板 provision `config/prompts/document-analysis.md`
+（`<!-- prompt-version: v1 -->`，含 `{{document.metadata}}` 與 `{{evidence}}`）；已存在的使用者
+prompt 永遠不會被靜默覆寫。明確的 repair 也會在 prompt 缺席時補上預設樣板（deterministic recovery），
+不會修改既有 prompt 內容，也不會寫入任何 provider secret。
+
 ## Opening an existing workspace
 
 應用程式每次啟動時會載入 active workspace 並驗證 directory layout，不會建立或刪除任何檔案。
@@ -512,9 +523,39 @@ curl -X POST http://127.0.0.1:8765/api/v1/workspaces/1/repair       # 修復已�
 Repair 是明確的 mutation，只能作用於 active workspace，或依 database ID 選取的 registered
 workspace；endpoint 不接受 arbitrary root path。它只會在既有 root 下建立缺少的 rebuildable child
 directories（`inbox/ archive/ vault/ data/ config/ logs/ temp/`），不會建立 missing root，也不會
-修改 canonical `archive/` 或 `vault/` 的內容。
+修改 canonical `archive/` 或 `vault/` 的內容。Repair 同時會在
+`config/prompts/document-analysis.md` 缺席時補上版本化預設 prompt；已存在的 prompt 不會被覆寫。
 
 `GET /api/v1/system/status` reports overall state: `READY` (workspace loaded and root valid), `DEGRADED` (workspace registered but root directory missing), `NOT_INITIALIZED` (no workspace registered), or `ERROR` (database unavailable).
+
+## Document Analysis readiness 與 prompt 契約（#448）
+
+`GET /api/v1/system/status` 的 `READY` 只代表 workspace filesystem ready，不代表文件分析先決條件
+已就緒。文件分析是 optional capability：prompt 缺失或設定無效不會把整體應用標成不可啟動，但
+`GET /api/v1/analysis/readiness` 會明確區分 `workspaceReady`、`promptStatus`
+（`READY`／`MISSING`／`INVALID`）、`settingsValid` 與 `provider`／`model`／`maximumEvidenceChunks`，
+並以 `analysisReady` 總結 feature 是否可執行。Browser Home 的「文件分析狀態」面板即為此 endpoint
+的唯讀投影（safe text，不修改任何資料；workspace 切換會清空並重讀）。
+
+```bash
+curl http://127.0.0.1:8765/api/v1/analysis/readiness
+```
+
+`config/prompts/document-analysis.md` 必須包含 `{{document.metadata}}` 與 `{{evidence}}`；
+可選首行 `<!-- prompt-version: ... -->` 為人工版本，否則以內容 SHA-256 作為穩定版本與
+`document-analysis@<version>` 識別。未知變數、空白樣板、缺必要變數會以 typed code
+（`PROMPT_TEMPLATE_NOT_FOUND`／`PROMPT_TEMPLATE_INVALID`／`PROMPT_VARIABLE_MISSING`／
+`ANALYSIS_SETTING_INVALID`）持久化與回傳，不再被壓平成單一 `PROMPT_CONFIGURATION_FAILED`
+（該 umbrella 僅保留為防禦性 fallback）。公開訊息只含穩定 code 與 allow-listed 摘要，不含
+absolute path、secret 或 provider raw payload；`PROMPT_TEMPLATE_NOT_FOUND` 的 next action 為
+「執行 workspace repair 或還原 `config/prompts/document-analysis.md` 後重試」。
+
+設定邊界：Ask／Answer 走 `app.ai.answer.*` 與 `AnswerClient`（OpenAI-compatible adapter），
+文件分析走 `setting` 表的 allow-listed `llm.provider`／`llm.model`／
+`analysis.maximum_evidence_chunks` 與 `LlmClient`（未另配置時 production default 為
+`stub`／`offline` 離線 provider）。`app.ai.answer.*` 不會自動配置文件分析 provider；
+空 `setting` 表會正常 fallback 為 `stub`／`offline`／`50`，不需要手動 INSERT 才能完成初次分析，
+也不得以直接修改 SQLite 作為正常使用流程。
 
 ## Inbox upload
 
