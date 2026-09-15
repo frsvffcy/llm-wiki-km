@@ -16,10 +16,13 @@ public class WorkspaceService {
 
     private final WorkspaceRepository repository;
     private final WorkspaceLayoutValidator validator;
+    private final DocumentAnalysisPromptProvisioner promptProvisioner;
 
-    public WorkspaceService(WorkspaceRepository repository, WorkspaceLayoutValidator validator) {
+    public WorkspaceService(WorkspaceRepository repository, WorkspaceLayoutValidator validator,
+                            DocumentAnalysisPromptProvisioner promptProvisioner) {
         this.repository = repository;
         this.validator = validator;
+        this.promptProvisioner = promptProvisioner;
     }
 
     @Transactional
@@ -32,6 +35,7 @@ public class WorkspaceService {
         });
 
         createDirectoryLayout(root);
+        promptProvisioner.provisionIfMissing(root);
 
         Instant now = Instant.now();
         WorkspaceRecord record = new WorkspaceRecord(
@@ -94,6 +98,7 @@ public class WorkspaceService {
     private WorkspaceStatusResponse repair(WorkspaceRow row) {
         WorkspaceLayoutValidator.LayoutReport report =
                 validator.repair(Path.of(row.rootPath()));
+        promptProvisioner.provisionIfMissing(Path.of(row.rootPath()));
         return new WorkspaceStatusResponse(row.toResponse(), report);
     }
 

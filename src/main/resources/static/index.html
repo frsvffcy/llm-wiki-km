@@ -15,8 +15,9 @@
   <script type="module" src="/review-ui.js"></script>
   <script type="module" src="/ask-ui.js"></script>
   <script type="module" src="/graph-operations-ui.js"></script>
-<script type="module" src="/retrieval-inspector-ui.js"></script>
+  <script type="module" src="/retrieval-inspector-ui.js"></script>
 <script type="module" src="/source-chunk-inspector-ui.js"></script>
+<script type="module" src="/analysis-ui.js"></script>
 <script type="module" src="/quality-ui.js"></script>
 </head>
 <body>
@@ -83,6 +84,26 @@
           </button>
         </div>
         <p id="workspace-hint" class="form-hint" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="analysis-readiness-panel" class="panel analysis-panel"
+               aria-labelledby="analysis-readiness-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ANALYSIS</p>
+            <h3 id="analysis-readiness-heading">文件分析狀態</h3>
+          </div>
+          <button id="analysis-readiness-refresh" type="button" class="secondary-button">
+            重新整理
+          </button>
+        </div>
+        <p id="analysis-readiness-state" class="analysis-readiness" role="status" aria-live="polite"></p>
+        <div id="analysis-readiness-detail" class="analysis-readiness-detail"></div>
+        <p id="analysis-readiness-hint" class="form-hint" role="status" aria-live="polite"></p>
+        <p class="panel-description">
+          只讀顯示後端回報的文件分析先決條件（prompt 樣板與分析設定）；不會建立或修改任何資料。
+          工作區整體 READY 不代表文件分析已就緒，缺少 prompt 時請執行工作區修復。
+        </p>
       </section>
 
       <section class="panel" aria-labelledby="workspace-create-heading">

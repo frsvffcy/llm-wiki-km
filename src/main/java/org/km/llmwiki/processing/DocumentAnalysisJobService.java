@@ -169,7 +169,9 @@ public class DocumentAnalysisJobService {
                     retryCount++;
                 }
             } catch (PromptLoadException exception) {
-                if (!persistFailureAndDecideRetry(job, item, prompt, AnalysisFailureCode.PROMPT_CONFIGURATION_FAILED,
+                AnalysisFailureCode promptFailure =
+                        AnalysisFailureCode.fromPromptError(exception.errorCode());
+                if (!persistFailureAndDecideRetry(job, item, prompt, promptFailure,
                         retryCount)) {
                     return;
                 }
@@ -283,6 +285,12 @@ public class DocumentAnalysisJobService {
             case ILLEGAL_EVIDENCE -> "LLM 回應引用了不屬於本文件的證據";
             case INSUFFICIENT_EVIDENCE -> "LLM 回應沒有足夠證據支持知識 Candidate";
             case PROMPT_CONFIGURATION_FAILED -> "無法載入安全的文件分析設定";
+            case PROMPT_TEMPLATE_NOT_FOUND ->
+                    "找不到文件分析 prompt 樣板（config/prompts/document-analysis.md），請執行 workspace 修復或還原該檔案後重試";
+            case PROMPT_TEMPLATE_INVALID -> "文件分析 prompt 樣板格式無效，請檢查樣板內容後重試";
+            case PROMPT_VARIABLE_MISSING ->
+                    "文件分析 prompt 缺少必要變數，請確認樣板包含文件與證據變數後重試";
+            case ANALYSIS_SETTING_INVALID -> "文件分析設定無效，請檢查 analysis 設定值後重試";
             case PROVIDER_UNAVAILABLE -> "LLM Provider 目前無法使用";
             case PROVIDER_TIMEOUT -> "LLM Provider 回應逾時";
             case PERSISTENCE_FAILED -> "分析結果無法安全持久化";
