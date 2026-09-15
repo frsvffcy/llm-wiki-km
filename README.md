@@ -568,13 +568,16 @@ curl -X POST http://127.0.0.1:8765/api/v1/inbox/files \
 
 Returns `201 Created` with `documentId`, `fileName`, `status: PENDING`, and `duplicate`. The file is stored under the workspace `inbox/`, its SHA-256 is computed while streaming, and the `document` record is only kept when the file lands successfully. Path-traversal filenames are stripped to their final component; name collisions get a `-1`, `-2`, … suffix instead of overwriting. Every ingested document stores its original source filename (preserved across collision renames) plus a normalized lowercase `extension`.
 
-List the current inbox with pagination, status/extension filters and sorting:
+List the current inbox with pagination, lifecycle/extraction filters and sorting:
 
 ```bash
 curl "http://127.0.0.1:8765/api/v1/inbox?page=0&size=50&status=PENDING&extension=pdf&sort=createdAt,desc"
+curl "http://127.0.0.1:8765/api/v1/inbox?page=0&size=50&parseStatus=PROCESSED"
 ```
 
 Returns `{ "data": [...], "page": { number, size, totalElements, totalPages } }`. Sortable fields: `fileName`, `fileSize`, `status`, `createdAt` (default: `createdAt,desc`; max page size 200).
+
+Each row carries two independent typed states: `status` is the document lifecycle (`PENDING`/`DUPLICATE` in the inbox projection; `DELETED`/`SUPERSEDED`/`ARCHIVED` are excluded) and `parseStatus` is the extraction lifecycle (`null` = never extracted, `PROCESSED`/`FAILED`/`UNSUPPORTED`/`NEED_OCR`). `status=` filters only `document.status` and `parseStatus=` filters only `document.parse_status`; extraction success keeps `status: PENDING` and sets `parseStatus: PROCESSED`, so a successful extract remains soft-deletable under the lifecycle contract. Re-running extraction on a `PROCESSED` row replaces its extracted bytes/chunks lineage atomically.
 
 ## System status
 

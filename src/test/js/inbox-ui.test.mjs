@@ -4,9 +4,13 @@ import test from "node:test";
 import {
   createInboxController,
   DELETABLE_STATUSES,
+  extractActionLabel,
   formatFileSize,
   inboxErrorMessage,
   isDeletable,
+  LIFECYCLE_FILTER_STATUSES,
+  PARSE_STATUSES,
+  parseStatusLabel,
   renderInboxList,
   renderBatchResult,
   statusLabel
@@ -46,6 +50,7 @@ function uiElements() {
   return {
     filterForm: new FakeElement("form"),
     statusFilter: new FakeElement("select"),
+    parseStatusFilter: new FakeElement("select"),
     list: new FakeElement("ul"),
     empty: new FakeElement("p"),
     hint: new FakeElement("p"),
@@ -124,12 +129,27 @@ test("typed status labels cover DocumentStatus without guessing the state machin
   assert.equal(isDeletable("FAILED"), true);
 });
 
+test("lifecycle and extraction states stay on separate typed projections (#451)", () => {
+  assert.deepEqual(LIFECYCLE_FILTER_STATUSES, ["PENDING", "DUPLICATE"]);
+  assert.deepEqual(PARSE_STATUSES, ["PROCESSED", "FAILED", "UNSUPPORTED", "NEED_OCR"]);
+  assert.equal(parseStatusLabel(null), "尚未抽取");
+  assert.equal(parseStatusLabel(undefined), "尚未抽取");
+  assert.equal(parseStatusLabel("PROCESSED"), "已抽取");
+  assert.equal(parseStatusLabel("FAILED"), "抽取失敗");
+  assert.equal(parseStatusLabel("UNSUPPORTED"), "不支援抽取");
+  assert.equal(parseStatusLabel("NEED_OCR"), "需要 OCR");
+  assert.equal(parseStatusLabel("SOMETHING_NEW"), "SOMETHING_NEW");
+  assert.equal(extractActionLabel(null), "執行抽取");
+  assert.equal(extractActionLabel("NEED_OCR"), "執行抽取");
+  assert.equal(extractActionLabel("PROCESSED"), "重新抽取");
+});
+
 test("list render exposes row actions only for the allowed delete contract", () => {
   const elements = uiElements();
   renderInboxList(elements, [
-    row({ documentId: 1, status: "PENDING" }),
-    row({ documentId: 2, status: "PROCESSED" }),
-    row({ documentId: 3, status: "NEED_OCR", errorCode: "OCR_REQUIRED",
+    row({ documentId: 1, status: "PENDING", parseStatus: null }),
+    row({ documentId: 2, status: "ARCHIVED", parseStatus: null }),
+    row({ documentId: 3, status: "DUPLICATE", parseStatus: "NEED_OCR", errorCode: "OCR_REQUIRED",
       errorMessage: "scanned copy" })
   ], { number: 0, size: 20, totalElements: 3, totalPages: 1 },
   { createElement: () => new FakeElement() }, {
@@ -139,19 +159,47 @@ test("list render exposes row actions only for the allowed delete contract", () 
   assert.equal(elements.empty.hidden, true);
   const text = flatText(elements.list);
   assert.match(text, /report\.pdf/u);
-  assert.match(text, /需要 OCR/u);
+  assert.match(text, /文件狀態：待處理/u);
+  assert.match(text, /抽取狀態：尚未抽取/u);
+  assert.match(text, /抽取狀態：需要 OCR/u);
   assert.match(text, /OCR_REQUIRED：scanned copy/u);
   assert.match(text, /2\.0 KB/u);
   const items = elements.list.children;
   const actionsOf = item => item.children.find(child => child.className === "inbox-actions");
   const actionText = item => flatText(actionsOf(item));
   for (const item of items) {
-    assert.match(actionText(item), /執行抽取/u);
+    assert.match(actionText(item), /抽取/u);
     assert.match(actionText(item), /查看抽取內容/u);
   }
   assert.match(actionText(items[0]), /從收件匣移除/u);
   assert.doesNotMatch(actionText(items[1]), /從收件匣移除/u);
   assert.match(actionText(items[2]), /從收件匣移除/u);
+});
+
+test("extracted rows keep lifecycle status and show re-extract with extraction badge (#451)", () => {
+  const elements = uiElements();
+  renderInboxList(elements, [
+    row({ documentId: 1, status: "PENDING", parseStatus: "PROCESSED" }),
+    row({ documentId: 2, status: "PENDING", parseStatus: "FAILED" }),
+    row({ documentId: 3, status: "PENDING", parseStatus: "UNSUPPORTED" })
+  ], { number: 0, size: 20, totalElements: 3, totalPages: 1 },
+  { createElement: () => new FakeElement() }, {
+    onExtract: () => {}, onPreview: () => {}, onRemove: () => {}
+  });
+
+  const text = flatText(elements.list);
+  assert.match(text, /文件狀態：待處理/u);
+  assert.match(text, /抽取狀態：已抽取/u);
+  assert.match(text, /抽取狀態：抽取失敗/u);
+  assert.match(text, /抽取狀態：不支援抽取/u);
+  const items = elements.list.children;
+  const actionsOf = item => item.children.find(child => child.className === "inbox-actions");
+  assert.match(flatText(actionsOf(items[0])), /重新抽取/u);
+  assert.match(flatText(actionsOf(items[1])), /執行抽取/u);
+  // Extraction success keeps the lifecycle status: the row stays soft-deletable.
+  for (const item of items) {
+    assert.match(flatText(actionsOf(item)), /從收件匣移除/u);
+  }
 });
 
 test("empty list renders the empty state and pager meta stays honest", () => {
@@ -191,12 +239,15 @@ test("refresh filters and pages through the existing list contract", async () =>
   await controller.refresh();
   assert.equal(calls.at(-1).url, "/api/v1/inbox?page=0&size=20");
 
-  elements.statusFilter.value = "NEED_OCR";
+  elements.statusFilter.value = "PENDING";
+  elements.parseStatusFilter.value = "PROCESSED";
   await controller.applyFilter({ preventDefault() {} });
-  assert.equal(calls.at(-1).url, "/api/v1/inbox?page=0&size=20&status=NEED_OCR");
+  assert.equal(calls.at(-1).url,
+    "/api/v1/inbox?page=0&size=20&status=PENDING&parseStatus=PROCESSED");
 
   await controller.nextPage();
-  assert.equal(calls.at(-1).url, "/api/v1/inbox?page=1&size=20&status=NEED_OCR");
+  assert.equal(calls.at(-1).url,
+    "/api/v1/inbox?page=1&size=20&status=PENDING&parseStatus=PROCESSED");
 });
 
 test("single upload reports duplicate versus accepted without assuming extraction", async () => {
@@ -332,13 +383,16 @@ test("workspace switch resets local state and re-fetches the new workspace inbox
   };
   const controller = createInboxController(elements, fetchImpl, documentRef);
   await controller.refresh();
-  elements.statusFilter.value = "FAILED";
+  elements.statusFilter.value = "PENDING";
+  elements.parseStatusFilter.value = "FAILED";
 
   assert.equal(documentRef.listeners.has("workspace-changed"), true);
   await documentRef.listeners.get("workspace-changed")();
 
   assert.equal(elements.statusFilter.value, "",
     "filter from the previous workspace must be cleared");
+  assert.equal(elements.parseStatusFilter.value, "",
+    "extraction filter from the previous workspace must be cleared");
   assert.match(calls.at(-1), /page=0&size=20$/u);
   assert.match(flatText(elements.list), /other-ws\.txt/u);
 });
