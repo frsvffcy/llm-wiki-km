@@ -46,6 +46,19 @@ jobs:
       - name: Run candidate backup to fresh-root restore and restart smoke
         run: sh scripts/candidate-backup-restore-smoke.sh
 
+      - name: Provision pinned sqlite-vec native for acceptance (Refs #435)
+        run: |
+          curl --fail --location --silent --show-error \
+            --output sqlite-vec-linux.tgz \
+            https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-loadable-linux-x86_64.tar.gz
+          echo "b959baa1d8dc88861b1edb337b8587178cdcb12d60b4998f9d10b6a82052d5d7  sqlite-vec-linux.tgz" | sha256sum --check
+          mkdir -p target/sqlite-vec-linux
+          tar --extract --gzip --file sqlite-vec-linux.tgz --directory target/sqlite-vec-linux
+          chmod +x scripts/sqlite-vec-jdbc-smoke.sh
+          scripts/sqlite-vec-jdbc-smoke.sh target/sqlite-vec-linux/vec0.so
+          echo "VECTOR_CAPABILITY_ENABLED=true" >> "$GITHUB_ENV"
+          echo "VECTOR_EXTENSION_PATH=$PWD/target/sqlite-vec-linux/vec0.so" >> "$GITHUB_ENV"
+
       - name: Consume the #429 product-journey gate with the candidate JAR
         run: sh scripts/run-product-acceptance.sh --skip-build
 

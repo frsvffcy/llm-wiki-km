@@ -59,6 +59,19 @@ class ProductAcceptanceFullCapabilityJourneyIntegrationTest {
         registry.add("app.ai.embedding.api-key", () -> "acceptance-local-credential");
         registry.add("app.graph.projection.enabled", () -> "true");
         registry.add("app.graph.projection.path", () -> GRAPH_PATH.toString());
+        // #435: mirror the JarProcess glue — when the parent environment provisions
+        // a readable pinned sqlite-vec native, enable vector so
+        // vector-prerequisite can PASS (release FULL-GO); otherwise force disabled
+        // so a developer-inherited ENABLED=true never leaks in and the typed SKIP
+        // (blocks FULL-GO, never fake-green) is preserved. No change to #429
+        // corpus/harness verdict semantics.
+        if (isVectorNativeProvisioned()) {
+            registry.add("app.search.vector.enabled", () -> "true");
+            registry.add("app.search.vector.extension-path",
+                    () -> System.getenv("VECTOR_EXTENSION_PATH"));
+        } else {
+            registry.add("app.search.vector.enabled", () -> "false");
+        }
     }
 
     @AfterAll
@@ -82,9 +95,15 @@ class ProductAcceptanceFullCapabilityJourneyIntegrationTest {
         var client = new ProductAcceptanceHttpClient("http://127.0.0.1:" + ACCEPTANCE_PORT);
         var report = new ProductAcceptanceReport();
         report.executionMode("in-jvm-defined-port-full-capability");
-        report.prerequisiteNotes("deterministic loopback provider stub via production "
-                + "adapter seam; graph enabled on temp path; sqlite-vec native absent "
-                + "so semantic KNN stays typed SKIP (blocks release FULL-GO).");
+        if (isVectorNativeProvisioned()) {
+            report.prerequisiteNotes("deterministic loopback provider stub via production "
+                    + "adapter seam; graph enabled on temp path; pinned sqlite-vec native "
+                    + "provisioned so semantic KNN executes (release FULL-GO path).");
+        } else {
+            report.prerequisiteNotes("deterministic loopback provider stub via production "
+                    + "adapter seam; graph enabled on temp path; sqlite-vec native absent "
+                    + "so semantic KNN stays typed SKIP (blocks release FULL-GO).");
+        }
         var harness = new ProductAcceptanceHarness(client, report, workspaceRoot);
         harness.runAll(true, true);
 
@@ -96,9 +115,17 @@ class ProductAcceptanceFullCapabilityJourneyIntegrationTest {
                     .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
         }
         // Vector KNN has no native prerequisite here: typed SKIP, never fake PASS.
-        assertThat(verdictOf(report, "vector-prerequisite"))
-                .as("step vector-prerequisite: %s", report.steps())
-                .isEqualTo(ProductAcceptanceReport.Verdict.SKIP);
+        // #435: when pinned native is provisioned the same step must PASS (FULL-GO
+        // path); otherwise it stays SKIP and blocks release FULL-GO.
+        if (isVectorNativeProvisioned()) {
+            assertThat(verdictOf(report, "vector-prerequisite"))
+                    .as("step vector-prerequisite: %s", report.steps())
+                    .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
+        } else {
+            assertThat(verdictOf(report, "vector-prerequisite"))
+                    .as("step vector-prerequisite: %s", report.steps())
+                    .isEqualTo(ProductAcceptanceReport.Verdict.SKIP);
+        }
 
         // The stub really served the production transport seam (not a service stub).
         assertThat(STUB.lastAnswerRequestBody()).contains("GROUNDED_ANSWER_PROMPT_V2");
@@ -114,6 +141,17 @@ class ProductAcceptanceFullCapabilityJourneyIntegrationTest {
                                                              String id) {
         return report.steps().stream().filter(step -> step.id().equals(id)).findFirst()
                 .map(ProductAcceptanceReport.Step::verdict).orElse(null);
+    }
+
+    /**
+     * #435 glue: pinned sqlite-vec native is provisioned only when the parent
+     * environment provides a readable {@code VECTOR_EXTENSION_PATH}. Absent or
+     * unreadable stays provider-free SKIP (never fake-green); no floating
+     * download, no second version truth (pinned v0.1.9 via native matrix).
+     */
+    private static boolean isVectorNativeProvisioned() {
+        String path = System.getenv("VECTOR_EXTENSION_PATH");
+        return path != null && !path.isBlank() && Files.isRegularFile(Path.of(path));
     }
 
     private static Path createTempRoot() {
