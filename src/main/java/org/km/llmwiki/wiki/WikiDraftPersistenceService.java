@@ -204,7 +204,13 @@ public class WikiDraftPersistenceService {
                 invalidate(workspaceId, draft, WikiDraftInvalidationReason.TARGET_CHANGED);
                 return require(workspaceId, draft.id());
             }
-        } catch (WikiDraftTargetException exception) {
+        } catch (WikiDraftTargetException | WikiPathValidationException exception) {
+            // Out-of-band vault surgery (e.g. deleting vault/<type>/) surfaces as a
+            // real-path containment failure, not a target-state mismatch. It means the
+            // pinned baseline can no longer be re-verified, so the draft is stale in
+            // exactly the same sense as a changed target. Containment/symlink posture
+            // is unchanged: the resolver still fails closed, only the re-read mapping
+            // becomes a typed invalidation instead of a 500 (#432).
             invalidate(workspaceId, draft, WikiDraftInvalidationReason.TARGET_CHANGED);
             return require(workspaceId, draft.id());
         }
