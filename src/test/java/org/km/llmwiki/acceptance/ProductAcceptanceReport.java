@@ -82,9 +82,9 @@ public final class ProductAcceptanceReport {
                 node.put("verdict", step.verdict().name());
                 node.put("detail", step.detail());
             }
-            Files.writeString(directory.resolve("v0.1.0-product-acceptance.json"),
+            Files.writeString(directory.resolve("v0.1.1-product-acceptance.json"),
                     mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root) + "\n");
-            Files.writeString(directory.resolve("v0.1.0-product-acceptance.md"),
+            Files.writeString(directory.resolve("v0.1.1-product-acceptance.md"),
                     markdown(sourceSha, javaVersion, os, arch));
         } catch (Exception failure) {
             throw new IllegalStateException("failed to write acceptance report", failure);
@@ -93,7 +93,7 @@ public final class ProductAcceptanceReport {
 
     private String markdown(String sourceSha, String javaVersion, String os, String arch) {
         StringBuilder report = new StringBuilder();
-        report.append("# v0.1.0 product acceptance report\n\n");
+        report.append("# v0.1.1 product acceptance report\n\n");
         report.append("- corpus: `").append(ProductAcceptanceCorpusV1.VERSION).append("`\n");
         report.append("- procedure: `").append(ProductAcceptanceCorpusV1.PROCEDURE_VERSION)
                 .append("`\n");

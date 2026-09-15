@@ -37,7 +37,7 @@ than `mvn clean verify -Pfull`. Details are in
 ## Run
 
 ```bash
-java -jar target/llm-wiki-km-0.1.0.jar
+java -jar target/llm-wiki-km-0.1.1.jar
 ```
 
 The application listens only on `127.0.0.1:8765` by default.
@@ -589,7 +589,7 @@ curl http://127.0.0.1:8765/api/v1/system/status
 {
   "data": {
     "status": "READY",
-    "version": "0.1.0"
+    "version": "0.1.1"
   }
 }
 ```

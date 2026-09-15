@@ -50,6 +50,7 @@ public final class ProductAcceptanceHarness {
         cleanStartup();
         workspace();
         ingestExtract();
+        documentAnalysisJourney();
         baselineRetrieval(providerEnabled);
         governedMutationPreconditions();
         if (providerEnabled) {
@@ -198,6 +199,108 @@ public final class ProductAcceptanceHarness {
         }
         report.add("ingest-extract", ProductAcceptanceReport.Verdict.PASS,
                 documentIds.size() + " documents extracted, " + chunkIds.size() + " chunks current");
+    }
+
+    // #454 §B fresh-workspace Document Analysis blocking journey -----------------
+    //
+    // Additive hardening on #429 ownership (no second acceptance framework):
+    //   clean root -> create workspace -> prompt auto-bootstrap -> readiness READY
+    //   -> upload fixture -> extract PROCESSED -> start analysis job
+    //   -> bounded poll to terminal -> successCount > 0 / failedCount = 0.
+    //
+    // Constraints (challenge cases 2/3):
+    // - Never direct filesystem prompt write to fake bootstrap; only the production
+    //   workspace/create + readiness + analysis public/application boundary.
+    // - Never direct INSERT setting / document_analysis / processing_job.
+    // - The default stub/offline is the production-supported fallback
+    //   (StubLlmClientConfiguration @ConditionalOnMissingBean), not a test-only
+    //   service shortcut: readiness proves provider=stub/model=offline via the
+    //   production configuration loader, and job success proves the same seam ran.
+
+    void documentAnalysisJourney() {
+        var readiness = http.get("/api/v1/analysis/readiness");
+        if (readiness.status() != 200) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "analysis readiness HTTP " + readiness.status());
+            return;
+        }
+        String readinessBody = readiness.body();
+        if (readinessBody.contains("/Users/") || readinessBody.contains("/home/")
+                || readinessBody.contains("/tmp/") || readinessBody.contains("Exception")) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "analysis readiness leaks path or exception material");
+            return;
+        }
+        JsonNode data = readiness.json(http.mapper()).path("data");
+        if (!data.path("analysisReady").asBoolean(false)) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "fresh workspace analysisReady=false promptStatus="
+                            + data.path("promptStatus").asText(""));
+            return;
+        }
+        if (!"READY".equals(data.path("promptStatus").asText(""))) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "fresh workspace promptStatus=" + data.path("promptStatus").asText(""));
+            return;
+        }
+        if (!data.path("settingsValid").asBoolean(false)) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "fresh workspace settings invalid");
+            return;
+        }
+        String provider = data.path("provider").asText("");
+        String model = data.path("model").asText("");
+        if (!"stub".equals(provider) || !"offline".equals(model)) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "expected production offline fallback provider=stub/model=offline, got "
+                            + provider + "/" + model);
+            return;
+        }
+        var started = http.postJson("/api/v1/analysis/jobs", "{}");
+        if (started.status() != 202) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "analysis start HTTP " + started.status() + " " + truncate(started.body()));
+            return;
+        }
+        String jobId = started.json(http.mapper()).path("data").path("jobId").asText("");
+        int totalCount = started.json(http.mapper()).path("data").path("totalCount").asInt(-1);
+        if (jobId.isBlank()) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "analysis start missing jobId");
+            return;
+        }
+        if (totalCount <= 0) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "analysis start totalCount=" + totalCount + " (fresh workspace must have eligible docs)");
+            return;
+        }
+        JsonNode terminal = pollWithDeadline(
+                () -> {
+                    var status = http.get("/api/v1/analysis/jobs/" + jobId);
+                    if (status.status() != 200) {
+                        return null;
+                    }
+                    return status.json(http.mapper()).path("data");
+                },
+                node -> node != null && List.of("COMPLETED", "FAILED").contains(
+                        node.path("status").asText("")),
+                JOB_DEADLINE);
+        if (terminal == null || !"COMPLETED".equals(terminal.path("status").asText(""))) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "analysis job did not reach COMPLETED within deadline, job=" + jobId);
+            return;
+        }
+        int successCount = terminal.path("successCount").asInt(-1);
+        int failedCount = terminal.path("failedCount").asInt(-1);
+        if (successCount <= 0 || failedCount != 0) {
+            report.add("document-analysis", ProductAcceptanceReport.Verdict.FAIL,
+                    "analysis job successCount=" + successCount + " failedCount=" + failedCount
+                            + " (requires success>0/failed=0)");
+            return;
+        }
+        report.add("document-analysis", ProductAcceptanceReport.Verdict.PASS,
+                "fresh-workspace bootstrap READY (stub/offline) + job " + jobId
+                        + " success=" + successCount + " failed=0 total=" + totalCount);
     }
 
     // §C baseline retrieval (provider-free FTS / inspect / locator) -----------

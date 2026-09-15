@@ -9,7 +9,7 @@
 services:
   llm-wiki-km:
     build: .
-    image: llm-wiki-km:0.1.0
+    image: llm-wiki-km:0.1.1
     network_mode: host
     env_file:
       - /etc/llm-wiki-km/owner.env

@@ -28,18 +28,18 @@ class SystemStatusControllerTest {
     @Test
     void returnsReadyStatusAndVersion() throws Exception {
         when(systemService.getStatus()).thenReturn(
-                new SystemStatusResponse("READY", "0.1.0", 1L, "Personal Knowledge", "READY"));
+                new SystemStatusResponse("READY", "0.1.1", 1L, "Personal Knowledge", "READY"));
 
         mockMvc.perform(get("/api/v1/system/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("READY"))
-                .andExpect(jsonPath("$.data.version").value("0.1.0"));
+                .andExpect(jsonPath("$.data.version").value("0.1.1"));
     }
 
     @Test
     void returnsErrorStatusWhenDatabaseUnavailable() throws Exception {
         when(systemService.getStatus()).thenReturn(
-                new SystemStatusResponse("ERROR", "0.1.0", null, null, "ERROR"));
+                new SystemStatusResponse("ERROR", "0.1.1", null, null, "ERROR"));
 
         mockMvc.perform(get("/api/v1/system/status"))
                 .andExpect(status().isOk())

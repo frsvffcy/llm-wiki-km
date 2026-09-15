@@ -109,7 +109,7 @@ class ProductAcceptanceFullCapabilityJourneyIntegrationTest {
 
         assertThat(report.steps()).as("harness produced no steps").isNotEmpty();
         for (String stepId : new String[]{"clean-startup", "workspace", "ingest-extract",
-                "baseline-retrieval", "embedding-projection", "governed-mutation",
+                "document-analysis", "baseline-retrieval", "embedding-projection", "governed-mutation",
                 "quality-boundary", "graph-boundary"}) {
             assertThat(verdictOf(report, stepId)).as("step %s: %s", stepId, report.steps())
                     .isEqualTo(ProductAcceptanceReport.Verdict.PASS);
