@@ -74,7 +74,10 @@ if grep -Eq '/Users/|/home/|/tmp/|C:\\|BEGIN .*PRIVATE|api[_-]?key|password|veri
   exit 1
 fi
 # Not a pasted console log: must be the TSV contract with a header.
-head -1 "$TSV" | grep -q '^group\tartifact\ttype\tversion\tscope$' || {
+# POSIX grep does not define \t (GNU grep treats it as a literal "t"), so
+# compare the exact header emitted above instead of relying on regex escapes.
+EXPECTED_HEADER="$(printf 'group\tartifact\ttype\tversion\tscope')"
+[ "$(sed -n '1p' "$TSV")" = "$EXPECTED_HEADER" ] || {
   echo "[inventory] FAIL: inventory is not the TSV contract." >&2
   exit 1
 }
