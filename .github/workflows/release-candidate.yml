@@ -1,0 +1,68 @@
+name: Release Candidate
+
+# v0.1.0 release-candidate pipeline (Refs #430).
+#
+# Default behavior is build / verify / smoke / evidence ONLY:
+#   clean candidate build (twice, bit-identical) -> manifest/provenance
+#   -> dependency inventory -> clean-install smoke -> backup/restore smoke
+#   -> #429 product-journey gate -> readiness verdict -> workflow artifacts.
+#
+# This workflow NEVER creates Git tags, GitHub Releases, public assets,
+# visibility changes, or registry publications. Publication stays A2 explicit
+# human authorization (see issue #430 section I).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-candidate:
+    name: Release candidate evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout clean tree
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build reproducible candidate twice and require bit-identical SHA-256
+        run: sh scripts/verify-reproducible-build.sh
+
+      - name: Run clean-install smoke from the candidate JAR only
+        run: sh scripts/clean-install-smoke.sh
+
+      - name: Run candidate backup to fresh-root restore and restart smoke
+        run: sh scripts/candidate-backup-restore-smoke.sh
+
+      - name: Consume the #429 product-journey gate with the candidate JAR
+        run: sh scripts/run-product-acceptance.sh --skip-build
+
+      - name: Evaluate release readiness (never fakes READY on failure or skip)
+        run: sh scripts/check-release-readiness.sh
+
+      - name: Report readiness verdict
+        if: always()
+        run: cat target/release-candidate/READINESS.md
+
+      - name: Upload release candidate bundle and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-v0.1.0
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            target/release-candidate/
+            target/release-evidence/

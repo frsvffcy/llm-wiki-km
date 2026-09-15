@@ -1,0 +1,180 @@
+#!/bin/sh
+# Clean-install smoke from the released artifact (Refs #430 §E).
+#
+# Proves the candidate JAR boots without the Maven reactor:
+#   new temp install root + only candidate JAR
+#   -> java -jar candidate.jar
+#   -> clean Flyway migration
+#   -> loopback readiness / system status
+#   -> #429 LOCAL_ONLY baseline subset (workspace -> vault-lint read-only)
+#
+# Forbidden: project classpath launch, working-tree resources as runtime deps,
+# developer DB/vault/archive/config, sleep-luck waits.
+# Shutdown must leave no orphan process / locked DB (a second start proves it).
+#
+# Usage:
+#   scripts/clean-install-smoke.sh [--jar <path>] [--keep-root]
+set -eu
+
+JAR=""
+KEEP_ROOT=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --jar) JAR="$2"; shift 2 ;;
+    --keep-root) KEEP_ROOT=1; shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+fail() { echo "[install-smoke] FAIL: $1" >&2; exit 1; }
+
+if [ -z "$JAR" ]; then
+  JAR="$(ls -t target/release-candidate/*.jar 2>/dev/null | head -1 || true)"
+fi
+[ -n "${JAR:-}" ] && [ -f "$JAR" ] || fail "candidate JAR missing; run scripts/build-release-candidate.sh first"
+case "$JAR" in
+  *target/release-candidate/*) ;;
+  *) fail "must use the release-candidate JAR, not $JAR" ;;
+esac
+
+JAVA_SPEC="$(java -XshowSettings:properties -version 2>&1 | sed -n 's/^ *java.specification.version = //p')"
+[ "$JAVA_SPEC" = "21" ] || fail "requires Java 21; found ${JAVA_SPEC:-unknown}"
+
+INSTALL_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/candidate-install.XXXXXX")"
+if [ "$KEEP_ROOT" -eq 0 ]; then
+  trap 'rm -rf "$INSTALL_ROOT"' EXIT INT TERM
+fi
+echo "[install-smoke] install root: $INSTALL_ROOT"
+
+DB_PATH="$INSTALL_ROOT/data/knowledge.db"
+GRAPH_PATH="$INSTALL_ROOT/graph"
+WORKSPACE_ROOT="$INSTALL_ROOT/ws"
+mkdir -p "$INSTALL_ROOT/data" "$GRAPH_PATH" "$WORKSPACE_ROOT"
+
+# Documented contract only: fresh files, never developer data/.
+[ -e "$DB_PATH" ] && fail "install root is not fresh"
+PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')"
+LOG="$INSTALL_ROOT/install-smoke.log"
+
+echo "[install-smoke] starting candidate JAR on 127.0.0.1:$PORT ..."
+KNOWLEDGE_DB_PATH="$DB_PATH" \
+GRAPH_PROJECTION_ENABLED="false" \
+DEPLOYMENT_FORWARDER_TARGET="127.0.0.1:$PORT" \
+  java -jar "$JAR" --server.port="$PORT" >"$LOG" 2>&1 &
+PID=$!
+cleanup() {
+  if kill -0 "$PID" 2>/dev/null; then
+    kill "$PID" 2>/dev/null || true
+    WAIT=0
+    while kill -0 "$PID" 2>/dev/null && [ "$WAIT" -lt 20 ]; do
+      sleep 1
+      WAIT=$((WAIT + 1))
+    done
+    if kill -0 "$PID" 2>/dev/null; then
+      kill -9 "$PID" 2>/dev/null || true
+    fi
+    wait "$PID" 2>/dev/null || true
+  fi
+}
+trap 'cleanup; [ "$KEEP_ROOT" -eq 0 ] && rm -rf "$INSTALL_ROOT"' EXIT INT TERM
+
+# Bounded readiness poll (no sleep-luck): Flyway must have migrated and the
+# loopback listener must serve system status.
+echo "[install-smoke] waiting for loopback readiness (deadline 90s)..."
+READY=""
+END=$(( $(date +%s) + 90 ))
+while [ "$(date +%s)" -lt "$END" ]; do
+  if ! kill -0 "$PID" 2>/dev/null; then
+    echo "--- candidate log ---" >&2
+    tail -50 "$LOG" >&2 || true
+    fail "candidate exited during startup"
+  fi
+  CODE="$(curl --silent --output /tmp/install-smoke-status.json --write-out '%{http_code}' \
+    "http://127.0.0.1:$PORT/api/v1/system/status" 2>/dev/null || echo 000)"
+  if [ "$CODE" = "200" ]; then
+    READY="yes"
+    break
+  fi
+  sleep 1
+done
+[ "$READY" = "yes" ] || fail "candidate not ready within deadline (see $LOG)"
+
+STATUS="$(python3 -c 'import json; print(json.load(open("/tmp/install-smoke-status.json"))["data"]["status"])')"
+[ "$STATUS" = "NOT_INITIALIZED" ] || fail "clean install must start NOT_INITIALIZED, got $STATUS"
+echo "[install-smoke] clean Flyway startup: system status NOT_INITIALIZED"
+
+# #429 LOCAL_ONLY baseline subset over public /api/v1 only.
+WS_BODY="$(python3 -c 'import json; print(json.dumps({"name":"install-smoke-ws","rootPath":"'"$WORKSPACE_ROOT"'"}))')"
+CODE="$(curl --silent --output /tmp/install-smoke-ws.json --write-out '%{http_code}' \
+  -X POST "http://127.0.0.1:$PORT/api/v1/workspaces" \
+  -H 'Content-Type: application/json' --data "$WS_BODY" 2>/dev/null || echo 000)"
+[ "$CODE" = "201" ] || fail "workspace create HTTP $CODE"
+ACTIVE_ROOT="$(python3 -c 'import json,urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:'"$PORT"'/api/v1/workspaces/current"))["data"]["workspace"]["rootPath"])')"
+# macOS /var is a symlink to /private/var: compare canonical paths, not raw strings.
+CANON_ACTIVE="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$ACTIVE_ROOT")"
+CANON_EXPECTED="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$WORKSPACE_ROOT")"
+[ "$CANON_ACTIVE" = "$CANON_EXPECTED" ] || fail "active root is not the temp install root"
+
+CODE="$(curl --silent --output /tmp/install-smoke-status2.json --write-out '%{http_code}' \
+  "http://127.0.0.1:$PORT/api/v1/system/status" 2>/dev/null || echo 000)"
+[ "$CODE" = "200" ] || fail "system status after workspace HTTP $CODE"
+STATUS2="$(python3 -c 'import json; print(json.load(open("/tmp/install-smoke-status2.json"))["data"]["status"])')"
+[ "$STATUS2" = "READY" ] || fail "expected READY after workspace create, got $STATUS2"
+
+CODE="$(curl --silent --output /tmp/install-smoke-deploy.json --write-out '%{http_code}' \
+  "http://127.0.0.1:$PORT/api/v1/system/deployment" 2>/dev/null || echo 000)"
+[ "$CODE" = "200" ] || fail "deployment readiness HTTP $CODE"
+
+CODE="$(curl --silent --output /tmp/install-smoke-lint.json --write-out '%{http_code}' \
+  "http://127.0.0.1:$PORT/api/v1/vault-lint/findings" 2>/dev/null || echo 000)"
+[ "$CODE" = "200" ] || fail "vault-lint findings HTTP $CODE"
+if grep -Eq '/Users/|/home/|Exception' /tmp/install-smoke-lint.json; then
+  fail "vault-lint leaks path or exception material"
+fi
+echo "[install-smoke] baseline subset PASS: workspace -> READY -> deployment -> vault-lint read-only"
+
+# Graceful shutdown must release the DB/Graph lock: stopping here and starting
+# again on the same root proves no orphan process / locked resource.
+cleanup
+trap - EXIT INT TERM
+sleep 2
+if kill -0 "$PID" 2>/dev/null; then
+  fail "orphan candidate process after shutdown"
+fi
+echo "[install-smoke] shutdown clean: no orphan process"
+
+PORT2="$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')"
+LOG2="$INSTALL_ROOT/install-smoke-restart.log"
+KNOWLEDGE_DB_PATH="$DB_PATH" \
+GRAPH_PROJECTION_ENABLED="false" \
+DEPLOYMENT_FORWARDER_TARGET="127.0.0.1:$PORT2" \
+  java -jar "$JAR" --server.port="$PORT2" >"$LOG2" 2>&1 &
+PID2=$!
+END=$(( $(date +%s) + 90 ))
+READY2=""
+while [ "$(date +%s)" -lt "$END" ]; do
+  if ! kill -0 "$PID2" 2>/dev/null; then
+    tail -50 "$LOG2" >&2 || true
+    fail "candidate restart exited (locked DB?)"
+  fi
+  CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    "http://127.0.0.1:$PORT2/api/v1/system/status" 2>/dev/null || echo 000)"
+  if [ "$CODE" = "200" ]; then
+    READY2="yes"
+    break
+  fi
+  sleep 1
+done
+[ "$READY2" = "yes" ] || fail "candidate restart not ready (locked resource?)"
+kill "$PID2" 2>/dev/null || true
+WAIT=0
+while kill -0 "$PID2" 2>/dev/null && [ "$WAIT" -lt 20 ]; do sleep 1; WAIT=$((WAIT+1)); done
+if kill -0 "$PID2" 2>/dev/null; then kill -9 "$PID2" 2>/dev/null || true; fi
+wait "$PID2" 2>/dev/null || true
+echo "[install-smoke] restart PASS: same DB reopened, no locked resource"
+
+if [ "$KEEP_ROOT" -eq 0 ]; then
+  rm -rf "$INSTALL_ROOT"
+  trap - EXIT INT TERM
+fi
+echo "[install-smoke] PASS"
