@@ -19,6 +19,13 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Reproducible release artifact contract (Refs #430 §B).
+             Pinned UTC timestamp for deterministic JAR bytes: Maven JAR /
+             Spring Boot repackage plugins normalize entry timestamps from this
+             single authority. It is not runtime currentness data and must never
+             be replaced by dynamic build-time data to chase bit-identical bytes.
+             Procedure version: release-candidate-procedure-v1. -->
+        <project.build.outputTimestamp>2026-09-15T00:00:00Z</project.build.outputTimestamp>
         <sqlite-jdbc.version>3.50.3.0</sqlite-jdbc.version>
         <tika.version>3.2.3</tika.version>
         <pdfbox.version>3.0.5</pdfbox.version>
