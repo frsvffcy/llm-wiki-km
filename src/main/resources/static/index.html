@@ -242,19 +242,21 @@
         </div>
         <form id="inbox-filter-form" novalidate>
           <div class="field-group">
-            <label for="inbox-status-filter">狀態篩選</label>
+            <label for="inbox-status-filter">文件狀態篩選</label>
             <select id="inbox-status-filter" name="status">
               <option value="">全部</option>
               <option value="PENDING">待處理</option>
-              <option value="PROCESSING">處理中</option>
-              <option value="PROCESSED">已處理</option>
-              <option value="ARCHIVED">已封存</option>
               <option value="DUPLICATE">重複檔案</option>
-              <option value="UNSUPPORTED">不支援的格式</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="inbox-parse-status-filter">抽取狀態篩選</label>
+            <select id="inbox-parse-status-filter" name="parseStatus">
+              <option value="">全部</option>
+              <option value="PROCESSED">已抽取</option>
+              <option value="FAILED">抽取失敗</option>
+              <option value="UNSUPPORTED">不支援抽取</option>
               <option value="NEED_OCR">需要 OCR</option>
-              <option value="FAILED">處理失敗</option>
-              <option value="DELETED">已刪除</option>
-              <option value="SUPERSEDED">已由新版取代</option>
             </select>
           </div>
           <button id="inbox-filter-submit" type="submit">套用篩選</button>

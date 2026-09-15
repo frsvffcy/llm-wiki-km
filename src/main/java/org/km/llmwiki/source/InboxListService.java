@@ -29,22 +29,29 @@ public class InboxListService {
         this.documentRepository = documentRepository;
     }
 
-    public PageResponse<List<InboxDocumentRow>> list(String status, String extension,
+    /**
+     * Inbox list contract (#451): {@code status} filters the document lifecycle column
+     * ({@code DOCUMENT.STATUS}) and {@code parseStatus} filters the independent extraction
+     * column ({@code DOCUMENT.PARSE_STATUS}). Neither filter is mapped onto the other column.
+     */
+    public PageResponse<List<InboxDocumentRow>> list(String status, String parseStatus, String extension,
                                                      String sort, Integer page, Integer size) {
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
                 .orElseThrow(NoActiveWorkspaceException::new);
 
-        String statusFilter = validateStatus(status);
+        String statusFilter = validateStatus(status, "status");
+        String parseStatusFilter = validateStatus(parseStatus, "parseStatus");
         String extensionFilter = normalizeExtension(extension);
         String orderBy = resolveOrderBy(sort);
         int pageNumber = requiredPage(page);
         int pageSize = boundedSize(size);
 
-        long totalElements = documentRepository.countInboxDocuments(workspace.id(), statusFilter, extensionFilter);
+        long totalElements = documentRepository.countInboxDocuments(workspace.id(), statusFilter,
+                parseStatusFilter, extensionFilter);
         List<InboxDocumentRow> items = totalElements == 0
                 ? List.of()
-                : documentRepository.findInboxDocuments(workspace.id(), statusFilter, extensionFilter,
-                        orderBy, pageSize, pageNumber * pageSize);
+                : documentRepository.findInboxDocuments(workspace.id(), statusFilter, parseStatusFilter,
+                        extensionFilter, orderBy, pageSize, pageNumber * pageSize);
 
         return PageResponse.of(items, pageNumber, pageSize, totalElements);
     }
@@ -55,7 +62,7 @@ public class InboxListService {
         return documentRepository.findInboxDocument(workspace.id(), documentId);
     }
 
-    private static String validateStatus(String status) {
+    private static String validateStatus(String status, String paramName) {
         if (status == null || status.isBlank()) {
             return null;
         }
@@ -63,7 +70,7 @@ public class InboxListService {
         try {
             return DocumentStatus.valueOf(normalized).name();
         } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException("Unknown status filter: " + status);
+            throw new IllegalArgumentException("Unknown " + paramName + " filter: " + status);
         }
     }
 

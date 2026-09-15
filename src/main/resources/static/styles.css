@@ -383,6 +383,13 @@ button:disabled { cursor: wait; opacity: 0.62; }
 .status-badge--unsupported,
 .status-badge--need-ocr { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
 .status-badge--failed { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+/* #451: extraction lifecycle badge tones mirror the lifecycle palette. */
+.status-badge--parse-processed { background: var(--accent-soft); color: var(--accent-dark); border-color: var(--accent); }
+.status-badge--parse-unsupported,
+.status-badge--parse-need-ocr { background: var(--warning-soft); color: var(--warning); border-color: var(--warning); }
+.status-badge--parse-failed { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+.status-badge--parse-not-extracted { background: var(--paper); color: var(--muted); }
+.inbox-item .status-badge + .status-badge { margin-left: 6px; }
 
 .inbox-batch-result { margin-top: 10px; }
 .inbox-batch-summary { font-weight: 600; }

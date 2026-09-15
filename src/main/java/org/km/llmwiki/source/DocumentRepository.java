@@ -204,8 +204,9 @@ public class DocumentRepository {
                 .execute();
     }
 
-    public long countInboxDocuments(long workspaceId, String statusFilter, String extensionFilter) {
-        Condition where = inboxBaseCondition(workspaceId, statusFilter, extensionFilter);
+    public long countInboxDocuments(long workspaceId, String statusFilter, String parseStatusFilter,
+                                      String extensionFilter) {
+        Condition where = inboxBaseCondition(workspaceId, statusFilter, parseStatusFilter, extensionFilter);
         Integer count = dsl.selectCount()
                 .from(DOCUMENT)
                 .where(where)
@@ -214,8 +215,9 @@ public class DocumentRepository {
     }
 
     public List<InboxDocumentRow> findInboxDocuments(long workspaceId, String statusFilter,
-                                                     String extensionFilter, String orderBy, int limit, int offset) {
-        Condition where = inboxBaseCondition(workspaceId, statusFilter, extensionFilter);
+                                                      String parseStatusFilter, String extensionFilter,
+                                                      String orderBy, int limit, int offset) {
+        Condition where = inboxBaseCondition(workspaceId, statusFilter, parseStatusFilter, extensionFilter);
         var step = dsl.select(
                         DOCUMENT.ID,
                         DOCUMENT.FILE_NAME,
@@ -337,12 +339,24 @@ public class DocumentRepository {
                 .execute();
     }
 
-    private static Condition inboxBaseCondition(long workspaceId, String statusFilter, String extensionFilter) {
+    /**
+     * Inbox state contract (#451): {@code DOCUMENT.STATUS} is the document lifecycle
+     * (production writes {@code PENDING}/{@code DUPLICATE}/{@code DELETED}/{@code SUPERSEDED};
+     * {@code DELETED}/{@code SUPERSEDED}/{@code ARCHIVED} are excluded from the inbox projection)
+     * while {@code DOCUMENT.PARSE_STATUS} is the independent extraction lifecycle
+     * ({@code NULL} = never extracted, {@code PROCESSED}/{@code FAILED}/{@code UNSUPPORTED}/
+     * {@code NEED_OCR}). The two filters each apply to their own authoritative column only.
+     */
+    private static Condition inboxBaseCondition(long workspaceId, String statusFilter,
+                                                String parseStatusFilter, String extensionFilter) {
         Condition condition = DOCUMENT.WORKSPACE_ID.eq((int) workspaceId)
                 .and(DOCUMENT.SOURCE_PATH.like("inbox/%"))
                 .and(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED", "ARCHIVED"));
         if (statusFilter != null) {
             condition = condition.and(DOCUMENT.STATUS.eq(statusFilter));
+        }
+        if (parseStatusFilter != null) {
+            condition = condition.and(DOCUMENT.PARSE_STATUS.eq(parseStatusFilter));
         }
         if (extensionFilter != null) {
             condition = condition.and(DOCUMENT.EXTENSION.eq(extensionFilter));

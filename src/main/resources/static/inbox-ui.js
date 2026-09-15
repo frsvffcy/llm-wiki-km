@@ -1,6 +1,7 @@
 /**
- * Inbox Browser surface (#352): a first-mile projection of the existing `/api/v1/inbox`
- * and `/api/v1/documents` contracts — paged/filtered document list with typed statuses,
+ * Inbox Browser surface (#352, #451): a first-mile projection of the existing `/api/v1/inbox`
+ * and `/api/v1/documents` contracts — paged/filtered document list with the two typed
+ * backend states (`status` document lifecycle + `parseStatus` extraction lifecycle),
  * single/batch upload, rescan, soft delete, the existing extraction trigger, and the
  * bounded extracted-content preview. The UI only projects backend-owned typed state:
  * no derived status machine, no automatic follow-up processing after upload, no new
@@ -16,6 +17,18 @@ export const DOCUMENT_STATUSES = Object.freeze([
   "UNSUPPORTED", "NEED_OCR", "FAILED", "DELETED", "SUPERSEDED"
 ]);
 
+/**
+ * Inbox state contract (#451): `status` is the document lifecycle and `parseStatus`
+ * is the independent extraction lifecycle. Only PENDING/DUPLICATE can appear in the
+ * inbox projection (DELETED/SUPERSEDED/ARCHIVED are excluded by the backend base
+ * condition; PROCESSING/PROCESSED/FAILED/UNSUPPORTED/NEED_OCR are never written to
+ * `document.status` in production). The lifecycle filter must not offer extraction
+ * states, and extraction states filter `document.parse_status` only.
+ */
+export const LIFECYCLE_FILTER_STATUSES = Object.freeze(["PENDING", "DUPLICATE"]);
+
+export const PARSE_STATUSES = Object.freeze(["PROCESSED", "FAILED", "UNSUPPORTED", "NEED_OCR"]);
+
 const STATUS_LABELS = Object.freeze({
   PENDING: "待處理",
   PROCESSING: "處理中",
@@ -28,6 +41,15 @@ const STATUS_LABELS = Object.freeze({
   DELETED: "已刪除",
   SUPERSEDED: "已由新版取代"
 });
+
+const PARSE_STATUS_LABELS = Object.freeze({
+  PROCESSED: "已抽取",
+  FAILED: "抽取失敗",
+  UNSUPPORTED: "不支援抽取",
+  NEED_OCR: "需要 OCR"
+});
+
+const NOT_EXTRACTED_LABEL = "尚未抽取";
 
 /** Only these statuses may be removed, exactly as the backend soft-delete contract allows. */
 export const DELETABLE_STATUSES = Object.freeze([
@@ -55,6 +77,17 @@ const GENERIC_ERROR = ["收件匣操作失敗", "發生未預期的問題，請�
 export function statusLabel(status) {
   const key = typeof status === "string" ? status.toUpperCase() : "";
   return STATUS_LABELS[key] || text(status);
+}
+
+export function parseStatusLabel(parseStatus) {
+  const key = typeof parseStatus === "string" ? parseStatus.toUpperCase() : "";
+  if (!key) return NOT_EXTRACTED_LABEL;
+  return PARSE_STATUS_LABELS[key] || text(parseStatus);
+}
+
+export function extractActionLabel(parseStatus) {
+  const key = typeof parseStatus === "string" ? parseStatus.toUpperCase() : "";
+  return key === "PROCESSED" ? "重新抽取" : "執行抽取";
 }
 
 export function isDeletable(status) {
@@ -144,13 +177,18 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
     const item = documentRef.createElement("li");
     item.className = "inbox-item";
     const statusKey = typeof data.status === "string" ? data.status.toUpperCase() : "";
+    const parseKey = typeof data.parseStatus === "string" ? data.parseStatus.toUpperCase() : "";
     appendTextElement(documentRef, item, "p", "inbox-file-name", text(data.fileName));
     appendTextElement(documentRef, item, "p", "inbox-item-meta",
       `${text(data.extension)} · ${formatFileSize(data.fileSize)} · 建立於 ${text(data.createdAt)}`);
     const badge = appendTextElement(documentRef, item, "span",
       `status-badge status-badge--${statusKey.toLowerCase() || "unknown"}`,
-      statusLabel(data.status));
+      `文件狀態：${statusLabel(data.status)}`);
     badge.setAttribute("data-status", statusKey);
+    const parseBadge = appendTextElement(documentRef, item, "span",
+      `status-badge status-badge--parse-${parseKey.toLowerCase() || "not-extracted"}`,
+      `抽取狀態：${parseStatusLabel(data.parseStatus)}`);
+    parseBadge.setAttribute("data-parse-status", parseKey);
     if (data.errorCode) {
       appendTextElement(documentRef, item, "p", "inbox-item-error",
         `${text(data.errorCode)}${data.errorMessage ? `：${text(data.errorMessage)}` : ""}`);
@@ -161,7 +199,7 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
       const extract = documentRef.createElement("button");
       extract.type = "button";
       extract.className = "inbox-extract";
-      extract.textContent = "執行抽取";
+      extract.textContent = extractActionLabel(data.parseStatus);
       extract.addEventListener("click", () => actions.onExtract(data.documentId));
       actionRow.append(extract);
     }
@@ -250,7 +288,7 @@ async function readEnvelope(response) {
 }
 
 export function createInboxController(elements, fetchImpl = fetch, documentRef = document) {
-  const state = { page: 0, status: "", documentId: null, previewPage: 0 };
+  const state = { page: 0, status: "", parseStatus: "", documentId: null, previewPage: 0 };
   let inFlight = false;
 
   function showTypedError(error) {
@@ -262,9 +300,11 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     // Workspace isolation: nothing from the previous workspace survives a switch.
     state.page = 0;
     state.status = "";
+    state.parseStatus = "";
     state.documentId = null;
     state.previewPage = 0;
     elements.statusFilter.value = "";
+    if (elements.parseStatusFilter) elements.parseStatusFilter.value = "";
     elements.list.replaceChildren();
     elements.batchResult.hidden = true;
     elements.batchResult.replaceChildren();
@@ -280,6 +320,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     try {
       const params = new URLSearchParams({ page: String(state.page), size: String(PAGE_SIZE) });
       if (state.status) params.set("status", state.status);
+      if (state.parseStatus) params.set("parseStatus", state.parseStatus);
       const response = await fetchImpl(`${INBOX_ENDPOINT}?${params.toString()}`);
       const envelope = await readEnvelope(response);
       if (!response.ok) {
@@ -453,6 +494,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     event.preventDefault();
     state.page = 0;
     state.status = elements.statusFilter.value;
+    state.parseStatus = elements.parseStatusFilter ? elements.parseStatusFilter.value : "";
     await refresh();
   }
 
@@ -505,6 +547,7 @@ function elementsFrom(documentRef) {
   return {
     filterForm: byId("inbox-filter-form"),
     statusFilter: byId("inbox-status-filter"),
+    parseStatusFilter: byId("inbox-parse-status-filter"),
     list: byId("inbox-list"),
     empty: byId("inbox-empty"),
     hint: byId("inbox-hint"),

@@ -34,11 +34,12 @@ public class InboxController {
     @GetMapping
     public PageResponse<List<InboxDocumentRow>> list(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String parseStatus,
             @RequestParam(required = false) String extension,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        return inboxListService.list(status, extension, sort, page, size);
+        return inboxListService.list(status, parseStatus, extension, sort, page, size);
     }
 
     @org.springframework.web.bind.annotation.DeleteMapping("/files/{documentId}")
