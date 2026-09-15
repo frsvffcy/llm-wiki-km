@@ -67,7 +67,7 @@ provision_pinned_vector_native() {
   VECTOR_LIB="$DEST_DIR/$LIB_NAME"
   [ -f "$VECTOR_LIB" ] || { echo "[acceptance] FAIL: $LIB_NAME missing after extract" >&2; exit 1; }
   echo "[acceptance] running JDBC smoke on $VECTOR_LIB..."
-  sh scripts/sqlite-vec-jdbc-smoke.sh "$VECTOR_LIB"
+  scripts/sqlite-vec-jdbc-smoke.sh "$VECTOR_LIB"
   # Absolute path: the JAR subprocess must resolve it independent of cwd.
   case "$VECTOR_LIB" in
     /*) VECTOR_EXTENSION_PATH="$VECTOR_LIB" ;;
@@ -100,7 +100,7 @@ if [ -n "${VECTOR_EXTENSION_PATH:-}" ] && [ -f "${VECTOR_EXTENSION_PATH:-}" ]; t
     *) export VECTOR_EXTENSION_PATH="$(pwd)/$VECTOR_EXTENSION_PATH" ;;
   esac
   export VECTOR_CAPABILITY_ENABLED="true"
-  sh scripts/sqlite-vec-jdbc-smoke.sh "$VECTOR_EXTENSION_PATH"
+  scripts/sqlite-vec-jdbc-smoke.sh "$VECTOR_EXTENSION_PATH"
 elif [ "$WITH_VECTOR_NATIVE" -eq 1 ]; then
   provision_pinned_vector_native
 else

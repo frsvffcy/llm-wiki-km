@@ -225,6 +225,14 @@ class ReleaseCandidateContractTest {
     }
 
     @Test
+    void productAcceptanceExecutesBashSmokeThroughItsShebang() throws Exception {
+        String acceptance = read(Path.of("scripts/run-product-acceptance.sh"));
+        assertThat(acceptance).contains("scripts/sqlite-vec-jdbc-smoke.sh \"$VECTOR_LIB\"");
+        assertThat(acceptance).contains("scripts/sqlite-vec-jdbc-smoke.sh \"$VECTOR_EXTENSION_PATH\"");
+        assertThat(acceptance).doesNotContain("sh scripts/sqlite-vec-jdbc-smoke.sh");
+    }
+
+    @Test
     void procedureDocumentMatchesExecutableAuthority() throws Exception {
         String procedure = read(PROCEDURE);
         assertThat(procedure).contains("release-candidate-procedure-v1");
