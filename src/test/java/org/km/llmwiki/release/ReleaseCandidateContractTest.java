@@ -82,9 +82,20 @@ class ReleaseCandidateContractTest {
 
     @Test
     void runtimeVersionMatchesMavenIdentity() throws Exception {
+        // Refs #456 R1: no second version literal in the runtime path; the
+        // generated version.properties (filtered from pom.xml) is the single
+        // authority consumed through ApplicationVersion.
         String service = read(Path.of("src/main/java/org/km/llmwiki/system/SystemStatusService.java"));
-        assertThat(service).contains("return \"0.1.1\"");
         assertThat(service).doesNotContain("return \"0.1.0\"");
+        assertThat(service).doesNotContain("return \"0.1.1\"");
+        assertThat(service).contains("ApplicationVersion");
+        String provider = read(Path.of("src/main/java/org/km/llmwiki/system/ApplicationVersion.java"));
+        assertThat(provider).contains("version.properties");
+        assertThat(provider).contains("Implementation-Version");
+        String template = read(Path.of("src/main/resources/version.properties"));
+        assertThat(template).contains("app.version=@project.version@");
+        String pom = read(Path.of("pom.xml"));
+        assertThat(pom).contains("version.properties");
     }
 
     @Test
