@@ -17,7 +17,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /**
  * Built-JAR process acceptance with controlled restart (Refs #429 §B, §G).
  *
- * <p>Preferred release path: clean built {@code target/llm-wiki-km-0.1.1.jar} as
+ * <p>Preferred release path: the clean built {@code target/llm-wiki-km-<version>.jar}
+ * (version derived from the Maven-filtered {@code version.properties}, never a
+ * hardcoded literal — Refs #456 R1) as
  * an actual OS process over a real loopback HTTP socket with a temp knowledge
  * root. When the JAR is absent (ordinary {@code mvn test} before
  * {@code package}), the test aborts with an explicit prerequisite message
@@ -31,7 +33,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @Tag("integration")
 class ProductAcceptanceJarProcessIntegrationTest {
 
-    private static final Path JAR = Path.of("target/llm-wiki-km-0.1.1.jar");
+    private static final Path JAR = resolveCandidateJar();
     private static final Path TEMP_ROOT = createTempRoot();
     private static DeterministicAcceptanceProviderStub stub;
 
@@ -220,5 +222,31 @@ class ProductAcceptanceJarProcessIntegrationTest {
         } catch (Exception failure) {
             return "unavailable";
         }
+    }
+
+    /**
+     * Exact candidate filename derived from the Maven-filtered
+     * {@code version.properties} (Refs #456 R1/R2): a release bump never
+     * requires editing a second version literal here.
+     */
+    private static Path resolveCandidateJar() {
+        String version = null;
+        try (var stream = ProductAcceptanceJarProcessIntegrationTest.class
+                .getResourceAsStream("/version.properties")) {
+            if (stream != null) {
+                var properties = new java.util.Properties();
+                properties.load(stream);
+                version = properties.getProperty("app.version");
+            }
+        } catch (Exception ignored) {
+            // Falls through to the explicit prerequisite abort below.
+        }
+        if (version == null || version.isBlank() || version.contains("@")) {
+            // No usable build metadata (e.g. IDE without Maven filtering):
+            // point at a path that cannot exist so the suite aborts with its
+            // prerequisite message instead of proving the wrong artifact.
+            return Path.of("target/llm-wiki-km-MISSING-VERSION-METADATA.jar");
+        }
+        return Path.of("target/llm-wiki-km-" + version.strip() + ".jar");
     }
 }

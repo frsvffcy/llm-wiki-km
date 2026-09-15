@@ -17,6 +17,13 @@ artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.1.1.jar
 - Workflow / script 不得另維護第二份 `0.1.1` / `0.1.0` 常數作 version truth；`--expected-version` 僅作
   fail-closed 比對（不一致即 exit 1），不作 derive 來源。
 - `pom.xml` version 與 candidate version 不一致時 fail closed，不上傳半成品。
+- Runtime version 單一真相（Refs #456 R1）：`src/main/resources/version.properties` 由 Maven
+  filtering 自 `pom.xml` 生成（`app.version`），`system.ApplicationVersion` 是唯一讀取點
+  （packaged JAR 另比對 manifest `Implementation-Version`，不一致即啟動 fail-fast）；
+  任何 Java 不得再寫版本常數，release bump 只改 `pom.xml`。
+  Source 證明：`system.ApplicationVersionTest`（等於 pom 版本、過濾生效、拒絕未過濾佔位符）；
+  packaged 證明：`scripts/clean-install-smoke.sh` 比對 booted runtime、`Implementation-Version`、
+  `app.version` 與 Maven 四方一致。
 
 ## 2. Toolchain（pinned / documented）
 
@@ -67,10 +74,14 @@ Manifest 不含 secret、API key、owner verifier、local absolute path、worksp
 
 - Dependency / SBOM：`scripts/generate-dependency-inventory.sh`（deterministic coordinates inventory，
   較弱選項，見 §D；不貼 console log 充數）。
-- Install smoke：`scripts/clean-install-smoke.sh`（只用 candidate JAR，不用 project classpath）。
+- Install smoke：`scripts/clean-install-smoke.sh`（只用 candidate JAR，不用 project classpath；另驗四方版本一致，見 §1）。
 - Backup/restore smoke：`scripts/candidate-backup-restore-smoke.sh`（重用 #418 contract，針對 candidate 重驗）。
-- Readiness gate：`scripts/check-release-readiness.sh`（消費 #429 + #454 §B gate；failure/skip 阻止 READY_TO_PUBLISH；report glob 為 version-agnostic `*-product-acceptance.json`）。
-- Browser first-mile gate：`scripts/browser-first-mile-smoke.sh`（驗證 exact candidate JAR 內含 #450 + #451 修正；manual 層見 `docs/release/v0.1.1-browser-smoke-checklist.md`，不導入 headless framework）。
+- Acceptance runner：`scripts/run-product-acceptance.sh`（Refs #456 R2：exact 檔名由 Maven
+  `artifactId`＋`version` 推導，永不以 mtime 挑選；執行前驗 JAR 內部雙版本與 sidecar
+  manifest 描述的一致性；`--jar`／`--manifest` 須指向同一 Maven candidate，否則 fail-closed）。
+- Readiness gate：`scripts/check-release-readiness.sh`（消費 #429 + #454 §B gate；failure/skip 阻止 READY_TO_PUBLISH；report glob 為 version-agnostic `*-product-acceptance.json`；Refs #456 R4：強制單一 manifest/bundle、manifest version == Maven、現行 artifact SHA == manifest、逐份 report `sourceCommit` == manifest `sourceCommit`，任一缺失／格式錯誤／不一致即 `NO-GO`）。
+- Browser first-mile gate：`scripts/browser-first-mile-smoke.sh`（驗證 exact candidate JAR 內含 #450 + #451 修正；`--jar` 於 `cd` 前 canonicalize，相對／絕對路徑一致且不依賴 `$OLDPWD`，Refs #456 R3；manual 層見 `docs/release/v0.1.1-browser-smoke-checklist.md`，不導入 headless framework）。
+- Identity helpers：`scripts/release-identity.sh`（上述校驗的唯一實作；行為由 `scripts/tests/test-release-identity.sh` 迴歸鎖定，fast tier 經 `ReleaseIdentityShellContractTest` 執行）。
 - Native matrix：`docs/release/native-capability-matrix.md`。
 - Release notes：`docs/release/v0.1.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source）。
 - Workflow：`.github/workflows/release-candidate.yml`（workflow_dispatch only，contents:read，無 publish 副作用）。

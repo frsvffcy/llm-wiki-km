@@ -15,10 +15,13 @@ public class SystemStatusService {
 
     private final SQLiteConnectionProbe connectionProbe;
     private final WorkspaceService workspaceService;
+    private final ApplicationVersion applicationVersion;
 
-    public SystemStatusService(SQLiteConnectionProbe connectionProbe, WorkspaceService workspaceService) {
+    public SystemStatusService(SQLiteConnectionProbe connectionProbe, WorkspaceService workspaceService,
+            ApplicationVersion applicationVersion) {
         this.connectionProbe = connectionProbe;
         this.workspaceService = workspaceService;
+        this.applicationVersion = applicationVersion;
     }
 
     public SystemStatusResponse getStatus() {
@@ -53,7 +56,8 @@ public class SystemStatusService {
         }
     }
 
-    private static String version() {
-        return "0.1.1";
+    private String version() {
+        // Refs #456 R1: single generated authority, never a Java literal.
+        return applicationVersion.version();
     }
 }

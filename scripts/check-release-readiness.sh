@@ -7,10 +7,14 @@
 # Verdicts:
 #   READY_TO_PUBLISH — all required evidence present, hygiene PASS, no #429
 #                      FAIL, no #429 SKIP blocking FULL-GO, manifest/bundle
-#                      consistent. Publishing still requires A2 human auth.
+#                      consistent, and every comparable identity matches
+#                      (manifest version == Maven, candidate SHA == manifest,
+#                      each report sourceCommit == manifest sourceCommit).
+#                      Publishing still requires A2 human auth.
 #   CONDITIONAL      — evidence produced honestly but a bounded SKIP blocks
 #                      FULL-GO (e.g. vector native absent). Never reported READY.
-#   NO-GO            — missing evidence, hygiene failure, or any FAIL.
+#   NO-GO            — missing evidence, hygiene failure, any FAIL, or any
+#                      identity missing / malformed / mismatch (Refs #456 R4).
 #
 # Exit codes: 0 when evaluation completes (any verdict); 1 on evaluation
 # failure (missing toolchain, unreadable evidence — never produces READY);
@@ -19,7 +23,11 @@
 #
 # Failure / cancelled / skipped CI jobs must never produce READY: this script
 # only writes READY_TO_PUBLISH after all checks pass in the same execution.
+# Same-runner / same-checkout coincidence is never trusted: report and
+# manifest source identities are compared field-by-field every run.
 set -eu
+
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/release-identity.sh"
 
 ENFORCE=0
 if [ "${1:-}" = "--enforce-ready" ]; then
@@ -32,10 +40,12 @@ READINESS="$OUT_DIR/READINESS.md"
 fail_eval() { echo "[readiness] FAIL: $1" >&2; exit 1; }
 
 [ -d "$OUT_DIR" ] || fail_eval "release-candidate directory missing; run scripts/build-release-candidate.sh first"
-MANIFEST_JSON="$(ls "$OUT_DIR"/*-manifest.json 2>/dev/null | head -1 || true)"
-BUNDLE="$(ls "$OUT_DIR"/*-bundle.tar.gz 2>/dev/null | head -1 || true)"
-[ -n "$MANIFEST_JSON" ] || fail_eval "manifest missing"
-[ -n "$BUNDLE" ] || fail_eval "bundle missing"
+# Exactly one manifest and one bundle: never head-1 guess between a stale
+# and a current candidate (Refs #456 R4, challenge case 7).
+MANIFEST_JSON="$(release_identity_require_single_file "$OUT_DIR" "*-manifest.json")" \
+  || fail_eval "candidate manifest missing or ambiguous"
+BUNDLE="$(release_identity_require_single_file "$OUT_DIR" "*-bundle.tar.gz")" \
+  || fail_eval "candidate bundle missing or ambiguous"
 
 BASENAME="$(basename "$MANIFEST_JSON" "-manifest.json")"
 sh scripts/check-release-bundle-hygiene.sh --bundle "$BUNDLE" --basename "$BASENAME" \
@@ -58,6 +68,51 @@ done
 EVIDENCE_DIR="target/release-evidence"
 VERDICT="READY_TO_PUBLISH"
 REASONS=""
+
+# --- Refs #456 R4: every comparable identity must agree ----------------------
+# manifest.version == Maven project.version (stale-candidate fail-closed),
+# manifest artifactFilename == this candidate file, current artifact SHA ==
+# manifest artifactSha256 (swapped-JAR fail-closed), and each acceptance
+# report sourceCommit == manifest sourceCommit (cross-checkout fail-closed).
+# Any missing / malformed / mismatch below forces NO-GO, never READY.
+_downgrade() {
+  VERDICT="NO-GO"
+  REASONS="$REASONS $1;"
+}
+MANIFEST_VERSION="$(release_identity_manifest_field "$MANIFEST_JSON" version)" \
+  || _downgrade "manifest lacks version"
+MANIFEST_FILE="$(release_identity_manifest_field "$MANIFEST_JSON" artifactFilename)" \
+  || _downgrade "manifest lacks artifactFilename"
+MANIFEST_SHA="$(release_identity_manifest_field "$MANIFEST_JSON" artifactSha256)" \
+  || _downgrade "manifest lacks artifactSha256"
+MANIFEST_COMMIT="$(release_identity_manifest_field "$MANIFEST_JSON" sourceCommit)" \
+  || _downgrade "manifest lacks sourceCommit"
+if [ -n "${MANIFEST_COMMIT:-}" ]; then
+  case "$MANIFEST_COMMIT" in
+    *[!0-9a-f]* | "") _downgrade "manifest sourceCommit malformed" ;;
+    *) [ "${#MANIFEST_COMMIT}" -eq 40 ] || _downgrade "manifest sourceCommit malformed" ;;
+  esac
+fi
+PROJECT_VERSION="$(mvn --batch-mode -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || true)"
+if [ -z "$PROJECT_VERSION" ]; then
+  fail_eval "cannot derive Maven project version for identity comparison"
+fi
+if [ -n "${MANIFEST_VERSION:-}" ] && [ "$MANIFEST_VERSION" != "$PROJECT_VERSION" ]; then
+  _downgrade "manifest version $MANIFEST_VERSION != Maven $PROJECT_VERSION (stale candidate)"
+fi
+if [ -n "${MANIFEST_FILE:-}" ] && [ "$MANIFEST_FILE" != "${BASENAME}.jar" ]; then
+  _downgrade "manifest artifactFilename $MANIFEST_FILE != ${BASENAME}.jar"
+fi
+if [ -n "${MANIFEST_FILE:-}" ]; then
+  if [ ! -f "$OUT_DIR/$MANIFEST_FILE" ]; then
+    _downgrade "candidate artifact $MANIFEST_FILE missing from $OUT_DIR"
+  elif [ -n "${MANIFEST_SHA:-}" ]; then
+    ACTUAL_SHA="$(release_identity_sha256 "$OUT_DIR/$MANIFEST_FILE")" || _downgrade "cannot hash candidate artifact"
+    if [ -n "${ACTUAL_SHA:-}" ] && [ "$ACTUAL_SHA" != "$MANIFEST_SHA" ]; then
+      _downgrade "candidate SHA $ACTUAL_SHA != manifest $MANIFEST_SHA (artifact changed without manifest update)"
+    fi
+  fi
+fi
 if [ ! -d "$EVIDENCE_DIR" ]; then
   VERDICT="CONDITIONAL"
   REASONS="no #429 release-evidence reports (run scripts/run-product-acceptance.sh --skip-build after building the candidate)"
@@ -72,6 +127,15 @@ else
     # Simpler: iterate files in shell, use python per file.
     for report in $REPORTS; do
       OVERALL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("overall","unknown"))' "$report")"
+      # Refs #456 R4: the report must prove it tested this candidate's
+      # source. Missing / malformed / mismatched sourceCommit is NO-GO,
+      # even when the journey verdict itself is FULL-GO.
+      if [ -n "${MANIFEST_COMMIT:-}" ]; then
+        if ! release_identity_cross_check_source_commit "$report" "$MANIFEST_COMMIT"; then
+          VERDICT="NO-GO"
+          REASONS="$REASONS $report source identity mismatch (see log);"
+        fi
+      fi
       case "$report" in
         *acceptance-baseline*)
           # Baseline is a provider-free subset by design: governed-mutation and

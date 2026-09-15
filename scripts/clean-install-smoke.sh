@@ -16,6 +16,8 @@
 #   scripts/clean-install-smoke.sh [--jar <path>] [--keep-root]
 set -eu
 
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/release-identity.sh"
+
 JAR=""
 KEEP_ROOT=0
 while [ $# -gt 0 ]; do
@@ -132,6 +134,25 @@ if grep -Eq '/Users/|/home/|Exception' /tmp/install-smoke-lint.json; then
   fail "vault-lint leaks path or exception material"
 fi
 echo "[install-smoke] baseline subset PASS: workspace -> READY -> deployment -> vault-lint read-only"
+
+# Refs #456 R1 (packaged proof): the booted runtime version must equal the
+# Maven project version and both JAR-internal identities. A stale candidate
+# that reports an old version fails closed here, not at publish time.
+RUNTIME_VERSION="$(python3 -c 'import json; print(json.load(open("/tmp/install-smoke-status2.json"))["data"]["version"])')"
+JAR_MANIFEST_VERSION="$(release_identity_jar_manifest_version "$JAR")" \
+  || fail "cannot read manifest Implementation-Version from $JAR"
+JAR_APP_VERSION="$(release_identity_jar_app_version "$JAR")" \
+  || fail "cannot read bundled app.version from $JAR"
+EXPECTED_VERSION="$(mvn --batch-mode -q help:evaluate -Dexpression=project.version -DforceStdout 2>/dev/null || true)"
+[ -n "${EXPECTED_VERSION:-}" ] || fail "cannot derive Maven project version"
+[ -n "${RUNTIME_VERSION:-}" ] || fail "runtime status carries no version"
+[ "$RUNTIME_VERSION" = "$EXPECTED_VERSION" ] \
+  || fail "runtime version $RUNTIME_VERSION != Maven $EXPECTED_VERSION (stale candidate?)"
+[ "$JAR_MANIFEST_VERSION" = "$EXPECTED_VERSION" ] \
+  || fail "JAR manifest $JAR_MANIFEST_VERSION != Maven $EXPECTED_VERSION"
+[ "$JAR_APP_VERSION" = "$EXPECTED_VERSION" ] \
+  || fail "JAR app.version $JAR_APP_VERSION != Maven $EXPECTED_VERSION"
+echo "[install-smoke] version identity PASS: runtime == manifest == app.version == Maven ($EXPECTED_VERSION)"
 
 # Graceful shutdown must release the DB/Graph lock: stopping here and starting
 # again on the same root proves no orphan process / locked resource.
