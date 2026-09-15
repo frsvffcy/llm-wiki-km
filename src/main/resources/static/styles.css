@@ -17,6 +17,11 @@
 
 * { box-sizing: border-box; }
 
+/* #450: HTML `hidden` is the Browser show/hide authority. Author `display:*`
+   declarations (e.g. `.empty-state { display: grid; }`) override the UA
+   `[hidden] { display: none; }`, so a global author rule is required. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   min-width: 320px;
