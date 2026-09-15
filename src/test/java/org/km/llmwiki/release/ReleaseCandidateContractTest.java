@@ -103,6 +103,8 @@ class ReleaseCandidateContractTest {
         assertThat(inventory).contains("-Dsort=true");
         assertThat(inventory).contains("group");
         assertThat(inventory).contains("artifact");
+        assertThat(inventory).contains("EXPECTED_HEADER=\"$(printf 'group\\tartifact\\ttype\\tversion\\tscope')\"");
+        assertThat(inventory).doesNotContain("grep -q '^group\\tartifact\\ttype\\tversion\\tscope$'");
         // Weaker-option documentation, not a pasted console log.
         assertThat(inventory.toLowerCase(java.util.Locale.ROOT)).contains("weaker option");
         assertThat(inventory).contains("api[_-]?key");
