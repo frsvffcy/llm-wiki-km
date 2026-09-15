@@ -1,5 +1,5 @@
 #!/bin/sh
-# v0.1.1 product-journey acceptance runner (Refs #429, #454 §B).
+# Product-journey acceptance runner (Refs #429, #454 §B; #456 R2).
 #
 # Produces the versioned golden-workspace gate:
 #   clean built JAR -> temp knowledge root -> loopback HTTP -> public /api/v1
@@ -8,6 +8,19 @@
 #
 # Usage:
 #   scripts/run-product-acceptance.sh [--skip-build] [--with-vector-native]
+#       [--jar <path>] [--manifest <path>]
+#
+# Candidate identity (Refs #456 R2): the tested JAR is NEVER chosen by mtime.
+# The exact filename is derived from the Maven authority
+# (project.artifactId + project.version); an explicit --jar must name that
+# same file. Before any suite runs, the script verifies the artifact exists,
+# its filename, its JAR-internal version (manifest Implementation-Version and
+# bundled app.version), and — when the release sidecar manifest exists — that
+# the sidecar describes this exact JAR (version, filename, SHA-256,
+# sourceCommit). A missing sidecar only warns here (plain `mvn package`
+# produces none); check-release-readiness.sh still refuses READY without a
+# consistent manifest. Stale / wrong-version / multiple-candidate states fail
+# closed instead of auto-picking one JAR.
 #
 # Without --skip-build the script builds the clean JAR first so the
 # JAR-subprocess suite (ProductAcceptanceJarProcessIntegrationTest) genuinely
@@ -23,13 +36,21 @@
 # JAR journeys can reach FULL-GO. Never downloads floating `latest`.
 set -eu
 
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/release-identity.sh"
+
+fail() { echo "[acceptance] FAIL: $1" >&2; exit 1; }
+
 SKIP_BUILD=0
 WITH_VECTOR_NATIVE=0
-for arg in "$@"; do
-  case "$arg" in
-    --skip-build) SKIP_BUILD=1 ;;
-    --with-vector-native) WITH_VECTOR_NATIVE=1 ;;
-    *) echo "[acceptance] unknown argument: $arg" >&2; exit 2 ;;
+EXPLICIT_JAR=""
+EXPLICIT_MANIFEST=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --skip-build) SKIP_BUILD=1; shift ;;
+    --with-vector-native) WITH_VECTOR_NATIVE=1; shift ;;
+    --jar) EXPLICIT_JAR="${2:-}"; [ -n "$EXPLICIT_JAR" ] || fail "--jar requires a path"; shift 2 ;;
+    --manifest) EXPLICIT_MANIFEST="${2:-}"; [ -n "$EXPLICIT_MANIFEST" ] || fail "--manifest requires a path"; shift 2 ;;
+    *) echo "[acceptance] unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
@@ -85,14 +106,58 @@ else
   echo "[acceptance] skipping build; requiring existing candidate JAR"
 fi
 
-# Version truth is Maven (no second hardcoded version): accept the current
-# versioned JAR (v0.1.1 canonical) without maintaining a second constant.
-CANDIDATE_JAR="$(ls -t target/llm-wiki-km-*.jar 2>/dev/null | head -1 || true)"
-if [ -z "$CANDIDATE_JAR" ] || [ ! -f "$CANDIDATE_JAR" ]; then
-  echo "[acceptance] FAIL: target/llm-wiki-km-*.jar missing; cannot prove JAR boundary." >&2
+# Version truth is Maven only (no second hardcoded version, no mtime pick):
+# the exact candidate filename is derived, then verified before use.
+ARTIFACT_ID="$(mvn --batch-mode -q help:evaluate -Dexpression=project.artifactId -DforceStdout)"
+PROJECT_VERSION="$(mvn --batch-mode -q help:evaluate -Dexpression=project.version -DforceStdout)"
+[ -n "${ARTIFACT_ID:-}" ] || fail "cannot derive Maven artifactId"
+[ -n "${PROJECT_VERSION:-}" ] || fail "cannot derive Maven project version"
+EXPECTED_BASENAME="$(release_identity_expected_basename "$ARTIFACT_ID" "$PROJECT_VERSION")" \
+  || fail "cannot derive expected candidate name"
+EXPECTED_FILENAME="${EXPECTED_BASENAME}.jar"
+if [ -n "$EXPLICIT_JAR" ]; then
+  CANDIDATE_JAR="$(release_identity_canonicalize "$EXPLICIT_JAR")" \
+    || fail "cannot resolve --jar $EXPLICIT_JAR"
+  release_identity_assert_regular_file "$CANDIDATE_JAR" "explicit --jar candidate" \
+    || fail "explicit --jar candidate unusable"
+  release_identity_assert_exact_filename "$CANDIDATE_JAR" "$EXPECTED_FILENAME" \
+    || fail "explicit --jar is not the Maven $PROJECT_VERSION candidate"
+elif [ -f "target/${EXPECTED_FILENAME}" ]; then
+  CANDIDATE_JAR="$(release_identity_canonicalize "target/${EXPECTED_FILENAME}")" \
+    || fail "cannot resolve target/${EXPECTED_FILENAME}"
+elif [ -f "target/release-candidate/${EXPECTED_FILENAME}" ]; then
+  CANDIDATE_JAR="$(release_identity_canonicalize "target/release-candidate/${EXPECTED_FILENAME}")" \
+    || fail "cannot resolve target/release-candidate/${EXPECTED_FILENAME}"
+else
+  echo "[acceptance] FAIL: exact candidate ${EXPECTED_FILENAME} missing; refusing to guess." >&2
+  echo "[acceptance] present files (if any):" >&2
+  ls target/llm-wiki-km-*.jar target/release-candidate/*.jar 2>/dev/null >&2 || true
+  echo "[acceptance] build the candidate first (or pass --jar with the exact file)." >&2
   exit 1
 fi
 echo "[acceptance] candidate JAR: $CANDIDATE_JAR"
+release_identity_verify_jar_internal_version "$CANDIDATE_JAR" "$PROJECT_VERSION" \
+  || fail "candidate JAR identity does not match Maven $PROJECT_VERSION"
+
+if [ -n "$EXPLICIT_MANIFEST" ]; then
+  MANIFEST_JSON="$(release_identity_canonicalize "$EXPLICIT_MANIFEST")" \
+    || fail "cannot resolve --manifest $EXPLICIT_MANIFEST"
+  release_identity_assert_regular_file "$MANIFEST_JSON" "explicit --manifest" \
+    || fail "explicit --manifest unusable"
+elif [ -f "target/release-candidate/${EXPECTED_BASENAME}-manifest.json" ]; then
+  MANIFEST_JSON="$(release_identity_canonicalize \
+    "target/release-candidate/${EXPECTED_BASENAME}-manifest.json")"
+else
+  MANIFEST_JSON=""
+fi
+if [ -n "$MANIFEST_JSON" ]; then
+  release_identity_verify_sidecar "$MANIFEST_JSON" "$PROJECT_VERSION" \
+    "$EXPECTED_FILENAME" "$CANDIDATE_JAR" \
+    || fail "sidecar manifest does not describe this exact candidate"
+  echo "[acceptance] sidecar verified: $MANIFEST_JSON"
+else
+  echo "[acceptance] WARN: no release sidecar manifest; provenance sidecar not verified here (readiness still refuses READY without it)."
+fi
 
 # Vector native provisioning happens AFTER the clean build on purpose:
 # `mvn clean` wipes target/, so any native staged under target/ before the

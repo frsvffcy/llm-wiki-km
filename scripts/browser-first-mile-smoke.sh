@@ -19,7 +19,13 @@
 #
 # Default JAR is the newest target/release-candidate/*.jar (Maven version truth;
 # no second hardcoded version). Exits 0 on PASS, 1 on FAIL.
+#
+# Path handling (Refs #456 R3): the input is canonicalized to an absolute path
+# BEFORE any directory change, so relative and absolute --jar inputs resolve
+# identically and never depend on $OLDPWD or the caller's later cwd.
 set -eu
+
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/release-identity.sh"
 
 JAR=""
 while [ $# -gt 0 ]; do
@@ -36,6 +42,10 @@ if [ -z "$JAR" ]; then
   JAR="$(ls -t target/release-candidate/*.jar 2>/dev/null | head -1 || true)"
 fi
 [ -n "${JAR:-}" ] && [ -f "$JAR" ] || fail "candidate JAR missing; run scripts/build-release-candidate.sh first"
+# Canonicalize before cd: absolute inputs stay absolute, relative inputs anchor
+# to the caller's cwd now — $OLDPWD is never consulted (Refs #456 R3).
+JAR="$(release_identity_canonicalize "$JAR")" || fail "cannot resolve candidate JAR path: ${JAR:-<empty>}"
+[ -f "$JAR" ] || fail "candidate JAR missing; run scripts/build-release-candidate.sh first"
 case "$JAR" in
   *target/release-candidate/*) ;;
   *) fail "must use the release-candidate JAR, not $JAR" ;;
@@ -44,8 +54,9 @@ echo "[browser-smoke] candidate: $JAR"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/browser-smoke.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT INT TERM
+START_DIR="$(pwd)"
 cd "$WORK"
-unzip -q -o "$OLDPWD/$JAR" 'BOOT-INF/classes/static/styles.css' 'BOOT-INF/classes/static/inbox-ui.js' 'BOOT-INF/classes/static/index.html' \
+unzip -q -o "$JAR" 'BOOT-INF/classes/static/styles.css' 'BOOT-INF/classes/static/inbox-ui.js' 'BOOT-INF/classes/static/index.html' \
   || fail "candidate JAR missing Browser static resources"
 
 CSS="BOOT-INF/classes/static/styles.css"
@@ -77,5 +88,5 @@ HIDDEN_COUNT="$(grep -c 'hidden' "$HTML" || true)"
 [ "$HIDDEN_COUNT" -ge 2 ] || fail "index.html has fewer than 2 hidden markers (found $HIDDEN_COUNT)"
 pass "index.html carries hidden empty-state panels (empty-state=$COUNT, hidden-lines=$HIDDEN_COUNT)"
 
-cd "$OLDPWD"
+cd "$START_DIR"
 echo "[browser-smoke] PASS: exact candidate artifact carries #450 + #451 Browser fixes"

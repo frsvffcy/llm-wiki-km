@@ -106,7 +106,9 @@ class ReleaseCandidateContractTest {
         assertThat(build).contains("help:evaluate -Dexpression=project.artifactId");
         assertThat(build).contains("--expected-version");
         assertThat(build).contains("!= expected");
-        // Challenge 1: clean lifecycle, never renames a PR build output.
+        // Refs #456 R1: manifest project derives from Maven, never a literal.
+        assertThat(build).contains("M_PROJECT=\"$ARTIFACT_ID\"");
+        assertThat(build).doesNotContain("M_PROJECT=\"llm-wiki-km\"");        // Challenge 1: clean lifecycle, never renames a PR build output.
         assertThat(build).contains("mvn --batch-mode clean package");
         assertThat(build).contains("clean checkout");
         assertThat(build).contains("allow-dirty");
@@ -174,6 +176,11 @@ class ReleaseCandidateContractTest {
         // Challenge 5: never boots the Maven reactor classpath.
         assertThat(smoke).doesNotContain("spring-boot:run");
         assertThat(smoke).doesNotContain("mvn test");
+        // Refs #456 R1 (packaged proof): booted runtime version must equal
+        // Maven and both JAR-internal identities.
+        assertThat(smoke).contains("release_identity_jar_manifest_version");
+        assertThat(smoke).contains("release_identity_jar_app_version");
+        assertThat(smoke).contains("version identity PASS");
     }
 
     @Test
@@ -263,6 +270,13 @@ class ReleaseCandidateContractTest {
         assertThat(readiness).doesNotContain("v0.1.0-product-acceptance.json");
         // Publication stays human-authorized.
         assertThat(readiness).contains("human authorization");
+        // Refs #456 R4: single-manifest/bundle, Maven version match, artifact
+        // SHA re-verification, and per-report sourceCommit cross-check.
+        assertThat(readiness).contains("release_identity_require_single_file");
+        assertThat(readiness).contains("release_identity_cross_check_source_commit");
+        assertThat(readiness).contains("source identity mismatch");
+        assertThat(readiness).contains("help:evaluate -Dexpression=project.version");
+        assertThat(readiness).doesNotContain("head -1");
     }
 
     @Test
@@ -277,7 +291,14 @@ class ReleaseCandidateContractTest {
     @Test
     void acceptanceRunnerDerivesJarFromMavenTruth() throws Exception {
         String acceptance = read(Path.of("scripts/run-product-acceptance.sh"));
-        assertThat(acceptance).contains("target/llm-wiki-km-*.jar");
+        // Refs #456 R2: exact Maven-derived filename, never an mtime pick.
+        assertThat(acceptance).contains("help:evaluate -Dexpression=project.artifactId");
+        assertThat(acceptance).contains("help:evaluate -Dexpression=project.version");
+        assertThat(acceptance).contains("release_identity_expected_basename");
+        assertThat(acceptance).contains("release_identity_verify_jar_internal_version");
+        assertThat(acceptance).contains("release_identity_verify_sidecar");
+        assertThat(acceptance).contains("--jar");
+        assertThat(acceptance).doesNotContain("ls -t");
         assertThat(acceptance).doesNotContain("target/llm-wiki-km-0.1.0.jar");
     }
 
@@ -290,6 +311,40 @@ class ReleaseCandidateContractTest {
         assertThat(smoke).contains("empty-state");
         assertThat(smoke).contains("target/release-candidate/");
         assertThat(smoke).contains("BOOT-INF/classes/static/");
+        // Refs #456 R3: canonicalize before cd; never assemble via $OLDPWD.
+        assertThat(smoke).contains("release_identity_canonicalize");
+        assertThat(smoke).contains("START_DIR");
+        assertThat(smoke).doesNotContain("$OLDPWD/$JAR");
+    }
+
+    @Test
+    void releaseIdentityHelpersAreSingleSourcedAndTested() throws Exception {
+        // The fail-closed helpers live in exactly one library sourced by all
+        // four consumers; behavior is proven by the hermetic shell suite.
+        Path library = Path.of("scripts/release-identity.sh");
+        assertThat(library).isRegularFile();
+        String helpers = Files.readString(library);
+        for (String fn : List.of(
+                "release_identity_canonicalize",
+                "release_identity_expected_basename",
+                "release_identity_verify_jar_internal_version",
+                "release_identity_verify_sidecar",
+                "release_identity_cross_check_source_commit",
+                "release_identity_require_single_file")) {
+            assertThat(helpers).as("library must define %s", fn).contains(fn + "()");
+        }
+        for (String consumer : List.of(
+                "scripts/run-product-acceptance.sh",
+                "scripts/browser-first-mile-smoke.sh",
+                "scripts/check-release-readiness.sh",
+                "scripts/clean-install-smoke.sh")) {
+            assertThat(read(Path.of(consumer)))
+                    .as("%s must source the single identity library", consumer)
+                    .contains("release-identity.sh");
+        }
+        Path suite = Path.of("scripts/tests/test-release-identity.sh");
+        assertThat(suite).isRegularFile();
+        assertThat(Files.isExecutable(suite)).isTrue();
     }
 
     @Test
