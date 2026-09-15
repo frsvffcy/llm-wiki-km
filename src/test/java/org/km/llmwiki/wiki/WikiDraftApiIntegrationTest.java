@@ -213,6 +213,65 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void invalidatesReadyDraftsWhenTargetSubdirectoryIsDeletedExternally() throws Exception {
+        // #432: out-of-band deletion of vault/<type>/ makes strict real-path resolution
+        // fail with WikiPathValidationException (not WikiDraftTargetException). All three
+        // re-read paths (get/preview/diff) must map it to a typed TARGET_CHANGED
+        // invalidation instead of 500 INTERNAL_ERROR. Containment posture is unchanged:
+        // the resolver still fails closed, only the mapping becomes typed.
+        Workspace workspace = createWorkspace("subdir-deleted", "ACTIVE");
+        Proposal createProposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Subdir Deleted Topic");
+        long createDraftId = createDraft(createProposal.id());
+        Proposal previewProposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Subdir Deleted Preview");
+        long previewDraftId = createDraft(previewProposal.id());
+        Proposal diffProposal = createProposal(workspace.id(), LlmProposalAction.CREATE, null,
+                KnowledgeProposalStatus.APPROVED, "Subdir Deleted Diff");
+        long diffDraftId = createDraft(diffProposal.id());
+
+        Path mergeTarget = workspace.root().resolve("vault/concepts/existing-topic.md");
+        String baseline = "# Existing Topic\n\nBaseline\n";
+        Files.writeString(mergeTarget, baseline);
+        String hash = WikiContentHash.sha256(Files.readAllBytes(mergeTarget));
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", hash);
+        Proposal mergeProposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Subdir Deleted Merge");
+        long mergeDraftId = createDraft(mergeProposal.id());
+
+        Path conceptsDir = workspace.root().resolve("vault/concepts");
+        Files.deleteIfExists(mergeTarget);
+        Files.deleteIfExists(conceptsDir);
+        assertThat(conceptsDir).doesNotExist();
+
+        // CREATE get path.
+        mockMvc.perform(get("/api/v1/wiki-drafts/{id}", createDraftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("INVALIDATED"))
+                .andExpect(jsonPath("$.data.invalidatedReason").value("TARGET_CHANGED"))
+                .andExpect(jsonPath("$.data.publishReady").value(false));
+        // CREATE preview path (first re-read for this draft).
+        mockMvc.perform(get("/api/v1/wiki-drafts/{id}/preview", previewDraftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("INVALIDATED"))
+                .andExpect(jsonPath("$.data.publishReady").value(false));
+        // CREATE diff path (first re-read for this draft).
+        mockMvc.perform(get("/api/v1/wiki-drafts/{id}/diff", diffDraftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("INVALIDATED"))
+                .andExpect(jsonPath("$.data.publishReady").value(false));
+        // MERGE get path (pre-existing, not introduced by #429).
+        mockMvc.perform(get("/api/v1/wiki-drafts/{id}", mergeDraftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("INVALIDATED"))
+                .andExpect(jsonPath("$.data.invalidatedReason").value("TARGET_CHANGED"))
+                .andExpect(jsonPath("$.data.publishReady").value(false));
+
+        assertThat(proposalStatus(createProposal.id())).isEqualTo("APPROVED");
+        assertThat(proposalStatus(mergeProposal.id())).isEqualTo("APPROVED");
+    }
+
+    @Test
     void returnsAuditableMergeBaselineDiffAndRejectsChangedTargetAtCreation() throws Exception {
         Workspace workspace = createWorkspace("merge", "ACTIVE");
         String baseline = "# Existing Topic\n\nOld content\n";
