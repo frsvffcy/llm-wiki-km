@@ -1834,3 +1834,50 @@ mvn test -Pintegration
 mvn clean verify -Pfull
 git diff --check
 ```
+
+## Release-candidate artifact / install / recovery 測試責任（#430)
+
+`release.ReleaseCandidateContractTest`（unit／contract）是 release executable boundary 的
+靜態 guard：`pom.xml` 的 `project.build.outputTimestamp` pin、Maven-version 唯一 truth
+（無第二份 version 常數；`--expected-version` 僅 fail-closed 比對）、clean lifecycle
+（不重用 developer `target/`）、manifest 欄位（sourceCommit／artifactSha256／Java／
+procedure／Flyway highest／dependency fingerprint／corpus／createdAt／runIdentity，
+無 secret／path／workspace data）、deterministic dependency TSV（`dependency:list
+-Dsort=true`，較弱選項，非 console log 貼上）、bundle hygiene（無 DB／vault／archive／
+Graph／env／key）、clean-install 只用 candidate JAR（不用 `spring-boot:run`）、
+backup→fresh-root restore 重用 #418 contract 並針對 candidate 重驗、native pinned
+v0.1.9＋雙平台 checksum（無 `latest` 浮動；缺失為 typed unavailable）、release notes
+SUPPORTED／CANDIDATE／NOT SUPPORTED（不把 Mode 2／OCR／MCP write 升格）、workflow
+`workflow_dispatch` only＋`contents: read`（無 tag／Release／publish 副作用；failure／
+skip 不產 READY）。
+
+Executable procedure authority 是 `scripts/build-release-candidate.sh`
+（`release-candidate-procedure-v1`）、`scripts/verify-reproducible-build.sh`
+（兩次 clean build bit-identical）、`scripts/generate-dependency-inventory.sh`、
+`scripts/check-release-bundle-hygiene.sh`、`scripts/clean-install-smoke.sh`
+（只用 candidate JAR＋temp root；shutdown 無 orphan／locked DB）、
+`scripts/candidate-backup-restore-smoke.sh`（candidate clean install→bounded
+fixture→backup→fresh root restore→same candidate restart→Flyway／currentness／
+readiness→chunks／retrieval 可讀；workspace 絕對路徑經 operator rewiring 遷移，
+非 user-flow shortcut）、`scripts/check-release-readiness.sh`（消費 #429
+`target/release-evidence/v0.1.0-product-acceptance.json`；FAIL→NO-GO、
+SKIP／missing→CONDITIONAL 阻止 READY；READY 後仍需 A2 human auth 才可 publish），
+文件見 `docs/release/release-candidate-procedure-v1.md`、
+`docs/release/native-capability-matrix.md`、
+`docs/release/v0.1.0-release-notes.md`，workflow 為
+`.github/workflows/release-candidate.yml`（retention 14 天，無 secrets）。
+
+受影響測試與 release dry run：
+
+```bash
+mvn -Dtest='ReleaseCandidateContractTest' test -Pfast
+sh scripts/build-release-candidate.sh --allow-dirty
+sh scripts/verify-reproducible-build.sh --allow-dirty
+sh scripts/clean-install-smoke.sh
+sh scripts/candidate-backup-restore-smoke.sh
+sh scripts/run-product-acceptance.sh --skip-build
+sh scripts/check-release-readiness.sh
+mvn test -Pfast
+mvn clean verify -Pfull
+git diff --check
+```
