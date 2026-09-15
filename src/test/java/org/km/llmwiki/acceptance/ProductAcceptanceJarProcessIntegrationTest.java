@@ -151,6 +151,21 @@ class ProductAcceptanceJarProcessIntegrationTest {
         environment.put("EMBEDDING_PROVIDER_BASE_URL", stub.baseUrl());
         environment.put("EMBEDDING_PROVIDER_MODEL", DeterministicAcceptanceProviderStub.MODEL);
         environment.put("EMBEDDING_PROVIDER_API_KEY", "acceptance-local-credential");
+        // #435: propagate pinned sqlite-vec native to the JAR subprocess only when
+        // the parent environment provisions a readable VECTOR_EXTENSION_PATH.
+        // Present → ENABLED=true + path so vector-prerequisite can PASS and the
+        // release can reach FULL-GO. Absent/invalid → explicit ENABLED=false so a
+        // developer/CI-inherited true never leaks in non-deterministically; the
+        // harness keeps its typed SKIP (blocks FULL-GO, never fake-green).
+        // No change to #429 domain flow, corpus, or harness verdict semantics.
+        String vectorPath = System.getenv("VECTOR_EXTENSION_PATH");
+        if (vectorPath != null && !vectorPath.isBlank()
+                && Files.isRegularFile(Path.of(vectorPath))) {
+            environment.put("VECTOR_CAPABILITY_ENABLED", "true");
+            environment.put("VECTOR_EXTENSION_PATH", vectorPath);
+        } else {
+            environment.put("VECTOR_CAPABILITY_ENABLED", "false");
+        }
         return Map.copyOf(environment);
     }
 
