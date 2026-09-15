@@ -1864,12 +1864,56 @@ readiness→chunks／retrieval 可讀；workspace 絕對路徑經 operator rewir
 `docs/release/v0.1.1-browser-smoke-checklist.md`，不導入 headless framework）、
 `scripts/check-release-readiness.sh`（消費 #429＋#454 §B
 `target/release-evidence/*-product-acceptance.json`（version-agnostic glob；FAIL→NO-GO、
-SKIP／missing→CONDITIONAL 阻止 READY；READY 後仍需 A2 human auth 才可 publish），
+SKIP／missing→CONDITIONAL 阻止 READY；#456 R4：強制單一 manifest/bundle、manifest
+version == Maven、現行 artifact SHA == manifest、逐份 report `sourceCommit` ==
+manifest `sourceCommit`，任一缺失／格式錯誤／不一致即 NO-GO；READY 後仍需 A2 human
+auth 才可 publish），
 文件見 `docs/release/release-candidate-procedure-v1.md`、
 `docs/release/native-capability-matrix.md`、
 `docs/release/v0.1.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source）、
 `docs/release/v0.1.1-browser-smoke-checklist.md`，workflow 為
 `.github/workflows/release-candidate.yml`（retention 14 天，無 secrets）。
+
+## Release identity 單一真相測試責任（#456)
+
+R1–R4 把版本、artifact、report 與 manifest 收斂為 fail-closed 單一真相：
+
+- `system.ApplicationVersionTest`（unit）：runtime 版本等於 `pom.xml` project
+  version（direct child，非 parent starter 版號）；`target/classes/version.properties`
+  過濾值一致；source 模板為 `@project.version@` 佔位符；拒絕未過濾／空白版本。
+  `system.SystemStatusService` 不得再含版本常數（由
+  `ReleaseCandidateContractTest.runtimeVersionMatchesMavenIdentity` 靜態鎖定）。
+- `release.ReleaseIdentityShellContractTest`（contract）：執行 hermetic 的
+  `scripts/tests/test-release-identity.sh`（無 Maven／無網路／temp fixture），覆蓋
+  mtime 無關的 exact 解析、相對／絕對路徑一致且不依賴 `$OLDPWD`、stale 內部版本、
+  sidecar 過期交換、report/manifest commit 交叉比對、單一 manifest/bundle
+  歧義 fail-closed（challenge cases 2–7）。
+- `scripts/clean-install-smoke.sh` 在 booted candidate 上證明 runtime ==
+  manifest `Implementation-Version` == `app.version` == Maven（R1 packaged
+  證明；challenge case 1 的執行期側）。
+- `scripts/run-product-acceptance.sh`（R2）、`scripts/browser-first-mile-smoke.sh`
+  （R3）、`scripts/check-release-readiness.sh`（R4）的結構契約（無 `ls -t` 挑選、
+  canonicalize 呼叫點、sourceCommit 比對點、單一 manifest 要求）由
+  `ReleaseCandidateContractTest` 靜態鎖定；共用實作唯一來源是
+  `scripts/release-identity.sh`（四個 consumer 皆 source 它，由
+  `releaseIdentityHelpersAreSingleSourcedAndTested` 鎖定）。
+- 本 Issue 不重發／重建 `v0.1.1`，不觸碰任何既有 tag／Release／assets。
+
+受影響測試與 release dry run（`target/` 為 git-ignored evidence）：
+
+```bash
+mvn -Dtest='ApplicationVersionTest,ReleaseCandidateContractTest,ReleaseIdentityShellContractTest' test -Pfast
+sh scripts/tests/test-release-identity.sh
+sh scripts/build-release-candidate.sh --allow-dirty
+sh scripts/clean-install-smoke.sh
+sh scripts/browser-first-mile-smoke.sh
+sh scripts/browser-first-mile-smoke.sh --jar target/release-candidate/llm-wiki-km-*.jar
+sh scripts/run-product-acceptance.sh --skip-build
+sh scripts/check-release-readiness.sh
+mvn test -Pfast
+mvn clean verify -Pfull
+git diff --check
+```
 
 ## v0.1.1 patch acceptance 測試責任（#454)
 
