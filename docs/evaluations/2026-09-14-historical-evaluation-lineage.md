@@ -30,6 +30,7 @@
 | `2026-09-14-leann-low-storage-vector-index-paper.md` | `TRACK_FULL` | 尚無 production adoption；現有 sqlite-vec projection / versioned rebuild seam 可承接 future experiment | **sqlite-vec int8/bit quantization** 的近端 evaluation candidate；以 #310 量測 retrieval vs generation latency再決定投資；完整 LEANN query-time recompute需 local embedding + corpus/storage pain 才觸發 | 全文納入；不自動開 Issue |
 | `2026-09-14-markitdown-ruhmark-extraction-normalization-evaluation.md` | `LINEAGE_ONLY` | #380 已正式對 Unicode Cf 做 KEEP/FLAG/selected STRIP/contextual evidence gate，取代原始 candidate finding | MarkItDown converter registry可作一般設計參照，但 current parser abstraction已有更直接 authority；沒有獨立新工作 | 不追蹤全文；#380 為 current decision owner |
 | `2026-09-14-paddleocr-rapidocr-ocr-toolkit-evaluation.md` | `TRACK_FULL` | `NEED_OCR` 仍是明確 typed capability gap；#352 等 UI工作只呈現狀態，沒有解鎖 OCR | **SHA256-pinned versioned model manifest**、Java/ONNX/JNI/sidecar deployment boundary、PP-Structure typed layout output、external benchmark + own-corpus雙 gate | 全文納入；只有真實 OCR需求/corpus evidence出現時才開 milestone |
+| `2026-09-15-pixelrag-visual-document-retrieval-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；補強 OCR/layout-aware candidate 的 visual/layout evidence plane，並提出 render completeness/currentness 的 fail-closed 要求 | **optional derived visual retrieval plane**、source revision／renderer-policy／tile manifest／completeness evidence；與 OCR/layout-aware 合併成 future multimodal-document retrieval benchmark | 全文納入；維持 `DEFER`，等 own-corpus 或可重現的 visual retrieval failure trigger；不因外部 benchmark 建立 speculative production adoption Issue |
 | `2026-09-14-rag-playbook-series-evaluation.md` | `TRACK_FULL` | query rewriting 已演進為 #390 → #401；hybrid/rerank/context/orchestration大多已 covered | **sentence-window / small-to-big** 仍是 `chunk-policy-v2` 候選；中文 token 密度與 provider limit應持續納入 chunk/embedding evaluation | 全文納入；query-transform 部分標示已吸收，chunking 部分維持 future input |
 | `chengjing-notes-external-product-evaluation-20260912.md` | `TRACK_FULL` | #323 吸收 local-first provider egress transparency；#327 吸收 read-only-first local MCP / capability boundary；#360補足 action-risk gate | **future MCP write 三件套**：optimistic version、no physical delete、reversible external write；association discovery→`LINK_ONLY`；backup/restore contract；bounded malformed-output repair retry仍只是 policy question | 全文納入；MCP write仍禁止，backup亦不因此自動排程 |
 | `dify-external-product-evaluation-20260912.md` | `TRACK_FULL` | Ask→Proposal 已由 #374 完成；MCP external conformance由 #330～#358/#340 系列處理；Retrieval Inspector/Browser diagnostics已由 #292/#375產品化 | **retrieval policy A/B hit-testing console**、typed metadata pre-filter、parent-child chunking仍是 future candidates | 全文納入；需要 current usage/corpus evidence才立項 |
@@ -108,6 +109,15 @@ external write must be auditable/reversible
 
 Retrieval/fusion/citation/platform架構不應重做；本專案 current qualification/currentness/versioning governance較嚴。
 
+### 3.8 PixelRAG
+
+PixelRAG 的 current lineage 是對既有 OCR / layout-aware candidate 的擴充，而不是另一條 production roadmap：
+
+- `DEFER`：optional visual/layout evidence plane 不取代 text-first Hybrid RAG，也不成為 canonical authority；
+- render completeness、tile manifest、source revision 與 renderer/policy version 可作 future visual projection 的 fail-closed requirement；
+- 若真實 scanned／layout／visual corpus 出現可重現 retrieval loss，應和 PaddleOCR/RAGFlow 的 OCR/layout input 合併成單一 **future multimodal-document retrieval benchmark**，比較 OCR/text、layout-aware、screenshot visual 與 hybrid path；
+- 在 trigger 成立前，不建立 speculative production adoption Issue，也不因 PixelRAG 的外部 benchmark 或參數改動 current default。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
@@ -115,7 +125,7 @@ Retrieval/fusion/citation/platform架構不應重做；本專案 current qualifi
 | Consolidated candidate | Evidence sources | Current decision |
 | --- | --- | --- |
 | Chunk-policy v2 evaluation | RAG Playbook sentence-window、Dify parent-child、RAGFlow per-type template | `DEFER`，等現行 chunking出現可量測 query/document-class缺口後做單一 benchmark-first evaluation |
-| OCR / layout-aware ingestion | PaddleOCR/RapidOCR、RAGFlow MinerU/Docling、kotaemon PaddleOCR loader | `DEFER`，`NEED_OCR`為正式 trigger seam；需要真實 scanned corpus與deployment/resource評估 |
+| OCR / layout-aware / visual document retrieval | PaddleOCR/RapidOCR、RAGFlow MinerU/Docling、kotaemon PaddleOCR loader、PixelRAG | `DEFER`，`NEED_OCR`與可重現的 layout／visual retrieval loss是同一 future trigger seam；以單一 **future multimodal-document retrieval benchmark** 比較 OCR/text、layout-aware、screenshot visual 與 hybrid path，仍需 own-corpus、deployment/resource與 completeness evidence |
 | Retrieval experimentation UX | Dify hit testing、既有 Retrieval Inspector | `DEFER`，只有 operator使用顯示 A/B compare能降低除錯成本時才產品化；不得變 production tuning authority |
 | Vector storage optimization | LEANN + current sqlite-vec | `DEFER`，先量測 storage/latency，再由量化→更大架構逐級評估 |
 | Future governed MCP/agent write | ChengJing、claude-obsidian capability/mutation protocols | `NO CURRENT ADOPTION`，write surface真正立項時才重新評估；A2/Human Review不變 |
