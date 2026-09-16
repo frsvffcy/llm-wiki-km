@@ -74,14 +74,22 @@ Manifest 不含 secret、API key、owner verifier、local absolute path、worksp
 
 - Dependency / SBOM：`scripts/generate-dependency-inventory.sh`（deterministic coordinates inventory，
   較弱選項，見 §D；不貼 console log 充數）。
-- Install smoke：`scripts/clean-install-smoke.sh`（只用 candidate JAR，不用 project classpath；另驗四方版本一致，見 §1）。
-- Backup/restore smoke：`scripts/candidate-backup-restore-smoke.sh`（重用 #418 contract，針對 candidate 重驗）。
+- Install smoke：`scripts/clean-install-smoke.sh`（Refs #458：只用 Maven 推導的 exact candidate JAR，
+  不用 project classpath；啟動前先驗 JAR 內部雙版本與 sidecar 描述一致性，啟動後另驗四方版本一致，見 §1；
+  無 sidecar 時為明確標示的較弱模式，readiness 仍拒絕 READY）。
+- Backup/restore smoke：`scripts/candidate-backup-restore-smoke.sh`（Refs #458：重用 #418 contract，
+  針對 exact candidate 重驗；artifact 解析與 install smoke 共用同一 resolver，永不以 mtime 挑選）。
 - Acceptance runner：`scripts/run-product-acceptance.sh`（Refs #456 R2：exact 檔名由 Maven
   `artifactId`＋`version` 推導，永不以 mtime 挑選；執行前驗 JAR 內部雙版本與 sidecar
   manifest 描述的一致性；`--jar`／`--manifest` 須指向同一 Maven candidate，否則 fail-closed）。
 - Readiness gate：`scripts/check-release-readiness.sh`（消費 #429 + #454 §B gate；failure/skip 阻止 READY_TO_PUBLISH；report glob 為 version-agnostic `*-product-acceptance.json`；Refs #456 R4：強制單一 manifest/bundle、manifest version == Maven、現行 artifact SHA == manifest、逐份 report `sourceCommit` == manifest `sourceCommit`，任一缺失／格式錯誤／不一致即 `NO-GO`）。
-- Browser first-mile gate：`scripts/browser-first-mile-smoke.sh`（驗證 exact candidate JAR 內含 #450 + #451 修正；`--jar` 於 `cd` 前 canonicalize，相對／絕對路徑一致且不依賴 `$OLDPWD`，Refs #456 R3；manual 層見 `docs/release/v0.1.1-browser-smoke-checklist.md`，不導入 headless framework）。
-- Identity helpers：`scripts/release-identity.sh`（上述校驗的唯一實作；行為由 `scripts/tests/test-release-identity.sh` 迴歸鎖定，fast tier 經 `ReleaseIdentityShellContractTest` 執行）。
+- Browser first-mile gate：`scripts/browser-first-mile-smoke.sh`（Refs #458：驗證 exact candidate JAR 內含 #450 + #451 修正；
+  artifact 解析與 install/backup smoke 共用同一 resolver，永不以 mtime 挑選；`--jar` 於 `cd` 前 canonicalize，
+  相對／絕對路徑一致且不依賴 `$OLDPWD`，Refs #456 R3；manual 層見 `docs/release/v0.1.1-browser-smoke-checklist.md`，不導入 headless framework）。
+- Identity helpers：`scripts/release-identity.sh`（Refs #458：上述五個 gate 的 artifact 解析／校驗唯一實作
+  `release_identity_resolve_candidate_jar`＋`release_identity_verify_candidate_sidecar_if_present`；
+  行為由 `scripts/tests/test-release-identity.sh` 迴歸鎖定，fast tier 經 `ReleaseIdentityShellContractTest` 執行；
+  所有 candidate smoke gate 共用同一 exact artifact identity contract，不各自維護 mtime 選取）。
 - Native matrix：`docs/release/native-capability-matrix.md`。
 - Release notes：`docs/release/v0.1.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source）。
 - Workflow：`.github/workflows/release-candidate.yml`（workflow_dispatch only，contents:read，無 publish 副作用）。
