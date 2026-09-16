@@ -33,6 +33,7 @@
 | `2026-09-15-pixelrag-visual-document-retrieval-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；補強 OCR/layout-aware candidate 的 visual/layout evidence plane，並提出 render completeness/currentness 的 fail-closed 要求 | **optional derived visual retrieval plane**、source revision／renderer-policy／tile manifest／completeness evidence；與 OCR/layout-aware 合併成 future multimodal-document retrieval benchmark | 全文納入；維持 `DEFER`，等 own-corpus 或可重現的 visual retrieval failure trigger；不因外部 benchmark 建立 speculative production adoption Issue |
 | `2026-09-15-openviking-agent-context-database-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#437 將 OpenViking 收斂為 agent-context design input，不取代 current FTS/vector/Graph Hybrid RAG | **progressive context loading**、**hierarchical agent namespace（read projection）**、**retrieval trajectory observability**、**resource/memory/skill separation**；self-evolving memory / MCP write 維持 governance-restricted `DEFER` | 全文納入；維持 `NO RUNTIME ADOPTION`，不建立 speculative integration Issue；future trigger 見該 evaluation §6 |
 | `2026-09-15-obsidian-cli-application-automation-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#442 將 Obsidian CLI 收斂為 application-mediated automation pattern，不依賴 Obsidian runtime | **thin adapter to running application**、**CLI+MCP shared authority**、**A0/A1/A2 command taxonomy**、**machine-readable typed output**、**read-before-write currentness**；first-party CLI 與 skill 皆 `DEFER`，`eval`/arbitrary SQL/Cypher/script 為 `NO-GO` | 全文納入；維持 `DEFER / HIGH-VALUE CANDIDATE`，read-only pilot 需 real workflow pain + A/B benchmark；不建立 second-writer/direct-FS 實作 |
+| `2026-09-15-openwiki-grounded-wiki-maintenance-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#443 將 OpenWiki 收斂為 grounded-maintenance design input，不取代 current Wiki/citation/governance | **proposition-level claim（DEFER）**、**source-version selective invalidation**、**resumable per-unit lifecycle**、**host-agent vs application authority split**、**connector capability isolation**；OKF/visualizer 皆 `DEFER` | 全文納入；維持 `NO RUNTIME ADOPTION`，不建立 speculative claim-ledger Issue；future trigger + benchmark gate 見該 evaluation §4 |
 | `2026-09-14-rag-playbook-series-evaluation.md` | `TRACK_FULL` | query rewriting 已演進為 #390 → #401；hybrid/rerank/context/orchestration大多已 covered | **sentence-window / small-to-big** 仍是 `chunk-policy-v2` 候選；中文 token 密度與 provider limit應持續納入 chunk/embedding evaluation | 全文納入；query-transform 部分標示已吸收，chunking 部分維持 future input |
 | `chengjing-notes-external-product-evaluation-20260912.md` | `TRACK_FULL` | #323 吸收 local-first provider egress transparency；#327 吸收 read-only-first local MCP / capability boundary；#360補足 action-risk gate | **future MCP write 三件套**：optimistic version、no physical delete、reversible external write；association discovery→`LINK_ONLY`；backup/restore contract；bounded malformed-output repair retry仍只是 policy question | 全文納入；MCP write仍禁止，backup亦不因此自動排程 |
 | `dify-external-product-evaluation-20260912.md` | `TRACK_FULL` | Ask→Proposal 已由 #374 完成；MCP external conformance由 #330～#358/#340 系列處理；Retrieval Inspector/Browser diagnostics已由 #292/#375產品化 | **retrieval policy A/B hit-testing console**、typed metadata pre-filter、parent-child chunking仍是 future candidates | 全文納入；需要 current usage/corpus evidence才立項 |
@@ -138,6 +139,15 @@ Obsidian CLI 的 current lineage 是 application-mediated automation pattern，�
 - `DEFER`：first-party CLI（high-value candidate，需 real workflow pain + A/B pilot benchmark）、Proposal/job mutation（action-risk-governed）、CLI 之上的 Agent Skill（需 stable contract 先行）；
 - 不重做 claude-obsidian Vault Lint / claim ledger / capability manifest；與 #437 agent-context namespace 互補但不發展成平行 agent architecture。
 
+### 3.11 OpenWiki（#443）
+
+OpenWiki 的 current lineage 是 grounded-maintenance design input，不是第二套 canonical wiki：
+
+- `NO-GO`：不導入 OpenWiki/DeepAgents runtime、不以其 generated wiki 取代 canonical vault、不建平行 `openwiki/` Architecture VoT、不讓 CI/agent 跳過 Human Review、不把 Claims sidecar 當 citation authority；
+- `ADOPT AS INPUT`：source-version-driven selective invalidation（只重驗 stale/unresolved）、resumable per-unit lifecycle（既有 `processing_job`/`processing_log` 承接）、host-agent vs application authority split（agent 只產 candidate/Proposal）、connector capability isolation（沿 #323/#360，不建平行 security model）；
+- `DEFER`：claim-level ledger（high-value candidate，需 page-level currentness 過粗等五類 pain evidence + own-corpus benchmark 先行）、OKF v0.2（僅 interoperability input，不切換 Wiki schema；`verified` ≠ human-reviewed）、interactive visualizer（navigation only，承接 #438 governance）；
+- 不與 claude-obsidian claim-ledger、#379 Vault Lint、#381 locator、#410/#424 VoT、#437 agent-context、#438 visualization、#442 CLI 各自發展成平行 roadmap；future claim adoption 仍需 current pain evidence + §4 benchmark gate。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
@@ -149,7 +159,7 @@ Obsidian CLI 的 current lineage 是 application-mediated automation pattern，�
 | Retrieval experimentation UX | Dify hit testing、既有 Retrieval Inspector | `DEFER`，只有 operator使用顯示 A/B compare能降低除錯成本時才產品化；不得變 production tuning authority |
 | Vector storage optimization | LEANN + current sqlite-vec | `DEFER`，先量測 storage/latency，再由量化→更大架構逐級評估 |
 | Future governed MCP/agent write | ChengJing、claude-obsidian capability/mutation protocols、OpenViking MCP write/design input（#437）、Obsidian CLI application-mediated pattern（#442） | `NO CURRENT ADOPTION`，write surface真正立項時才重新評估；A2/Human Review不變；CLI 亦同（shell executability 不降低 Action Risk） |
-| Claim-quality / contradiction ledger | claude-obsidian | `LONG-TERM DEFER`，需要跨頁 claim品質需求與明確 authority model才成立 |
+| Claim-quality / contradiction ledger | claude-obsidian、OpenWiki Grounded Claims（#443） | `LONG-TERM DEFER`，需要跨頁 claim品質需求與明確 authority model才成立；OpenWiki proposition-level + source-version invalidation 為同一 candidate 的 high-value 輸入，仍需 §4 benchmark gate，不另開平行 roadmap |
 | Agent context / progressive loading / retrieval observability | OpenViking（#437） | `DEFER / DESIGN INPUT ONLY`，progressive loading、hierarchical read namespace、trajectory observability、context-type separation 只作 future input；self-evolving memory 不繞過 Proposal→Human Review→Publish；不另開 parallel agent-memory roadmap |
 | Metadata-aware retrieval | Dify | `DEFER`，需要 corpus/UX證據；若做必須是 typed/versioned/applicability-gated policy |
 
