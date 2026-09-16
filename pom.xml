@@ -178,6 +178,28 @@
                             </additionalClasspathElements>
                         </configuration>
                     </execution>
+                    <execution>
+                        <!-- #481 Browser static-asset currentness: stamp content-hash query
+                             tokens into the packaged index.html so a revalidated document
+                             after an upgrade forces compulsory cache misses for changed
+                             JS/CSS (heuristic disk hits send no request and can never be
+                             fixed by response headers alone). Runs at process-classes so
+                             it sees the copied resources and still precedes packaging and
+                             spring-boot:run; the token is a pure function of file content
+                             (reproducible builds unaffected). -->
+                        <id>version-static-assets</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>org.km.llmwiki.web.StaticAssetVersioner</mainClass>
+                            <arguments>
+                                <argument>${project.build.outputDirectory}/static</argument>
+                            </arguments>
+                            <classpathScope>compile</classpathScope>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>
