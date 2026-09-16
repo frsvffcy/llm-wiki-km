@@ -35,6 +35,7 @@
 | `2026-09-15-obsidian-cli-application-automation-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#442 將 Obsidian CLI 收斂為 application-mediated automation pattern，不依賴 Obsidian runtime | **thin adapter to running application**、**CLI+MCP shared authority**、**A0/A1/A2 command taxonomy**、**machine-readable typed output**、**read-before-write currentness**；first-party CLI 與 skill 皆 `DEFER`，`eval`/arbitrary SQL/Cypher/script 為 `NO-GO` | 全文納入；維持 `DEFER / HIGH-VALUE CANDIDATE`，read-only pilot 需 real workflow pain + A/B benchmark；不建立 second-writer/direct-FS 實作 |
 | `2026-09-15-openwiki-grounded-wiki-maintenance-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#443 將 OpenWiki 收斂為 grounded-maintenance design input，不取代 current Wiki/citation/governance | **proposition-level claim（DEFER）**、**source-version selective invalidation**、**resumable per-unit lifecycle**、**host-agent vs application authority split**、**connector capability isolation**；OKF/visualizer 皆 `DEFER` | 全文納入；維持 `NO RUNTIME ADOPTION`，不建立 speculative claim-ledger Issue；future trigger + benchmark gate 見該 evaluation §4 |
 | `2026-09-15-gitnexus-code-intelligence-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#439 將 GitNexus 收斂為 developer code-intelligence sidecar design input，不取代 current FTS/vector/Graph knowledge retrieval | **precomputed impact/context semantic tools**、**index staleness/currentness contract**、**read-only-first tool allowlist**；developer sidecar 為 `DEFER / BENCHMARK CANDIDATE`，`rename`/`cypher` 為 `NO CURRENT ADOPTION` | 全文納入；維持 `NO RUNTIME ADOPTION`，不建立 speculative integration Issue；pilot 需 5–10 歷史 case A/B benchmark + PolyForm license review |
+| `2026-09-15-fireworks-tech-graph-architecture-visualization-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#438 將 fireworks-tech-graph 收斂為 validated derived-diagram design input，不取代 Architecture VoT / ADR / code/tests | **validated diagram loop（validate→render→readback→bounded repair）**、**derived anti-drift contract**；single system-overview pilot 為 `CONDITIONAL`，CI auto-regeneration 為 `DEFER` | 全文納入；維持 `NO RUNTIME DEPENDENCY`，不建立 speculative diagram pipeline Issue；pilot 需先過 §5 maintenance-cost gate |
 | `2026-09-14-rag-playbook-series-evaluation.md` | `TRACK_FULL` | query rewriting 已演進為 #390 → #401；hybrid/rerank/context/orchestration大多已 covered | **sentence-window / small-to-big** 仍是 `chunk-policy-v2` 候選；中文 token 密度與 provider limit應持續納入 chunk/embedding evaluation | 全文納入；query-transform 部分標示已吸收，chunking 部分維持 future input |
 | `chengjing-notes-external-product-evaluation-20260912.md` | `TRACK_FULL` | #323 吸收 local-first provider egress transparency；#327 吸收 read-only-first local MCP / capability boundary；#360補足 action-risk gate | **future MCP write 三件套**：optimistic version、no physical delete、reversible external write；association discovery→`LINK_ONLY`；backup/restore contract；bounded malformed-output repair retry仍只是 policy question | 全文納入；MCP write仍禁止，backup亦不因此自動排程 |
 | `dify-external-product-evaluation-20260912.md` | `TRACK_FULL` | Ask→Proposal 已由 #374 完成；MCP external conformance由 #330～#358/#340 系列處理；Retrieval Inspector/Browser diagnostics已由 #292/#375產品化 | **retrieval policy A/B hit-testing console**、typed metadata pre-filter、parent-child chunking仍是 future candidates | 全文納入；需要 current usage/corpus evidence才立項 |
@@ -159,6 +160,15 @@ GitNexus 的 current lineage 是 developer code-intelligence sidecar design inpu
 - `NO CURRENT ADOPTION`：`rename` 等 mutating tools 與 `cypher` raw surface；visualization 僅 navigation only，承接 #438 governance；
 - 不與 CodeGraph evaluation 的 HARD SEPARATION、#327 read-only MCP、#360 Action Risk 各自發展成平行 authority；future adoption 仍需 §4 benchmark gate。
 
+### 3.13 fireworks-tech-graph（#438）
+
+fireworks-tech-graph 的 current lineage 是 validated derived-diagram design input，不是第二份 architecture authority：
+
+- `NO-GO`：不加入 production runtime dependency、不把 SVG/PNG 作 architecture/citation/domain authority、不建 PR 每次自動重生全圖的 brittle pipeline、不讓 visual review 取代 source correctness review；
+- `ADOPT AS INPUT`：constrained IR → deterministic structural validation → SVG render → PNG readback → bounded targeted correction 的 validated loop（Evaluate, don't assert）、derived/non-authoritative artifact + pinned version/IR provenance + stale 不得稱 CURRENT 的 anti-drift contract（與 Architecture VoT 共存）；
+- `CONDITIONAL / DEFER`：single `system-overview.md` overview pilot（L0–L5 + mutation 旁路，Query Transformation 標 disabled、Graph/vector 標 degradable、MCP 標 loopback read-only；節點過多拆 view；zh-TW font/clipping 實測）需先過 §5 maintenance-cost gate；CI auto-regeneration 維持 `DEFER`；
+- 不與 #410/#424 VoT、#439 code-graph visualization、#443 visualizer 各自發展成平行 visualization governance；pilot 無 measurable docs benefit 則 `NO-GO/DEFER`。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
@@ -173,6 +183,7 @@ GitNexus 的 current lineage 是 developer code-intelligence sidecar design inpu
 | Claim-quality / contradiction ledger | claude-obsidian、OpenWiki Grounded Claims（#443） | `LONG-TERM DEFER`，需要跨頁 claim品質需求與明確 authority model才成立；OpenWiki proposition-level + source-version invalidation 為同一 candidate 的 high-value 輸入，仍需 §4 benchmark gate，不另開平行 roadmap |
 | Agent context / progressive loading / retrieval observability | OpenViking（#437） | `DEFER / DESIGN INPUT ONLY`，progressive loading、hierarchical read namespace、trajectory observability、context-type separation 只作 future input；self-evolving memory 不繞過 Proposal→Human Review→Publish；不另開 parallel agent-memory roadmap |
 | Developer code-intelligence sidecar | GitNexus（#439）、`2026-09-14-codegraph-evaluation.md` | `DEFER / BENCHMARK CANDIDATE`，product Knowledge Graph 與 developer Code Graph 硬分離；precomputed impact/context 只作 discovery candidate，不作 completion authority；pilot 需 historical A/B benchmark + staleness contract + PolyForm review，不另開 parallel graph authority |
+| Architecture visualization / derived diagram | fireworks-tech-graph（#438） | `DEFER / CONDITIONAL PILOT`，diagram 僅為 Architecture VoT derived projection（GENERATED/DERIVED/NON-AUTHORITATIVE）；validated loop + anti-drift 先行，single overview pilot 需過 maintenance-cost gate；CI auto-regeneration 不提前建立 |
 | Metadata-aware retrieval | Dify | `DEFER`，需要 corpus/UX證據；若做必須是 typed/versioned/applicability-gated policy |
 
 ## 5. What not to resurrect
