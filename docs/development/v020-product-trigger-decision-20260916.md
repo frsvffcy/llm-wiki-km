@@ -29,7 +29,7 @@
 
 對照時已重新確認以下能力存在於 current main，不得再被當成缺口：
 
-- structure-preserving ingestion：typed blocks＋versioned chunking（production default `chunk-policy-v1-current`，heading-aware）＋versioned normalization（v2-selected-cf-strip default）；#467 structure-observable 直接證明。
+- structure-preserving ingestion：typed blocks＋versioned chunking（production default `chunk-policy-v1-current`，flat-text-compatible byte-equivalent；parser structural metadata 經 section／headingPath 可觀察，但不等於 v1 grouping 語意；structure-aware grouping 為非 default 的 `chunk-policy-v2-heading-anchor` candidate）＋versioned normalization（v2-selected-cf-strip default）；#467 structure-observable 僅證明 metadata 可觀察。
 - lexical／semantic／vector／graph retrieval：`HYBRID_FTS`／`SEMANTIC_*`／`HYBRID_VECTOR`／`HYBRID_GRAPH` additive modes；degraded 時 typed diagnostics，不拖垮 baseline。
 - Retrieval Inspector＋Source Locator 唯讀診斷；citation identity（`WIKI:`／`SOURCE_CHUNK:`）不變；stale 以 NOT_CURRENT／404＋typed 422 fail-closed（#469 後含 ingress）。
 - Grounded Ask＋citation＋ephemeral 語意；explicit Ask→Proposal→Draft→Human Review→Publish；approve 不 auto-publish。
@@ -44,7 +44,7 @@
 | # | Candidate family（合併外部來源，不重複開） | 類別 | 決策 | 理由（evidence-first） |
 | --- | --- | --- | --- | --- |
 | 1 | OCR／layout-aware／visual document retrieval | product | DEFER | #467 未量測 `NEED_OCR`（依設計不含掃描件 fixture）；current flow 無 extraction failure／retrieval loss 痛點。歷史 lineage（PaddleOCR／RapidOCR、PixelRAG）同為 `DEFER`，觸發條件是真實 scanned corpus 或 own-corpus failure evidence，本次皆無。仍保留 typed `NEED_OCR` 缺口宣告，不開工。 |
-| 2 | progressive context loading／hierarchical agent navigation／retrieval trajectory | product | DEFER | #467 structure-observable PASS 證明現行 chunking 已保留 heading 上下文；無 long-running-agent pain evidence。OpenViking lineage 為 `NO RUNTIME ADOPTION`＋design input；觸發需真實長上下文或 agent 導航痛點，本次無。 |
+| 2 | progressive context loading／hierarchical agent navigation／retrieval trajectory | product | DEFER | #467 structure-observable PASS 僅證明 parser structural metadata 經 section／headingPath 可觀察（非 v1 grouping 語意）；無 long-running-agent pain evidence。OpenViking lineage 為 `NO RUNTIME ADOPTION`＋design input；觸發需真實長上下文或 agent 導航痛點，本次無。 |
 | 3 | first-party application-mediated CLI | product | DEFER | Browser＋REST 流程在 #467 全 PASS，無 workflow pain；read-only pilot 需 real workflow pain＋A／B benchmark（#442 門檻），本次無。`eval`／arbitrary script 維持 `NO-GO`；不建立 second-writer。 |
 | 4 | source-drift selective maintenance／claim-quality ledger | product | DEFER | #467 source-revision 已在 document 層級證明 source-version invalidation（supersede＋rescan＋re-extract＋stale fail-closed）PASS；**proposition-level claim 沒有 pain evidence**（challenge case 1 禁止因 OpenWiki 有 Claims 就建表）。維持 `DEFER`，第一步若觸發應是 benchmark 而非建表。 |
 | 5 | retrieval experimentation UX／metadata-aware retrieval | product | DEFER | Inspector＋locator 在 #467 全 PASS；無 experimenter 痛點。Query-transformation／rerank 既有 lineage 已收斂（versioned policy＋gates），無新 trigger。 |
@@ -75,3 +75,10 @@ Dependency／ordering：三者皆無前置實作依賴；第 2 項的人類步�
 - 本 PR 為 docs-only（僅新增本文件），不改 production／test／build／CI 行為；local full gate 依 AGENTS.md docs-only scope 以 `git diff --check`＋完整 diff 審查替代，PR CI `PR Gate` 仍須全綠。
 - Local Knowledge System 文件影響檢查（#306）：本決策引用 `.ai_llm_wiki_km/` 歷史脈絡時僅作 lineage 對照，不反向定義 runtime；無 local-only diff 需對齊。
 - 本文件不取代 ADR／Flyway／runtime contracts／tests 的 executable authority。
+
+## 7. #472 full-capability 重驗（Refs #472 §E）
+
+- Baseline V2（保留）：graph／vector disabled，`HYBRID_FTS`／no-answer／governance／source revision 持續 PASS；Document Analysis 經 production offline fallback（stub／offline，bootstrap prompt，無 harness 寫入）證明 readiness＋terminal COMPLETED（success＞0／failed＝0）；optional 缺席維持 typed（semantic 503／graph 409）且 lexical intact。
+- Full-capability V2（新增）：同一 synthetic corpus 上證明 embedding projection READY（deterministic provider seam，corpus ALL，SOURCE＋WIKI）、`SEMANTIC_SOURCE`／`SEMANTIC_WIKI`／`HYBRID_VECTOR` inspector 200＋`HYBRID_VECTOR` Ask ANSWERED（含 citation currentness）、Graph rebuild READY＋`HYBRID_GRAPH` Ask ANSWERED（含 citation currentness＋lexical baseline retained）；sqlite-vec v0.1.9 經 pinned archive＋checksum＋JDBC smoke provision，未 provision 時 semantic 記為 typed unavailable（NO_EVIDENCE），絕不 fake-green；未改 ranking／default policy，未新增 mode，未用 live provider 作 correctness authority，未改 production defaults。
+- Chunking 修正：§2 已更正為 v1 flat-text-compatible byte-equivalent＋metadata 可觀察 vs v2 heading-anchor structure-aware（non-default）；`structureObservable()` 的 triggerMapping 已由 `structure-aware-chunking` 改為 `structural-metadata-observable`，不再主張 v1 grouping 語意；production default 維持 v1。
+- 重驗結論：full-capability evidence 後仍無 reproducible pain／correctness blocker／measurable gain，§3 的 10 家族決策維持不變（全部 DEFER／NO-GO，無 ADOPT／BENCHMARK）；不為 v0.2.0 硬建 speculative feature。若未來出現 PRODUCT_BUG／可重現 trigger，依 §3 規則另開 bounded BENCHMARK／ADOPT Issue。

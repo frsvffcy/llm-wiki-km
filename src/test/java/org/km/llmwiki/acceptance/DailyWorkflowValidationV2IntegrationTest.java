@@ -84,16 +84,18 @@ class DailyWorkflowValidationV2IntegrationTest {
         report.executionMode("in-jvm-defined-port-daily-workflow-v2");
         report.prerequisiteNotes("clean temp root + fresh workspace; synthetic corpus v2 only; "
                 + "deterministic loopback provider stub via production adapter seam; "
+                + "Document Analysis via production offline fallback (stub/offline, bootstrap prompt, no harness write); "
                 + "graph/vector disabled so the lexical baseline stays authoritative; "
+                + "optional absence stays typed (semantic 503/graph 409) with lexical intact; "
                 + "built-JAR path covered by ProductAcceptanceJarProcessIntegrationTest.");
         var harness = new DailyWorkflowHarnessV2(client, report, workspaceRoot);
         harness.runAll();
 
         assertThat(report.findings()).as("harness produced no findings").isNotEmpty();
         for (String journey : List.of("fresh-bootstrap", "workspace-bootstrap",
-                "ingest-extract", "structure-observable", "baseline-retrieval",
+                "ingest-extract", "document-analysis", "structure-observable", "baseline-retrieval",
                 "no-answer-probe", "governed-mutation", "source-revision",
-                "quality-boundary")) {
+                "degraded-contracts", "quality-boundary")) {
             assertThat(report.findings().stream()
                     .filter(finding -> finding.journey().equals(journey))
                     .findFirst())
