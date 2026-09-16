@@ -10,6 +10,20 @@ spring:
     locations: classpath:db/migration
   jooq:
     sql-dialect: SQLITE
+  web:
+    resources:
+      cache:
+        # #479 Browser static-asset currentness: Boot's default static handling
+        # sends no Cache-Control and only a Last-Modified validator. The JAR
+        # build pins entry timestamps (project.build.outputTimestamp) for
+        # reproducible bytes, so Last-Modified stays identical across content
+        # changes and conditional revalidation wrongly returns 304 with stale
+        # JS. Disable the timestamp validator and force revalidation; content
+        # currentness is carried by the ETag added in StaticAssetCacheConfiguration.
+        use-last-modified: false
+        cachecontrol:
+          no-cache: true
+          must-revalidate: true
 
 app:
   ai:
