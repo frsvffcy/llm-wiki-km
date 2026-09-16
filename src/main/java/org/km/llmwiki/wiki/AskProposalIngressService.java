@@ -127,7 +127,7 @@ public class AskProposalIngressService {
             String kind = citation.kind().toUpperCase();
             if ("SOURCE".equals(kind)) {
                 Long chunkId = citation.sourceChunkId();
-                if (chunkId == null || chunkId <= 0 || !chunkExistsInWorkspace(workspaceId, chunkId)) {
+                if (chunkId == null || chunkId <= 0 || !chunkIsCurrentInWorkspace(workspaceId, chunkId)) {
                     invalid.add("SOURCE_CHUNK:" + chunkId);
                     continue;
                 }
@@ -169,7 +169,15 @@ public class AskProposalIngressService {
         citationIdentities.sort(Comparator.naturalOrder());
     }
 
-    private boolean chunkExistsInWorkspace(long workspaceId, Long chunkId) {
+    /**
+     * Currentness check for SOURCE citations (Refs #469): a chunk row existing
+     * in the workspace is not enough. Documents that are superseded, deleted or
+     * duplicate are no longer canonical authority (see
+     * {@code SourceSearchEligibilityPolicy} and the locator safe not-found
+     * contract) and must fail closed as {@code ASK_CITATION_INVALID} instead of
+     * becoming proposal evidence.
+     */
+    private boolean chunkIsCurrentInWorkspace(long workspaceId, Long chunkId) {
         Integer count = dsl.selectCount()
                 .from(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK)
                 .join(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT)
@@ -177,6 +185,8 @@ public class AskProposalIngressService {
                         .eq(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK.DOCUMENT_ID))
                 .where(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK.ID.eq(chunkId.intValue()))
                 .and(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT.STATUS
+                        .notIn("DELETED", "SUPERSEDED", "DUPLICATE"))
                 .fetchOne(0, Integer.class);
         return count != null && count > 0;
     }

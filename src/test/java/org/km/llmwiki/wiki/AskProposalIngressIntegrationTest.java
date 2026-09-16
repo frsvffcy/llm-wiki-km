@@ -221,6 +221,55 @@ class AskProposalIngressIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void supersededDeletedAndDuplicateSourceCitationsFailClosedWithoutPersisting() throws Exception {
+        // Refs #469: superseded/deleted/duplicate chunks still have rows but are no
+        // longer canonical authority — they must be ASK_CITATION_INVALID like
+        // unknown ids, never proposal evidence.
+        createWorkspace("active");
+        long workspaceId = lookupWorkspaceId("active");
+        activate(workspaceId);
+        long supersededDocument = insert("""
+                INSERT INTO document (workspace_id, file_name, source_path, sha256, status, created_at, updated_at)
+                VALUES (:ws, 'superseded.txt', 'superseded.txt', 'superseded-doc', 'SUPERSEDED', :now, :now)
+                """, "ws", workspaceId, "now", "2026-09-01T00:00:00Z");
+        long supersededChunk = insert("""
+                INSERT INTO source_chunk (document_id, chunk_no, content, normalized_content, content_hash,
+                    created_at, updated_at)
+                VALUES (:document, 1, 'superseded', 'superseded', 'superseded-hash', :now, :now)
+                """, "document", supersededDocument, "now", "2026-09-01T00:00:00Z");
+        long deletedDocument = insert("""
+                INSERT INTO document (workspace_id, file_name, source_path, sha256, status, created_at, updated_at)
+                VALUES (:ws, 'deleted.txt', 'deleted.txt', 'deleted-doc', 'DELETED', :now, :now)
+                """, "ws", workspaceId, "now", "2026-09-01T00:00:00Z");
+        long deletedChunk = insert("""
+                INSERT INTO source_chunk (document_id, chunk_no, content, normalized_content, content_hash,
+                    created_at, updated_at)
+                VALUES (:document, 1, 'deleted', 'deleted', 'deleted-hash', :now, :now)
+                """, "document", deletedDocument, "now", "2026-09-01T00:00:00Z");
+        long duplicateDocument = insert("""
+                INSERT INTO document (workspace_id, file_name, source_path, sha256, status, created_at, updated_at)
+                VALUES (:ws, 'duplicate.txt', 'duplicate.txt', 'duplicate-doc', 'DUPLICATE', :now, :now)
+                """, "ws", workspaceId, "now", "2026-09-01T00:00:00Z");
+        long duplicateChunk = insert("""
+                INSERT INTO source_chunk (document_id, chunk_no, content, normalized_content, content_hash,
+                    created_at, updated_at)
+                VALUES (:document, 1, 'duplicate', 'duplicate', 'duplicate-hash', :now, :now)
+                """, "document", duplicateDocument, "now", "2026-09-01T00:00:00Z");
+        for (long staleChunk : new long[]{supersededChunk, deletedChunk, duplicateChunk}) {
+            String body = "{\"question\":\"q\",\"answerText\":\"a\",\"provider\":\"p\",\"model\":\"m\","
+                    + "\"citations\":[{\"evidenceId\":\"E1\",\"kind\":\"SOURCE\",\"sourceChunkId\":"
+                    + staleChunk + "}]}";
+            mockMvc.perform(post("/api/v1/ask/proposals")
+                            .contentType("application/json").content(body))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"));
+        }
+        mockMvc.perform(get("/api/v1/proposals"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
     void invalidRequestsAreTyped400s() throws Exception {
         createWorkspace("active");
         mockMvc.perform(post("/api/v1/ask/proposals")
