@@ -31,6 +31,7 @@
 | `2026-09-14-markitdown-ruhmark-extraction-normalization-evaluation.md` | `LINEAGE_ONLY` | #380 已正式對 Unicode Cf 做 KEEP/FLAG/selected STRIP/contextual evidence gate，取代原始 candidate finding | MarkItDown converter registry可作一般設計參照，但 current parser abstraction已有更直接 authority；沒有獨立新工作 | 不追蹤全文；#380 為 current decision owner |
 | `2026-09-14-paddleocr-rapidocr-ocr-toolkit-evaluation.md` | `TRACK_FULL` | `NEED_OCR` 仍是明確 typed capability gap；#352 等 UI工作只呈現狀態，沒有解鎖 OCR | **SHA256-pinned versioned model manifest**、Java/ONNX/JNI/sidecar deployment boundary、PP-Structure typed layout output、external benchmark + own-corpus雙 gate | 全文納入；只有真實 OCR需求/corpus evidence出現時才開 milestone |
 | `2026-09-15-pixelrag-visual-document-retrieval-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；補強 OCR/layout-aware candidate 的 visual/layout evidence plane，並提出 render completeness/currentness 的 fail-closed 要求 | **optional derived visual retrieval plane**、source revision／renderer-policy／tile manifest／completeness evidence；與 OCR/layout-aware 合併成 future multimodal-document retrieval benchmark | 全文納入；維持 `DEFER`，等 own-corpus 或可重現的 visual retrieval failure trigger；不因外部 benchmark 建立 speculative production adoption Issue |
+| `2026-09-15-openviking-agent-context-database-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#437 將 OpenViking 收斂為 agent-context design input，不取代 current FTS/vector/Graph Hybrid RAG | **progressive context loading**、**hierarchical agent namespace（read projection）**、**retrieval trajectory observability**、**resource/memory/skill separation**；self-evolving memory / MCP write 維持 governance-restricted `DEFER` | 全文納入；維持 `NO RUNTIME ADOPTION`，不建立 speculative integration Issue；future trigger 見該 evaluation §6 |
 | `2026-09-14-rag-playbook-series-evaluation.md` | `TRACK_FULL` | query rewriting 已演進為 #390 → #401；hybrid/rerank/context/orchestration大多已 covered | **sentence-window / small-to-big** 仍是 `chunk-policy-v2` 候選；中文 token 密度與 provider limit應持續納入 chunk/embedding evaluation | 全文納入；query-transform 部分標示已吸收，chunking 部分維持 future input |
 | `chengjing-notes-external-product-evaluation-20260912.md` | `TRACK_FULL` | #323 吸收 local-first provider egress transparency；#327 吸收 read-only-first local MCP / capability boundary；#360補足 action-risk gate | **future MCP write 三件套**：optimistic version、no physical delete、reversible external write；association discovery→`LINK_ONLY`；backup/restore contract；bounded malformed-output repair retry仍只是 policy question | 全文納入；MCP write仍禁止，backup亦不因此自動排程 |
 | `dify-external-product-evaluation-20260912.md` | `TRACK_FULL` | Ask→Proposal 已由 #374 完成；MCP external conformance由 #330～#358/#340 系列處理；Retrieval Inspector/Browser diagnostics已由 #292/#375產品化 | **retrieval policy A/B hit-testing console**、typed metadata pre-filter、parent-child chunking仍是 future candidates | 全文納入；需要 current usage/corpus evidence才立項 |
@@ -118,6 +119,15 @@ PixelRAG 的 current lineage 是對既有 OCR / layout-aware candidate 的擴充
 - 若真實 scanned／layout／visual corpus 出現可重現 retrieval loss，應和 PaddleOCR/RAGFlow 的 OCR/layout input 合併成單一 **future multimodal-document retrieval benchmark**，比較 OCR/text、layout-aware、screenshot visual 與 hybrid path；
 - 在 trigger 成立前，不建立 speculative production adoption Issue，也不因 PixelRAG 的外部 benchmark 或參數改動 current default。
 
+### 3.9 OpenViking（#437）
+
+OpenViking 的 current lineage 是 agent-context / progressive-loading design input，不是另一套 RAG 或 memory runtime：
+
+- `NO RUNTIME ADOPTION`：不以 OpenViking 取代 current FTS/vector/Graph Hybrid RAG，不以其 memory/URI/vector index 作 canonical authority，不導入 AGPL server code；
+- `ADOPT AS DESIGN INPUT`：progressive context loading（bounded summary → overview → authoritative detail）、hierarchical agent namespace（僅 navigation/read projection）、retrieval trajectory observability（bounded diagnostic projection）、resource/memory/skill separation（不同 authority/write/retention/citation semantics）；
+- `DEFER / GOVERNANCE-RESTRICTED`：self-evolving durable memory 與 agent-facing filesystem/MCP write；任何 durable semantic mutation 仍走 Proposal→Draft→Human Review→Publish，MCP 維持 read-only；
+- 不與既有 MCP write（ChengJing/claude-obsidian）、context compaction、Retrieval Inspector candidate 建立平行 owner；future trigger 見該 evaluation §6，觸發後第一張工作仍是 benchmark/contract evaluation。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
@@ -128,8 +138,9 @@ PixelRAG 的 current lineage 是對既有 OCR / layout-aware candidate 的擴充
 | OCR / layout-aware / visual document retrieval | PaddleOCR/RapidOCR、RAGFlow MinerU/Docling、kotaemon PaddleOCR loader、PixelRAG | `DEFER`，`NEED_OCR`與可重現的 layout／visual retrieval loss是同一 future trigger seam；以單一 **future multimodal-document retrieval benchmark** 比較 OCR/text、layout-aware、screenshot visual 與 hybrid path，仍需 own-corpus、deployment/resource與 completeness evidence |
 | Retrieval experimentation UX | Dify hit testing、既有 Retrieval Inspector | `DEFER`，只有 operator使用顯示 A/B compare能降低除錯成本時才產品化；不得變 production tuning authority |
 | Vector storage optimization | LEANN + current sqlite-vec | `DEFER`，先量測 storage/latency，再由量化→更大架構逐級評估 |
-| Future governed MCP/agent write | ChengJing、claude-obsidian capability/mutation protocols | `NO CURRENT ADOPTION`，write surface真正立項時才重新評估；A2/Human Review不變 |
+| Future governed MCP/agent write | ChengJing、claude-obsidian capability/mutation protocols、OpenViking MCP write/design input（#437） | `NO CURRENT ADOPTION`，write surface真正立項時才重新評估；A2/Human Review不變 |
 | Claim-quality / contradiction ledger | claude-obsidian | `LONG-TERM DEFER`，需要跨頁 claim品質需求與明確 authority model才成立 |
+| Agent context / progressive loading / retrieval observability | OpenViking（#437） | `DEFER / DESIGN INPUT ONLY`，progressive loading、hierarchical read namespace、trajectory observability、context-type separation 只作 future input；self-evolving memory 不繞過 Proposal→Human Review→Publish；不另開 parallel agent-memory roadmap |
 | Metadata-aware retrieval | Dify | `DEFER`，需要 corpus/UX證據；若做必須是 typed/versioned/applicability-gated policy |
 
 ## 5. What not to resurrect
