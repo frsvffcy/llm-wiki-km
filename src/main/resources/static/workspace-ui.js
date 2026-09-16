@@ -261,10 +261,10 @@ function elementsFrom(documentRef) {
   };
 }
 
-export function bootstrapWorkspaceUi(documentRef = document, hooks = {}) {
+export function bootstrapWorkspaceUi(documentRef = document, hooks = {}, fetchImpl = fetch) {
   const elements = elementsFrom(documentRef);
   if (!elements.form) return null;
-  return createWorkspaceController(elements, fetch, documentRef, {
+  const controller = createWorkspaceController(elements, fetchImpl, documentRef, {
     ...hooks,
     onWorkspaceChanged: () => {
       // The inbox (and future workspace-scoped views) subscribe to this document event
@@ -279,6 +279,8 @@ export function bootstrapWorkspaceUi(documentRef = document, hooks = {}) {
       }
     }
   });
+  controller.refresh();
+  return controller;
 }
 
 if (typeof document !== "undefined") bootstrapWorkspaceUi();
