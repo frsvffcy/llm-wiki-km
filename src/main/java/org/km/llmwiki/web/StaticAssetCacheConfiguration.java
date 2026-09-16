@@ -47,6 +47,13 @@ import java.io.IOException;
  * Workspace authority and persistence semantics, and the runtime version
  * authority ({@code ApplicationVersion} is not used as a URL token, so
  * reproducible builds are unaffected).
+ *
+ * <p>Companion (Refs #481): response headers only govern requests the Browser
+ * actually sends. Heuristically fresh subresources are reused from disk with zero
+ * requests (plain navigation, and reload below the top document), so changed bytes
+ * additionally get new URLs via build-time content-hash tokens
+ * ({@link StaticAssetVersioner}); a revalidated document then forces compulsory
+ * cache misses instead of silent heuristic hits.
  */
 @Configuration(proxyBeanMethods = false)
 public class StaticAssetCacheConfiguration {
