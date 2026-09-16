@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  bootstrapWorkspaceUi,
   createWorkspaceController,
   renderCurrentWorkspace,
   validateWorkspaceInput,
@@ -80,6 +81,29 @@ function statusResponse(id, name, layoutOverrides = {}) {
       workspace: { id, name, rootPath: `/tmp/ws-${id}`, status: "ACTIVE" },
       layout: { valid: true, repairedDirectories: [], problems: [], ...layoutOverrides }
     }
+  };
+}
+
+function documentFor(elements) {
+  const nodes = new Map([
+    ["workspace-create-form", elements.form],
+    ["workspace-name", elements.name],
+    ["workspace-root-path", elements.rootPath],
+    ["workspace-create-submit", elements.createSubmit],
+    ["workspace-hint", elements.hint],
+    ["workspace-current", elements.current],
+    ["workspace-current-empty", elements.currentEmpty],
+    ["workspace-current-name", elements.currentName],
+    ["workspace-current-path", elements.currentPath],
+    ["workspace-current-status", elements.currentStatus],
+    ["workspace-layout-state", elements.layoutState],
+    ["workspace-layout-detail", elements.layoutDetail],
+    ["workspace-list", elements.list],
+    ["workspace-repair", elements.repair]
+  ]);
+  return {
+    getElementById: id => nodes.get(id),
+    createElement: () => new FakeElement()
   };
 }
 
@@ -233,4 +257,45 @@ test("current workspace renders layout validity and backend-safe problems", () =
   assert.equal(elements.layoutState.textContent, "目錄結構需要修復");
   assert.match(flatText(elements.layoutDetail), /archive directory is missing/u);
   assert.match(elements.layoutState.className, /workspace-layout--broken/u);
+});
+
+test("bootstrap loads current workspace and existing list on first open without requiring create", async () => {
+  const elements = uiElements();
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    if (String(url).endsWith("/current")) {
+      return jsonResponse(true, 200, statusResponse(1, "main"));
+    }
+    return jsonResponse(true, 200, {
+      data: [workspaceResponse(1, "main").data, workspaceResponse(2, "second").data]
+    });
+  };
+
+  const controller = bootstrapWorkspaceUi(documentFor(elements), {}, fetchImpl);
+  assert.ok(controller);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(calls, ["/api/v1/workspaces/current", "/api/v1/workspaces"]);
+  assert.equal(elements.currentName.textContent, "main");
+  assert.equal(elements.current.hidden, false);
+  assert.equal(elements.list.children.length, 2);
+  assert.match(flatText(elements.list), /main/u);
+  assert.match(flatText(elements.list), /second/u);
+});
+
+test("bootstrap returns null when the workspace form is absent", () => {
+  const elements = uiElements();
+  const full = documentFor(elements);
+  const documentRef = {
+    ...full,
+    getElementById: id => (id === "workspace-create-form" ? null : full.getElementById(id))
+  };
+  let fetched = false;
+  const controller = bootstrapWorkspaceUi(documentRef, {}, async () => {
+    fetched = true;
+    return jsonResponse(true, 200, { data: [] });
+  });
+  assert.equal(controller, null);
+  assert.equal(fetched, false);
 });
