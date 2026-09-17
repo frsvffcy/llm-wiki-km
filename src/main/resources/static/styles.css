@@ -272,8 +272,23 @@ button:disabled { cursor: wait; opacity: 0.62; }
   padding: 6px 10px;
   border: none;
   background: transparent;
+  color: var(--ink);
   cursor: pointer;
   text-align: left;
+}
+/* #485: the toggle sits on a light container, so it must not inherit the global
+   `button { color: #fff; }` white text or the global `button:hover` dark
+   background. Its own normal/hover/focus states keep dark-on-light text so the
+   headline stays readable collapsed, hovered, focused, and expanded. */
+.ai-egress-toggle:hover {
+  background: #edeae2;
+  color: var(--ink);
+}
+.ai-egress-toggle:focus-visible {
+  background: #edeae2;
+  color: var(--ink);
+  outline: 3px solid rgba(15, 118, 110, 0.22);
+  outline-offset: 2px;
 }
 .ai-egress-label::before {
   content: "• ";
