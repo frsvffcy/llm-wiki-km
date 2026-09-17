@@ -78,6 +78,20 @@ class SourceLocatorApiTest {
     }
 
     @Test
+    void malformedAndOutOfRangeChunkIdsFailClosedWithoutDispatch() throws Exception {
+        mockMvc.perform(get("/api/v1/source-chunks/{chunkId}/locator", "not-a-number"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
+
+        org.mockito.Mockito.verifyNoInteractions(locatorService, sourceChunkService);
+
+        when(locatorService.locate(-7L)).thenThrow(new SourceChunkNotFoundException(-7L));
+        mockMvc.perform(get("/api/v1/source-chunks/{chunkId}/locator", -7L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("SOURCE_CHUNK_NOT_FOUND"));
+    }
+
+    @Test
     void locatorProjectionNeverCarriesRawInternals() throws Exception {
         when(locatorService.locate(42L)).thenReturn(new SourceLocator(42L, 900L, "design.pdf",
                 3, 17, "Graph lifecycle", "Projection > Generation ownership",

@@ -71,7 +71,9 @@ public final class RetrievalInspectionMapper {
                         trace.identity(), trace.disposition().name(), trace.reasonCode())).toList(),
                 report.finalEvidence().stream().map(evidence ->
                         new RetrievalInspectionResponse.FinalEvidence(evidence.ordinal(),
-                                evidence.identity())).toList(),
+                                evidence.identity(), evidence.kind(), evidence.sourceChunkId(),
+                                evidence.knowledgeId(), evidence.displayLabel(),
+                                evidence.currentness())).toList(),
                 new RetrievalInspectionResponse.ModalityDiagnostics(
                         report.modalityDiagnostics().lexical().name(),
                         report.modalityDiagnostics().vector().name(),

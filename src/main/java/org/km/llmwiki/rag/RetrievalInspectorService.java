@@ -18,6 +18,13 @@ import java.util.List;
 @Service
 public class RetrievalInspectorService {
 
+    /**
+     * Inspection-time currentness for surviving final evidence: every projected item passed
+     * the terminal guards, hence current when observed. Navigation-time freshness always
+     * comes from the canonical locator/read flow, never from this snapshot.
+     */
+    private static final String INSPECTION_TIME_CURRENTNESS = "CURRENT";
+
     private final RetrievalService retrievalService;
     private final FusionRankingPolicyProvider fusionPolicyProvider;
     private final QueryTransformationService queryTransformationService;
@@ -160,9 +167,31 @@ public class RetrievalInspectorService {
         List<RetrievalInspectionReport.FinalEvidence> evidence = new ArrayList<>();
         for (EvidenceItem item : bundle.items()) {
             evidence.add(new RetrievalInspectionReport.FinalEvidence(
-                    evidence.size() + 1, item.stableIdentity()));
+                    evidence.size() + 1, item.stableIdentity(), item.kind().name(),
+                    item.sourceChunkId(), item.knowledgeId(), displayLabel(item),
+                    INSPECTION_TIME_CURRENTNESS));
         }
         return List.copyOf(evidence);
+    }
+
+    /**
+     * Privacy-safe human label derived only from fields the canonical read-only views
+     * already disclose (source document name / wiki title). Filesystem paths, content,
+     * hashes, and ranking inputs never enter the inspection projection.
+     */
+    private static String displayLabel(EvidenceItem item) {
+        if (item.kind() == EvidenceKind.SOURCE_CHUNK) {
+            if (item.documentName() != null && !item.documentName().isBlank()) {
+                return item.chunkNo() == null
+                        ? item.documentName()
+                        : item.documentName() + " · chunk " + item.chunkNo();
+            }
+            return item.stableIdentity();
+        }
+        if (item.title() != null && !item.title().isBlank()) {
+            return item.title();
+        }
+        return item.knowledgeId() == null ? item.stableIdentity() : item.knowledgeId();
     }
 
     /** One unified typed modality view derived from the production diagnostics. */

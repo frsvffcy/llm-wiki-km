@@ -223,6 +223,64 @@ class RetrievalInspectorServiceTest {
     }
 
     @Test
+    void finalEvidenceCarriesSafeSourceProjectionForBothCorpora() {
+        RetrievalService retrievalService = mock(RetrievalService.class);
+        doAnswer(invocation -> {
+            RetrievalInspectionCollector collector = invocation.getArgument(1);
+            collector.channelCandidate(CandidateSignal.LEXICAL, "WIKI:page-1");
+            collector.channelCandidate(CandidateSignal.LEXICAL, "SOURCE_CHUNK:7");
+            collector.selected("WIKI:page-1");
+            collector.selected("SOURCE_CHUNK:7");
+            return bundle("HYBRID_FTS", wikiItem("page-1", "Page Title"),
+                    sourceItem(7L, 900L, "doc.pdf", 2));
+        }).when(retrievalService).retrieve(any(), any());
+        RetrievalInspectorService service = new RetrievalInspectorService(retrievalService,
+                policyProvider);
+
+        RetrievalInspectionReport report = service.inspect(
+                RetrievalRequest.defaults("q", RetrievalMode.HYBRID_FTS));
+
+        assertThat(report.finalEvidence()).extracting(
+                        RetrievalInspectionReport.FinalEvidence::identity,
+                        RetrievalInspectionReport.FinalEvidence::kind,
+                        RetrievalInspectionReport.FinalEvidence::sourceChunkId,
+                        RetrievalInspectionReport.FinalEvidence::knowledgeId,
+                        RetrievalInspectionReport.FinalEvidence::displayLabel,
+                        RetrievalInspectionReport.FinalEvidence::currentness)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("WIKI:page-1", "WIKI", null,
+                                "page-1", "Page Title", "CURRENT"),
+                        org.assertj.core.groups.Tuple.tuple("SOURCE_CHUNK:7", "SOURCE_CHUNK",
+                                7L, null, "doc.pdf · chunk 2", "CURRENT"));
+    }
+
+    @Test
+    void compatFinalEvidenceKeepsIdentityAuthorityWithAbsentProjection() {
+        var evidence = new RetrievalInspectionReport.FinalEvidence(1, "WIKI:1");
+
+        assertThat(evidence.ordinal()).isEqualTo(1);
+        assertThat(evidence.identity()).isEqualTo("WIKI:1");
+        assertThat(evidence.kind()).isNull();
+        assertThat(evidence.sourceChunkId()).isNull();
+        assertThat(evidence.knowledgeId()).isNull();
+        assertThat(evidence.displayLabel()).isNull();
+        assertThat(evidence.currentness()).isNull();
+    }
+
+    @Test
+    void finalEvidenceRejectsUnknownKindAndNonCurrentProjection() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                new RetrievalInspectionReport.FinalEvidence(1, "WIKI:1", "BOGUS", null, "1",
+                        "label", "CURRENT"));
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                new RetrievalInspectionReport.FinalEvidence(1, "WIKI:1", "WIKI", null, "1",
+                        "label", "STALE"));
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                new RetrievalInspectionReport.FinalEvidence(1, "  ", "WIKI", null, "1",
+                        "label", "CURRENT"));
+    }
+
+    @Test
     void reportInvariantRejectsSurvivorCountsThatDoNotMatchFinalEvidence() {
         assertThatIllegalArgumentException().isThrownBy(() -> report(
                 List.of(RetrievalInspectionTrace.SelectionTrace.selected("WIKI:1"),
@@ -296,5 +354,20 @@ class RetrievalInspectorServiceTest {
                 kind.equals("SOURCE_CHUNK") ? 7L : null,
                 kind.equals("SOURCE_CHUNK") ? 900L : null, "doc.pdf",
                 kind.equals("SOURCE_CHUNK") ? 2 : null, null, null, null);
+    }
+
+    private static EvidenceItem wikiItem(String knowledgeId, String title) {
+        return new EvidenceItem(EvidenceKind.WIKI, knowledgeId,
+                new EvidenceWorkspace(7L, "ws"), 0.5, "content", "snippet", false, "hash",
+                knowledgeId, title, "PAGE", "vault/p.md", 4,
+                null, null, null, null, null, null, null);
+    }
+
+    private static EvidenceItem sourceItem(long chunkId, long documentId, String documentName,
+                                           int chunkNo) {
+        return new EvidenceItem(EvidenceKind.SOURCE_CHUNK, Long.toString(chunkId),
+                new EvidenceWorkspace(7L, "ws"), 0.5, "content", "snippet", false, "hash",
+                null, null, null, null, null,
+                chunkId, documentId, documentName, chunkNo, null, null, null);
     }
 }

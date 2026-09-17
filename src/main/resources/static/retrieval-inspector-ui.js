@@ -1,3 +1,5 @@
+import { clearSourceChunkInspector, inspectSourceChunk } from "./source-chunk-inspector-ui.js";
+
 const INSPECT_ENDPOINT = "/api/v1/retrieval/inspect";
 
 const ERROR_MESSAGES = Object.freeze({
@@ -46,6 +48,18 @@ const TRANSFORMATION_STATUS_LABELS = Object.freeze({
 });
 
 const INPUT_ROLE_LABELS = Object.freeze({ ORIGINAL: "原始查詢", REWRITE: "改寫查詢" });
+
+// Final evidence source projection (#484): kind labels and inspection-time currentness
+// wording. The Browser never decides currentness itself — freshness always comes from
+// the canonical locator/read flow when the user follows the navigation control.
+const EVIDENCE_KIND_LABELS = Object.freeze({
+  WIKI: "Wiki",
+  SOURCE_CHUNK: "來源文件"
+});
+
+const EVIDENCE_CURRENTNESS_LABELS = Object.freeze({
+  CURRENT: "檢視當下為 current"
+});
 
 export function validateQuestion(question) {
   return typeof question === "string" && question.trim() ? null : "請先輸入查詢。";
@@ -162,9 +176,85 @@ export function renderInspection(elements, payload, documentRef = document) {
 
   const finalEvidence = Array.isArray(data.finalEvidence) ? data.finalEvidence : [];
   finalEvidence.forEach(evidence => {
-    appendTextElement(documentRef, elements.finalEvidence, "li", "inspector-final",
-      `E${evidence.ordinal} ${text(evidence.identity)}`);
+    const item = documentRef.createElement("li");
+    item.className = "inspector-final";
+    appendTextElement(documentRef, item, "span", "inspector-final-identity",
+      `E${evidence && evidence.ordinal ? evidence.ordinal : "?"} ${text(evidence && evidence.identity)}`);
+    const kind = evidence && typeof evidence.kind === "string" ? evidence.kind : "";
+    if (EVIDENCE_KIND_LABELS[kind]) {
+      appendTextElement(documentRef, item, "span", "inspector-final-kind",
+        EVIDENCE_KIND_LABELS[kind]);
+    }
+    if (evidence && evidence.displayLabel) {
+      appendTextElement(documentRef, item, "span", "inspector-final-source",
+        text(evidence.displayLabel));
+    }
+    const currentness = evidence && typeof evidence.currentness === "string"
+      ? evidence.currentness : "";
+    if (EVIDENCE_CURRENTNESS_LABELS[currentness]) {
+      appendTextElement(documentRef, item, "span", "inspector-final-currentness",
+        EVIDENCE_CURRENTNESS_LABELS[currentness]);
+    }
+    appendFinalEvidenceNavigation(documentRef, item, evidence);
+    elements.finalEvidence.append(item);
   });
+}
+
+// Navigation controls reuse the canonical read-only views: source chunks open through
+// the shared locator renderer (same endpoint and fail-closed typed states as the Ask
+// citation flow), wiki pages link to the existing read-only Wiki view. Anything without
+// a usable navigation identifier stays plain text — the Browser never fabricates a
+// target.
+function appendFinalEvidenceNavigation(documentRef, item, evidence) {
+  const kind = evidence && typeof evidence.kind === "string" ? evidence.kind : "";
+  if (kind === "SOURCE_CHUNK") {
+    if (!isNavigableChunkId(evidence && evidence.sourceChunkId)) return;
+    const locate = documentRef.createElement("button");
+    locate.type = "button";
+    locate.className = "inspector-final-locate";
+    locate.textContent = "檢視來源片段";
+    if (typeof locate.setAttribute === "function") {
+      locate.setAttribute("data-chunk-id", String(Number(evidence.sourceChunkId)));
+    }
+    item.append(locate);
+    return;
+  }
+  if (kind === "WIKI") {
+    const knowledgeId = evidence && typeof evidence.knowledgeId === "string"
+      ? evidence.knowledgeId.trim() : "";
+    if (!knowledgeId) return;
+    const open = documentRef.createElement("a");
+    open.className = "inspector-final-wiki-link";
+    open.textContent = "前往 Wiki 閱讀";
+    open.href = "#/wiki";
+    if (typeof open.setAttribute === "function") {
+      open.setAttribute("data-knowledge-id", knowledgeId);
+    }
+    item.append(open);
+  }
+}
+
+function isNavigableChunkId(value) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(numeric) && numeric > 0;
+}
+
+function sourcePanelElements(documentRef) {
+  if (!documentRef || typeof documentRef.getElementById !== "function") return null;
+  const byId = id => documentRef.getElementById(id);
+  const panel = {
+    result: byId("source-inspector-result"),
+    loading: byId("source-inspector-loading"),
+    error: byId("source-inspector-error"),
+    errorTitle: byId("source-inspector-error-title"),
+    errorMessage: byId("source-inspector-error-message"),
+    notFound: byId("source-inspector-not-found"),
+    notFoundTitle: byId("source-inspector-not-found-title"),
+    notFoundMessage: byId("source-inspector-not-found-message"),
+    metadata: byId("source-inspector-metadata"),
+    preview: byId("source-inspector-preview")
+  };
+  return panel.result ? panel : null;
 }
 
 export function createInspectorController(elements, fetchImpl = fetch, documentRef = document) {
@@ -187,8 +277,10 @@ export function createInspectorController(elements, fetchImpl = fetch, documentR
     elements.submit.disabled = true;
     elements.submit.textContent = "處理中…";
     // Repeated inspection must never show a stale previous trace: clear before fetching and
-    // on any failure, so nothing old can be mistaken for the current result.
+    // on any failure, so nothing old can be mistaken for the current result. The locator
+    // panel belongs to the previous trace as well, so it is cleared together with it.
     clearAll(elements);
+    clearSourceChunkInspector(sourcePanelElements(documentRef));
     elements.empty.hidden = false;
     elements.emptyMessage.textContent = "正在執行檢索…";
     try {
@@ -225,6 +317,24 @@ export function createInspectorController(elements, fetchImpl = fetch, documentR
   }
 
   elements.form.addEventListener("submit", submit);
+  // Final evidence navigation (#484): delegate button clicks to the shared locator
+  // renderer so each evidence item opens in the existing Source Chunk Inspector panel.
+  // Wiki items are native anchors and need no handler. Read-only throughout.
+  if (elements.finalEvidence && typeof elements.finalEvidence.addEventListener === "function") {
+    elements.finalEvidence.addEventListener("click", clickEvent => {
+      const target = clickEvent && clickEvent.target;
+      const chunkId = target && typeof target.getAttribute === "function"
+        ? target.getAttribute("data-chunk-id")
+        : null;
+      if (!chunkId) return;
+      if (clickEvent && typeof clickEvent.preventDefault === "function") {
+        clickEvent.preventDefault();
+      }
+      const panel = sourcePanelElements(documentRef);
+      if (!panel) return;
+      void inspectSourceChunk(panel, chunkId, fetchImpl, documentRef);
+    });
+  }
   // Workspace isolation (#375): inspection results are current-workspace projections
   // and must never survive a workspace switch.
   if (documentRef && typeof documentRef.addEventListener === "function") {
