@@ -948,3 +948,102 @@ test("answer body and egress/diagnostics are separate structural blocks, not col
   assert.doesNotMatch(renderFn, /aiEgress/,
     "answer rendering does not replace or obscure the egress disclosure");
 });
+
+// --- AI egress toggle visibility (#485) ---
+
+test("egress toggle collapsed state owns a readable text color, not global white (#485)", async () => {
+  const css = await readFile(new URL("../../main/resources/static/styles.css", import.meta.url), "utf8");
+  const toggleRule = css.match(/\.ai-egress-toggle\s*\{[^}]*\}/u);
+  assert.ok(toggleRule, ".ai-egress-toggle owns a dedicated rule");
+  const rule = toggleRule[0];
+  assert.match(rule, /color\s*:\s*var\(--ink\)/u,
+    "collapsed normal state uses dark ink text so the headline is readable without hover");
+  assert.doesNotMatch(rule, /#fff/u,
+    "the toggle must not reintroduce the global button white text");
+  assert.match(rule, /background\s*:\s*transparent/u,
+    "the toggle stays transparent over the light egress container");
+});
+
+test("egress toggle hover and focus keep dark-on-light text, not the global dark button (#485)", async () => {
+  const css = await readFile(new URL("../../main/resources/static/styles.css", import.meta.url), "utf8");
+  const hoverRule = css.match(/\.ai-egress-toggle:hover\s*\{[^}]*\}/u);
+  assert.ok(hoverRule, ".ai-egress-toggle:hover overrides the global button:hover");
+  assert.match(hoverRule[0], /color\s*:\s*var\(--ink\)/u,
+    "hover keeps the headline readable instead of revealing it only on hover");
+  assert.doesNotMatch(hoverRule[0], /var\(--accent-dark\)|#115e59/u,
+    "hover must not reuse the global dark accent background on this light toggle");
+  assert.match(hoverRule[0], /background/u, "hover owns an explicit light background");
+
+  const focusRule = css.match(/\.ai-egress-toggle:focus-visible\s*\{[^}]*\}/u);
+  assert.ok(focusRule, ".ai-egress-toggle:focus-visible exists for keyboard users");
+  assert.match(focusRule[0], /color\s*:\s*var\(--ink\)/u,
+    "keyboard focus keeps the headline readable");
+  assert.match(focusRule[0], /outline/u, "keyboard focus stays discernible");
+  assert.match(focusRule[0], /background/u,
+    "focus keeps a light background instead of the global dark one");
+});
+
+test("egress toggle keeps severity modifiers and a hover-independent native button (#485)", async () => {
+  const [css, html, js] = await Promise.all([
+    readFile(new URL("../../main/resources/static/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../../main/resources/static/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../../main/resources/static/ask-ui.js", import.meta.url), "utf8")
+  ]);
+  for (const modifier of ["ai-egress--insecure", "ai-egress--remote", "ai-egress--local", "ai-egress--off"]) {
+    assert.match(css, new RegExp(`\\.${modifier}\\b`, "u"),
+      `${modifier} severity styling is preserved`);
+  }
+  const toggleTag = html.match(/<button[^>]*id="ai-egress-toggle"[^>]*>/u);
+  assert.ok(toggleTag, "the disclosure header is a native button, operable by touch and keyboard");
+  assert.match(toggleTag[0], /type="button"/u, "the toggle never submits the Ask form");
+  assert.match(toggleTag[0], /aria-expanded="false"/u, "collapsed is the explicit initial state");
+  assert.match(toggleTag[0], /aria-controls="ai-egress-detail"/u, "the toggle controls the detail region");
+  assert.doesNotMatch(js, /aiEgress\w*\s*\.\s*hidden\s*=\s*true[^]*mouseout|mouseout[^]*aiEgress/su,
+    "no hover-out path hides the egress disclosure");
+  assert.doesNotMatch(js, /addEventListener\(\s*["'](?:mouseout|mouseleave)["']/u,
+    "header visibility never depends on pointer hover handlers");
+});
+
+test("egress toggle expands and collapses while the header label stays intact (#485)", () => {
+  const elements = uiElements();
+  elements.aiEgressToggle.setAttribute("aria-expanded", "false");
+  elements.aiEgressDetail.hidden = true;
+  elements.aiEgressLabel.textContent = "AI 未啟用";
+  createAskController(elements, async () => { throw new Error("must not fetch"); }, documentRef);
+  const click = elements.aiEgressToggle.handlers.get("click");
+  assert.ok(click, "the toggle owns a click handler covering mouse, touch, and keyboard activation");
+
+  const labelBefore = elements.aiEgressLabel.textContent;
+  assert.ok(labelBefore.trim().length > 0, "the collapsed header already carries a readable label");
+
+  click();
+  assert.equal(elements.aiEgressToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(elements.aiEgressDetail.hidden, false);
+  assert.equal(elements.aiEgressLabel.textContent, labelBefore,
+    "expanding keeps the header text so the state stays understandable");
+
+  click();
+  assert.equal(elements.aiEgressToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(elements.aiEgressDetail.hidden, true);
+  assert.equal(elements.aiEgressLabel.textContent, labelBefore,
+    "leaving the expanded state (mouse-out equivalent) keeps the header readable");
+});
+
+test("disabled and remote headlines both render a non-empty label for the readable toggle (#485)", async () => {
+  const cases = [
+    ["DISABLED", "AI 未啟用"],
+    ["REMOTE_SECURE", "遠端安全連線"],
+    ["LOCAL_LOOPBACK", "本機 AI"]
+  ];
+  for (const [destination, expected] of cases) {
+    const els = { aiEgress: new FakeElement(), aiEgressLabel: new FakeElement(),
+      aiEgressDetail: new FakeElement() };
+    await loadAiEgress(els, async () => ({ ok: true, json: async () => ({ data: [
+      { purpose: "ANSWER", destinationClass: destination, providerType: null,
+        modelDisplayName: null, egressCategories: [] }
+    ] }) }), documentRef);
+    assert.equal(els.aiEgress.hidden, false, `${destination} keeps the disclosure visible`);
+    assert.equal(els.aiEgressLabel.textContent, expected,
+      `${destination} headline renders its destination label without hover`);
+  }
+});
