@@ -7,6 +7,23 @@
 
 const ROUTES = Object.freeze(["home", "wiki", "inbox", "ask", "inspect", "review", "quality"]);
 
+/**
+ * #495 repository-owned information architecture: the 7 hash routes keep their
+ * URLs/meanings, but are grouped for comprehension. Core knowledge work comes
+ * first; verification/governance stays visible but never outranks primary work.
+ * Diagnostics (inspect) is intentionally in the second group.
+ */
+export const NAV_GROUPS = Object.freeze({
+  core: Object.freeze(["home", "wiki", "inbox", "ask"]),
+  govern: Object.freeze(["inspect", "review", "quality"])
+});
+
+export function navGroup(route) {
+  if (NAV_GROUPS.core.includes(route)) return "core";
+  if (NAV_GROUPS.govern.includes(route)) return "govern";
+  return null;
+}
+
 export const VIEW_TITLES = Object.freeze({
   home: "工作區",
   wiki: "Wiki",

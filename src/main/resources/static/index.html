@@ -51,13 +51,19 @@
     </section>
 
     <nav class="app-nav" aria-label="主要導覽">
-      <a href="#/home" data-route-link="home">工作區</a>
-      <a href="#/wiki" data-route-link="wiki">Wiki</a>
-      <a href="#/inbox" data-route-link="inbox">收件匣</a>
-      <a href="#/ask" data-route-link="ask">提問</a>
-      <a href="#/inspect" data-route-link="inspect">檢視器</a>
-      <a href="#/review" data-route-link="review">審核</a>
-      <a href="#/quality" data-route-link="quality">品質</a>
+      <div class="app-nav-group" role="group" aria-label="核心知識工作">
+        <span class="app-nav-group-label" aria-hidden="true">知識工作</span>
+        <a href="#/home" data-route-link="home">工作區</a>
+        <a href="#/wiki" data-route-link="wiki">Wiki</a>
+        <a href="#/inbox" data-route-link="inbox">收件匣</a>
+        <a href="#/ask" data-route-link="ask">提問</a>
+      </div>
+      <div class="app-nav-group" role="group" aria-label="驗證與治理">
+        <span class="app-nav-group-label" aria-hidden="true">驗證與治理</span>
+        <a href="#/inspect" data-route-link="inspect">檢視器</a>
+        <a href="#/review" data-route-link="review">審核</a>
+        <a href="#/quality" data-route-link="quality">品質</a>
+      </div>
     </nav>
 
     <section id="view-home" data-route="home" class="view" aria-label="工作區">

@@ -323,6 +323,11 @@ button:disabled {
   .graph-details { grid-template-columns: 1fr; }
   .context-diagnostics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .graph-actions { align-items: stretch; flex-direction: column; }
+  /* #495 narrow navigation: groups stack, links wrap with a 44px touch target,
+     never squeezed into an unusable single row. Native CSS only, no icon set. */
+  .app-nav { flex-direction: column; align-items: stretch; }
+  .app-nav-group + .app-nav-group { padding-left: 0; border-left: 0; padding-top: var(--space-2); border-top: 1px solid var(--border); }
+  .app-nav a { min-height: 44px; }
 }
 
 @media (max-width: 420px) {
@@ -456,10 +461,35 @@ button:disabled {
 .app-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin: var(--space-5) 0 var(--space-1);
 }
+/* #495 IA groups: core knowledge work first, verification/governance second.
+   Groups are visual + screen-reader structure only; hash URLs and route meanings
+   are unchanged and no governance entry is hidden. */
+.app-nav-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.app-nav-group + .app-nav-group {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--border);
+}
+.app-nav-group-label {
+  color: var(--foreground-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 .app-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
   padding: 7px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
@@ -471,12 +501,28 @@ button:disabled {
     color var(--motion-fast) var(--ease-standard),
     background-color var(--motion-fast) var(--ease-standard);
 }
-.app-nav a:hover { border-color: var(--primary); color: var(--primary-hover); }
+/* #495 hover/active/focus are never color-only: hover adds background + underline,
+   active adds background + weight + inset marker, focus adds outline + underline. */
+.app-nav a:hover {
+  border-color: var(--primary);
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .app-nav a[aria-current="page"] {
   border-color: var(--primary);
   background: var(--primary-soft);
   color: var(--primary-hover);
   font-weight: 700;
+  box-shadow: inset 0 -2px 0 var(--primary);
+  text-decoration: none;
+}
+.app-nav a:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .view[hidden] { display: none; }
 .view > h2 { margin: var(--space-5) 0 var(--space-2); font-size: var(--text-section); letter-spacing: -0.02em; }
