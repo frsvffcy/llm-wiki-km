@@ -956,7 +956,8 @@ test("egress toggle collapsed state owns a readable text color, not global white
   const toggleRule = css.match(/\.ai-egress-toggle\s*\{[^}]*\}/u);
   assert.ok(toggleRule, ".ai-egress-toggle owns a dedicated rule");
   const rule = toggleRule[0];
-  assert.match(rule, /color\s*:\s*var\(--ink\)/u,
+  // #494 allows the semantic alias var(--foreground) (= var(--ink)) as bounded migration.
+  assert.match(rule, /color\s*:\s*var\(--(ink|foreground)\)/u,
     "collapsed normal state uses dark ink text so the headline is readable without hover");
   assert.doesNotMatch(rule, /#fff/u,
     "the toggle must not reintroduce the global button white text");
@@ -968,7 +969,7 @@ test("egress toggle hover and focus keep dark-on-light text, not the global dark
   const css = await readFile(new URL("../../main/resources/static/styles.css", import.meta.url), "utf8");
   const hoverRule = css.match(/\.ai-egress-toggle:hover\s*\{[^}]*\}/u);
   assert.ok(hoverRule, ".ai-egress-toggle:hover overrides the global button:hover");
-  assert.match(hoverRule[0], /color\s*:\s*var\(--ink\)/u,
+  assert.match(hoverRule[0], /color\s*:\s*var\(--(ink|foreground)\)/u,
     "hover keeps the headline readable instead of revealing it only on hover");
   assert.doesNotMatch(hoverRule[0], /var\(--accent-dark\)|#115e59/u,
     "hover must not reuse the global dark accent background on this light toggle");
@@ -976,7 +977,7 @@ test("egress toggle hover and focus keep dark-on-light text, not the global dark
 
   const focusRule = css.match(/\.ai-egress-toggle:focus-visible\s*\{[^}]*\}/u);
   assert.ok(focusRule, ".ai-egress-toggle:focus-visible exists for keyboard users");
-  assert.match(focusRule[0], /color\s*:\s*var\(--ink\)/u,
+  assert.match(focusRule[0], /color\s*:\s*var\(--(ink|foreground)\)/u,
     "keyboard focus keeps the headline readable");
   assert.match(focusRule[0], /outline/u, "keyboard focus stays discernible");
   assert.match(focusRule[0], /background/u,
