@@ -67,6 +67,11 @@ class RetrievalInspectorApiTest {
                 .andExpect(jsonPath("$.data.selection[1].disposition").value("REJECTED"))
                 .andExpect(jsonPath("$.data.selection[1].reason").value("STALE_REVISION"))
                 .andExpect(jsonPath("$.data.finalEvidence[0].identity").value("WIKI:1"))
+                .andExpect(jsonPath("$.data.finalEvidence[0].kind").value("WIKI"))
+                .andExpect(jsonPath("$.data.finalEvidence[0].knowledgeId").value("1"))
+                .andExpect(jsonPath("$.data.finalEvidence[0].displayLabel").value("頁面標題"))
+                .andExpect(jsonPath("$.data.finalEvidence[0].currentness").value("CURRENT"))
+                .andExpect(jsonPath("$.data.finalEvidence[0].sourceChunkId").doesNotExist())
                 .andExpect(jsonPath("$.data.modalityDiagnostics.graph").value("CONTRIBUTED"))
                 .andExpect(jsonPath("$.data.budget.maxItems").value(8))
                 .andExpect(jsonPath("$.data.searchedCandidateCount").value(5))
@@ -116,6 +121,23 @@ class RetrievalInspectorApiTest {
                 .doesNotContainPattern("\\b0\\.\\d+");
     }
 
+    @Test
+    void finalEvidenceProjectionNeverLeaksPathsContentHashesOrEndpoints() throws Exception {
+        when(inspectorService.inspect(any())).thenReturn(report());
+
+        String body = mockMvc.perform(get("/api/v1/retrieval/inspect")
+                        .queryParam("question", "q")
+                        .queryParam("mode", "HYBRID_GRAPH"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        org.assertj.core.api.Assertions.assertThat(body)
+                .doesNotContain("\"content\"", "\"snippet\"", "\"contentHash\"",
+                        "\"revision\"", "\"score\"", "\"path\"")
+                .doesNotContain("archive/", "vault/", "file://", "/var/folders", "/tmp/")
+                .doesNotContain("http://", "https://", "sk-", "Bearer ");
+    }
+
     private static RetrievalInspectionReport report() {
         return new RetrievalInspectionReport(
                 "為什麼設計成這樣？",
@@ -132,7 +154,8 @@ class RetrievalInspectorApiTest {
                 List.of(RetrievalInspectionTrace.SelectionTrace.selected("WIKI:1"),
                         RetrievalInspectionTrace.SelectionTrace.rejected("WIKI:2",
                                 "STALE_REVISION")),
-                List.of(new RetrievalInspectionReport.FinalEvidence(1, "WIKI:1")),
+                List.of(new RetrievalInspectionReport.FinalEvidence(1, "WIKI:1", "WIKI",
+                        null, "1", "頁面標題", "CURRENT")),
                 Map.of("WIKI:1", Set.of(org.km.llmwiki.rag.CandidateSignal.LEXICAL)),
                 new FusedModalityDiagnostics(ModalityOutcome.CONTRIBUTED,
                         ModalityOutcome.CONTRIBUTED, ModalityOutcome.CONTRIBUTED,

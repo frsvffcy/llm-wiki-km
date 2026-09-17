@@ -710,6 +710,26 @@ mvn clean verify -Pfull
 git diff --check
 ```
 
+## Retrieval Inspector final evidence 來源投影測試責任（#484）
+
+`RetrievalInspectionReport.FinalEvidence` 在既有 `ordinal + identity`（authority 不變）之外，攜帶 privacy-safe inspection-time 來源投影：`kind`（`WIKI`／`SOURCE_CHUNK`）、導覽識別字（`sourceChunkId`／`knowledgeId`）、safe `displayLabel`（來源文件名稱／Wiki 標題，永不含 path／content／hash／ranking input）、`currentness`（僅 `CURRENT`；final evidence 只收 terminal guards 倖存者，屬檢視當下狀態，導覽時 freshness 一律由 canonical locator／read flow 重驗）。未知 `kind`／非 `CURRENT` 即 fail-fast；2-arg 相容建構子保留給歷史 report。`RetrievalInspectorService` 只從已 authority-validated 的 `EvidenceItem` 投影（documentName＋chunkNo／title），不新增 retrieval／fusion／authority／currentness 規則；`web.RetrievalInspectionResponse.FinalEvidence`（`NON_NULL`）經共用 `RetrievalInspectionMapper` 同步投影，REST／MCP 同 mapper、無第二套 authority。
+
+Browser（`retrieval-inspector-ui.js`）：final evidence 不再是純文字 `li`，而是 kind 標示＋safe 來源標示＋currentness＋導覽控制——SOURCE 經共用 `inspectSourceChunk` renderer 開啟既有 `#/inspect` 來源片段檢視（同 endpoint、同 fail-closed typed states；新檢視先清 locator panel），WIKI 以原生 anchor 前往既有唯讀 `#/wiki`；無可用導覽識別字時維持純文字、不偽造目標；全 `textContent`、零 `innerHTML`；`workspace-changed` 照舊清空（含富化後投影）。
+
+`rag.RetrievalInspectorServiceTest`（unit tier）持有富化投影組裝（雙語料 kind／ids／label／CURRENT）、相容建構子與 kind／currentness fail-fast。`web.RetrievalInspectorApiTest`（integration tier）持有 REST 投影契約（含 `sourceChunkId` 缺席語意）與新欄位 privacy 負向斷言（無 content／hash／revision／score／path key、無絕對路徑／endpoint／secret 字樣）。`web.SourceLocatorApiTest`（integration tier）持有 malformed／out-of-range chunkId fail-closed（`NOT_FOUND`／`SOURCE_CHUNK_NOT_FOUND`，不 dispatch）。`rag.RetrievalInspectorIntegrationTest`（integration tier，真 FTS）持有 current revision（SOURCE_ONLY 富化投影）、wiki stale sibling 排除＋倖存者投影、SUPERSEDED 排除＋locator `404` fail-closed、settled drift 永不投影為 CURRENT、cross-workspace（locator `404`＋inspection 不洩漏 foreign identity）。`src/test/js/retrieval-inspector-ui.test.mjs`（Node 內建 runner，PR Fast job）持有富化 render、導覽控制、click-through 開啟 canonical locator panel、新檢視清除 locator panel、workspace 切換清除、fail-closed 純文字；`src/test/js/source-chunk-inspector-ui.test.mjs` 持有 `clearSourceChunkInspector` 語意。
+
+受影響測試與完整 gate：
+
+```bash
+node --test src/test/js/retrieval-inspector-ui.test.mjs src/test/js/source-chunk-inspector-ui.test.mjs
+mvn -Dtest='RetrievalInspectorServiceTest' test -Pfast
+mvn -Dtest='RetrievalInspectorApiTest,SourceLocatorApiTest,RetrievalInspectorIntegrationTest,SourceChunkLocatorIntegrationTest,SourceChunkLocatorServiceTest' test -Pintegration
+mvn test -Pfast
+mvn test -Pintegration
+mvn clean verify -Pfull
+git diff --check
+```
+
 ## Answer Context Compaction evaluation 測試責任（#308）
 
 `ai.answer.AnswerContextCompactionEvaluationTest`（unit tier）持有 Answer Context

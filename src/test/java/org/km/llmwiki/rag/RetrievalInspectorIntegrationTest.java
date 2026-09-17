@@ -19,6 +19,8 @@ import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.km.llmwiki.search.KnowledgeSearchDocument;
 import org.km.llmwiki.search.SourceChunkIndexingService;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
+import org.km.llmwiki.source.SourceChunkLocatorService;
+import org.km.llmwiki.source.SourceChunkNotFoundException;
 import org.km.llmwiki.search.embedding.EmbeddingEvidenceKind;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionIdentity;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessRepository;
@@ -39,6 +41,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Production evidence for the read-only Retrieval Inspector across representative public
@@ -56,6 +59,7 @@ class RetrievalInspectorIntegrationTest extends IsolatedIntegrationTest {
     @Autowired PublishedWikiRepository publishedWikiRepository;
     @Autowired PublishedWikiContentReader publishedWikiContentReader;
     @Autowired SourceSearchAuthorityRepository sourceAuthorityRepository;
+    @Autowired SourceChunkLocatorService locatorService;
     @Autowired FtsSearchIndexRepository ftsRepository;
     @Autowired SourceChunkIndexingService sourceChunkIndexingService;
     @Autowired EmbeddingProjectionRepository embeddingRepository;
@@ -294,6 +298,117 @@ class RetrievalInspectorIntegrationTest extends IsolatedIntegrationTest {
                     .containsExactlyElementsOf(production.items().stream()
                             .map(EvidenceItem::stableIdentity).toList());
         }
+    }
+
+    @Test
+    void sourceOnlyFinalEvidenceCarriesNavigableSourceProjection() throws Exception {
+        RetrievalInspectorService inspector = inspector((FusedRetrievalOrchestrator) null);
+        WorkspaceFixture ws = workspace("evidence-projection");
+        long sourceChunkId = source(ws, "projection-source.pdf", "projection source authority");
+
+        RetrievalInspectionReport report = inspector.inspect(
+                RetrievalRequest.defaults("projection", RetrievalMode.SOURCE_ONLY));
+
+        assertThat(report.insufficientEvidence()).isFalse();
+        assertThat(report.finalEvidence()).singleElement().satisfies(evidence -> {
+            assertThat(evidence.ordinal()).isEqualTo(1);
+            assertThat(evidence.identity()).isEqualTo("SOURCE_CHUNK:" + sourceChunkId);
+            assertThat(evidence.kind()).isEqualTo("SOURCE_CHUNK");
+            assertThat(evidence.sourceChunkId()).isEqualTo(sourceChunkId);
+            assertThat(evidence.knowledgeId()).isNull();
+            assertThat(evidence.displayLabel()).contains("projection-source.pdf");
+            assertThat(evidence.currentness()).isEqualTo("CURRENT");
+        });
+    }
+
+    @Test
+    void wikiFinalEvidenceCarriesWikiProjectionAndExcludesStaleSibling() throws Exception {
+        RetrievalInspectorService inspector = inspector((FusedRetrievalOrchestrator) null);
+        WorkspaceFixture ws = workspace("wiki-projection");
+        wiki(ws, "projection-wiki-keep", "Projection Keep", "projection wiki keep authority");
+        wiki(ws, "projection-wiki-stale", "Projection Stale",
+                "projection wiki stale authority");
+        mutateVault(ws, "projection-wiki-stale");
+
+        RetrievalInspectionReport report = inspector.inspect(
+                RetrievalRequest.defaults("projection", RetrievalMode.WIKI_ONLY));
+
+        assertThat(report.finalEvidence()).singleElement().satisfies(evidence -> {
+            assertThat(evidence.identity()).isEqualTo("WIKI:projection-wiki-keep");
+            assertThat(evidence.kind()).isEqualTo("WIKI");
+            assertThat(evidence.sourceChunkId()).isNull();
+            assertThat(evidence.knowledgeId()).isEqualTo("projection-wiki-keep");
+            assertThat(evidence.displayLabel()).isEqualTo("Projection Keep");
+            assertThat(evidence.currentness()).isEqualTo("CURRENT");
+        });
+    }
+
+    @Test
+    void supersededSourceIsExcludedFromFinalEvidenceAndLocatorFailsClosed() throws Exception {
+        RetrievalInspectorService inspector = inspector((FusedRetrievalOrchestrator) null);
+        WorkspaceFixture ws = workspace("supersede-projection");
+        long sourceChunkId = source(ws, "supersede-source.pdf", "supersede source authority");
+
+        RetrievalInspectionReport before = inspector.inspect(
+                RetrievalRequest.defaults("supersede", RetrievalMode.SOURCE_ONLY));
+        assertThat(before.finalEvidence()).extracting(
+                        RetrievalInspectionReport.FinalEvidence::identity)
+                .containsExactly("SOURCE_CHUNK:" + sourceChunkId);
+
+        long documentId = db().sql("SELECT document_id FROM source_chunk WHERE id = :id")
+                .param("id", sourceChunkId).query(Long.class).single();
+        db().sql("UPDATE document SET status = 'SUPERSEDED' WHERE id = :id")
+                .param("id", documentId).update();
+
+        RetrievalInspectionReport after = inspector.inspect(
+                RetrievalRequest.defaults("supersede", RetrievalMode.SOURCE_ONLY));
+        assertThat(after.finalEvidence()).isEmpty();
+        assertThat(after.insufficientEvidence()).isTrue();
+
+        assertThatThrownBy(() -> locatorService.locate(sourceChunkId))
+                .isInstanceOf(SourceChunkNotFoundException.class);
+    }
+
+    @Test
+    void driftedSourceChunkNeverSurfacesAsCurrentFinalEvidence() throws Exception {
+        RetrievalInspectorService inspector = inspector((FusedRetrievalOrchestrator) null);
+        WorkspaceFixture ws = workspace("drift-projection");
+        long sourceChunkId = source(ws, "drift-source.pdf", "drift source authority");
+
+        // Settled drift: the authority hash no longer matches the indexed snapshot, so the
+        // serving gate refuses the whole document — the stale view must never surface as a
+        // CURRENT final evidence item.
+        db().sql("UPDATE source_chunk SET content_hash = :hash WHERE id = :id")
+                .param("hash", "f".repeat(64)).param("id", sourceChunkId).update();
+
+        RetrievalInspectionReport report = inspector.inspect(
+                RetrievalRequest.defaults("drift", RetrievalMode.SOURCE_ONLY));
+
+        assertThat(report.finalEvidence()).isEmpty();
+        assertThat(report.insufficientEvidence()).isTrue();
+        assertThat(report.finalEvidence()).extracting(
+                        RetrievalInspectionReport.FinalEvidence::currentness)
+                .doesNotContain("CURRENT");
+    }
+
+    @Test
+    void crossWorkspaceChunksStayInvisibleToInspectionAndLocator() throws Exception {
+        RetrievalInspectorService inspector = inspector((FusedRetrievalOrchestrator) null);
+        WorkspaceFixture wsA = workspace("isolation-a");
+        long foreignChunkId = source(wsA, "isolation-a.pdf", "isolation alpha authority");
+        WorkspaceFixture wsB = workspace("isolation-b");
+        wiki(wsB, "isolation-b-page", "Isolation B", "isolation beta authority");
+
+        assertThatThrownBy(() -> locatorService.locate(foreignChunkId))
+                .isInstanceOf(SourceChunkNotFoundException.class);
+
+        RetrievalInspectionReport report = inspector.inspect(
+                RetrievalRequest.defaults("isolation", RetrievalMode.HYBRID_FTS));
+
+        assertThat(report.finalEvidence()).extracting(
+                        RetrievalInspectionReport.FinalEvidence::identity)
+                .containsExactly("WIKI:isolation-b-page");
+        assertThat(wsA.id()).isNotEqualTo(wsB.id());
     }
 
     @Test

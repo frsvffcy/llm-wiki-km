@@ -23,8 +23,27 @@ class FakeElement {
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
   setAttribute(name, value) { this.attributes.set(name, value); }
+  getAttribute(name) {
+    if (typeof name !== "string") throw new TypeError("attribute name must be a string");
+    return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
   addEventListener(name, handler) { this.handlers.set(name, handler); }
   focus() { this.focused = true; }
+}
+
+class FakeDocument {
+  constructor() {
+    this.byId = new Map();
+    this.listeners = new Map();
+  }
+
+  createElement() { return new FakeElement(); }
+
+  getElementById(id) { return this.byId.has(id) ? this.byId.get(id) : null; }
+
+  addEventListener(name, handler) { this.listeners.set(name, handler); }
+
+  fire(name, event) { this.listeners.get(name)?.(event); }
 }
 
 const documentRef = { createElement: () => new FakeElement() };
@@ -100,6 +119,39 @@ function flatText(element) {
   }
   walk(element);
   return parts.join("\n");
+}
+
+function enrichedPayload() {
+  const payload = inspectionPayload();
+  payload.data.finalEvidence = [
+    { ordinal: 1, identity: "SOURCE_CHUNK:42", kind: "SOURCE_CHUNK", sourceChunkId: 42,
+      knowledgeId: null, displayLabel: "design.pdf · chunk 3", currentness: "CURRENT" },
+    { ordinal: 2, identity: "WIKI:arch", kind: "WIKI", sourceChunkId: null,
+      knowledgeId: "arch", displayLabel: "架構總覽", currentness: "CURRENT" }
+  ];
+  return payload;
+}
+
+function descendants(element) {
+  const found = [];
+  function walk(node) {
+    found.push(node);
+    for (const child of node.children) walk(child);
+  }
+  for (const child of element.children) walk(child);
+  return found;
+}
+
+function locatorPanelDocument() {
+  const documentRef = new FakeDocument();
+  for (const id of ["source-inspector-result", "source-inspector-loading",
+    "source-inspector-error", "source-inspector-error-title",
+    "source-inspector-error-message", "source-inspector-not-found",
+    "source-inspector-not-found-title", "source-inspector-not-found-message",
+    "source-inspector-metadata", "source-inspector-preview"]) {
+    documentRef.byId.set(id, new FakeElement());
+  }
+  return documentRef;
 }
 
 test("validates empty queries", () => {
@@ -243,4 +295,117 @@ test("index html wires the inspector panel through CSP-safe modules only", async
   assert.match(html, /id="inspector-form"/);
   assert.doesNotMatch(html, /type=["']range["']/);
   assert.doesNotMatch(html, /on(load|click|error)=/);
+});
+
+test("enriched final evidence shows kind, safe source label, currentness and navigation", () => {
+  const elements = uiElements();
+  renderInspection(elements, enrichedPayload(), documentRef);
+
+  assert.equal(elements.finalEvidence.children.length, 2);
+  const finalText = flatText(elements.finalEvidence);
+  assert.match(finalText, /E1 SOURCE_CHUNK:42/);
+  assert.match(finalText, /來源文件/);
+  assert.match(finalText, /design\.pdf · chunk 3/);
+  assert.match(finalText, /檢視當下為 current/);
+  assert.match(finalText, /E2 WIKI:arch/);
+  assert.match(finalText, /架構總覽/);
+
+  const nodes = descendants(elements.finalEvidence);
+  const locate = nodes.find(node => node.className === "inspector-final-locate");
+  assert.notEqual(locate, undefined);
+  assert.equal(locate.textContent, "檢視來源片段");
+  assert.equal(locate.getAttribute("data-chunk-id"), "42");
+  const wikiLink = nodes.find(node => node.className === "inspector-final-wiki-link");
+  assert.notEqual(wikiLink, undefined);
+  assert.equal(wikiLink.textContent, "前往 Wiki 閱讀");
+  assert.equal(wikiLink.href, "#/wiki");
+  assert.equal(wikiLink.getAttribute("data-knowledge-id"), "arch");
+});
+
+test("final evidence without usable navigation stays plain text and never fabricates a target", () => {
+  const elements = uiElements();
+  const payload = inspectionPayload();
+  payload.data.finalEvidence = [
+    { ordinal: 1, identity: "SOURCE_CHUNK:9", kind: "SOURCE_CHUNK", sourceChunkId: null,
+      knowledgeId: null, displayLabel: null, currentness: null },
+    { ordinal: 2, identity: "SOURCE_CHUNK:0", kind: "SOURCE_CHUNK", sourceChunkId: 0,
+      knowledgeId: null, displayLabel: "stale.pdf", currentness: "CURRENT" },
+    { ordinal: 3, identity: "WIKI:x", kind: "WIKI", sourceChunkId: null,
+      knowledgeId: "   ", displayLabel: null, currentness: "CURRENT" },
+    { ordinal: 4, identity: "BOGUS:1", kind: "BOGUS", sourceChunkId: null,
+      knowledgeId: null, displayLabel: null, currentness: null },
+    { ordinal: 5, identity: "WIKI:legacy", kind: null, sourceChunkId: null,
+      knowledgeId: null, displayLabel: null, currentness: null }
+  ];
+  renderInspection(elements, payload, documentRef);
+
+  assert.equal(elements.finalEvidence.children.length, 5);
+  const finalText = flatText(elements.finalEvidence);
+  assert.match(finalText, /E1 SOURCE_CHUNK:9/);
+  assert.match(finalText, /E5 WIKI:legacy/);
+  const nodes = descendants(elements.finalEvidence);
+  assert.equal(nodes.filter(node => node.className === "inspector-final-locate").length, 0);
+  assert.equal(nodes.filter(node => node.className === "inspector-final-wiki-link").length, 0);
+});
+
+test("clicking a source evidence button opens the canonical locator panel read-only", async () => {
+  const panelDocument = locatorPanelDocument();
+  const elements = uiElements();
+  let fetchedUrl = "";
+  const fetchImpl = async url => {
+    fetchedUrl = String(url);
+    return { ok: true,
+      json: async () => ({ data: { sourceChunkId: 42, documentName: "design.pdf", chunkNo: 3,
+        currentness: "CURRENT", preview: "authoritative text", previewTruncated: false } }) };
+  };
+  createInspectorController(elements, fetchImpl, panelDocument);
+  renderInspection(elements, enrichedPayload(), panelDocument);
+
+  const click = elements.finalEvidence.handlers.get("click");
+  assert.equal(click instanceof Function, true);
+  const button = new FakeElement();
+  button.setAttribute("data-chunk-id", "42");
+  click({ target: button, preventDefault() {} });
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+
+  assert.equal(fetchedUrl, "/api/v1/source-chunks/42/locator");
+  assert.equal(panelDocument.byId.get("source-inspector-result").hidden, false);
+  assert.match(
+    panelDocument.byId.get("source-inspector-metadata").children
+      .map(child => child.textContent).join("\n"), /design\.pdf/);
+});
+
+test("a new inspection clears the previous locator panel together with the trace", async () => {
+  const panelDocument = locatorPanelDocument();
+  const elements = uiElements();
+  elements.question.value = "檢索架構";
+  elements.retrievalMode.value = "HYBRID_GRAPH";
+  panelDocument.byId.get("source-inspector-result").hidden = false;
+  panelDocument.byId.get("source-inspector-metadata").children.push(new FakeElement());
+
+  const controller = createInspectorController(elements, async () => ({
+    ok: true, json: async () => enrichedPayload()
+  }), panelDocument);
+  await controller.submit(event());
+
+  assert.equal(elements.result.hidden, false);
+  assert.equal(panelDocument.byId.get("source-inspector-result").hidden, true);
+  assert.equal(panelDocument.byId.get("source-inspector-metadata").children.length, 0);
+});
+
+test("workspace switch clears enriched final evidence projections", () => {
+  const panelDocument = locatorPanelDocument();
+  const elements = uiElements();
+  elements.question.value = "檢索架構";
+  createInspectorController(elements, async () => ({}), panelDocument);
+  renderInspection(elements, enrichedPayload(), panelDocument);
+  assert.equal(elements.finalEvidence.children.length, 2);
+
+  panelDocument.fire("workspace-changed");
+
+  assert.equal(elements.finalEvidence.children.length, 0);
+  assert.equal(elements.result.hidden, true);
+  assert.equal(elements.question.value, "");
 });

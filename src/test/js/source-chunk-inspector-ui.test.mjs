@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  clearSourceChunkInspector,
   createSourceChunkInspectorController,
   errorMessage,
   inspectSourceChunk,
@@ -256,6 +257,21 @@ test("index html wires the inspector panel through CSP-safe modules only", async
   assert.match(html, /source-chunk-inspector-ui\.js/);
   assert.match(html, /id="source-chunk-inspector-panel"/);
   assert.doesNotMatch(html, /on(load|click|error)=/);
+});
+
+test("clearSourceChunkInspector resets the panel so a new trace never inherits it", () => {
+  const elements = uiElements();
+  renderLocator(elements, locatorPayload(), documentRef);
+  assert.equal(elements.result.hidden, false);
+
+  clearSourceChunkInspector(elements);
+
+  assert.equal(elements.result.hidden, true);
+  assert.equal(elements.loading.hidden, true);
+  assert.equal(elements.error.hidden, true);
+  assert.equal(elements.notFound.hidden, true);
+  assert.equal(elements.metadata.children.length, 0);
+  assert.equal(elements.preview.children.length, 0);
 });
 
 test("opening a locator does not navigate; rendering is owned by the calling view (#381)", async () => {

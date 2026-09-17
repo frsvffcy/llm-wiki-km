@@ -94,12 +94,50 @@ public record RetrievalInspectionReport(
         }
     }
 
-    /** Final evidence in production handoff order; ordinal is 1-based and application-owned. */
-    public record FinalEvidence(int ordinal, String identity) {
+    /**
+     * Final evidence in production handoff order; ordinal is 1-based and application-owned.
+     *
+     * <p>The identity stays the authority ({@code WIKI:<knowledgeId>} /
+     * {@code SOURCE_CHUNK:<id>}). The extra fields are a privacy-safe, human-readable
+     * inspection-time projection built from the same authority-validated evidence that
+     * survived the terminal currentness guards — never a second authority, never raw
+     * internals (no path, content, hash, or ranking input):
+     * <ul>
+     *   <li>{@code kind}: {@code WIKI} or {@code SOURCE_CHUNK} (nullable for reports built
+     *       before this projection existed).</li>
+     *   <li>{@code sourceChunkId} / {@code knowledgeId}: navigation identifiers for the
+     *       canonical read-only views (the existing Source Chunk locator flow for source
+     *       chunks, the Published Wiki read surface for wiki pages).</li>
+     *   <li>{@code displayLabel}: safe label (source document name / wiki title), never a
+     *       filesystem path or private content.</li>
+     *   <li>{@code currentness}: always {@code CURRENT} when present — final evidence holds
+     *       only survivors of the terminal guards, i.e. current at inspection time. Fresh
+     *       currentness must be revalidated through the canonical locator/read flow at
+     *       navigation time; this field must never be reused to claim a chunk is still
+     *       current afterwards.</li>
+     * </ul>
+     */
+    public record FinalEvidence(int ordinal, String identity, String kind, Long sourceChunkId,
+                                String knowledgeId, String displayLabel, String currentness) {
         public FinalEvidence {
             if (ordinal < 1) {
                 throw new IllegalArgumentException("final evidence ordinal must be positive");
             }
+            if (identity == null || identity.isBlank()) {
+                throw new IllegalArgumentException("final evidence identity is required");
+            }
+            if (kind != null && !kind.equals("WIKI") && !kind.equals("SOURCE_CHUNK")) {
+                throw new IllegalArgumentException("final evidence kind is invalid");
+            }
+            if (currentness != null && !currentness.equals("CURRENT")) {
+                throw new IllegalArgumentException(
+                        "final evidence only carries survivors, so currentness must be CURRENT");
+            }
+        }
+
+        /** Compatibility constructor for reports produced before the source projection. */
+        public FinalEvidence(int ordinal, String identity) {
+            this(ordinal, identity, null, null, null, null, null);
         }
     }
 

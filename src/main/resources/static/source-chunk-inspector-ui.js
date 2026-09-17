@@ -59,6 +59,14 @@ function clearAll(elements) {
   elements.preview.replaceChildren();
 }
 
+export function clearSourceChunkInspector(elements) {
+  if (!elements) return;
+  clearAll(elements);
+  if (elements.loading) elements.loading.hidden = true;
+  if (elements.error) elements.error.hidden = true;
+  if (elements.notFound) elements.notFound.hidden = true;
+}
+
 export function renderLocator(elements, payload, documentRef = document) {
   const data = payload && payload.data ? payload.data : {};
   clearAll(elements);
@@ -173,10 +181,7 @@ export function createSourceChunkInspectorController(elements, fetchImpl = fetch
   // Workspace isolation (#375): a locator is a current-workspace projection.
   if (documentRef && typeof documentRef.addEventListener === "function") {
     documentRef.addEventListener("workspace-changed", () => {
-      clearAll(elements);
-      elements.loading.hidden = true;
-      elements.error.hidden = true;
-      elements.notFound.hidden = true;
+      clearSourceChunkInspector(elements);
     });
   }
 
