@@ -25,7 +25,9 @@ jobs:
         with:
           node-version: '22'
       - name: Run PR metadata guard tests
-        run: node --test src/test/js/pr-metadata.test.mjs src/test/js/merge-settings.test.mjs src/test/js/merge-commit-guard.test.mjs
+        run: node --test src/test/js/pr-metadata.test.mjs src/test/js/merge-settings.test.mjs src/test/js/merge-commit-guard.test.mjs src/test/js/language-governance.test.mjs
+      - name: 執行語言治理檢查
+        run: node scripts/check-language-governance.mjs
       - name: Validate PR base, title and Issue linkage
         env:
           GITHUB_TOKEN: ${{ github.token }}
