@@ -790,6 +790,74 @@ button:disabled {
 .triage-repair { margin: 10px 0; }
 .triage-refusal { color: var(--foreground-muted); font-size: 0.9rem; }
 
+/* #496 shared state taxonomy (Empty / Loading / Success / Warning / Error /
+   Disabled / Secondary diagnostics). Backend typed codes are never flattened:
+   these classes only unify presentation. Each surface keeps its domain-specific
+   copy and typed code projection; [hidden] stays the sole show/hide authority. */
+.state-empty { display: grid; min-height: 220px; place-content: center; justify-items: center; color: var(--foreground-muted); text-align: center; }
+.state-loading,
+.graph-feedback--pending,
+#ask-source-preview-loading,
+#source-inspector-loading .form-hint {
+  color: var(--foreground-muted);
+}
+/* Loading is identifiable but never success-colored and never invents progress:
+   no percentage is rendered by CSS; API without progress shows text only. */
+.state-loading { border: 1px dashed var(--border); border-radius: var(--radius-normal); background: var(--background); padding: var(--space-3); }
+.state-success,
+.graph-feedback--success,
+.publish-outcome {
+  color: var(--positive);
+}
+/* Routine success stays low-noise: no toast framework, no covering badge. */
+.state-warning,
+.insufficient-state {
+  border: 1px solid var(--warning-border);
+  background: var(--warning-soft);
+}
+.state-error,
+.error-state {
+  border: 1px solid var(--critical-border);
+  background: var(--critical-soft);
+}
+/* #496 primary vs secondary hierarchy: primary user content is recognizable at
+   first glance without hover/DevTools; diagnostics/provenance/trust stay visible
+   but visually subordinate (muted, smaller, no competing container weight). */
+.answer-text,
+.wiki-read-body,
+.draft-markdown,
+.draft-diff,
+#inspector-final-evidence,
+#proposal-detail-title,
+#triage-detail-title,
+.workspace-current-name,
+.inbox-file-name {
+  /* primary: owned container + body typography (sizes/borders defined above) */
+  scroll-margin-top: var(--space-4);
+}
+.provider-metadata,
+.context-diagnostics,
+.wiki-read-meta,
+.proposal-item-meta,
+.triage-meta,
+.triage-detail-meta,
+.inbox-item-meta,
+.graph-details,
+.graph-status-message,
+.panel-description {
+  /* secondary: muted supporting metadata, never outranks primary */
+  color: var(--foreground-muted);
+}
+/* Async lifecycle honesty: a COMPLETED wrapper with partial failure keeps its
+   warning/error tone via .insufficient-state/.error-state and never collapses
+   to pure success styling. See analysis-ui COMPLETED+failedCount → partial. */
+.result-state.insufficient-state,
+.result-state.error-state {
+  /* typed warning/error regions keep their own border/background even when a
+     lifecycle label elsewhere reads COMPLETED */
+  font-weight: 400;
+}
+
 /* #494 motion / accessibility baseline: bounded transitions only; animation is
    never the sole state signal; reduced-motion disables motion entirely. */
 @media (prefers-reduced-motion: reduce) {
