@@ -98,7 +98,7 @@ test("list renders typed rows with open actions and honest pager state", () => {
 
   const text = flatText(elements.wikiList);
   assert.match(text, /Transformer Architecture/u);
-  assert.match(text, /概念 · revision 2/u);
+  assert.match(text, /概念 · 版本 2/u);
   assert.match(text, /wiki-arch/u);
   assert.equal(elements.wikiEmpty.hidden, true);
   assert.equal(elements.wikiPrevPage.disabled, true);

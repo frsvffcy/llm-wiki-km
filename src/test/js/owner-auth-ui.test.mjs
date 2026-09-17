@@ -70,7 +70,7 @@ test("login failure surfaces the typed owner error as safe text", async () => {
   const fetchImpl = async () => jsonResponse({
     ok: false,
     status: 401,
-    body: { error: { code: "OWNER_AUTH_REQUIRED", message: "Owner authentication is required" } }
+    body: { error: { code: "OWNER_AUTH_REQUIRED", message: "需要擁有者驗證" } }
   });
   const controller = createOwnerAuthController(ui, fetchImpl, {});
   ui.password.value = "wrong";

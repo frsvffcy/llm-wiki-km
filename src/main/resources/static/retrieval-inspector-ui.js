@@ -4,7 +4,7 @@ const INSPECT_ENDPOINT = "/api/v1/retrieval/inspect";
 
 const ERROR_MESSAGES = Object.freeze({
   INVALID_REQUEST: ["查詢格式不正確", "請輸入查詢並選擇有效的檢索模式。"],
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在本機應用程式中建立或開啟 active workspace。"],
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在本機應用程式中建立或開啟目前工作區。"],
   RETRIEVAL_UNAVAILABLE: ["檢索服務暫時無法使用", "目前無法取得檢索結果，請稍後再試。"],
   RETRIEVAL_VECTOR_UNAVAILABLE: ["語意搜尋暫時無法使用", "語意搜尋能力目前無法使用，檢視器僅能顯示可用的檢索訊號。"]
 });
@@ -58,7 +58,7 @@ const EVIDENCE_KIND_LABELS = Object.freeze({
 });
 
 const EVIDENCE_CURRENTNESS_LABELS = Object.freeze({
-  CURRENT: "檢視當下為 current"
+  CURRENT: "檢視當下與目前狀態一致"
 });
 
 export function validateQuestion(question) {
@@ -100,7 +100,7 @@ export function renderInspection(elements, payload, documentRef = document) {
 
   if (data.insufficientEvidence === true) {
     elements.empty.hidden = false;
-    elements.emptyMessage.textContent = "此查詢沒有通過 canonical 驗證的檢索結果。";
+    elements.emptyMessage.textContent = "此查詢沒有通過權威內容驗證的檢索結果。";
     return;
   }
 
@@ -113,7 +113,7 @@ export function renderInspection(elements, payload, documentRef = document) {
     appendTextElement(documentRef, summary, "p", "inspector-modality-title",
       `查詢轉換 · ${TRANSFORMATION_STATUS_LABELS[transformation.status] || text(transformation.status)}`);
     appendTextElement(documentRef, summary, "p", "inspector-transformation-policy",
-      `policy：${text(transformation.policyVersion)}`);
+      `查詢轉換規則版本：${text(transformation.policyVersion)}`);
     appendTextElement(documentRef, summary, "p", "inspector-transformation-applicability",
       `適用性：${text(transformation.applicability)}`);
     elements.modalities.append(summary);
@@ -160,7 +160,7 @@ export function renderInspection(elements, payload, documentRef = document) {
   if (data.fusionPolicyVersion) {
     elements.fusion.hidden = false;
     appendTextElement(documentRef, elements.fusionDetail, "p", "inspector-fusion-policy",
-      `fusion policy：${text(data.fusionPolicyVersion)}`);
+      `融合規則版本：${text(data.fusionPolicyVersion)}`);
     const order = Array.isArray(data.fusedOrder) ? data.fusedOrder : [];
     appendTextElement(documentRef, elements.fusionDetail, "p", "inspector-fusion-order",
       `融合順序：${order.map((identity, index) => `${index + 1}. ${text(identity)}`).join("　")}`);

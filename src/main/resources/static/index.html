@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; connect-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
-  <title>Local Knowledge Ask</title>
+  <title>本機知識庫提問</title>
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/navigation-ui.js"></script>
   <script type="module" src="/owner-auth-ui.js"></script>
@@ -23,15 +23,15 @@
 <body>
   <main class="app-shell">
     <header class="page-header">
-      <p class="eyebrow">LOCAL KNOWLEDGE</p>
-      <h1>Ask your knowledge base</h1>
+      <p class="eyebrow">本機知識庫</p>
+      <h1>向知識庫提問</h1>
       <p class="intro">從已索引的 Wiki 與來源文件取得有依據的回答；第一次使用請先在工作區建立知識庫並放入文件。</p>
     </header>
 
     <section id="owner-auth-panel" class="panel owner-auth-panel" aria-labelledby="owner-auth-heading">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">OWNER</p>
+          <p class="eyebrow">擁有者</p>
           <h3 id="owner-auth-heading">擁有者登入</h3>
         </div>
         <button id="owner-auth-logout" type="button" class="secondary-button" hidden>登出</button>
@@ -72,12 +72,12 @@
                aria-labelledby="workspace-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">WORKSPACE</p>
+            <p class="eyebrow">工作區</p>
             <h3 id="workspace-heading">目前工作區</h3>
           </div>
         </div>
         <p id="workspace-current-empty" class="empty-state">
-          尚未開啟知識庫。請在下方建立 workspace，或從清單中選擇既有項目。
+          尚未開啟知識庫。請在下方建立工作區，或從清單中選擇既有項目。
         </p>
         <div id="workspace-current" class="workspace-current" hidden>
           <p id="workspace-current-name" class="workspace-current-name"></p>
@@ -96,7 +96,7 @@
                aria-labelledby="analysis-readiness-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">ANALYSIS</p>
+            <p class="eyebrow">文件分析</p>
             <h3 id="analysis-readiness-heading">文件分析狀態</h3>
           </div>
           <button id="analysis-readiness-refresh" type="button" class="secondary-button">
@@ -107,16 +107,16 @@
         <div id="analysis-readiness-detail" class="analysis-readiness-detail"></div>
         <p id="analysis-readiness-hint" class="form-hint" role="status" aria-live="polite"></p>
         <p class="panel-description">
-          只讀顯示後端回報的文件分析先決條件（prompt 樣板與分析設定）；不會建立或修改任何資料。
-          工作區整體 READY 不代表文件分析已就緒，缺少 prompt 時請執行工作區修復。
+          唯讀顯示後端回報的文件分析先決條件（提示樣板與分析設定）；不會建立或修改任何資料。
+          工作區整體處於 READY 狀態不代表文件分析已就緒，缺少提示樣板時請執行工作區修復。
         </p>
       </section>
 
       <section class="panel" aria-labelledby="workspace-create-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">CREATE</p>
-            <h3 id="workspace-create-heading">建立 workspace</h3>
+            <p class="eyebrow">建立</p>
+            <h3 id="workspace-create-heading">建立工作區</h3>
           </div>
         </div>
         <form id="workspace-create-form" novalidate>
@@ -126,23 +126,23 @@
                    placeholder="例如：personal-km" required>
           </div>
           <div class="field-group">
-            <label for="workspace-root-path">Root path（本機絕對路徑）</label>
+            <label for="workspace-root-path">根目錄路徑（rootPath；本機絕對路徑）</label>
             <input id="workspace-root-path" name="rootPath" type="text"
                    placeholder="例如：/Users/you/knowledge-root" required>
           </div>
-          <button id="workspace-create-submit" type="submit">建立 workspace</button>
+          <button id="workspace-create-submit" type="submit">建立工作區</button>
         </form>
         <p class="panel-description">
-          Backend 會在此路徑建立固定的 inbox / archive / vault / data / config / logs / temp
-          目錄結構；Browser 不會直接存取檔案系統。
+          後端會在此路徑建立固定的 <code>inbox/</code>、<code>archive/</code>、<code>vault/</code>、<code>data/</code>、<code>config/</code>、<code>logs/</code>、<code>temp/</code>
+          目錄結構；瀏覽器介面不會直接存取檔案系統。
         </p>
       </section>
 
       <section class="panel" aria-labelledby="workspace-list-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">SWITCH</p>
-            <h3 id="workspace-list-heading">所有 workspace</h3>
+            <p class="eyebrow">切換</p>
+            <h3 id="workspace-list-heading">所有工作區</h3>
           </div>
         </div>
         <ul id="workspace-list" class="workspace-list"></ul>
@@ -155,7 +155,7 @@
       <section class="panel" aria-labelledby="wiki-list-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">PUBLISHED WIKI</p>
+            <p class="eyebrow">已發布 Wiki</p>
             <h3 id="wiki-list-heading">已發布知識</h3>
           </div>
         </div>
@@ -192,7 +192,7 @@
       <section id="wiki-read-panel" class="panel" aria-labelledby="wiki-read-heading" hidden>
         <div class="section-heading">
           <div>
-            <p class="eyebrow">READ</p>
+            <p class="eyebrow">閱讀</p>
             <h3 id="wiki-read-heading">閱讀</h3>
           </div>
           <button id="wiki-read-close" type="button" class="secondary-button">關閉</button>
@@ -204,7 +204,7 @@
           <a class="wiki-handoff" href="#/inspect">前往檢視器</a>
         </div>
         <p class="panel-description">
-          內容為 backend hash 驗證後的 canonical 版本；閱讀不會改變任何 persistent state。
+          內容為後端雜湊值驗證後的權威版本；閱讀不會改變任何持久狀態。
         </p>
       </section>
     </section>
@@ -214,11 +214,11 @@
       <section class="panel" aria-labelledby="inbox-upload-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">UPLOAD</p>
+            <p class="eyebrow">上傳</p>
             <h3 id="inbox-upload-heading">放入文件</h3>
           </div>
           <button id="inbox-rescan" type="button" class="secondary-button">
-            重新掃描 inbox 目錄
+            重新掃描收件匣目錄
           </button>
         </div>
         <p id="inbox-rescan-result" class="form-hint" role="status" aria-live="polite" hidden></p>
@@ -242,7 +242,7 @@
       <section class="panel" aria-labelledby="inbox-list-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">DOCUMENTS</p>
+            <p class="eyebrow">文件</p>
             <h3 id="inbox-list-heading">文件與處理狀態</h3>
           </div>
         </div>
@@ -282,7 +282,7 @@
       <section id="inbox-preview-panel" class="panel" aria-labelledby="inbox-preview-heading" hidden>
         <div class="section-heading">
           <div>
-            <p class="eyebrow">EXTRACTED CONTENT</p>
+            <p class="eyebrow">抽取內容</p>
             <h3 id="inbox-preview-heading">抽取內容預覽</h3>
           </div>
           <button id="inbox-preview-close" type="button" class="secondary-button">關閉</button>
@@ -302,7 +302,7 @@
       <section class="panel ask-panel" aria-labelledby="ask-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">ASK</p>
+            <p class="eyebrow">提問</p>
             <h3 id="ask-heading">提出問題</h3>
           </div>
           <span class="status-dot" aria-hidden="true"></span>
@@ -342,38 +342,38 @@
                aria-labelledby="graph-projection-heading" aria-busy="false">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">GRAPH PROJECTION</p>
+            <p class="eyebrow">圖譜投影</p>
             <h3 id="graph-projection-heading">知識圖譜投影</h3>
           </div>
           <span id="graph-status-badge" class="graph-status-badge graph-status--unknown"
                 data-status="UNKNOWN">無法確認</span>
         </div>
         <p id="graph-status-message" class="graph-status-message" role="status" aria-live="polite">
-          目前尚未讀取 Graph projection 狀態。
+          目前尚未讀取圖譜投影狀態。
         </p>
         <dl class="graph-details">
           <div>
-            <dt>Projection version</dt>
+            <dt>投影版本</dt>
             <dd id="graph-projection-version">—</dd>
           </div>
           <div>
-            <dt>Generation（applied / target）</dt>
+            <dt>世代（已套用／目標）</dt>
             <dd id="graph-generation">—</dd>
           </div>
           <div>
-            <dt>Operation</dt>
+            <dt>作業</dt>
             <dd id="graph-operation">—</dd>
           </div>
           <div>
-            <dt>Failure</dt>
+            <dt>失敗</dt>
             <dd id="graph-failure">—</dd>
             <p id="graph-failure-diagnostic" class="graph-failure-diagnostic"></p>
           </div>
         </dl>
-        <div class="graph-actions" aria-label="Graph projection 操作">
-          <button id="graph-refresh" type="button" class="secondary-button">Refresh</button>
-          <button id="graph-rebuild" type="button">Rebuild</button>
-          <button id="graph-repair" type="button">Repair</button>
+        <div class="graph-actions" aria-label="圖譜投影操作">
+          <button id="graph-refresh" type="button" class="secondary-button">重新整理</button>
+          <button id="graph-rebuild" type="button">重建</button>
+          <button id="graph-repair" type="button">修復</button>
         </div>
         <p id="graph-feedback" class="graph-feedback" role="status" aria-live="polite" hidden></p>
       </section>
@@ -396,7 +396,7 @@
         <div id="result-answer" hidden>
           <div class="answer-heading">
             <div>
-              <p class="state-label">Grounded answer</p>
+              <p class="state-label">有依據的回答</p>
               <h3>回答</h3>
             </div>
             <span id="answer-status" class="answer-badge">有依據</span>
@@ -413,7 +413,7 @@
               檢視檢索過程
             </button>
             <button id="ask-to-proposal" type="button" class="secondary-button">
-              轉為 Proposal（治理流程）
+              轉為提案（治理流程）
             </button>
             <span id="ask-to-proposal-hint" class="form-hint" role="status" aria-live="polite"></span>
           </div>
@@ -422,8 +422,8 @@
                  aria-labelledby="context-diagnostics-heading" hidden>
           <div class="diagnostics-heading">
             <div>
-              <p class="state-label">EXECUTION</p>
-              <h4 id="context-diagnostics-heading">Context 與執行診斷</h4>
+              <p class="state-label">執行診斷</p>
+              <h4 id="context-diagnostics-heading">上下文與執行診斷</h4>
             </div>
           </div>
           <dl id="context-diagnostics-list" class="context-diagnostics-grid"></dl>
@@ -435,7 +435,7 @@
              aria-labelledby="ask-source-preview-heading" hidden>
       <div class="section-heading">
         <div>
-          <p class="eyebrow">SOURCE PREVIEW</p>
+          <p class="eyebrow">來源預覽</p>
           <h3 id="ask-source-preview-heading">引用來源預覽</h3>
         </div>
         <button id="ask-source-preview-close" type="button" class="secondary-button">關閉</button>
@@ -452,7 +452,7 @@
         <p id="ask-source-preview-not-found-message"></p>
       </div>
       <p class="panel-description">
-        預覽由 backend authoritative locator 提供（canonical 驗證）；highlight 僅呈現
+        預覽由後端權威定位器提供（權威內容驗證）；標示僅呈現
         locator 實際具備的定位精度，不偽造頁內位置。
       </p>
     </section>
@@ -466,7 +466,7 @@
           <span class="status-dot" aria-hidden="true"></span>
         </div>
         <p class="panel-description">
-          只讀檢視一次檢索的執行過程：各訊號的候選、融合政策與順序、canonical 驗證結果與最終證據。
+          唯讀檢視一次檢索的執行過程：各訊號的候選、融合政策與順序、權威內容驗證結果與最終證據。
           檢視器不會產生回答、也不會修改任何資料。
         </p>
         <form id="inspector-form" novalidate>
@@ -518,7 +518,7 @@
           <span class="status-dot" aria-hidden="true"></span>
         </div>
         <p class="panel-description">
-          點選回答中的來源 citation 後，於此檢視該片段的 canonical 位置與 bounded 預覽。
+          點選回答中的引用來源後，於此檢視該片段的權威位置與受限長度預覽。
           檢視器為唯讀，不會重新抽取、重建或修改任何資料。
         </p>
         <div id="source-inspector-loading" hidden>
@@ -545,8 +545,8 @@
       <section class="panel" aria-labelledby="proposal-list-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">PROPOSALS</p>
-            <h3 id="proposal-list-heading">Proposal 審核清單</h3>
+            <p class="eyebrow">提案</p>
+            <h3 id="proposal-list-heading">提案審核清單</h3>
           </div>
         </div>
         <form id="proposal-filter-form" novalidate>
@@ -564,7 +564,7 @@
         </form>
         <p id="review-hint" class="form-hint" role="status" aria-live="polite"></p>
         <p id="proposal-empty" class="empty-state" hidden>
-          目前沒有符合條件的 proposal。
+          目前沒有符合條件的提案。
         </p>
         <ul id="proposal-list" class="proposal-list"></ul>
         <div class="inbox-pager">
@@ -577,8 +577,8 @@
       <section id="proposal-detail" class="panel" aria-labelledby="proposal-detail-heading" hidden>
         <div class="section-heading">
           <div>
-            <p class="eyebrow">PROPOSAL DETAIL</p>
-            <h3 id="proposal-detail-heading">Proposal 內容與決定</h3>
+            <p class="eyebrow">提案詳情</p>
+            <h3 id="proposal-detail-heading">提案內容與決定</h3>
           </div>
           <button id="proposal-detail-close" type="button" class="secondary-button">關閉</button>
         </div>
@@ -590,39 +590,39 @@
         <p id="proposal-detail-source" class="proposal-detail-text"></p>
         <h4>依據證據</h4>
         <ul id="proposal-evidence" class="proposal-evidence"></ul>
-        <div id="proposal-actions" class="inbox-actions" aria-label="Proposal 狀態決定"></div>
+        <div id="proposal-actions" class="inbox-actions" aria-label="提案狀態決定"></div>
         <p class="panel-description">
-          核准僅代表 proposal 決定；後續仍須於 Draft lifecycle 中 preview/diff，
-          並由人工明確執行 publish。核准不會自動發布任何內容。
+          核准僅代表提案決定；後續仍須在草稿生命週期中預覽與檢視差異，
+          並由人工明確執行發布。核准不會自動發布任何內容。
         </p>
       </section>
 
       <section class="panel" aria-labelledby="draft-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">WIKI DRAFT</p>
-            <h3 id="draft-heading">Draft lifecycle</h3>
+            <p class="eyebrow">Wiki 草稿</p>
+            <h3 id="draft-heading">草稿生命週期</h3>
           </div>
           <button id="draft-create" type="button" class="draft-create" hidden>
-            由已核准的 proposal 建立 Wiki Draft
+            由已核准的提案建立 Wiki 草稿
           </button>
         </div>
-        <section id="draft-panel" aria-label="Draft 狀態與操作" hidden>
+        <section id="draft-panel" aria-label="草稿狀態與操作" hidden>
           <div id="draft-meta" class="draft-meta"></div>
-          <div class="inbox-actions" aria-label="Draft 操作">
-            <button id="draft-preview" type="button" class="secondary-button">Preview</button>
-            <button id="draft-diff" type="button" class="secondary-button">Diff</button>
-            <button id="draft-regenerate" type="button" class="secondary-button">Regenerate</button>
-            <button id="draft-invalidate" type="button" class="secondary-button">Invalidate</button>
-            <button id="draft-publish" type="button">Publish</button>
+          <div class="inbox-actions" aria-label="草稿操作">
+            <button id="draft-preview" type="button" class="secondary-button">預覽</button>
+            <button id="draft-diff" type="button" class="secondary-button">檢視差異</button>
+            <button id="draft-regenerate" type="button" class="secondary-button">重新產生</button>
+            <button id="draft-invalidate" type="button" class="secondary-button">標記失效</button>
+            <button id="draft-publish" type="button">發布</button>
           </div>
           <p id="draft-hint" class="form-hint" role="status" aria-live="polite"></p>
           <div id="draft-content" class="draft-content"></div>
         </section>
         <p id="publish-result" class="publish-result" role="status" aria-live="polite" hidden></p>
         <p class="panel-description">
-          Publish 是明確的人類動作：僅 READY 且 publishReady 的 draft 可發布；
-          發布結果以 backend typed response 為準，失敗不會被顯示為成功。
+          發布是明確的人類動作：僅 READY 且可發布（publishReady）的草稿可發布；
+          發布結果以後端類型化回應為準，失敗不會被顯示為成功。
         </p>
       </section>
     </section>
@@ -633,14 +633,14 @@
       <section class="panel" aria-labelledby="triage-list-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">KNOWLEDGE QUALITY</p>
+            <p class="eyebrow">知識品質</p>
             <h3 id="triage-list-heading">Vault 健康問題分類</h3>
           </div>
           <button id="triage-refresh" type="button" class="secondary-button">重新整理</button>
         </div>
         <p class="panel-description">
-          唯讀健康診斷：清單來自 backend Vault Lint 的當下掃描，不會修改 vault、
-          建立 proposal，也不判斷修復方式；每次開啟與重新整理都會重讀 authoritative 資料。
+          唯讀健康診斷：清單來自後端 Vault Lint 的當下掃描，不會修改 vault、
+          建立提案，也不判斷修復方式；每次開啟與重新整理都會重讀權威資料。
         </p>
         <form id="triage-filter-form" novalidate>
           <div class="field-group">
@@ -672,7 +672,7 @@
       <section id="triage-detail" class="panel" aria-labelledby="triage-detail-heading" hidden>
         <div class="section-heading">
           <div>
-            <p class="eyebrow">FINDING DETAIL</p>
+            <p class="eyebrow">診斷項目詳情</p>
             <h3 id="triage-detail-heading">問題內容與定位</h3>
           </div>
           <button id="triage-detail-close" type="button" class="secondary-button">關閉</button>
@@ -684,7 +684,7 @@
         <div id="triage-page" class="triage-page"></div>
         <p id="triage-page-hint" class="form-hint" role="status" aria-live="polite"></p>
         <div id="triage-repair" class="triage-repair" hidden>
-          <button id="triage-repair-create" type="button">建立修復 Proposal</button>
+          <button id="triage-repair-create" type="button">建立修復提案</button>
           <p id="triage-repair-hint" class="form-hint" role="status" aria-live="polite"></p>
         </div>
         <p id="triage-refusal" class="triage-refusal" hidden></p>
@@ -693,8 +693,8 @@
           <a class="wiki-handoff" href="#/review">前往審核</a>
         </div>
         <p class="panel-description">
-          Finding 是診斷證據，不是修復授權；本視圖不提供修復操作。
-          若頁面已不存在，finding 可能已過時，請重新整理後再判讀。
+          診斷項目是診斷證據，不是修復授權；本視圖不提供修復操作。
+          若頁面已不存在，診斷項目可能已過時，請重新整理後再判讀。
         </p>
       </section>
     </section>

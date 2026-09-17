@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Tag("unit")
 class DiagnosticRedactionTest {
 
-    private static final String FALLBACK = "Request validation failed";
+    private static final String FALLBACK = "要求驗證失敗";
 
     @Test
     void redactsAbsolutePosixPathsWithinAMessage() {

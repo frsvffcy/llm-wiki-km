@@ -11,14 +11,14 @@ const WORKSPACES_ENDPOINT = "/api/v1/workspaces";
 const CURRENT_WORKSPACE_ENDPOINT = "/api/v1/workspaces/current";
 
 const ERROR_MESSAGES = Object.freeze({
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "建立一個 workspace 或從清單中選擇既有 workspace。"],
-  WORKSPACE_ALREADY_EXISTS: ["Workspace 已存在", "同名或同路徑的 workspace 已經存在，請改用名稱或路徑。"],
-  WORKSPACE_NOT_FOUND: ["找不到 Workspace", "指定的 workspace 不存在，請重新整理清單。"],
-  INVALID_REQUEST: ["輸入不正確", "請確認名稱與 root path 皆已填寫（root path 需為絕對路徑）。"],
-  NOT_FOUND: ["找不到資源", "要求的 workspace 不存在，請重新整理。"]
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "建立一個工作區或從清單中選擇既有工作區。"],
+  WORKSPACE_ALREADY_EXISTS: ["工作區已存在", "同名或同路徑的工作區已經存在，請改用名稱或路徑。"],
+  WORKSPACE_NOT_FOUND: ["找不到工作區", "指定的工作區不存在，請重新整理清單。"],
+  INVALID_REQUEST: ["輸入不正確", "請確認名稱與根目錄路徑皆已填寫（根目錄路徑需為絕對路徑）。"],
+  NOT_FOUND: ["找不到資源", "要求的工作區不存在，請重新整理。"]
 });
 
-const GENERIC_ERROR = ["無法取得 workspace 狀態", "發生未預期的問題，請稍後再試。"];
+const GENERIC_ERROR = ["無法取得工作區狀態", "發生未預期的問題，請稍後再試。"];
 
 export function workspaceErrorMessage(error) {
   const code = error && typeof error.code === "string" ? error.code : "";
@@ -40,10 +40,10 @@ export function appendTextElement(documentRef, parent, tag, className, value) {
 
 export function validateWorkspaceInput(name, rootPath) {
   if (!String(name ?? "").trim()) {
-    return "請輸入 workspace 名稱。";
+    return "請輸入工作區名稱。";
   }
   if (!String(rootPath ?? "").trim()) {
-    return "請輸入 root path（絕對路徑）。";
+    return "請輸入根目錄路徑（絕對路徑）。";
   }
   return null;
 }
@@ -84,7 +84,7 @@ export function renderWorkspaceList(elements, workspaces, currentWorkspaceId,
   const rows = Array.isArray(workspaces) ? workspaces : [];
   if (rows.length === 0) {
     appendTextElement(documentRef, elements.list, "li", "workspace-list-empty",
-      "目前沒有其他 workspace。");
+      "目前沒有其他工作區。");
     return;
   }
   rows.forEach(workspace => {
@@ -98,7 +98,7 @@ export function renderWorkspaceList(elements, workspaces, currentWorkspaceId,
       const open = documentRef.createElement("button");
       open.type = "button";
       open.className = "workspace-switch";
-      open.textContent = "切換至此前 workspace";
+      open.textContent = "切換至此工作區";
       open.addEventListener("click", () => {
         if (typeof onSwitch === "function") onSwitch(workspace.id);
       });
@@ -119,7 +119,7 @@ async function readEnvelope(response) {
 export function createWorkspaceController(elements, fetchImpl = fetch, documentRef = document,
                                           hooks = {}) {
   let inFlight = false;
-  const submitLabel = elements.createSubmit.textContent || "建立 workspace";
+  const submitLabel = elements.createSubmit.textContent || "建立工作區";
 
   function showTypedError(error) {
     const { title, message } = workspaceErrorMessage(error);
@@ -179,7 +179,7 @@ export function createWorkspaceController(elements, fetchImpl = fetch, documentR
       // A freshly created workspace becomes active server-side: treat it like a switch.
       announceWorkspaceChanged();
       await refresh();
-      elements.hint.textContent = `Workspace「${text(envelope.data.name)}」已建立並啟用。`;
+      elements.hint.textContent = `工作區「${text(envelope.data.name)}」已建立並啟用。`;
     } catch {
       showTypedError(undefined);
     } finally {
@@ -206,7 +206,7 @@ export function createWorkspaceController(elements, fetchImpl = fetch, documentR
       }
       announceWorkspaceChanged();
       await refresh();
-      elements.hint.textContent = `已切換至 workspace「${text(envelope.data.workspace.name)}」，相關畫面已重新載入。`;
+      elements.hint.textContent = `已切換至工作區「${text(envelope.data.workspace.name)}」，相關畫面已重新載入。`;
     } catch {
       showTypedError(undefined);
     } finally {

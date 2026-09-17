@@ -117,7 +117,7 @@ test("renders a normal answer and Wiki/Source provenance as text", () => {
   assert.equal(elements.citations.children[0].children[1].children[1].textContent,
     "Wiki <img onerror=alert(1)>");
   assert.equal(elements.citations.children[1].children[1].children[2].textContent,
-    "頁碼：8 · section：Summary · chunk：2");
+    "頁碼：8 · 節次：Summary · 片段編號：2");
 });
 
 test("source citations expose a safe locate button and wiki citations do not", () => {
@@ -162,18 +162,18 @@ test("renders bounded context diagnostics including provider usage", () => {
 
   assert.equal(elements.contextDiagnostics.hidden, false);
   const rendered = diagnosticsText(elements.contextDiagnosticsList);
-  assert.match(rendered, /檢索 evidence::4/);
-  assert.match(rendered, /通過 admission 的 evidence::3/);
-  assert.match(rendered, /原始 code points::120/);
-  assert.match(rendered, /Packed code points::80/);
-  assert.match(rendered, /Projected code points::50/);
-  assert.match(rendered, /Reduction::58\.3%/);
-  assert.match(rendered, /Baseline truncated::是/);
-  assert.match(rendered, /Compacted::是/);
-  assert.match(rendered, /Projection 類型::EXTRACTIVE 1 · TRUNCATED 1/);
-  assert.match(rendered, /Provider usage::已取得/);
-  assert.match(rendered, /Provider input tokens::31/);
-  assert.match(rendered, /Provider total tokens::42/);
+  assert.match(rendered, /檢索證據::4/);
+  assert.match(rendered, /通過納入檢查的證據::3/);
+  assert.match(rendered, /原始字元數（code points）::120/);
+  assert.match(rendered, /打包後字元數（code points）::80/);
+  assert.match(rendered, /投影後字元數（code points）::50/);
+  assert.match(rendered, /縮減比例::58\.3%/);
+  assert.match(rendered, /基準已截斷::是/);
+  assert.match(rendered, /已壓縮::是/);
+  assert.match(rendered, /投影類型::EXTRACTIVE 1 · TRUNCATED 1/);
+  assert.match(rendered, /提供者使用情況::已取得/);
+  assert.match(rendered, /提供者輸入 token 數::31/);
+  assert.match(rendered, /提供者總 token 數::42/);
 });
 
 test("renders context diagnostics on insufficient evidence without calling a provider", () => {
@@ -190,8 +190,8 @@ test("renders context diagnostics on insufficient evidence without calling a pro
 
   assert.equal(elements.insufficient.hidden, false);
   assert.equal(elements.contextDiagnostics.hidden, false);
-  assert.match(diagnosticsText(elements.contextDiagnosticsList), /Provider usage::尚未呼叫/);
-  assert.match(diagnosticsText(elements.contextDiagnosticsList), /Provider input tokens::—/);
+  assert.match(diagnosticsText(elements.contextDiagnosticsList), /提供者使用情況::尚未呼叫/);
+  assert.match(diagnosticsText(elements.contextDiagnosticsList), /提供者輸入 token 數::—/);
 });
 
 test("ignores malformed or stale context diagnostics safely", () => {
@@ -226,8 +226,8 @@ test("diagnostics use text nodes and reject secret-like free-form values", async
 
   const rendered = diagnosticsText(elements.contextDiagnosticsList);
   assert.doesNotMatch(rendered, /private|prompt-secret|RID|secret-token/);
-  assert.match(rendered, /Context policy::—/);
-  assert.match(rendered, /Projection failure::—/);
+  assert.match(rendered, /上下文政策::—/);
+  assert.match(rendered, /投影失敗類型::—/);
   const source = await readFile("src/main/resources/static/ask-ui.js", "utf8");
   assert.doesNotMatch(source, /innerHTML/);
 
@@ -237,7 +237,7 @@ test("diagnostics use text nodes and reject secret-like free-form values", async
     citations: [{ evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Page" } }],
     executionMetadata: { contextDiagnostics: diagnostics }
   } }, documentRef);
-  assert.match(diagnosticsText(elements.contextDiagnosticsList), /Context policy::—/);
+  assert.match(diagnosticsText(elements.contextDiagnosticsList), /上下文政策::—/);
   assert.doesNotMatch(diagnosticsText(elements.contextDiagnosticsList), /RID|secret-token/);
 });
 
@@ -277,7 +277,7 @@ test("rejects malformed ANSWERED payloads safely", () => {
 test("maps typed errors to safe user-facing messages", () => {
   assert.deepEqual(errorMessage({ code: "NO_ACTIVE_WORKSPACE" }), {
     title: "尚未開啟知識庫",
-    message: "請先在本機應用程式中建立或開啟 active workspace。"
+    message: "請先在本機應用程式中建立或開啟目前工作區。"
   });
   assert.deepEqual(errorMessage({ code: "ANSWER_PROVIDER_UNAVAILABLE", message: "secret" }).title,
     "回答服務暫時無法使用");
@@ -655,7 +655,7 @@ test("the proposal hand-off is explicit, grounded-only, and posts the governed p
   assert.equal(body.citations[1].wikiRevision, 2);
   assert.ok(!JSON.stringify(body).includes('"sourceChunkId":null'),
     "WIKI citations must not carry a null chunk id");
-  assert.match(elements.toProposalHint.textContent, /Proposal 已建立並進入審核佇列/u);
+  assert.match(elements.toProposalHint.textContent, /提案已建立並進入審核佇列/u);
 });
 
 test("double-submit is guarded and typed failures surface without success copy", async () => {
@@ -830,7 +830,7 @@ test("stale sources expose the typed failure and never show cached content", asy
     return { ok: true, async json() { return { data: { disclosures: [] } }; } };
   });
 
-  assert.match(flatText(elements.sourcePreviewMeta), /已與 canonical 狀態不一致/u);
+  assert.match(flatText(elements.sourcePreviewMeta), /已與權威狀態不一致/u);
   assert.doesNotMatch(flatText(elements.sourcePreviewBody), /self-attention/u,
     "not-current sources must not expose content");
 });

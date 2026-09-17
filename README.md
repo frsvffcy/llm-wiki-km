@@ -1,46 +1,55 @@
 # llm-wiki-km
 
-A local-first personal knowledge base built with Java 21 and Spring Boot.
+以本機為優先的個人知識庫，使用 Java 21 與 Spring Boot 建置。你可以在隔離的工作區匯入來源文件、閱讀已發布的 Wiki、提出有依據的問題，並透過「提案 → 草稿 → 人工審核 → 發布」流程整理成持久知識。
 
-## Prerequisites
+第一次使用產品，請先閱讀 [5–10 分鐘快速入門](docs/guides/getting-started-zh-TW.md)；想新增或修改 UI、文件、錯誤訊息與協作文字，請遵循[語言與術語規範](docs/development/language-and-terminology.md)。
+
+## 前置需求
 
 - Java 21
 - Maven 3.9+
 
-## Build and test
+## 建置與測試
 
-Choose the command by purpose:
+依目的選擇指令：
 
 ```text
-Coding feedback      mvn test -Pfast
-Full regression      mvn test
-Integration          mvn test -Pintegration
-CI build integrity       mvn clean verify -Pbuild-integrity
-Local final/full canary  mvn clean verify -Pfull
+快速回饋             mvn test -Pfast
+完整回歸             mvn test
+整合測試             mvn test -Pintegration
+CI 建置完整性        mvn clean verify -Pbuild-integrity
+本機完整 canary      mvn clean verify -Pfull
 ```
 
-For a package/build smoke check, use the following command; it is not the final PR gate. The full
-developer test-tier guidance is in
-[docs/development/testing.md](docs/development/testing.md).
+若只要確認套件可以建置，可執行下列 smoke check；這不是最終 PR gate。完整的開發者測試分層請參閱
+[測試與驗證指南](docs/development/testing.md)。
 
 ```bash
 mvn clean package
 ```
 
-Pull requests targeting `main` run six evidence jobs—PR Metadata, Fast, Integration, production
-ArcadeDB Graph adapter, Build Integrity, and sqlite-vec smoke—followed by an aggregate `PR Gate`
-merge-safety job. The clean full regression canary is Maven-only and remains a post-merge, nightly,
-and manually dispatchable canary; Browser JavaScript regression is owned by the PR Fast job rather
-than `mvn clean verify -Pfull`. Details are in
-[docs/development/testing.md](docs/development/testing.md).
+以 `main` 為目標的 Pull Request 會執行六個 evidence job（PR Metadata、Fast、Integration、production
+ArcadeDB Graph adapter、Build Integrity、sqlite-vec smoke），再由整合的 `PR Gate` job 檢查合併安全性。
+乾淨的完整回歸是 Maven-only 的 post-merge、nightly 與手動 canary；Browser JavaScript 回歸由 PR Fast
+job 負責，不包含在 `mvn clean verify -Pfull`。詳細流程請參閱
+[測試與驗證指南](docs/development/testing.md)。
 
-## Run
+## 啟動
 
 ```bash
 java -jar target/llm-wiki-km-0.1.1.jar
 ```
 
-The application listens only on `127.0.0.1:8765` by default.
+應用程式預設只監聽 `127.0.0.1:8765`。啟動後以瀏覽器開啟 <http://127.0.0.1:8765/>；瀏覽器只呼叫本機 REST API，不直接接觸 SQLite、工作區檔案或服務提供者金鑰。
+
+建議的第一個操作順序如下：
+
+1. 在「工作區」建立或開啟知識庫。
+2. 到「收件匣」上傳一份文件，等待抽取與索引完成。
+3. 到「Wiki」閱讀已發布內容，或在「提問」取得附引用來源的回答。
+4. 若要保存回答，將它轉為提案，前往「審核」建立草稿、檢視差異，再由人工發布。
+
+Ask 的回答是暫時結果，不會自行寫入 `vault/`、`archive/` 或權威知識狀態。若啟用遠端服務，送出的資料範圍由後端設定與畫面上的 provider egress 提示決定；請在啟用前確認服務提供者、傳輸方式與資料類型。
 
 Supported deployment modes: `LOCAL_ONLY` (current baseline) and `PRIVATE_INGRESS`
 (remote over a private network / VPN / overlay through bounded host-local

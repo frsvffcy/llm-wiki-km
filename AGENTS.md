@@ -6,7 +6,8 @@
 
 ## 0. 語言與溝通規範
 
-* 人類可讀內容（commit 說明、PR、Issue、review comment、開發文件、進度回報）使用繁體中文（臺灣用語）；既有英文內容採 touched-when-edited 漸進整理。
+* Repository 的人類可讀文字以繁體中文（臺灣用語）為預設；完整詞彙、格式、場景與演進規則以 [`docs/development/language-and-terminology.md`](docs/development/language-and-terminology.md) 為單一規範來源。既有英文內容採 touched-when-edited 漸進整理，不做危險的大規模機械翻譯。
+* UI、README／current docs、公開 API `error.message`、程式註解中的意圖說明、測試描述，以及 Issue／PR／review comment／進度回報都遵循該文件；identifier、API path、class/table/column、JSON key、enum／status／error code、CLI／library／provider 名稱依規範保留英文。
 * Commit：Conventional Commits type（`feat`/`fix`/`test`/`chore`/`refactor`/`docs`/`perf`）保留英文，冒號後說明使用繁體中文；一個 commit 只含一個邏輯變更。
 * Branch：英文小寫 slug（`feature|fix|test|cleanup/<issue>-<描述>`）；技術識別字（identifier、API path、class/table/column、CLI/library 名稱）保留英文。
 

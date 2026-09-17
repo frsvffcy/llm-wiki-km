@@ -1,27 +1,27 @@
 const LOCATOR_ENDPOINT = "/api/v1/source-chunks";
 
 const ERROR_MESSAGES = Object.freeze({
-  INVALID_REQUEST: ["來源位置格式不正確", "請重新點選 citation 後再試一次。"],
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在本機應用程式中建立或開啟 active workspace。"],
+  INVALID_REQUEST: ["來源位置格式不正確", "請重新點選引用來源後再試一次。"],
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在本機應用程式中建立或開啟目前工作區。"],
   RETRIEVAL_UNAVAILABLE: ["來源服務暫時無法使用", "目前無法取得來源位置，請稍後再試。"]
 });
 
 const GENERIC_ERROR = ["無法取得來源位置", "發生未預期的問題，請稍後再試。"];
 
 const NOT_FOUND_MESSAGE = ["找不到來源位置",
-  "此 citation 對應的來源片段已不存在（可能已重新抽取或重新分段）。citation 本身仍然有效。"];
+  "此引用來源對應的來源片段已不存在（可能已重新抽取或重新分段）。引用來源本身仍然有效。"];
 
 const CURRENTNESS_NOTICES = Object.freeze({
-  NOT_CURRENT: "此來源片段目前與 canonical 狀態不一致，內容不再顯示；citation 本身仍然有效。"
+  NOT_CURRENT: "此來源片段目前與權威狀態不一致，內容不再顯示；引用來源本身仍然有效。"
 });
 
 const CURRENTNESS_LABELS = Object.freeze({
-  CURRENT: "與 canonical 狀態一致",
-  NOT_CURRENT: "已與 canonical 狀態不一致"
+  CURRENT: "與權威狀態一致",
+  NOT_CURRENT: "已與權威狀態不一致"
 });
 
 const REASON_LABELS = Object.freeze({
-  AUTHORITY_MISSING: "找不到對應的 canonical 來源",
+  AUTHORITY_MISSING: "找不到對應的權威來源",
   STALE_REVISION: "來源已更新",
   INELIGIBLE: "來源目前不可用",
   IDENTITY_MISMATCH: "來源識別不一致",
@@ -76,10 +76,10 @@ export function renderLocator(elements, payload, documentRef = document) {
   const metadataParts = [
     detail("文件", data.documentName),
     detail("片段", data.sourceChunkId),
-    detail("chunk", data.chunkNo),
+    detail("片段編號", data.chunkNo),
     detail("頁碼", data.pageNo),
-    detail("section", data.section),
-    detail("heading", data.headingPath)
+    detail("節次", data.section),
+    detail("標題路徑", data.headingPath)
   ].filter(Boolean);
   appendTextElement(documentRef, elements.metadata, "p", "inspector-metadata-line",
     metadataParts.join(" · "));
@@ -95,12 +95,12 @@ export function renderLocator(elements, payload, documentRef = document) {
   }
 
   appendTextElement(documentRef, elements.preview, "h3", "inspector-preview-heading",
-    "bounded 預覽");
+    "受限長度預覽");
   const preview = appendTextElement(documentRef, elements.preview, "p",
     "inspector-preview", data.preview);
   if (data.previewTruncated === true) {
     appendTextElement(documentRef, elements.preview, "p", "inspector-preview-truncated",
-      "預覽已截斷；完整內容請在來源文件中查看。");
+      "預覽已截斷；完整內容請在來源文件中檢視。");
   }
   return preview;
 }

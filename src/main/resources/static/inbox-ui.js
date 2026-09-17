@@ -66,7 +66,7 @@ const EXTRACTION_ERROR_MESSAGES = Object.freeze({
 });
 
 const ERROR_MESSAGES = Object.freeze({
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇 workspace。"],
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇工作區。"],
   DOCUMENT_NOT_FOUND: ["找不到文件", "指定的文件不存在或已移除，請重新整理清單。"],
   DOCUMENT_ALREADY_PROCESSED: ["文件已處理", "此文件已進入處理流程，無法從收件匣移除。"],
   INVALID_REQUEST: ["要求不正確", "請確認輸入內容後再試一次。"]
@@ -207,7 +207,7 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
       const preview = documentRef.createElement("button");
       preview.type = "button";
       preview.className = "inbox-preview";
-      preview.textContent = "查看抽取內容";
+      preview.textContent = "檢視抽取內容";
       preview.addEventListener("click", () => actions.onPreview(data.documentId));
       actionRow.append(preview);
     }
@@ -258,8 +258,8 @@ export function renderRescan(elements, rescan, documentRef = document) {
 export function renderPreview(elements, preview, documentRef = document) {
   const data = preview && typeof preview === "object" ? preview : {};
   elements.previewPanel.hidden = false;
-  elements.previewMeta.textContent = `文件 ${text(data.documentId)}：parseStatus ${text(data.parseStatus)}，`
-    + `共 ${text(data.chunkCount)} 個片段（預覽為每片段前 2000 字元的 bounded 摘要）`;
+  elements.previewMeta.textContent = `文件 ${text(data.documentId)}：抽取狀態 ${text(data.parseStatus)}，`
+    + `共 ${text(data.chunkCount)} 個片段（預覽為每片段前 2000 字元的受限長度摘要）`;
   elements.previewChunks.replaceChildren();
   const chunks = Array.isArray(data.chunks) ? data.chunks : [];
   chunks.forEach(chunk => {
@@ -481,7 +481,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
         showTypedError(envelope && envelope.error ? envelope.error : undefined);
         return;
       }
-      elements.hint.textContent = "已從收件匣移除（soft delete）。";
+      elements.hint.textContent = "已從收件匣移除（標記為已刪除）。";
       await refresh();
     } catch {
       showTypedError(undefined);

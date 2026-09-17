@@ -61,6 +61,8 @@ Current／legacy／evaluation／guide 採用可見頁首標記，至少可辨識
 
 ## 入口
 
+- 新手 5–10 分鐘導覽：`guides/getting-started-zh-TW.md`
+- 語言與術語單一規範：`development/language-and-terminology.md`
 - 現在系統長什麼樣：`architecture/README.md` → `architecture/system-overview.md`
 - 支援哪些流程：`architecture/use-cases.md`
 - 能力由誰持有：`architecture/capability-map.md`
@@ -71,5 +73,13 @@ Current／legacy／evaluation／guide 採用可見頁首標記，至少可辨識
 - 為什麼這樣決策：`adr/`
 - 如何實作／驗證：`development/testing.md`
 - 歷史 review 證據：`evaluations/2026-09-10-local-personal-wiki-architecture-review.md`
+
+## 語言與學習入口
+
+使用者入口與 current 文件預設採繁體中文（臺灣用語）。技術識別字、API path、JSON key、enum、CLI／library 名稱與外部原文依規範保留英文。新增或修改人類可讀文字前，請先閱讀
+[`development/language-and-terminology.md`](development/language-and-terminology.md)；第一次使用產品則從
+[`guides/getting-started-zh-TW.md`](guides/getting-started-zh-TW.md) 開始。
+
+這兩份文件是 current documentation governance 與 learning aid，不取代 Flyway、Controllers、contract tests、ADR 或 GitHub Issues 的 executable authority。
 
 Refs #410。
