@@ -427,9 +427,9 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
     renderDraft(elements, envelope.data, documentRef);
   }
 
-  async function draftAction(pathSuffix, { status = 200, render } = {}) {
+  async function draftAction(pathSuffix, { method = "POST", render } = {}) {
     const response = await fetchImpl(`${DRAFTS_ENDPOINT}/${state.draftId}${pathSuffix}`,
-      { method: "POST" });
+      { method });
     const envelope = await readEnvelope(response);
     if (!response.ok) {
       showTypedError(envelope && envelope.error ? envelope.error : undefined,
@@ -444,19 +444,19 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
 
   async function showPreview() {
     if (!state.draftId) return;
-    await draftAction("/preview", { render: data => renderDraftPreview(elements, data, documentRef) });
+    await draftAction("/preview", { method: "GET", render: data => renderDraftPreview(elements, data, documentRef) });
   }
 
   async function showDiff() {
     if (!state.draftId) return;
-    await draftAction("/diff", { render: data => renderDraftDiff(elements, data, documentRef) });
+    await draftAction("/diff", { method: "GET", render: data => renderDraftDiff(elements, data, documentRef) });
   }
 
   async function invalidateDraft() {
     if (inFlight || !state.draftId) return;
     inFlight = true;
     try {
-      const envelope = await draftAction("/invalidate");
+      const envelope = await draftAction("/invalidate", { method: "POST" });
       if (envelope) {
         elements.draftHint.textContent = "Draft 已人工失效。";
         await loadDraft(state.draftId);

@@ -438,6 +438,79 @@ test("double-submit guard prevents a second concurrent publish request", async (
     "in-flight publish blocks a second submission (challenge 5)");
 });
 
+test("draft preview/diff use GET while invalidate/regenerate/publish stay POST (#490)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    const target = String(url);
+    // Browser fetch defaults to GET when no explicit method is set.
+    calls.push({ url: target, method: options?.method ?? "GET" });
+    if (target.endsWith("/preview")) {
+      return jsonResponse(200, { data: {
+        id: 21, proposalId: 12, action: "CREATE", targetPath: "vault/concepts/x.md",
+        status: "READY", publishReady: true, sourceChunkIds: [9], evidence: [],
+        renderedContentHash: "c".repeat(64), markdown: "# preview" } });
+    }
+    if (target.endsWith("/diff")) {
+      return jsonResponse(200, { data: {
+        id: 21, status: "READY", publishReady: true, targetPath: "vault/concepts/x.md",
+        baseContentHash: "b".repeat(64), renderedContentHash: "c".repeat(64),
+        currentContent: "old", renderedContent: "new", unifiedDiff: "--- a\n+++ b\n-old\n+new" } });
+    }
+    if (target.endsWith("/invalidate")) {
+      return jsonResponse(200, { data: draftRow() });
+    }
+    if (target.endsWith("/regenerate")) {
+      return jsonResponse(201, { data: draftRow({ id: 22 }) });
+    }
+    if (target.endsWith("/publish")) {
+      return jsonResponse(201, { data: {
+        result: "PUBLISHED", outcome: "CREATED", attemptId: 3, operationId: "op",
+        workspaceId: 1, proposalId: 12, draftId: 22, knowledgePageId: 1,
+        knowledgeId: "WIKI:x", targetPath: "vault/concepts/x.md",
+        contentHash: "e".repeat(64), revision: 1, publishedAt: "2026-09-13T00:00:00Z" } });
+    }
+    return jsonResponse(200, { data: draftRow() });
+  };
+  const controller = createReviewController(elements, fetchImpl, fakeDocument());
+  await controller.loadDraft(21);
+  await controller.showPreview();
+  await controller.showDiff();
+  await controller.invalidateDraft();
+  await controller.regenerateDraft();
+  await controller.publishDraft();
+
+  const methodsFor = suffix =>
+    calls.filter(call => call.url.endsWith(suffix)).map(call => call.method);
+  assert.deepEqual(methodsFor("/preview"), ["GET"],
+    "read-only preview must follow the backend GET contract, not the mutation POST");
+  assert.deepEqual(methodsFor("/diff"), ["GET"],
+    "read-only diff must follow the backend GET contract, not the mutation POST");
+  assert.deepEqual(methodsFor("/invalidate"), ["POST"],
+    "invalidate is a mutation and must stay POST");
+  assert.deepEqual(methodsFor("/regenerate"), ["POST"],
+    "regenerate is a mutation and must stay POST");
+  assert.deepEqual(methodsFor("/publish"), ["POST"],
+    "publish is a mutation and must stay POST");
+});
+
+test("preview typed failure surfaces the backend error instead of success (#490)", async () => {
+  const elements = uiElements();
+  const fetchImpl = async url => {
+    if (String(url).endsWith("/preview")) {
+      return jsonResponse(404, {
+        error: { code: "WIKI_DRAFT_NOT_FOUND", message: "draft gone" }
+      });
+    }
+    return jsonResponse(200, { data: draftRow() });
+  };
+  const controller = createReviewController(elements, fetchImpl, fakeDocument());
+  await controller.loadDraft(21);
+  await controller.showPreview();
+  assert.match(elements.draftHint.textContent, /找不到 Wiki Draft/u,
+    "preview failure must stay a visible typed error, never a fake success");
+});
+
 test("workspace switch clears proposal, draft, and publish state", async () => {
   const documentRef = fakeDocument();
   const elements = uiElements();
