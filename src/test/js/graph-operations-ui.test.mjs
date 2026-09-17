@@ -131,7 +131,7 @@ test("keeps typed 409, 503, and 500 failures distinct and safe", () => {
   const unavailable = graphErrorMessage({ status: 503, code: "GRAPH_BACKEND_LOCKED" });
   const corrupt = graphErrorMessage({ status: 500, code: "GRAPH_PROJECTION_CORRUPT" });
   assert.equal(conflict.title, "投影已過期");
-  assert.match(conflict.message, /rebuild|repair/);
+  assert.match(conflict.message, /重建|修復/);
   assert.equal(unavailable.title, "投影目前被鎖定");
   assert.match(unavailable.message, /稍後/);
   assert.equal(corrupt.title, "投影資料需要重建");
@@ -219,7 +219,7 @@ test("repair uses the existing endpoint and restores controls after completion",
   assert.equal(calls.length, 2);
   assert.equal(elements.refresh.disabled, false);
   assert.equal(elements.repair.disabled, false);
-  assert.match(elements.feedback.textContent, /repair 已完成/);
+  assert.match(elements.feedback.textContent, /修復\s+已完成/);
 });
 
 test("prevents concurrent rebuild submits while the operation and follow-up refresh are pending", async () => {

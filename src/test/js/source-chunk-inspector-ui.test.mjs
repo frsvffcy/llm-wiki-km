@@ -78,11 +78,11 @@ test("renders current locator metadata and bounded preview as text", () => {
   assert.equal(elements.error.hidden, true);
   const metadata = flatText(elements.metadata);
   assert.match(metadata, /文件：design\.pdf/);
-  assert.match(metadata, /chunk：3/);
+  assert.match(metadata, /片段編號：3/);
   assert.match(metadata, /頁碼：17/);
-  assert.match(metadata, /section：Graph lifecycle/);
-  assert.match(metadata, /heading：Projection > Generation ownership/);
-  assert.match(metadata, /與 canonical 狀態一致/);
+  assert.match(metadata, /節次：Graph lifecycle/);
+  assert.match(metadata, /標題路徑：Projection > Generation ownership/);
+  assert.match(metadata, /與權威狀態一致/);
   const preview = flatText(elements.preview);
   assert.match(preview, /<script>alert\(1\)<\/script>/);
   assert.doesNotMatch(preview, /innerHTML/);
@@ -110,7 +110,7 @@ test("not-current locators show typed reason and never show content", () => {
 
   assert.equal(elements.result.hidden, false);
   const metadata = flatText(elements.metadata);
-  assert.match(metadata, /已與 canonical 狀態不一致/);
+  assert.match(metadata, /已與權威狀態不一致/);
   assert.match(metadata, /來源目前不可用/);
   assert.equal(elements.preview.children.length, 0);
 });
@@ -121,7 +121,7 @@ test("not-found locator keeps the citation framing instead of a raw error", () =
 
   assert.equal(elements.notFound.hidden, false);
   assert.equal(elements.error.hidden, true);
-  assert.match(elements.notFoundMessage.textContent, /citation 本身仍然有效/);
+  assert.match(elements.notFoundMessage.textContent, /引用來源本身仍然有效/);
   assert.doesNotMatch(elements.notFoundMessage.textContent, /exception|stack/i);
 });
 

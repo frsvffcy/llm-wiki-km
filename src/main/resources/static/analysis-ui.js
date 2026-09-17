@@ -15,13 +15,13 @@
 export const ANALYSIS_READINESS_ENDPOINT = "/api/v1/analysis/readiness";
 
 export const ANALYSIS_JOB_ERROR_MESSAGES = Object.freeze({
-  PARTIAL_FAILURE: "部分項目失敗，請檢查失敗項目的 typed 錯誤碼。",
+  PARTIAL_FAILURE: "部分項目失敗，請檢查失敗項目的類型化錯誤碼。",
   PROMPT_CONFIGURATION_FAILED: "文件分析設定載入失敗。",
   PROMPT_TEMPLATE_NOT_FOUND:
-    "缺少 prompt 樣板（config/prompts/document-analysis.md），請執行工作區修復或還原該檔案後重試。",
-  PROMPT_TEMPLATE_INVALID: "prompt 樣板格式無效，請檢查樣板內容後重試。",
-  PROMPT_VARIABLE_MISSING: "prompt 缺少必要變數，請確認樣板包含文件與證據變數後重試。",
-  ANALYSIS_SETTING_INVALID: "分析設定無效，請檢查 analysis 設定值後重試。",
+    "缺少提示樣板（config/prompts/document-analysis.md），請執行工作區修復或還原該檔案後重試。",
+  PROMPT_TEMPLATE_INVALID: "提示樣板格式無效，請檢查樣板內容後重試。",
+  PROMPT_VARIABLE_MISSING: "提示樣板缺少必要變數，請確認樣板包含文件與證據變數後重試。",
+  ANALYSIS_SETTING_INVALID: "分析設定無效，請檢查分析設定值後重試。",
   PROVIDER_UNAVAILABLE: "分析服務目前無法使用，請稍後重試。",
   PROVIDER_TIMEOUT: "分析服務回應逾時，請稍後重試。",
   PERSISTENCE_FAILED: "分析結果無法安全保存，請稍後重試。",
@@ -34,7 +34,7 @@ export const ANALYSIS_JOB_ERROR_MESSAGES = Object.freeze({
 });
 
 const READINESS_ERROR_MESSAGES = Object.freeze({
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇 workspace。"]
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇工作區。"]
 });
 
 const GENERIC_READINESS_ERROR = ["無法取得文件分析狀態", "發生未預期的問題，請稍後再試。"];
@@ -67,7 +67,7 @@ export function analysisReadinessOutcome(readiness) {
   if (promptStatus === "MISSING") {
     return {
       tone: "missing",
-      label: "文件分析尚未就緒：缺少 prompt 樣板",
+      label: "文件分析尚未就緒：缺少提示樣板",
       detail: ANALYSIS_JOB_ERROR_MESSAGES.PROMPT_TEMPLATE_NOT_FOUND
     };
   }
@@ -76,7 +76,7 @@ export function analysisReadinessOutcome(readiness) {
       ? readiness.promptErrorCode.toUpperCase() : "";
     return {
       tone: "invalid",
-      label: "文件分析尚未就緒：prompt 樣板無效",
+      label: "文件分析尚未就緒：提示樣板無效",
       detail: ANALYSIS_JOB_ERROR_MESSAGES[code] || text(readiness.promptErrorMessage)
     };
   }

@@ -87,7 +87,7 @@ class FtsRebuildAdmissionIntegrationTest extends IsolatedIntegrationTest {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.error.code").value("FTS_REBUILD_IN_PROGRESS"))
                     .andExpect(jsonPath("$.error.message").value(
-                            "An FTS rebuild is already in progress for this workspace and corpus"))
+                            "此工作區與語料庫已有 FTS 重建作業進行中"))
                     .andReturn();
 
             // The rejected admission leaves no orphan processing job and no stolen owner.

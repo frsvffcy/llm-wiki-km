@@ -78,16 +78,16 @@ public class OwnerSecurityFilter extends OncePerRequestFilter {
             apply(request, response, chain);
         } catch (OwnerHostRejectedException rejected) {
             writeError(request, response, HttpServletResponse.SC_FORBIDDEN,
-                    "OWNER_HOST_REJECTED", "Request host is not allowed");
+                    "OWNER_HOST_REJECTED", "不允許此要求主機");
         } catch (OwnerOriginRejectedException rejected) {
             writeError(request, response, HttpServletResponse.SC_FORBIDDEN,
-                    "OWNER_ORIGIN_REJECTED", "Request origin is not allowed");
+                    "OWNER_ORIGIN_REJECTED", "不允許此要求來源");
         } catch (OwnerAuthenticationException rejected) {
             writeError(request, response, HttpServletResponse.SC_UNAUTHORIZED,
-                    "OWNER_AUTH_REQUIRED", "Owner authentication is required");
+                    "OWNER_AUTH_REQUIRED", "需要擁有者驗證");
         } catch (OwnerRateLimitedException rejected) {
             writeError(request, response, 429,
-                    "OWNER_RATE_LIMITED", "Too many requests, please retry later");
+                    "OWNER_RATE_LIMITED", "要求次數過多，請稍後再試");
         }
     }
 

@@ -227,7 +227,7 @@ class AskApiIntegrationTest {
                         .content("{\"question\":\"question\",\"retrievalMode\":\"WIKI_ONLY\"}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.error.code").value("RETRIEVAL_UNAVAILABLE"))
-                .andExpect(jsonPath("$.error.message").value("Retrieval service is unavailable"))
+                .andExpect(jsonPath("$.error.message").value("檢索服務無法使用"))
                 .andExpect(content().string(not(containsString("secret"))))
                 .andExpect(content().string(not(containsString("raw prompt"))));
     }
@@ -241,7 +241,7 @@ class AskApiIntegrationTest {
                         .content("{\"question\":\"question\",\"retrievalMode\":\"SEMANTIC_WIKI\"}"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.error.code").value("RETRIEVAL_VECTOR_UNAVAILABLE"))
-                .andExpect(jsonPath("$.error.message").value("Semantic retrieval is unavailable"))
+                .andExpect(jsonPath("$.error.message").value("語意檢索無法使用"))
                 .andExpect(content().string(not(containsString("native vector"))));
     }
 

@@ -93,7 +93,7 @@ test("missing prompt is never ready and carries the repair next action", () => {
   });
 
   assert.equal(outcome.tone, "missing");
-  assert.match(outcome.label, /缺少 prompt/u);
+  assert.match(outcome.label, /缺少提示樣板/u);
   assert.match(outcome.detail, /config\/prompts\/document-analysis\.md/u);
   assert.match(outcome.detail, /工作區修復/u);
 });
@@ -150,7 +150,7 @@ test("failed job with a typed prompt code carries the actionable reason", () => 
   });
 
   assert.equal(outcome.tone, "failed");
-  assert.match(outcome.label, /prompt 樣板/u);
+  assert.match(outcome.label, /提示樣板/u);
   assert.match(outcome.label, /工作區修復/u);
 });
 
@@ -166,7 +166,7 @@ test("readiness rendering uses safe text and never innerHTML", () => {
     analysisReady: false
   }, { createElement: () => new FakeElement() });
 
-  assert.match(elements.state.textContent, /缺少 prompt/u);
+  assert.match(elements.state.textContent, /缺少提示樣板/u);
   assert.match(flatText(elements.detail), /config\/prompts\/document-analysis\.md/u);
 });
 

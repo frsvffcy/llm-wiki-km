@@ -58,12 +58,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException exception) {
         return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",
                 DiagnosticRedaction.publicMessage(exception.getMessage(),
-                        "Request validation failed"), exception);
+                        "要求驗證失敗"), exception);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException exception) {
-        return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "Request body is not readable", exception);
+        return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "無法讀取要求內容", exception);
     }
 
     /**
@@ -78,32 +78,32 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(OwnerAuthenticationException.class)
     public ResponseEntity<ApiError> handleOwnerAuthentication(OwnerAuthenticationException exception) {
         return respond(HttpStatus.UNAUTHORIZED, "OWNER_AUTH_REQUIRED",
-                "Owner authentication is required", exception);
+                "需要擁有者驗證", exception);
     }
 
     @ExceptionHandler(OwnerHostRejectedException.class)
     public ResponseEntity<ApiError> handleOwnerHostRejected(OwnerHostRejectedException exception) {
         return respond(HttpStatus.FORBIDDEN, "OWNER_HOST_REJECTED",
-                "Request host is not allowed", exception);
+                "不允許此要求主機", exception);
     }
 
     @ExceptionHandler(OwnerOriginRejectedException.class)
     public ResponseEntity<ApiError> handleOwnerOriginRejected(OwnerOriginRejectedException exception) {
         return respond(HttpStatus.FORBIDDEN, "OWNER_ORIGIN_REJECTED",
-                "Request origin is not allowed", exception);
+                "不允許此要求來源", exception);
     }
 
     @ExceptionHandler(OwnerRateLimitedException.class)
     public ResponseEntity<ApiError> handleOwnerRateLimited(OwnerRateLimitedException exception) {
         return respond(HttpStatus.TOO_MANY_REQUESTS, "OWNER_RATE_LIMITED",
-                "Too many requests, please retry later", exception);
+                "要求次數過多，請稍後再試", exception);
     }
 
     @ExceptionHandler(DuplicateWorkspaceException.class)
     public ResponseEntity<ApiError> handleDuplicateWorkspace(DuplicateWorkspaceException exception) {
         // The raw message embeds the workspace root path; the public projection stays fixed.
         return respond(HttpStatus.CONFLICT, "WORKSPACE_ALREADY_EXISTS",
-                "A workspace already exists for this root path", exception);
+                "此根目錄路徑已有工作區", exception);
     }
 
     @ExceptionHandler(DocumentNotFoundException.class)
@@ -158,25 +158,25 @@ public class GlobalExceptionHandler {
         // Content failed canonical validation (missing/drifted/invalid): the metadata
         // exists but the page is no longer a trustworthy read — a distinct "失效" state.
         return respond(HttpStatus.CONFLICT, "WIKI_PAGE_UNAVAILABLE",
-                publicMessage(exception, "Published Wiki content is unavailable"), exception);
+                publicMessage(exception, "已發布的 Wiki 內容不可用"), exception);
     }
 
     @ExceptionHandler(PublishedWikiUnavailableException.class)
     public ResponseEntity<ApiError> handlePublishedWikiUnavailable(PublishedWikiUnavailableException exception) {
         return respond(HttpStatus.SERVICE_UNAVAILABLE, "WIKI_PAGE_UNAVAILABLE",
-                publicMessage(exception, "Published Wiki content is temporarily unavailable"), exception);
+                publicMessage(exception, "已發布的 Wiki 內容暫時無法使用"), exception);
     }
 
     @ExceptionHandler(WikiDraftLifecycleException.class)
     public ResponseEntity<ApiError> handleWikiDraftLifecycle(WikiDraftLifecycleException exception) {
         return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_LIFECYCLE_CONFLICT",
-                publicMessage(exception, "Wiki draft is in a conflicting lifecycle state"), exception);
+                publicMessage(exception, "Wiki 草稿處於衝突的生命週期狀態"), exception);
     }
 
     @ExceptionHandler(WikiDraftTargetException.class)
     public ResponseEntity<ApiError> handleWikiDraftTarget(WikiDraftTargetException exception) {
         return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_TARGET_" + exception.reason().name(),
-                publicMessage(exception, "Wiki draft target validation failed"), exception);
+                publicMessage(exception, "Wiki 草稿目標驗證失敗"), exception);
     }
 
     @ExceptionHandler(WikiPublishException.class)
@@ -187,7 +187,7 @@ public class GlobalExceptionHandler {
             default -> HttpStatus.CONFLICT;
         };
         return respond(status, "WIKI_PUBLISH_" + exception.reason().name(),
-                publicMessage(exception, "Wiki publish operation failed"), exception);
+                publicMessage(exception, "Wiki 發布操作失敗"), exception);
     }
 
     @ExceptionHandler(DocumentAlreadyProcessedException.class)
@@ -199,7 +199,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DocumentExtractionException.class)
     public ResponseEntity<ApiError> handleDocumentExtraction(DocumentExtractionException exception) {
         return respond(HttpStatus.UNPROCESSABLE_ENTITY, exception.errorCode(),
-                publicMessage(exception, "Document extraction failed"), exception);
+                publicMessage(exception, "文件抽取失敗"), exception);
     }
 
     @ExceptionHandler(WorkspaceNotFoundException.class)
@@ -227,7 +227,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleRetrievalUnavailable(
             RetrievalUnavailableException exception) {
         return respond(HttpStatus.SERVICE_UNAVAILABLE, "RETRIEVAL_UNAVAILABLE",
-                publicMessage(exception, "Retrieval service is unavailable"), exception);
+                publicMessage(exception, "檢索服務無法使用"), exception);
     }
 
     /** Duplicate FTS rebuild admission is a typed conflict, never a generic 500. */
@@ -235,7 +235,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleFtsRebuildAdmissionConflict(
             FtsRebuildAdmissionConflictException exception) {
         return respond(HttpStatus.CONFLICT, "FTS_REBUILD_IN_PROGRESS",
-                "An FTS rebuild is already in progress for this workspace and corpus", exception);
+                "此工作區與語料庫已有 FTS 重建作業進行中", exception);
     }
 
     /**
@@ -257,7 +257,7 @@ public class GlobalExceptionHandler {
                     CROSS_WORKSPACE, INVALID_TRAVERSAL_BOUNDS, LOCAL_VALIDATION ->
                     HttpStatus.INTERNAL_SERVER_ERROR;
         };
-        return respond(status, type.publicCode(), "Graph projection operation failed", exception);
+        return respond(status, type.publicCode(), "圖譜投影操作失敗", exception);
     }
 
     @ExceptionHandler(AskApiException.class)
@@ -275,33 +275,33 @@ public class GlobalExceptionHandler {
                     PROVIDER_SERVER_FAILURE -> HttpStatus.SERVICE_UNAVAILABLE;
         };
         String message = switch (type) {
-            case RETRIEVAL_UNAVAILABLE -> "Retrieval service is unavailable";
-            case RETRIEVAL_VECTOR_UNAVAILABLE -> "Semantic retrieval is unavailable";
-            case PROVIDER_CONFIGURATION_UNAVAILABLE -> "Answer provider is not configured";
+            case RETRIEVAL_UNAVAILABLE -> "檢索服務無法使用";
+            case RETRIEVAL_VECTOR_UNAVAILABLE -> "語意檢索無法使用";
+            case PROVIDER_CONFIGURATION_UNAVAILABLE -> "尚未設定回答服務";
             case PROVIDER_AUTHENTICATION_OR_AUTHORIZATION ->
-                    "Answer provider authentication failed";
-            case PROVIDER_RATE_LIMIT_OR_QUOTA -> "Answer provider is rate limited";
-            case PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE -> "Answer provider is unavailable";
-            case PROVIDER_SERVER_FAILURE -> "Answer provider failed";
-            case PROVIDER_INVALID_RESPONSE -> "Answer provider returned an invalid response";
-            case LOCAL_VALIDATION -> "Ask request was rejected";
+                    "回答服務驗證失敗";
+            case PROVIDER_RATE_LIMIT_OR_QUOTA -> "回答服務已達速率限制";
+            case PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE -> "回答服務無法使用";
+            case PROVIDER_SERVER_FAILURE -> "回答服務失敗";
+            case PROVIDER_INVALID_RESPONSE -> "回答服務回應無效";
+            case LOCAL_VALIDATION -> "提問要求遭拒";
         };
         return respond(status, type.publicCode(), message, exception);
     }
 
     @ExceptionHandler({NoResourceFoundException.class, MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiError> handleNotFound(Exception exception) {
-        return respond(HttpStatus.NOT_FOUND, "NOT_FOUND", "Resource not found", exception);
+        return respond(HttpStatus.NOT_FOUND, "NOT_FOUND", "找不到資源", exception);
     }
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ApiError> handleIllegalState(IllegalStateException exception) {
-        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error", exception);
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "內部伺服器錯誤", exception);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception exception) {
-        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Internal server error", exception);
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "內部伺服器錯誤", exception);
     }
 
     private static ResponseEntity<ApiError> respond(HttpStatus status, String code, String message,
@@ -312,7 +312,7 @@ public class GlobalExceptionHandler {
     }
 
     private static String publicMessage(Exception exception) {
-        return DiagnosticRedaction.publicMessage(exception.getMessage(), "Request failed");
+        return DiagnosticRedaction.publicMessage(exception.getMessage(), "要求失敗");
     }
 
     private static String publicMessage(Exception exception, String fallback) {

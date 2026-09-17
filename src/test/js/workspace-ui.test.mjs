@@ -109,15 +109,15 @@ function documentFor(elements) {
 
 test("typed error messages stay human-readable and workspace-scoped", () => {
   assert.equal(workspaceErrorMessage({ code: "WORKSPACE_ALREADY_EXISTS" }).title,
-    "Workspace 已存在");
+    "工作區已存在");
   assert.equal(workspaceErrorMessage({ code: "NO_ACTIVE_WORKSPACE" }).title, "尚未開啟知識庫");
-  assert.equal(workspaceErrorMessage(undefined).title, "無法取得 workspace 狀態");
+  assert.equal(workspaceErrorMessage(undefined).title, "無法取得工作區狀態");
 });
 
 test("workspace input requires name and root path", () => {
   assert.equal(validateWorkspaceInput("personal", "/tmp/km"), null);
   assert.match(validateWorkspaceInput("", "/tmp/km"), /名稱/u);
-  assert.match(validateWorkspaceInput("personal", " "), /root path/u);
+  assert.match(validateWorkspaceInput("personal", " "), /根目錄路徑/u);
 });
 
 test("refresh renders the empty state when no current workspace exists", async () => {
@@ -139,7 +139,7 @@ test("refresh renders the empty state when no current workspace exists", async (
 
   assert.equal(elements.currentEmpty.hidden, false);
   assert.equal(elements.current.hidden, true);
-  assert.match(elements.hint.textContent, /建立一個 workspace 或從清單中選擇/u);
+  assert.match(elements.hint.textContent, /建立一個工作區或從清單中選擇/u);
   assert.deepEqual(calls, ["/api/v1/workspaces/current", "/api/v1/workspaces"]);
 });
 
@@ -194,7 +194,7 @@ test("create failure surfaces the typed backend code without a workspace change"
 
   await elements.form.handlers.get("submit")({ preventDefault() {} });
 
-  assert.match(elements.hint.textContent, /Workspace 已存在/u);
+  assert.match(elements.hint.textContent, /工作區已存在/u);
   assert.equal(changed, 0);
 });
 

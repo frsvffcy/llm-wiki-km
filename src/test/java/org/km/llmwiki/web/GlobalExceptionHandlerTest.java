@@ -42,7 +42,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(code(response)).isEqualTo("WORKSPACE_ALREADY_EXISTS");
         assertThat(message(response))
-                .isEqualTo("A workspace already exists for this root path")
+                .isEqualTo("此根目錄路徑已有工作區")
                 .doesNotContain("/Users", "toddyeh", "secret");
     }
 
@@ -52,7 +52,7 @@ class GlobalExceptionHandlerTest {
                 new IllegalArgumentException(HOSTILE));
         assertThat(hostile.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(code(hostile)).isEqualTo("INVALID_REQUEST");
-        assertThat(message(hostile)).isEqualTo("Request validation failed");
+        assertThat(message(hostile)).isEqualTo("要求驗證失敗");
 
         ResponseEntity<ApiError> safe = handler.handleIllegalArgument(
                 new IllegalArgumentException("size must be between 1 and 200"));
@@ -73,14 +73,14 @@ class GlobalExceptionHandlerTest {
         assertThat(wikiLifecycle.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(code(wikiLifecycle)).isEqualTo("WIKI_DRAFT_LIFECYCLE_CONFLICT");
         assertThat(message(wikiLifecycle))
-                .isEqualTo("Wiki draft is in a conflicting lifecycle state");
+                .isEqualTo("Wiki 草稿處於衝突的生命週期狀態");
 
         ResponseEntity<ApiError> wikiPublish = handler.handleWikiPublish(
                 new WikiPublishException(WikiPublishException.Reason.FILESYSTEM_FAILURE,
                         HOSTILE));
         assertThat(wikiPublish.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(code(wikiPublish)).isEqualTo("WIKI_PUBLISH_FILESYSTEM_FAILURE");
-        assertThat(message(wikiPublish)).isEqualTo("Wiki publish operation failed");
+        assertThat(message(wikiPublish)).isEqualTo("Wiki 發布操作失敗");
     }
 
     @Test
@@ -89,7 +89,7 @@ class GlobalExceptionHandlerTest {
                 new DocumentExtractionException("EXTRACTION_PARSE_FAILED", HOSTILE));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         assertThat(code(response)).isEqualTo("EXTRACTION_PARSE_FAILED");
-        assertThat(message(response)).isEqualTo("Document extraction failed");
+        assertThat(message(response)).isEqualTo("文件抽取失敗");
     }
 
     @Test
@@ -109,14 +109,14 @@ class GlobalExceptionHandlerTest {
                         GraphProjectionFailureType.BACKEND_LOCKED, HOSTILE)));
         assertThat(graph.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(code(graph)).isEqualTo("GRAPH_BACKEND_LOCKED");
-        assertThat(message(graph)).isEqualTo("Graph projection operation failed");
+        assertThat(message(graph)).isEqualTo("圖譜投影操作失敗");
 
         ResponseEntity<ApiError> ask = handler.handleAskFailure(new AskApiException(
                 AskFailureType.PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE));
         assertThat(ask.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(code(ask)).isEqualTo(AskFailureType.PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE
                 .publicCode());
-        assertThat(message(ask)).isEqualTo("Answer provider is unavailable");
+        assertThat(message(ask)).isEqualTo("回答服務無法使用");
     }
 
     private static String code(ResponseEntity<ApiError> response) {

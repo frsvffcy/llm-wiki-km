@@ -23,7 +23,7 @@ class OwnerSecurityContractTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().error().code()).isEqualTo("OWNER_AUTH_REQUIRED");
         assertThat(response.getBody().error().message())
-                .isEqualTo("Owner authentication is required");
+                .isEqualTo("需要擁有者驗證");
         assertThat(response.getBody().toString()).doesNotContain("abc123", "secret");
     }
 

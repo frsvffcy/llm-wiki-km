@@ -1,0 +1,159 @@
+# 語言與術語規範
+
+> 狀態：`CURRENT`。本文件是 repository-owned 的人類可讀文字單一規範，適用於目前與未來的 UI、文件、註解、公開訊息與協作內容。它不是 REST、資料庫或其他 executable contract；那些契約仍以程式碼、測試、Flyway、ADR 與 GitHub governance 為準。
+>
+> 維護原則：本文件與 `AGENTS.md` 同步演進；若兩者出現矛盾，以本文件的詳細規則為準，並在同一個變更中修正 `AGENTS.md` 的入口說明。
+
+## 1. 目標與範圍
+
+llm-wiki-km 的預設人類語言是**繁體中文（臺灣用語）**。使用者應能在 UI、README、指南、錯誤訊息、Issue、PR 與和 agent 的對話中，以同一組概念理解產品。語言治理的目標不是把所有 ASCII 字串翻成中文，而是讓「人要讀的內容」一致、讓「機器要辨識的名稱」穩定。
+
+本規範涵蓋：
+
+- Browser UI 的標題、按鈕、欄位、空狀態、載入中、錯誤與成功訊息。
+- README、`docs/` current 文件、快速入門與 release／操作說明。
+- 程式註解、公開 API `message`、測試描述、Issue、PR、review comment 與 commit subject。
+- 未來新增的產品名詞、狀態文案、操作指引與 agent 回覆。
+
+歷史快照、外部引用、供應商原文與不可變的技術契約不會因本規範而被大規模回溯翻譯。
+
+## 2. 中文優先與英文保留原則
+
+### 2.1 預設做法
+
+先寫自然、簡潔、可操作的繁體中文，再判斷是否需要在括號中補充英文識別字。中文不是逐字翻譯：以臺灣使用者理解和實際操作為優先，避免把工程內部語句直接暴露給使用者。
+
+### 2.2 可以保留英文的情況
+
+只有下列情況保留英文；保留時仍應讓周邊說明使用中文：
+
+1. 技術識別字：class、method、package、table、column、enum、status／error code、JSON key、環境變數與設定鍵。
+2. API path、HTTP method、CLI command、library／framework／provider 名稱與產品正式名稱。
+3. 不翻譯會更精確、或翻譯會改變契約的 protocol／format／standard 名稱（例如 `JSON`、`HTTP`、`OAuth`、`SQLite`、`Flyway`、`jOOQ`、`Markdown`、`Wiki`、`RAG`）。
+4. 使用者必須原樣複製的值（例如 `READY`、`HYBRID_FTS`、`/api/v1/workspaces`、`mvn test`）。
+5. 尚無穩定中文、且中文容易造成歧義的專有名詞。第一次出現時可寫「中文說明（`EnglishTerm`）」；之後以中文為主。
+
+不要為了保留英文而把句子寫成中英混雜的標籤；不要翻譯識別字、API path、JSON key、enum value、檔名或可複製的 command。
+
+## 3. 標準詞彙表
+
+| 技術／英文 | 使用者可見中文 | API／程式碼中的保留形式 | 備註 |
+| --- | --- | --- | --- |
+| workspace | 工作區 | `workspace` | 不寫「工作空間」 |
+| knowledge base／knowledge root | 知識庫／知識根目錄 | `knowledgeBase`／`rootPath` | 依語境選用 |
+| inbox | 收件匣 | `inbox` | 固定目錄名保留 |
+| vault | 知識庫內容區 | `vault` | 固定目錄名保留 |
+| source document | 來源文件 | `SOURCE_DOCUMENT` | 不寫「原始檔案」作為狀態 |
+| chunk | 來源片段 | `chunk`／`SOURCE_CHUNK` | |
+| extraction／parse | 抽取 | `extract`／`parseStatus` | 文件內容抽取，不寫「解析」作 UI 主詞 |
+| proposal | 提案 | `Proposal`／`proposal` | UI 首次可寫「提案」；identifier 保留 |
+| draft | 草稿 | `Draft`／`draft` | |
+| publish | 發布 | `publish` | 臺灣用語；不用「發佈」混用 |
+| review | 審核 | `review` | 人工審核；不用「審查」作 UI 主詞 |
+| canonical | 權威內容／權威狀態 | `canonical` | 只有技術說明需要時保留英文 |
+| soft delete | 軟刪除 | `soft delete` | UI 寫「移除」或「標記為已刪除」 |
+| backend／frontend | 後端／瀏覽器介面 | `backend`／`frontend` | UI 不顯示「Backend」 |
+| preview | 預覽 | `preview` | |
+| diff | 差異 | `diff` | |
+| regenerate | 重新產生 | `regenerate` | |
+| invalidate | 標記失效 | `invalidate` | |
+| rebuild | 重建 | `rebuild` | |
+| repair | 修復 | `repair` | |
+| projection | 投影 | `projection` | 知識圖譜投影、語意投影 |
+| readiness | 就緒狀態 | `readiness` | |
+| citation | 引用來源 | `citation` | |
+| finding | 診斷項目／問題 | `finding` | 依 UI 情境選擇 |
+| metadata | 中繼資料 | `metadata` | |
+| provider | 服務提供者 | `provider` | 技術設定可保留 |
+| embedding | 向量嵌入 | `embedding` | 首次說明可寫「向量嵌入（embedding）」 |
+| retrieval | 檢索 | `retrieval` | 不寫「搜尋」描述內部 pipeline |
+| grounded answer | 有依據的回答 | `grounded` | UI 不單獨顯示英文 |
+| context | 上下文 | `context` | |
+| system status | 系統狀態 | `status` | |
+
+若新詞不在表中，先以中文寫出使用者要做的事，再在本表新增決策；不要在各頁面自行創造同義詞。
+
+## 4. 文字格式規則
+
+- **大小寫**：中文句子使用正常句首大小寫；英文正式名稱、產品名、library 名依官方拼法。UI 裝飾性全大寫標籤改用中文，不用 `WORKSPACE`、`CREATE` 這類英文大寫當作視覺裝飾。
+- **空格**：中文與英文／數字相鄰時通常不加空格（例如「建立工作區」）；若英文是可複製識別字，前後以反引號包住（例如「狀態為 `READY`」）。英文句子內依英文規則留空格。
+- **中英混排**：一段以中文為主；英文只作名稱或契約值。不要在同一句交替堆疊 `Proposal`、`Draft`、`Publish`；改寫成「提案通過後建立草稿，再由人工發布」。
+- **標點**：中文敘述使用全形 `，`、`。`、`：`、`（`、`）`；程式碼、command、JSON、path 使用原生半形標點。中文與英文之間不強行加入逗號或句點。
+- **數字與單位**：數字、版本、HTTP status、時間與路徑保留 ASCII；中文量詞與數字之間不加空格（例如「5 分鐘」例外保留可讀空格）。
+- **可操作性**：按鈕以動詞開頭（「建立工作區」「重新整理」「發布」）；錯誤訊息說明發生什麼、使用者下一步能做什麼，不洩漏 stack trace、路徑、SQL、token 或 provider 原文。
+- **臺灣用語**：使用「登入、登出、資料、資訊、預設、檔案、程式、網路、連線、搜尋、檢視、發布」。避免中國用語「登录、登出以外的登錄、数据、信息、默认、文件（可作正式名詞時例外）、程序、网络、连接、查看、发布以外的發佈」。
+
+## 5. 各場景規則
+
+### UI
+
+標題、導覽、欄位、按鈕、空狀態、載入中、成功與錯誤預設繁中。狀態 enum／error code 可在中文後以反引號呈現。UI 不顯示內部 class、provider、絕對路徑或 raw exception；只有在使用者需要複製時才顯示 endpoint／command。
+
+### README 與 current 文件
+
+入口、前置需求、安裝、執行、主要工作流程和安全／隱私說明以繁中。程式碼區塊、API path、JSON key、設定鍵、狀態值和正式產品名保持原樣。current 文件新增或被觸碰時順手整理附近的明顯術語漂移；不為了語言一致而改寫歷史技術論證。
+
+### 程式註解
+
+描述意圖、邊界和不變條件時使用繁中；identifier、protocol、狀態值和可搜尋的 domain term 原樣保留。註解不可複製成另一份 runtime contract，也不可聲稱尚未實作的能力存在。
+
+### API 錯誤訊息
+
+`error.code`、HTTP status 與 JSON 欄位是穩定契約，保留英文識別字；對外 `error.message` 使用繁中且安全、可操作、與 locale 無關。內部 exception message 是 server-side log，只有被投影到 public response 時才必須遵循本節。
+
+### 測試命名與描述
+
+Java／JavaScript method name、fixture key、selector、route 與 enum 是 identifier，保留英文。`@DisplayName`、`test("...")`、assertion 中給人的描述使用繁中；若測試鎖定 API 契約值，保留反引號中的英文值。修改 UI 文案時同步更新精確比對，不要為了讓測試通過而放寬契約。
+
+### Issue、PR、review 與 commit
+
+- Issue／PR title、body、review comment 使用繁中；可保留 `[L1]`～`[L5]`、`[Story]`、`[Sprint]`、Issue number 和技術名稱。
+- Commit type 使用 Conventional Commits 的英文 type；冒號後使用繁中，例如 `docs: 新增語言與術語規範`。一次 commit 只表達一個邏輯變更。
+- branch slug、檔名、API path 與 GitHub automation token 依既有 governance 保留英文。
+- 不翻譯 `Refs #N`、`PR Gate`、`FULL GO` 等治理識別字，但周邊解釋使用中文。
+
+## 6. 禁用與避免用語
+
+以下用語在新增或修改的人類可讀文字中應避免：
+
+| 避免 | 使用 |
+| --- | --- |
+| `查看`、`查詢`（當 UI 動作是閱讀） | 檢視／閱讀 |
+| `登录` | 登入 |
+| `数据` | 資料 |
+| `信息` | 資訊 |
+| `默认` | 預設 |
+| `發佈` | 發布 |
+| `工作空間` | 工作區 |
+| `soft delete`（面向一般使用者） | 移除／標記為已刪除 |
+| `Backend`、`Frontend`（UI 標籤） | 後端、瀏覽器介面 |
+| 以英文全大寫裝飾 UI | 中文短標題 |
+| `成功／失敗` 卻不說下一步 | 具體說明狀態與可採取的動作 |
+
+「文件」在「文件抽取」等既有 domain 名稱中可保留；一般檔案操作優先寫「檔案」。中國用語掃描是提醒，不應把 API path、引用原文或歷史文件中的固定字串機械替換。
+
+## 7. 文件分層與演進
+
+- `README.md`、`docs/README.md`、`docs/guides/` 與被標記為 `CURRENT` 的文件：新增內容直接遵循本規範；修改時整理同段落的明顯漂移。
+- `docs/architecture/legacy/`、歷史 release note、`docs/evaluations/` 的外部 review 與已封存 ADR：保留原始語境，只在新增的導言或註解中說明現況，避免篡改證據。
+- 外部供應商原文、錯誤 payload、migration SQL、enum／JSON snapshot：保留原文；若加說明，另以繁中解釋。
+- 只有真正屬於同一邏輯變更的 wording 修正才一起提交；跨大量檔案的清理須另有 bounded scope、測試或審查證據，不做無法回溯的機械翻譯。
+
+## 8. 例外與變更流程
+
+1. 新增 UI／文件／public message 前，先查本文件的詞彙表與場景規則。
+2. 若需要保留新英文詞，於 PR 說明理由（identifier、官方名稱、不可合理翻譯或避免歧義），必要時補進詞彙表。
+3. 若要變更既有標準詞，先在本文件更新決策，再同步受影響的 current surface、測試與 `AGENTS.md` 入口；不要只改單一畫面。
+4. PR 勾選語言治理檢查，執行 `node scripts/check-language-governance.mjs`；檢查腳本是防回歸提醒，不取代人工 review。
+5. 發現歷史文件與 current contract 衝突時，遵循 `AGENTS.md` 的 authority hierarchy；不要以翻譯掩蓋契約差異。
+
+## 9. 本輪盤點與剩餘分類
+
+本輪以 current Browser UI、README 入口與主要操作段落、`AGENTS.md`、`docs/README.md`、PR template，以及 REST 對外 fallback message 為 bounded surface。已知剩餘英文主要分為：
+
+1. API path、class／table／column、enum、JSON key、環境變數、CLI／library／provider 名稱。
+2. 程式註解與測試 identifier；描述文字會在被觸碰時漸進整理。
+3. `README.md` 深層技術契約、ADR、evaluation 與 legacy 歷史證據；維持 touched-when-edited，避免改動可追溯性。
+4. 外部 provider／protocol 原文與可複製的設定值。
+
+這些殘餘不是治理失敗；它們是本規範明確允許或刻意延後的範圍。未來若需要擴大中文化，應以 current surface、使用者研究或明確 Issue／PR scope 驅動，並同步更新本節盤點。

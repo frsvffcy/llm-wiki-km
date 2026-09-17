@@ -306,7 +306,7 @@ test("enriched final evidence shows kind, safe source label, currentness and nav
   assert.match(finalText, /E1 SOURCE_CHUNK:42/);
   assert.match(finalText, /來源文件/);
   assert.match(finalText, /design\.pdf · chunk 3/);
-  assert.match(finalText, /檢視當下為 current/);
+  assert.match(finalText, /檢視當下與目前狀態一致/);
   assert.match(finalText, /E2 WIKI:arch/);
   assert.match(finalText, /架構總覽/);
 

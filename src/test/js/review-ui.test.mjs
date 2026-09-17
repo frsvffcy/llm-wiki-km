@@ -139,7 +139,7 @@ test("proposal statuses and labels cover the backend enum without drift", () => 
 
 test("typed publish outcome and governance errors are operator-safe", () => {
   assert.equal(publishOutcomeLabel("PUBLISHED", "CREATED"), "已發布：新建 wiki 頁面");
-  assert.equal(publishOutcomeLabel("NO_OP", "NO_OP"), "無操作：此 draft 先前已成功發布");
+  assert.equal(publishOutcomeLabel("NO_OP", "NO_OP"), "無操作：此草稿先前已成功發布");
   assert.match(publishOutcomeLabel("WEIRD", "X"), /WEIRD/u);
   assert.equal(governanceErrorMessage({ code: "WIKI_PUBLISH_OPTIMISTIC_LOCK_CONFLICT" }).title,
     "內容已被他人更新");
@@ -308,8 +308,8 @@ test("create draft posts proposalId and renders the backend-owned draft state", 
     body: JSON.stringify({ proposalId: 12 })
   });
   const meta = flatText(elements.draftMeta);
-  assert.match(meta, /Draft #21（proposal #12）/u);
-  assert.match(meta, /狀態 就緒（可發布） · publishReady：是/u);
+  assert.match(meta, /草稿 #21（提案 #12）/u);
+  assert.match(meta, /狀態 就緒（可發布） · 可發布（publishReady）：是/u);
   assert.equal(elements.draftPublish.disabled, false);
 });
 
@@ -507,7 +507,7 @@ test("preview typed failure surfaces the backend error instead of success (#490)
   const controller = createReviewController(elements, fetchImpl, fakeDocument());
   await controller.loadDraft(21);
   await controller.showPreview();
-  assert.match(elements.draftHint.textContent, /找不到 Wiki Draft/u,
+  assert.match(elements.draftHint.textContent, /找不到 Wiki 草稿/u,
     "preview failure must stay a visible typed error, never a fake success");
 });
 

@@ -1,10 +1,9 @@
 /**
- * Governance workbench (#353): a Browser projection of the existing Proposal review and
- * Wiki Draft lifecycle contracts — proposal list/detail/status decision, draft
- * create/preview/diff/regenerate/invalidate, and the explicit human publish action.
- * Three lifecycle stages are rendered separately (Proposal ≠ Draft ≠ Publish outcome);
- * nothing here is a mutation authority: every transition goes through the existing REST
- * endpoints, backend responses are the only truth, and approval never auto-publishes.
+ * 治理工作台（#353）：既有提案審核與 Wiki 草稿生命週期契約的瀏覽器投影，涵蓋
+ * 提案清單／詳細資料／狀態決策、草稿建立／預覽／差異／重新產生／標記失效，以及
+ * 明確的人工作發布操作。三個生命週期階段分開呈現（提案 ≠ 草稿 ≠ 發布結果）；
+ * 本檔案不是變更權威來源：所有轉換都經由既有 REST endpoint，後端回應才是唯一
+ * 真實狀態，核准不會自動發布。
  */
 
 const PROPOSALS_ENDPOINT = "/api/v1/proposals";
@@ -29,10 +28,9 @@ const ACTION_LABELS = Object.freeze({
 });
 
 /**
- * Presentation copy for transition targets only — NOT a state machine. Which
- * transitions exist is decided by the backend's single domain authority and arrives
- * as the additive `allowedTransitions` capability projection on every proposal
- * response (#370). Unknown or missing capabilities fail closed: no mutation buttons.
+ * 這裡只提供轉換目標的顯示文字，不是狀態機。哪些轉換可用由後端唯一的領域
+ * 權威來源決定，並以每筆提案回應中的附加 `allowedTransitions` 能力投影傳回
+ *（#370）。未知或缺少能力時安全拒絕，不顯示變更按鈕。
  */
 const TRANSITION_LABELS = Object.freeze({
   REVIEW: "送入審核",
@@ -49,33 +47,33 @@ const DRAFT_STATUS_LABELS = Object.freeze({
 
 const INVALIDATION_LABELS = Object.freeze({
   MANUAL: "人工失效",
-  SUPERSEDED_BY_REGENERATION: "已由重新產生的 draft 取代",
-  SOURCE_PROPOSAL_INVALID: "來源 proposal 已失效",
+  SUPERSEDED_BY_REGENERATION: "已由重新產生的草稿取代",
+  SOURCE_PROPOSAL_INVALID: "來源提案已失效",
   TARGET_CHANGED: "目標頁面已變動"
 });
 
 const PUBLISH_OUTCOME_LABELS = Object.freeze({
   "PUBLISHED|CREATED": "已發布：新建 wiki 頁面",
   "PUBLISHED|MERGED": "已發布：合併至既有頁面",
-  "NO_OP|NO_OP": "無操作：此 draft 先前已成功發布"
+  "NO_OP|NO_OP": "無操作：此草稿先前已成功發布"
 });
 
 const ERROR_MESSAGES = Object.freeze({
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇 workspace。"],
-  KNOWLEDGE_PROPOSAL_NOT_FOUND: ["找不到 Proposal", "指定的 proposal 不存在或已隨文件移除，請重新整理清單。"],
-  WIKI_DRAFT_NOT_FOUND: ["找不到 Wiki Draft", "指定的 draft 不存在，請重新從 proposal 建立。"],
-  WIKI_DRAFT_LIFECYCLE_CONFLICT: ["Draft 生命週期衝突", "此操作與 draft 目前狀態不符，請重新整理後再試。"],
-  WIKI_DRAFT_TARGET_CREATE_TARGET_EXISTS: ["目標頁已存在", "建立新頁的目標檔案已存在，請改用合併流程或重新整理 draft。"],
-  WIKI_DRAFT_TARGET_TARGET_FILE_MISSING: ["目標頁不存在", "合併的目標檔案已消失，請重新產生 draft。"],
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇工作區。"],
+  KNOWLEDGE_PROPOSAL_NOT_FOUND: ["找不到提案", "指定的提案不存在或已隨文件移除，請重新整理清單。"],
+  WIKI_DRAFT_NOT_FOUND: ["找不到 Wiki 草稿", "指定的草稿不存在，請重新從提案建立。"],
+  WIKI_DRAFT_LIFECYCLE_CONFLICT: ["草稿生命週期衝突", "此操作與草稿目前狀態不符，請重新整理後再試。"],
+  WIKI_DRAFT_TARGET_CREATE_TARGET_EXISTS: ["目標頁已存在", "建立新頁的目標檔案已存在，請改用合併流程或重新整理草稿。"],
+  WIKI_DRAFT_TARGET_TARGET_FILE_MISSING: ["目標頁不存在", "合併的目標檔案已消失，請重新產生草稿。"],
   WIKI_DRAFT_TARGET_TARGET_NOT_REGULAR_FILE: ["目標不是一般檔案", "合併目標不是一般檔案，請人工檢查。"],
-  WIKI_DRAFT_TARGET_TARGET_CONTENT_INVALID: ["目標內容無效", "目標頁面內容未通過驗證，請重新整理 draft。"],
-  WIKI_DRAFT_TARGET_TARGET_CONTENT_HASH_MISMATCH: ["目標內容已變動", "目標頁面內容與 draft 建立時不一致，請重新產生 draft。"],
-  WIKI_PUBLISH_DRAFT_NOT_READY: ["Draft 尚未就緒", "publish 僅允許於 READY 狀態的 draft。"],
-  WIKI_PUBLISH_PROPOSAL_INVALID: ["來源 Proposal 已失效", "publish 前置檢查發現來源 proposal 已不再是 APPROVED。"],
-  WIKI_PUBLISH_TARGET_CONFLICT: ["發布目標衝突", "目標頁面寫入衝突，請重新整理 draft 後再試。"],
+  WIKI_DRAFT_TARGET_TARGET_CONTENT_INVALID: ["目標內容無效", "目標頁面內容未通過驗證，請重新整理草稿。"],
+  WIKI_DRAFT_TARGET_TARGET_CONTENT_HASH_MISMATCH: ["目標內容已變動", "目標頁面內容與草稿建立時不一致，請重新產生草稿。"],
+  WIKI_PUBLISH_DRAFT_NOT_READY: ["草稿尚未就緒", "發布僅允許於 READY 狀態的草稿。"],
+  WIKI_PUBLISH_PROPOSAL_INVALID: ["來源提案已失效", "發布前置檢查發現來源提案已不再是 APPROVED。"],
+  WIKI_PUBLISH_TARGET_CONFLICT: ["發布目標衝突", "目標頁面寫入衝突，請重新整理草稿後再試。"],
   WIKI_PUBLISH_TARGET_MISSING: ["發布目標遺失", "合併的目標頁面在發布時已消失。"],
-  WIKI_PUBLISH_OPTIMISTIC_LOCK_CONFLICT: ["內容已被他人更新", "目標頁面雜湊與 draft 建立時不一致（樂觀鎖衝突），請重新產生 draft。"],
-  WIKI_PUBLISH_OPERATION_CONFLICT: ["發布進行中", "此 draft 已有進行中的發布作業，請稍後再試。"],
+  WIKI_PUBLISH_OPTIMISTIC_LOCK_CONFLICT: ["內容已被他人更新", "目標頁面雜湊與草稿建立時不一致（樂觀鎖衝突），請重新產生草稿。"],
+  WIKI_PUBLISH_OPERATION_CONFLICT: ["發布進行中", "此草稿已有進行中的發布作業，請稍後再試。"],
   WIKI_PUBLISH_FILESYSTEM_FAILURE: ["檔案系統寫入失敗", "發布寫入失敗，系統已保留審計紀錄；請稍後重試或聯絡管理者。"],
   WIKI_PUBLISH_CONTENT_VALIDATION_FAILED: ["發布內容驗證失敗", "產生的內容未通過發布驗證，系統已保留審計紀錄。"],
   WIKI_PUBLISH_METADATA_FAILURE: ["資料庫寫入失敗", "發布後的中繼資料寫入失敗，請聯絡管理者。"],
@@ -185,13 +183,12 @@ export function renderProposalDetail(elements, detail, documentRef = document,
     const item = documentRef.createElement("li");
     item.className = "proposal-evidence-item";
     appendTextElement(documentRef, item, "p", "proposal-evidence-meta",
-      `chunk ${text(data2.chunkNo)} · ${text(data2.section)}${data2.headingPath ? ` · ${text(data2.headingPath)}` : ""}`);
+      `片段 ${text(data2.chunkNo)} · ${text(data2.section)}${data2.headingPath ? ` · ${text(data2.headingPath)}` : ""}`);
     appendTextElement(documentRef, item, "p", "proposal-evidence-content", text(data2.content));
     elements.proposalEvidence.append(item);
   });
-  // Render-only: the mutation buttons come exclusively from the response's
-  // allowedTransitions capability projection (#370). Missing/malformed/unknown
-  // capabilities fail closed — no mutation action is invented client-side.
+  // 僅負責呈現：變更按鈕完全取自回應中的 allowedTransitions 能力投影（#370）。
+  // 缺少、格式錯誤或未知能力時安全拒絕，不在使用者端自行發明變更操作。
   elements.proposalActions.replaceChildren();
   const allowed = Array.isArray(data.allowedTransitions) ? data.allowedTransitions : [];
   allowed.forEach(target => {
@@ -216,9 +213,9 @@ export function renderDraft(elements, draft, documentRef = document) {
   elements.draftPanel.hidden = false;
   elements.draftMeta.replaceChildren();
   appendTextElement(documentRef, elements.draftMeta, "p", "draft-meta-line",
-    `Draft #${text(data.id)}（proposal #${text(data.proposalId)}）`);
+    `草稿 #${text(data.id)}（提案 #${text(data.proposalId)}）`);
   appendTextElement(documentRef, elements.draftMeta, "p", "draft-meta-line",
-    `${actionLabel(data.action)} · 狀態 ${draftStatusLabel(data.status)} · publishReady：${data.publishReady ? "是" : "否"}`);
+    `${actionLabel(data.action)} · 狀態 ${draftStatusLabel(data.status)} · 可發布（publishReady）：${data.publishReady ? "是" : "否"}`);
   appendTextElement(documentRef, elements.draftMeta, "p", "draft-meta-line",
     `目標：${text(data.targetPath)}${data.targetKnowledgeId ? `（${text(data.targetKnowledgeId)}）` : "（新建）"}`);
   if (data.invalidatedReason) {
@@ -235,7 +232,7 @@ export function renderDraftPreview(elements, preview, documentRef = document) {
   const data = preview && typeof preview === "object" ? preview : {};
   elements.draftContent.replaceChildren();
   appendTextElement(documentRef, elements.draftContent, "h4", "draft-content-title",
-    `Preview：${text(data.targetPath)}（rendered hash ${text(data.renderedContentHash)}）`);
+    `預覽：${text(data.targetPath)}（內容雜湊 ${text(data.renderedContentHash)}）`);
   const pre = documentRef.createElement("pre");
   pre.className = "draft-markdown";
   pre.textContent = text(data.markdown);
@@ -244,7 +241,7 @@ export function renderDraftPreview(elements, preview, documentRef = document) {
   evidence.forEach(entry => {
     const data2 = entry && typeof entry === "object" ? entry : {};
     appendTextElement(documentRef, elements.draftContent, "p", "draft-preview-evidence",
-      `chunk ${text(data2.chunkNo)}：${text(data2.excerpt)}`);
+      `片段 ${text(data2.chunkNo)}：${text(data2.excerpt)}`);
   });
 }
 
@@ -252,7 +249,7 @@ export function renderDraftDiff(elements, diff, documentRef = document) {
   const data = diff && typeof diff === "object" ? diff : {};
   elements.draftContent.replaceChildren();
   appendTextElement(documentRef, elements.draftContent, "h4", "draft-content-title",
-    `Diff：${text(data.targetPath)}（base ${text(data.baseContentHash)} → rendered ${text(data.renderedContentHash)}）`);
+    `差異：${text(data.targetPath)}（基準 ${text(data.baseContentHash)} → 產生內容 ${text(data.renderedContentHash)}）`);
   const pre = documentRef.createElement("pre");
   pre.className = "draft-diff";
   pre.textContent = text(data.unifiedDiff);
@@ -262,13 +259,13 @@ export function renderDraftDiff(elements, diff, documentRef = document) {
 export function renderPublishOutcome(elements, envelope, httpStatus, documentRef = document) {
   const data = envelope && typeof envelope.data === "object" ? envelope.data : {};
   elements.publishResult.replaceChildren();
-  // A publish "success" is only the backend's typed result — never the HTTP status alone.
+  // 「發布成功」只能以後端回傳的型別化結果為準，不能只看 HTTP 狀態。
   const label = publishOutcomeLabel(data.result, data.outcome);
   const line = appendTextElement(documentRef, elements.publishResult, "p",
     "publish-outcome", label);
   if (data.knowledgeId) {
     appendTextElement(documentRef, elements.publishResult, "p", "publish-meta",
-      `knowledgeId：${text(data.knowledgeId)} · target：${text(data.targetPath)} · revision ${text(data.revision)}`);
+      `knowledgeId：${text(data.knowledgeId)} · 目標：${text(data.targetPath)} · 版本 ${text(data.revision)}`);
   }
   if (httpStatus === 201) {
     line.className = "publish-outcome publish-outcome--created";
@@ -294,7 +291,7 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
   }
 
   function reset() {
-    // Workspace isolation: no proposal/draft/publish state survives a workspace switch.
+    // 工作區隔離：切換工作區後，不保留提案、草稿或發布狀態。
     state.page = 0;
     state.status = "";
     state.proposalId = null;
@@ -352,7 +349,7 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
     renderProposalDetail(elements, envelope.data, documentRef, {
       onTransition: transitionProposal
     });
-    // An APPROVED proposal is the entry point into the draft lifecycle.
+    // APPROVED 提案是草稿生命週期的入口。
     elements.draftCreate.hidden = text(envelope.data.status).toUpperCase() !== "APPROVED";
     if (text(envelope.data.status).toUpperCase() !== "APPROVED") {
       elements.draftPanel.hidden = true;
@@ -370,14 +367,13 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
       });
       const envelope = await readEnvelope(response);
       if (!response.ok) {
-        // A typed stale/invalid transition failure re-reads the authoritative
-        // proposal state and capability so stale buttons disappear immediately (#370);
-        // the typed failure is surfaced after the re-read so it stays visible.
+        // 型別化的過時／無效轉換失敗會重新讀取權威提案狀態與能力，
+        // 讓過時按鈕立即消失（#370）；重新讀取後再顯示失敗，確保提示仍可見。
         await selectProposal(proposalId);
         showTypedError(envelope && envelope.error ? envelope.error : undefined);
         return;
       }
-      // Re-read authoritative state; approval never publishes anything by itself.
+      // 重新讀取權威狀態；核准本身不會自動發布任何內容。
       await selectProposal(proposalId);
       await refreshProposals();
     } catch {
@@ -390,7 +386,7 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
   async function createDraft() {
     if (inFlight || !state.proposalId) return;
     inFlight = true;
-    elements.draftHint.textContent = "建立 draft 中…";
+    elements.draftHint.textContent = "建立草稿中…";
     try {
       const response = await fetchImpl(DRAFTS_ENDPOINT, {
         method: "POST",
@@ -422,8 +418,8 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
         elements.draftHint);
       return;
     }
-    // get() re-validates READY drafts server-side: an invalidated/stale draft comes
-    // back with its updated status — the UI renders that truth, never stale content.
+    // get() 會在伺服器端重新驗證 READY 草稿：失效或過時草稿會帶著最新狀態回傳，
+    // UI 只呈現該權威結果，不呈現過時內容。
     renderDraft(elements, envelope.data, documentRef);
   }
 
@@ -458,7 +454,7 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
     try {
       const envelope = await draftAction("/invalidate", { method: "POST" });
       if (envelope) {
-        elements.draftHint.textContent = "Draft 已人工失效。";
+        elements.draftHint.textContent = "草稿已由人工標記為失效。";
         await loadDraft(state.draftId);
       }
     } finally {
@@ -479,7 +475,7 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
         return;
       }
       state.draftId = envelope.data.id;
-      elements.draftHint.textContent = `已重新產生 draft #${text(envelope.data.id)}。`;
+      elements.draftHint.textContent = `已重新產生草稿 #${text(envelope.data.id)}。`;
       await loadDraft(state.draftId);
     } catch {
       showTypedError(undefined, elements.draftHint);
@@ -489,8 +485,8 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
   }
 
   async function publishDraft() {
-    // Explicit human action with a double-submit guard; the backend owns idempotency
-    // and correctness, and failures surface as typed errors — never as success.
+    // 這是明確的人工作動，並以防重複送出保護；冪等性與正確性由後端負責，
+    // 失敗會以型別化錯誤呈現，不會誤顯示為成功。
     if (inFlight || !state.draftId) return;
     inFlight = true;
     const label = elements.draftPublish.textContent;
@@ -502,8 +498,8 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
         { method: "POST" });
       const envelope = await readEnvelope(response);
       if (!response.ok && response.status !== 201) {
-        // A failed publish clears any previous success panel: a typed failure must
-        // never be displayed next to (or behind) a stale success outcome (challenge 4).
+        // 發布失敗時清除先前的成功面板：型別化失敗不可與過時的成功結果並列或遮蓋
+        // （challenge 4）。
         elements.publishResult.replaceChildren();
         elements.publishResult.hidden = true;
         showTypedError(envelope && envelope.error ? envelope.error : undefined,
@@ -511,7 +507,7 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
         return;
       }
       renderPublishOutcome(elements, envelope, response.status, documentRef);
-      // Re-read authoritative state instead of trusting a client-side PUBLISHED flag.
+      // 重新讀取權威狀態，不信任使用者端自行設定的 PUBLISHED 標記。
       await loadDraft(state.draftId);
     } catch {
       showTypedError(undefined, elements.draftHint);

@@ -1,9 +1,8 @@
 /**
- * Browser projection of Vault Lint triage (#383). Renders the backend-owned read-only
- * finding report (list/filter/detail + authoritative page preview + hand-off links).
- * Nothing here is a lint, link-resolution, currentness, or repair authority: findings
- * arrive sorted from the backend, navigation targets resolve through the existing
- * read APIs, and no mutation affordance exists in this view.
+ * Vault Lint 分類檢視的瀏覽器投影（#383）。呈現由後端負責的唯讀診斷報告
+ *（清單／篩選／詳細資料、權威頁面預覽與導覽連結）。本檔案不是 lint、連結解析、
+ * 現況判定或修復的權威來源：診斷項目由後端排序，導覽目標透過既有讀取 API
+ * 解析，本畫面不提供任何變更操作。
  */
 
 const LINT_ENDPOINT = "/api/v1/vault-lint/findings";
@@ -35,22 +34,22 @@ const CODE_LABELS = Object.freeze({
 
 const ERROR_MESSAGES = Object.freeze({
   NO_ACTIVE_WORKSPACE: ["尚未開啟工作區", "請先至「工作區」建立或開啟知識庫，再回來重新整理。"],
-  WIKI_PAGE_NOT_FOUND: ["頁面已不存在", "該頁面已移出 Published，finding 可能已過時，請重新整理後再判讀。"],
-  REPAIR_FINDING_STALE: ["修復對象已變動", "finding 已消失或改變，不會套用舊狀態；已重新讀取最新診斷。"],
-  REPAIR_NOT_ELIGIBLE: ["無法修復", "此類 finding 只能分類檢視，不提供修復動作。"]
+  WIKI_PAGE_NOT_FOUND: ["頁面已不存在", "該頁面已不在已發布內容中，診斷項目可能已過時，請重新整理後再判讀。"],
+  REPAIR_FINDING_STALE: ["修復對象已變動", "診斷項目已消失或改變，不會套用舊狀態；已重新讀取最新診斷。"],
+  REPAIR_NOT_ELIGIBLE: ["無法修復", "此類診斷項目只能分類檢視，不提供修復動作。"]
 });
 
 /**
- * Presentation copy for backend refusal reasons only — NOT an eligibility matrix.
- * Whether the repair action exists comes solely from the backend `repairEligible`
- * capability on each finding; unknown codes render raw and never enable repair.
+ * 這裡只提供後端拒絕原因的顯示文字，不是資格判定矩陣。
+ * 是否提供修復操作只取決於每個診斷項目的後端 `repairEligible` 能力；未知代碼
+ * 原樣顯示，且永遠不會啟用修復。
  */
 const REPAIR_REFUSAL_LABELS = Object.freeze({
   AMBIGUOUS_TARGET: "連結目標不明確，無法推導修復動作，僅供分類檢視。",
   SEMANTIC_JUDGMENT_REQUIRED: "需要語意判斷，無法自動修復，僅供分類檢視。",
   TARGET_NOT_READABLE: "目標內容無法讀取，僅供分類檢視。",
   AMBIGUOUS_IDENTITY: "識別重複，無法判定修復對象，僅供分類檢視。",
-  NO_RESOLVABLE_LINEAGE: "找不到可重建的 governed 來源，僅供分類檢視。"
+  NO_RESOLVABLE_LINEAGE: "找不到可重建的受治理來源，僅供分類檢視。"
 });
 
 const GENERIC_ERROR = ["讀取失敗", "發生未預期的問題，請稍後再試。"];
@@ -115,7 +114,7 @@ export function renderFindingList(documentRef, listElement, findings) {
     const open = documentRef.createElement("button");
     open.type = "button";
     open.className = "secondary-button";
-    open.textContent = "查看內容與定位";
+    open.textContent = "檢視內容與定位";
     open.setAttribute("data-finding-index", String(index));
     item.append(badgeRow, open);
     listElement.append(item);
@@ -134,7 +133,7 @@ export function renderPagePreview(documentRef, pageElement, page) {
   pageElement.replaceChildren();
   appendTextElement(documentRef, pageElement, "p", "triage-page-title", text(page.title));
   appendTextElement(documentRef, pageElement, "p", "triage-page-meta",
-    `類型：${text(page.pageType)} · revision ${text(page.revision)} · knowledgeId：${text(page.knowledgeId)}`);
+    `類型：${text(page.pageType)} · 版本 ${text(page.revision)} · knowledgeId：${text(page.knowledgeId)}`);
 }
 
 async function readEnvelope(response) {
@@ -180,7 +179,7 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
   }
 
   function reset() {
-    // Workspace isolation: no findings/detail/filter state survives a workspace switch.
+    // 工作區隔離：切換工作區後不保留診斷項目、詳細資料或篩選狀態。
     state.category = "";
     state.severity = "";
     state.findings = [];
@@ -223,7 +222,7 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
       showTypedError(null);
       return;
     }
-    // Backend order is the deterministic authority; the client never re-sorts.
+    // 後端順序是確定性權威來源；使用者端不重新排序。
     state.findings = data.findings;
     state.checkedPageCount = Number.isInteger(data.checkedPageCount) ? data.checkedPageCount : 0;
     state.fetchedAt = new Date().toISOString();
@@ -273,12 +272,12 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
   }
 
   function renderRepairCapability(entry) {
-    // The repair action exists if and only if the backend capability says so; the
-    // refusal reason is presentation copy for an already-decided backend verdict.
+    // 只有後端能力明確允許時才提供修復操作；拒絕原因只是已由後端決定的結果之
+    // 顯示文字。
     const eligible = entry && entry.repairEligible === true;
     elements.triageRepair.hidden = !eligible;
     elements.triageRepairCreate.disabled = false;
-    elements.triageRepairCreate.textContent = "建立修復 Proposal";
+    elements.triageRepairCreate.textContent = "建立修復提案";
     elements.triageRepairHint.textContent = "";
     if (eligible) {
       elements.triageRefusal.hidden = true;
@@ -291,16 +290,15 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
   }
 
   async function createRepairProposal() {
-    // Explicit human action with double-submit guard. Only the canonical identity
-    // travels to the backend; finding detail, paths, and repair text are rebuilt
-    // server-side at command time and stale states fail closed there.
+    // 明確的人工作動並加上防重複送出保護。只把權威識別字送往後端；診斷細節、
+    // 路徑與修復文字會在命令執行時由伺服器端重建，過時狀態則在後端安全拒絕。
     if (repairInFlight) return;
     const entry = visibleFindings()[state.selectedIndex];
     const finding = entryFinding(entry);
     if (!entry || entry.repairEligible !== true || text(finding.knowledgeId) === "") return;
     repairInFlight = true;
     elements.triageRepairCreate.disabled = true;
-    elements.triageRepairCreate.textContent = "建立修復 Proposal 中…";
+    elements.triageRepairCreate.textContent = "建立修復提案中…";
     elements.triageRepairHint.textContent = "";
     try {
       const response = await fetchImpl(REPAIR_ENDPOINT, {
@@ -317,15 +315,15 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
       }
       const duplicate = envelope && envelope.data && envelope.data.duplicate === true;
       elements.triageRepairHint.textContent = duplicate
-        ? "已存在相同狀態的修復 Proposal，未重複建立；請至「審核」繼續。"
-        : "修復 Proposal 已建立並進入審核；核准後才會產生 Draft，核准不會自動發布。請至「審核」繼續。";
+        ? "已存在相同狀態的修復提案，未重複建立；請至「審核」繼續。"
+        : "修復提案已建立並進入審核；核准後才會產生草稿，核准不會自動發布。請至「審核」繼續。";
       await refresh();
     } catch {
-      elements.triageRepairHint.textContent = "建立修復 Proposal 失敗，請稍後再試。";
+      elements.triageRepairHint.textContent = "建立修復提案失敗，請稍後再試。";
     } finally {
       repairInFlight = false;
       elements.triageRepairCreate.disabled = false;
-      elements.triageRepairCreate.textContent = "建立修復 Proposal";
+      elements.triageRepairCreate.textContent = "建立修復提案";
     }
   }
 

@@ -28,3 +28,10 @@ Stacked PR 必須說明 parent PR、進 main 的路徑，並加入獨立一行�
 <!-- 列出實際執行的 command 與結果；未執行或失敗的 gate 必須如實記錄。 -->
 
 - `<command>`：<結果>
+
+## 語言與術語治理（涉及人類可讀文字時）
+
+- [ ] 新增或修改的人類可讀文字符合 [`docs/development/language-and-terminology.md`](../docs/development/language-and-terminology.md)。
+- [ ] 技術識別字、API path、enum、JSON key、CLI／library 名稱未被誤翻譯。
+- [ ] 若保留英文，已確認屬於規範允許的技術／專有名詞，並在需要時補充中文說明。
+- [ ] 已執行 `node scripts/check-language-governance.mjs`（若涉及 current UI、README 或治理入口）。

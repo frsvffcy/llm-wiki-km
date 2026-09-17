@@ -26,9 +26,9 @@ const PAGE_TYPE_LABELS = Object.freeze({
 });
 
 const ERROR_MESSAGES = Object.freeze({
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇 workspace。"],
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇工作區。"],
   WIKI_PAGE_NOT_FOUND: ["找不到頁面", "此頁面不存在、已刪除或尚未發布。"],
-  WIKI_PAGE_UNAVAILABLE: ["頁面內容不可用", "此頁面內容未通過 canonical 驗證或暫時無法讀取；以 backend 狀態為準。"],
+  WIKI_PAGE_UNAVAILABLE: ["頁面內容不可用", "此頁面內容未通過權威內容驗證或暫時無法讀取；以後端狀態為準。"],
   INVALID_REQUEST: ["要求不正確", "請確認篩選條件後再試一次。"]
 });
 
@@ -77,7 +77,7 @@ export function renderWikiList(elements, rows, pageMeta, documentRef = document,
     item.className = "wiki-item";
     appendTextElement(documentRef, item, "p", "wiki-item-title", text(data.title));
     appendTextElement(documentRef, item, "p", "wiki-item-meta",
-      `${pageTypeLabel(data.pageType)} · revision ${text(data.revision)} · 更新於 ${text(data.updatedAt)}`);
+      `${pageTypeLabel(data.pageType)} · 版本 ${text(data.revision)} · 更新於 ${text(data.updatedAt)}`);
     appendTextElement(documentRef, item, "p", "wiki-item-id", text(data.knowledgeId));
     if (typeof actions.onOpen === "function") {
       const open = documentRef.createElement("button");
@@ -97,7 +97,7 @@ export function renderWikiPage(elements, page, documentRef = document) {
   elements.wikiReadMeta.replaceChildren();
   appendTextElement(documentRef, elements.wikiReadMeta, "p", "wiki-read-title", text(data.title));
   appendTextElement(documentRef, elements.wikiReadMeta, "p", "wiki-read-meta",
-    `${pageTypeLabel(data.pageType)} · knowledgeId：${text(data.knowledgeId)} · revision ${text(data.revision)}`
+    `${pageTypeLabel(data.pageType)} · knowledgeId：${text(data.knowledgeId)} · 版本 ${text(data.revision)}`
     + ` · 更新於 ${text(data.updatedAt)}`);
   appendTextElement(documentRef, elements.wikiReadMeta, "p", "wiki-read-hash",
     `contentHash：${text(data.contentHash)}`);

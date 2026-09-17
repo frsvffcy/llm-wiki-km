@@ -198,7 +198,7 @@ test("detail renders finding, authoritative preview, and stale handling", async 
   assert.match(elements.triageDetailMeta.textContent, /vault\/concepts\/hub-page\.md/);
   assert.match(elements.triageDetailExplanation.textContent, /missing page/);
   assert.match(flatText(elements.triagePage), /Hub Page/);
-  assert.match(flatText(elements.triagePage), /revision 4/);
+  assert.match(flatText(elements.triagePage), /版本 4/);
   await controller.closeDetail();
   assert.equal(elements.triageDetail.hidden, true);
 });

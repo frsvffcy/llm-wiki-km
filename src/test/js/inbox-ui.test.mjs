@@ -169,7 +169,7 @@ test("list render exposes row actions only for the allowed delete contract", () 
   const actionText = item => flatText(actionsOf(item));
   for (const item of items) {
     assert.match(actionText(item), /抽取/u);
-    assert.match(actionText(item), /查看抽取內容/u);
+    assert.match(actionText(item), /檢視抽取內容/u);
   }
   assert.match(actionText(items[0]), /從收件匣移除/u);
   assert.doesNotMatch(actionText(items[1]), /從收件匣移除/u);
@@ -363,7 +363,7 @@ test("remove uses the soft-delete contract and typed failure for processed docum
 
   await controller.remove(1);
   assert.deepEqual(calls[0], { url: "/api/v1/inbox/files/1", method: "DELETE" });
-  assert.match(elements.hint.textContent, /已從收件匣移除（soft delete）/u);
+  assert.match(elements.hint.textContent, /已從收件匣移除（標記為已刪除）/u);
 
   conflict = true;
   await controller.remove(1);

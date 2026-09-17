@@ -12,10 +12,10 @@ const RETRIEVAL_MODES = Object.freeze([
 const ERROR_MESSAGES = Object.freeze({
   INVALID_REQUEST: ["問題格式不正確", "請輸入問題後再試一次。"],
   ANSWER_REQUEST_REJECTED: ["問題格式不正確", "請確認問題內容後再試一次。"],
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在本機應用程式中建立或開啟 active workspace。"],
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在本機應用程式中建立或開啟目前工作區。"],
   RETRIEVAL_UNAVAILABLE: ["搜尋服務暫時無法使用", "目前無法取得已索引的知識內容，請稍後再試。"],
   RETRIEVAL_VECTOR_UNAVAILABLE: ["語意搜尋暫時無法使用", "目前無法使用語意搜尋能力，請稍後再試或改用全文搜尋。"],
-  ANSWER_PROVIDER_NOT_CONFIGURED: ["尚未設定回答服務", "請由管理者設定 answer provider 後再試。"],
+  ANSWER_PROVIDER_NOT_CONFIGURED: ["尚未設定回答服務", "請由管理者設定回答服務後再試。"],
   ANSWER_PROVIDER_AUTHENTICATION_FAILED: ["回答服務驗證失敗", "回答服務目前無法驗證請求，請聯絡管理者。"],
   ANSWER_PROVIDER_RATE_LIMITED: ["回答服務目前忙碌", "已達回答服務的使用限制，請稍後再試。"],
   ANSWER_PROVIDER_UNAVAILABLE: ["回答服務暫時無法使用", "回答服務目前沒有回應，請稍後再試。"],
@@ -56,14 +56,14 @@ function provenanceDetails(provenance) {
   if (provenance.type === "WIKI") {
     return [
       detail("路徑", provenance.path),
-      detail("revision", provenance.revision)
+      detail("版本", provenance.revision)
     ].filter(Boolean);
   }
   return [
     detail("頁碼", provenance.pageNo),
-    detail("section", provenance.section),
-    detail("heading", provenance.headingPath),
-    detail("chunk", provenance.chunkNo)
+    detail("節次", provenance.section),
+    detail("標題路徑", provenance.headingPath),
+    detail("片段編號", provenance.chunkNo)
   ].filter(Boolean);
 }
 
@@ -145,7 +145,7 @@ function egressDestinationLabel(destination) {
 function egressPurposeLabel(purpose) {
   return {
     ANSWER: "回答提供者",
-    EMBEDDING: "Embedding 提供者",
+    EMBEDDING: "向量嵌入提供者",
     QUERY_REWRITE: "查詢改寫提供者"
   }[purpose] || "AI 提供者";
 }
@@ -156,10 +156,10 @@ function egressCategoryLabel(category) {
     EVIDENCE_CONTEXT_REPRESENTATION: "已通過驗證的證據所衍生的上下文表示",
     INSTRUCTION_CONTEXT: "應用程式內建的指示脈絡",
     GENERATION_SETTINGS: "生成參數（不含機密）",
-    PROVIDER_RESPONSE_METADATA: "回答與使用量 metadata",
+    PROVIDER_RESPONSE_METADATA: "回答與使用量中繼資料",
     EMBEDDING_INPUT_REPRESENTATION: "經挑選的文本表示",
     QUERY_REWRITE_INPUT: "原始查詢與受保護的精確詞",
-    QUERY_REWRITE_RESPONSE_METADATA: "查詢改寫與使用量 metadata"
+    QUERY_REWRITE_RESPONSE_METADATA: "查詢改寫與使用量中繼資料"
   }[category] || category;
 }
 
@@ -213,12 +213,12 @@ export async function loadAiEgress(elements, fetchImpl = fetch, documentRef = do
     const rows = [];
     descriptors.forEach(descriptor => {
       egressRows(descriptor).forEach(([labelText, value]) => {
-        const prefix = { ANSWER: "回答", EMBEDDING: "Embedding", QUERY_REWRITE: "查詢改寫" }
+        const prefix = { ANSWER: "回答", EMBEDDING: "向量嵌入", QUERY_REWRITE: "查詢改寫" }
           [descriptor.purpose] || "AI";
         rows.push([`${prefix} · ${labelText}`, value]);
       });
     });
-    rows.push(["本次執行是否實際呼叫提供者", "見回答結果的 Context 與執行診斷（Provider usage）"]);
+    rows.push(["本次執行是否實際呼叫提供者", "見回答結果的上下文與執行診斷（提供者使用情況）"]);
     elements.aiEgressDetail.replaceChildren(
       ...rows.map(([labelText, value]) => {
         const wrapper = documentRef.createElement("div");
@@ -273,25 +273,25 @@ function renderContextDiagnostics(elements, executionMetadata, documentRef) {
   if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics)) return;
 
   const metrics = [
-    ["檢索 evidence", formatCount(diagnostics.retrievedEvidenceCount)],
-    ["通過 admission 的 evidence", formatCount(diagnostics.admittedEvidenceCount)],
-    ["AnswerContext 區塊", formatCount(diagnostics.answerContextBlockCount)],
-    ["原始 code points", formatCount(diagnostics.originalCodePoints)],
-    ["Packed code points", formatCount(diagnostics.packedCodePoints)],
-    ["Projected code points", formatCount(diagnostics.projectedCodePoints)],
-    ["Reduction", formatReductionRatio(diagnostics.reductionRatio)],
-    ["Baseline truncated", formatBoolean(diagnostics.truncated)],
-    ["Compacted", formatBoolean(diagnostics.compacted)],
-    ["Context policy", formatSafeString(diagnostics.contextPolicyVersion)],
-    ["Projection 類型", formatProjectionKinds(diagnostics.projectionKindDistribution)],
-    ["Projection fallback", formatBoolean(diagnostics.projectionFallbackUsed)],
-    ["Projection failure", formatProjectionFailureType(diagnostics.projectionFailureType)],
-    ["Projection latency", formatLatencyMs(diagnostics.projectionLatencyMs)],
-    ["Answer latency", formatLatencyMs(diagnostics.answerLatencyMs)],
-    ["Provider usage", formatProviderUsageStatus(diagnostics.providerUsageStatus)],
-    ["Provider input tokens", formatCount(diagnostics.providerInputTokens)],
-    ["Provider output tokens", formatCount(diagnostics.providerOutputTokens)],
-    ["Provider total tokens", formatCount(diagnostics.providerTotalTokens)]
+    ["檢索證據", formatCount(diagnostics.retrievedEvidenceCount)],
+    ["通過納入檢查的證據", formatCount(diagnostics.admittedEvidenceCount)],
+    ["回答上下文區塊", formatCount(diagnostics.answerContextBlockCount)],
+    ["原始字元數（code points）", formatCount(diagnostics.originalCodePoints)],
+    ["打包後字元數（code points）", formatCount(diagnostics.packedCodePoints)],
+    ["投影後字元數（code points）", formatCount(diagnostics.projectedCodePoints)],
+    ["縮減比例", formatReductionRatio(diagnostics.reductionRatio)],
+    ["基準已截斷", formatBoolean(diagnostics.truncated)],
+    ["已壓縮", formatBoolean(diagnostics.compacted)],
+    ["上下文政策", formatSafeString(diagnostics.contextPolicyVersion)],
+    ["投影類型", formatProjectionKinds(diagnostics.projectionKindDistribution)],
+    ["投影回退", formatBoolean(diagnostics.projectionFallbackUsed)],
+    ["投影失敗類型", formatProjectionFailureType(diagnostics.projectionFailureType)],
+    ["投影延遲", formatLatencyMs(diagnostics.projectionLatencyMs)],
+    ["回答延遲", formatLatencyMs(diagnostics.answerLatencyMs)],
+    ["提供者使用情況", formatProviderUsageStatus(diagnostics.providerUsageStatus)],
+    ["提供者輸入 token 數", formatCount(diagnostics.providerInputTokens)],
+    ["提供者輸出 token 數", formatCount(diagnostics.providerOutputTokens)],
+    ["提供者總 token 數", formatCount(diagnostics.providerTotalTokens)]
   ];
   metrics.forEach(([label, value]) => appendDiagnosticMetric(
     documentRef, elements.contextDiagnosticsList, label, value));
@@ -524,7 +524,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     }));
     proposalInFlight = true;
     elements.toProposal.disabled = true;
-    elements.toProposalHint.textContent = "建立 Proposal 中…";
+    elements.toProposalHint.textContent = "建立提案中…";
     try {
       const response = await fetchImpl("/api/v1/ask/proposals", {
         method: "POST",
@@ -544,17 +544,17 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
         elements.toProposal.disabled = false;
         const code = envelope && envelope.error && envelope.error.code;
         elements.toProposalHint.textContent = code === "ASK_CITATION_INVALID"
-          ? "Proposal 建立失敗：引用的證據已失效或不在目前工作區，請重新提問後再試。"
-          : "Proposal 建立失敗，請稍後再試。";
+          ? "提案建立失敗：引用的證據已失效或不在目前工作區，請重新提問後再試。"
+          : "提案建立失敗，請稍後再試。";
         return;
       }
       const duplicate = envelope.data && envelope.data.duplicate;
       elements.toProposalHint.textContent = duplicate
-        ? "此結果先前已建立 Proposal，已在審核佇列中。可前往審核工作台繼續。"
-        : "Proposal 已建立並進入審核佇列（REVIEW）。後續仍需人工核准與發布。可前往審核工作台繼續。";
+        ? "此結果先前已建立提案，已在審核佇列中。可前往審核工作台繼續。"
+        : "提案已建立並進入審核佇列（REVIEW）。後續仍需人工核准與發布。可前往審核工作台繼續。";
       elements.toProposal.disabled = true;
     } catch {
-      elements.toProposalHint.textContent = "Proposal 建立失敗，請稍後再試。";
+      elements.toProposalHint.textContent = "提案建立失敗，請稍後再試。";
     } finally {
       proposalInFlight = false;
     }
