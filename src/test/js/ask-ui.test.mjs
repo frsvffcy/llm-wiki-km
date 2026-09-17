@@ -865,3 +865,86 @@ test("truncated previews are labelled", async () => {
 
   assert.match(flatText(elements.sourcePreviewBody), /預覽已截斷/u);
 });
+
+// --- Ask answer visual hierarchy (#486) ---
+
+test("answered success exposes the answer text as the primary visible region", () => {
+  const elements = uiElements();
+  renderAskResponse(elements, { data: {
+    status: "ANSWERED",
+    answer: "Synthetic answer body for visual hierarchy regression.",
+    insufficientEvidence: false,
+    citations: [{ evidenceKind: "WIKI", provenance: { type: "WIKI", title: "Synthetic Page" } }],
+    providerMetadata: { provider: "synthetic-provider", model: "synthetic-model" },
+    executionMetadata: { contextDiagnostics: contextDiagnostics() }
+  } }, documentRef);
+
+  assert.equal(elements.answer.hidden, false);
+  assert.ok(elements.answerText.textContent.trim().length > 0);
+  assert.equal(elements.error.hidden, true);
+  assert.equal(elements.insufficient.hidden, true);
+  assert.equal(elements.citations.children.length, 1);
+  // Secondary surfaces stay visible but do not replace the answer state.
+  assert.equal(elements.contextDiagnostics.hidden, false);
+  assert.match(elements.metadata.textContent, /synthetic-provider/);
+});
+
+test("insufficient and error states keep their own regions and never reuse the answer body", () => {
+  const insufficient = uiElements();
+  renderAskResponse(insufficient, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true, citations: []
+  } }, documentRef);
+  assert.equal(insufficient.insufficient.hidden, false);
+  assert.equal(insufficient.answer.hidden, true);
+  assert.equal(insufficient.error.hidden, true);
+
+  const failed = uiElements();
+  renderAskResponse(failed, { data: { status: "ANSWERED", answer: "   ", citations: [{}] } },
+    documentRef);
+  assert.equal(failed.error.hidden, false);
+  assert.equal(failed.answer.hidden, true);
+  assert.equal(failed.insufficient.hidden, true);
+});
+
+test("answer body and egress/diagnostics are separate structural blocks, not color contracts (#486)", async () => {
+  const [css, html, js] = await Promise.all([
+    readFile(new URL("../../main/resources/static/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../../main/resources/static/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../../main/resources/static/ask-ui.js", import.meta.url), "utf8")
+  ]);
+
+  // DOM separation: the answer lives in #result-answer; egress lives near the input
+  // form; diagnostics is a sibling section after the answer, never inside it.
+  const answerPos = html.indexOf('id="result-answer"');
+  const answerTextPos = html.indexOf('id="answer-text"');
+  const egressPos = html.indexOf('id="ai-egress"');
+  const diagnosticsPos = html.indexOf('id="context-diagnostics"');
+  assert.ok(answerPos !== -1 && answerTextPos > answerPos,
+    "answer text lives inside the answer region");
+  assert.ok(egressPos !== -1 && egressPos < answerPos,
+    "egress disclosure lives near the input, outside the answer region");
+  assert.ok(diagnosticsPos > answerPos,
+    "diagnostics follows the answer as a separate section");
+  assert.ok(html.includes('id="ai-egress-detail"'),
+    "egress detail disclosure still exists");
+  assert.ok(!html.slice(answerPos, diagnosticsPos).includes('id="ai-egress"'),
+    "egress block is not nested inside the answer region");
+
+  // Presentation contract is structural (container/spacing/typography), never a color value.
+  const answerRule = css.match(/\.answer-text\s*\{[^}]*\}/u);
+  assert.ok(answerRule, ".answer-text owns a dedicated container rule");
+  const rule = answerRule[0];
+  assert.match(rule, /border/u, "answer body has an explicit container boundary");
+  assert.match(rule, /padding/u, "answer body has explicit spacing");
+  assert.match(rule, /font-size/u, "answer body has explicit body typography");
+  assert.match(rule, /line-height/u, "answer body keeps readable line spacing");
+  assert.match(rule, /overflow-wrap/u, "answer body wraps long synthetic tokens on narrow screens");
+  assert.match(css, /@media\s*\(max-width:\s*600px\)[\s\S]*?\.answer-text/u,
+    "narrow screens keep a readable answer container");
+
+  // Behavior boundary: rendering an answer never toggles the egress disclosure.
+  const renderFn = js.slice(js.indexOf("export function renderAskResponse"),
+    js.indexOf("function showError"));
+  assert.doesNotMatch(renderFn, /aiEgress/,
+    "answer rendering does not replace or obscure the egress disclosure");
+});
