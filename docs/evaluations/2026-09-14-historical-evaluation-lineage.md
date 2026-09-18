@@ -43,6 +43,7 @@
 | `2026-09-15-fireworks-tech-graph-architecture-visualization-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#438 將 fireworks-tech-graph 收斂為 validated derived-diagram design input，不取代 Architecture VoT / ADR / code/tests | **validated diagram loop（validate→render→readback→bounded repair）**、**derived anti-drift contract**；single system-overview pilot 為 `CONDITIONAL`，CI auto-regeneration 為 `DEFER` | 全文納入；維持 `NO RUNTIME DEPENDENCY`，不建立 speculative diagram pipeline Issue；pilot 需先過 §5 maintenance-cost gate |
 | `2026-09-15-openobserve-observability-evaluation.md` | `TRACK_FULL` | 尚無 production adoption；#441 將 OpenObserve 收斂為 external operator sidecar candidate，不取代 application-owned diagnostics/readiness/authority | **OTel provider-neutral boundary**、**correlation contract**、**privacy allowlist/denylist（沿 #282/#323）**；sidecar 為 `DEFER / PILOT CANDIDATE`，Ask telemetry 為 `CONDITIONAL / PRIVACY-GATED` | 全文納入；維持 `NO PRODUCTION DEPENDENCY`，不建立 speculative telemetry Issue；pilot 需先過 §5 operability gate |
 | `2026-09-14-rag-playbook-series-evaluation.md` | `TRACK_FULL` | query rewriting 已演進為 #390 → #401；hybrid/rerank/context/orchestration大多已 covered | **sentence-window / small-to-big** 仍是 `chunk-policy-v2` 候選；中文 token 密度與 provider limit應持續納入 chunk/embedding evaluation | 全文納入；query-transform 部分標示已吸收，chunking 部分維持 future input |
+| `2026-09-18-rag-chunking-gold-span-evaluation.md` | `TRACK_FULL` | #531 將外部 chunking guide 收斂為 policy-neutral diagnostic / benchmark input，不把 token/overlap heuristic升格為 default | **gold source span → policy output → Top-K/final evidence**；gold-span Hit/Recall/MRR、duplicate/context cost等 future protocol；gold truth不得先綁 policy-specific `SOURCE_CHUNK` id | 全文納入；current #467/#468 無可重現 chunking pain，維持 `DEFER`；只有 own-corpus gold-span miss trigger成立才進 benchmark，不建立 production switch Issue |
 | `chengjing-notes-external-product-evaluation-20260912.md` | `TRACK_FULL` | #323 吸收 local-first provider egress transparency；#327 吸收 read-only-first local MCP / capability boundary；#360補足 action-risk gate | **future MCP write 三件套**：optimistic version、no physical delete、reversible external write；association discovery→`LINK_ONLY`；backup/restore contract；bounded malformed-output repair retry仍只是 policy question | 全文納入；MCP write仍禁止，backup亦不因此自動排程 |
 | `dify-external-product-evaluation-20260912.md` | `TRACK_FULL` | Ask→Proposal 已由 #374 完成；MCP external conformance由 #330～#358/#340 系列處理；Retrieval Inspector/Browser diagnostics已由 #292/#375產品化 | **retrieval policy A/B hit-testing console**、typed metadata pre-filter、parent-child chunking仍是 future candidates | 全文納入；需要 current usage/corpus evidence才立項 |
 | `evaluate_progress_up_to_116.md` | `SNAPSHOT_ONLY` | 曾用於 Sprint 5 時點的 completeness/readiness盤點 | 內容綁定舊 branch、Issue #1～#125 與當時 open work；現在無獨立 decision value | 不納入 tracked evaluation |
@@ -87,6 +88,20 @@
 Query transformation已由 #390/#401持有；**不要另開平行 rewriting track**。
 
 剩餘 headroom是 chunk-policy evolution：sentence-window / small-to-big可與 Dify parent-child、RAGFlow per-type templates一起形成同一個 future evaluation candidate pool。Trigger應是現行 chunking在特定文件/query class有可重現 recall/context缺口，而不是因外部框架有功能就升版。
+
+### 3.4.1 RAG Playbook chunk-policy current correction（#531）
+
+Historical RAG Playbook evaluation表格曾用「`chunk-policy-v1-current`，heading-anchored」作簡化描述；current executable authority與 #472 correction應以：
+
+```text
+v1 = flat-text-compatible / legacy byte-equivalent behavior over typed blocks
+     + section / headingPath metadata observable
+
+v2 = heading-anchor + table/figure/caption atomic
+     non-default candidate
+```
+
+解讀。依 evaluation governance，不回寫歷史全文；current correction留在 lineage與 #531 evaluation。
 
 ### 3.5 ChengJing Notes
 
@@ -239,13 +254,24 @@ Agent Learning Organization 的 current lineage 是 evaluation/research intake g
 - `NO CURRENT MANDATE`：不強制雙週 Agent Lab、季度 Learning Review、Owner+Shadow、Slack channel或第二份 backlog；team ceremony只有 real collaboration/knowledge-silo pain成立後才評估。
 - 與 #523/#520 明確分工：#528回答「什麼 Unknown值得研究／什麼最小實驗足以改變 decision」；#523回答「AC是否有 sufficient evidence」；#520回答「歷史 execution policy可否由 replay改善」。
 
+### 3.20 RAG chunking gold-span benchmark（#531）
+
+這份來源的 current lineage不是「新的 chunking strategy」，而是 future chunk-policy benchmark methodology：
+
+- `CURRENTLY COVERED`：versioned chunk policy、structural metadata、hybrid retrieval、Retrieval Inspector、Source Locator、Recall/Precision/MRR、citation currentness與controlled rebuild都已存在。
+- `ADOPT AS DESIGN INPUT`：debug時先定位 answer-bearing **gold source span**，再觀察 produced chunk是否覆蓋、是否進 Top-K/final evidence；gold absent與gold present但answer錯要分流到不同 failure seam。
+- `POLICY-NEUTRAL GOLD TRUTH`：跨 v1/v2/candidate比較時，ground truth優先綁 canonical source revision + source span/semantic anchor，不以某一 policy產生的 `SOURCE_CHUNK:<id>` 當唯一 truth。
+- `DEFER`：current #467/#468沒有可重現 chunking retrieval pain；不因外部 guide直接跑 A/B，也不把 v2切 default。Trigger是 own-corpus / synthetic可重現的 gold-span retrieval miss。
+- `NO UNIVERSAL HEURISTIC`：幾百 tokens、固定 overlap、contextual retrieval、parent-child皆只能作 candidate；需用 own corpus / fixed query set比較，不寫成 universal default。
+- 和 RAG Playbook sentence-window、Dify parent-child、RAGFlow per-type chunking、current v2 heading-anchor合併為同一 future chunk-policy family，不按來源拆 roadmap。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
 
 | Consolidated candidate | Evidence sources | Current decision |
 | --- | --- | --- |
-| Chunk-policy v2 evaluation | RAG Playbook sentence-window、Dify parent-child、RAGFlow per-type template | `DEFER`，等現行 chunking出現可量測 query/document-class缺口後做單一 benchmark-first evaluation |
+| Chunk-policy v2 / gold-span benchmark | RAG Playbook sentence-window、Dify parent-child、RAGFlow per-type template、Chunking Best Practices（#531）、current `chunk-policy-v2-heading-anchor` | `DEFER`；只有 real/own-corpus 或 synthetic可重現的 **gold source span retrieval miss** 才啟動單一 benchmark。Cross-policy truth以 source revision + span/semantic anchor為主，不綁 policy-specific chunk id；比較 current v1、v2與必要 candidate，量 gold-span Hit/Recall/MRR、citation/no-evidence、duplicate/context cost，再決定是否 promotion |
 | OCR / layout-aware / visual document retrieval | PaddleOCR/RapidOCR、RAGFlow MinerU/Docling、kotaemon PaddleOCR loader、PixelRAG | `DEFER`，`NEED_OCR`與可重現的 layout／visual retrieval loss是同一 future trigger seam；以單一 **future multimodal-document retrieval benchmark** 比較 OCR/text、layout-aware、screenshot visual 與 hybrid path，仍需 own-corpus、deployment/resource與 completeness evidence |
 | Retrieval experimentation UX | Dify hit testing、既有 Retrieval Inspector | `DEFER`，只有 operator使用顯示 A/B compare能降低除錯成本時才產品化；不得變 production tuning authority |
 | Vector storage optimization | LEANN + current sqlite-vec | `DEFER`，先量測 storage/latency，再由量化→更大架構逐級評估 |
@@ -280,4 +306,4 @@ Agent Learning Organization 的 current lineage 是 evaluation/research intake g
 
 Future candidate只有在 trigger成立時才另立 evaluation/adoption Issue；新 Issue應引用本文件與對應原始 `TRACK_FULL` evaluation，但必須重新驗證 latest main 與外部來源 current revision，不能把 2026-09-12/14 的 snapshot直接當 current evidence。
 
-Refs #405、#519、#520、#522、#523、#527、#528。
+Refs #405、#519、#520、#522、#523、#527、#528、#531。
