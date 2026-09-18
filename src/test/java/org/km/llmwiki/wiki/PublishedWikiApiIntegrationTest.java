@@ -92,13 +92,16 @@ class PublishedWikiApiIntegrationTest extends IsolatedIntegrationTest {
 
         mockMvc.perform(get("/api/v1/wiki/{knowledgeId}", "wiki-unknown"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("找不到指定的 Wiki 頁面"));
         mockMvc.perform(get("/api/v1/wiki/{knowledgeId}", "wiki-draft-page"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("找不到指定的 Wiki 頁面"));
         mockMvc.perform(get("/api/v1/wiki/{knowledgeId}", "wiki-foreign"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("找不到指定的 Wiki 頁面"));
     }
 
     @Test
@@ -112,13 +115,16 @@ class PublishedWikiApiIntegrationTest extends IsolatedIntegrationTest {
 
         mockMvc.perform(get("/api/v1/wiki").param("size", "201"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.message").value("要求驗證失敗"));
         mockMvc.perform(get("/api/v1/wiki").param("page", "-1"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.message").value("要求驗證失敗"));
         mockMvc.perform(get("/api/v1/wiki").param("pageType", "NOPE"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.message").value("要求驗證失敗"));
     }
 
     private void assertNoFilesystemPaths(String body) {

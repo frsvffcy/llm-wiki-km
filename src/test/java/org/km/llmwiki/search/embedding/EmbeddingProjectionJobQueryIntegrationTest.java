@@ -214,11 +214,11 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
         getJob(crossWorkspace.jobId())
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("PROCESSING_JOB_NOT_FOUND"))
-                .andExpect(jsonPath("$.error.message").value("Embedding rebuild job not found"));
+                .andExpect(jsonPath("$.error.message").value("找不到指定的處理工作"));
         getJob("does-not-exist")
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("PROCESSING_JOB_NOT_FOUND"))
-                .andExpect(jsonPath("$.error.message").value("Embedding rebuild job not found"));
+                .andExpect(jsonPath("$.error.message").value("找不到指定的處理工作"));
         getJob(unrelated.jobId())
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("PROCESSING_JOB_NOT_FOUND"));

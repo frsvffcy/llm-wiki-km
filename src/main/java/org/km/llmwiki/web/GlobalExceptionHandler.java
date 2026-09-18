@@ -41,13 +41,14 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
- * Public REST error boundary: stable codes and HTTP statuses are decided by the typed
- * exception, and every message is an {@link DiagnosticRedaction} operator-safe projection —
- * the raw exception message never crosses the REST boundary by default. Curated messages
- * that survive redaction (safe resource identifiers, validation wording) travel to the
- * caller; anything carrying a path, secret, SQL fragment, or backend identity collapses to
- * the type's fixed fallback. The full exception and its cause chain stay server-side in the
- * application log.
+ * Public REST error boundary (#504): stable codes and HTTP statuses are decided by the typed
+ * exception, and every application-owned {@code error.message} is a fixed Traditional Chinese
+ * (臺灣用語) projection decided by the handler — the raw {@code exception.getMessage()} never
+ * becomes user-facing prose, even when it would survive {@link DiagnosticRedaction}.
+ * {@code DiagnosticRedaction} remains the safety net for other boundaries (persisted
+ * diagnostics, health failure detail, batch failure reason) but is not the localization
+ * mechanism for {@code ApiError}. The full exception and its cause chain stay server-side in
+ * the application log.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -57,8 +58,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException exception) {
         return respond(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",
-                DiagnosticRedaction.publicMessage(exception.getMessage(),
-                        "要求驗證失敗"), exception);
+                "要求驗證失敗", exception);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
@@ -108,49 +108,49 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DocumentNotFoundException.class)
     public ResponseEntity<ApiError> handleDocumentNotFound(DocumentNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "DOCUMENT_NOT_FOUND", publicMessage(exception), exception);
+        return respond(HttpStatus.NOT_FOUND, "DOCUMENT_NOT_FOUND", "找不到指定的文件", exception);
     }
 
     @ExceptionHandler(SourceChunkNotFoundException.class)
     public ResponseEntity<ApiError> handleSourceChunkNotFound(SourceChunkNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "SOURCE_CHUNK_NOT_FOUND", publicMessage(exception), exception);
+        return respond(HttpStatus.NOT_FOUND, "SOURCE_CHUNK_NOT_FOUND", "找不到指定的來源片段", exception);
     }
 
     @ExceptionHandler(KnowledgeProposalNotFoundException.class)
     public ResponseEntity<ApiError> handleKnowledgeProposalNotFound(
             KnowledgeProposalNotFoundException exception) {
         return respond(HttpStatus.NOT_FOUND, "KNOWLEDGE_PROPOSAL_NOT_FOUND",
-                publicMessage(exception), exception);
+                "找不到指定的提案", exception);
     }
 
     @ExceptionHandler(WikiDraftNotFoundException.class)
     public ResponseEntity<ApiError> handleWikiDraftNotFound(WikiDraftNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "WIKI_DRAFT_NOT_FOUND", publicMessage(exception), exception);
+        return respond(HttpStatus.NOT_FOUND, "WIKI_DRAFT_NOT_FOUND", "找不到指定的 Wiki 草稿", exception);
     }
 
     @ExceptionHandler(AskCitationInvalidException.class)
     public ResponseEntity<ApiError> handleAskCitationInvalid(AskCitationInvalidException exception) {
         return respond(HttpStatus.UNPROCESSABLE_ENTITY, "ASK_CITATION_INVALID",
-                publicMessage(exception), exception);
+                "引用來源驗證失敗", exception);
     }
 
     @ExceptionHandler(RepairFindingStaleException.class)
     public ResponseEntity<ApiError> handleRepairFindingStale(
             RepairFindingStaleException exception) {
         return respond(HttpStatus.CONFLICT, "REPAIR_FINDING_STALE",
-                publicMessage(exception), exception);
+                "修復對象已變動，請重新整理後再試一次", exception);
     }
 
     @ExceptionHandler(RepairNotEligibleException.class)
     public ResponseEntity<ApiError> handleRepairNotEligible(
             RepairNotEligibleException exception) {
         return respond(HttpStatus.UNPROCESSABLE_ENTITY, "REPAIR_NOT_ELIGIBLE",
-                publicMessage(exception), exception);
+                "此診斷項目無法修復，僅可檢視", exception);
     }
 
     @ExceptionHandler(WikiPageNotFoundException.class)
     public ResponseEntity<ApiError> handleWikiPageNotFound(WikiPageNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "WIKI_PAGE_NOT_FOUND", publicMessage(exception), exception);
+        return respond(HttpStatus.NOT_FOUND, "WIKI_PAGE_NOT_FOUND", "找不到指定的 Wiki 頁面", exception);
     }
 
     @ExceptionHandler(PublishedWikiValidationException.class)
@@ -158,25 +158,25 @@ public class GlobalExceptionHandler {
         // Content failed canonical validation (missing/drifted/invalid): the metadata
         // exists but the page is no longer a trustworthy read — a distinct "失效" state.
         return respond(HttpStatus.CONFLICT, "WIKI_PAGE_UNAVAILABLE",
-                publicMessage(exception, "已發布的 Wiki 內容不可用"), exception);
+                "已發布的 Wiki 內容不可用", exception);
     }
 
     @ExceptionHandler(PublishedWikiUnavailableException.class)
     public ResponseEntity<ApiError> handlePublishedWikiUnavailable(PublishedWikiUnavailableException exception) {
         return respond(HttpStatus.SERVICE_UNAVAILABLE, "WIKI_PAGE_UNAVAILABLE",
-                publicMessage(exception, "已發布的 Wiki 內容暫時無法使用"), exception);
+                "已發布的 Wiki 內容暫時無法使用", exception);
     }
 
     @ExceptionHandler(WikiDraftLifecycleException.class)
     public ResponseEntity<ApiError> handleWikiDraftLifecycle(WikiDraftLifecycleException exception) {
         return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_LIFECYCLE_CONFLICT",
-                publicMessage(exception, "Wiki 草稿處於衝突的生命週期狀態"), exception);
+                "Wiki 草稿處於衝突的生命週期狀態", exception);
     }
 
     @ExceptionHandler(WikiDraftTargetException.class)
     public ResponseEntity<ApiError> handleWikiDraftTarget(WikiDraftTargetException exception) {
         return respond(HttpStatus.CONFLICT, "WIKI_DRAFT_TARGET_" + exception.reason().name(),
-                publicMessage(exception, "Wiki 草稿目標驗證失敗"), exception);
+                "Wiki 草稿目標驗證失敗", exception);
     }
 
     @ExceptionHandler(WikiPublishException.class)
@@ -187,47 +187,47 @@ public class GlobalExceptionHandler {
             default -> HttpStatus.CONFLICT;
         };
         return respond(status, "WIKI_PUBLISH_" + exception.reason().name(),
-                publicMessage(exception, "Wiki 發布操作失敗"), exception);
+                "Wiki 發布操作失敗", exception);
     }
 
     @ExceptionHandler(DocumentAlreadyProcessedException.class)
     public ResponseEntity<ApiError> handleDocumentAlreadyProcessed(
             DocumentAlreadyProcessedException exception) {
-        return respond(HttpStatus.CONFLICT, "DOCUMENT_ALREADY_PROCESSED", publicMessage(exception), exception);
+        return respond(HttpStatus.CONFLICT, "DOCUMENT_ALREADY_PROCESSED", "文件已處理，無法執行此操作", exception);
     }
 
     @ExceptionHandler(DocumentExtractionException.class)
     public ResponseEntity<ApiError> handleDocumentExtraction(DocumentExtractionException exception) {
         return respond(HttpStatus.UNPROCESSABLE_ENTITY, exception.errorCode(),
-                publicMessage(exception, "文件抽取失敗"), exception);
+                "文件抽取失敗", exception);
     }
 
     @ExceptionHandler(WorkspaceNotFoundException.class)
     public ResponseEntity<ApiError> handleWorkspaceNotFound(WorkspaceNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "WORKSPACE_NOT_FOUND", publicMessage(exception), exception);
+        return respond(HttpStatus.NOT_FOUND, "WORKSPACE_NOT_FOUND", "找不到指定的工作區", exception);
     }
 
     @ExceptionHandler(NoActiveWorkspaceException.class)
     public ResponseEntity<ApiError> handleNoActiveWorkspace(NoActiveWorkspaceException exception) {
-        return respond(HttpStatus.NOT_FOUND, "NO_ACTIVE_WORKSPACE", publicMessage(exception), exception);
+        return respond(HttpStatus.NOT_FOUND, "NO_ACTIVE_WORKSPACE", "尚未開啟工作區", exception);
     }
 
     @ExceptionHandler(ProcessingJobNotFoundException.class)
     public ResponseEntity<ApiError> handleProcessingJobNotFound(ProcessingJobNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", publicMessage(exception), exception);
+        return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", "找不到指定的處理工作", exception);
     }
 
     @ExceptionHandler(ProcessingOperationNotFoundException.class)
     public ResponseEntity<ApiError> handleProcessingOperationNotFound(
             ProcessingOperationNotFoundException exception) {
-        return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", publicMessage(exception), exception);
+        return respond(HttpStatus.NOT_FOUND, "PROCESSING_JOB_NOT_FOUND", "找不到指定的處理工作", exception);
     }
 
     @ExceptionHandler(RetrievalUnavailableException.class)
     public ResponseEntity<ApiError> handleRetrievalUnavailable(
             RetrievalUnavailableException exception) {
         return respond(HttpStatus.SERVICE_UNAVAILABLE, "RETRIEVAL_UNAVAILABLE",
-                publicMessage(exception, "檢索服務無法使用"), exception);
+                "檢索服務無法使用", exception);
     }
 
     /** Duplicate FTS rebuild admission is a typed conflict, never a generic 500. */
@@ -306,16 +306,8 @@ public class GlobalExceptionHandler {
 
     private static ResponseEntity<ApiError> respond(HttpStatus status, String code, String message,
                                                     Exception exception) {
-        // The full cause chain stays server-side; only the sanitized projection responds.
+        // The full cause chain stays server-side; only the fixed Chinese projection responds.
         log.debug("REST error mapped to {} ({}): {}", code, status, message, exception);
         return ResponseEntity.status(status).body(ApiError.of(code, message));
-    }
-
-    private static String publicMessage(Exception exception) {
-        return DiagnosticRedaction.publicMessage(exception.getMessage(), "要求失敗");
-    }
-
-    private static String publicMessage(Exception exception, String fallback) {
-        return DiagnosticRedaction.publicMessage(exception.getMessage(), fallback);
     }
 }

@@ -130,7 +130,7 @@ class SearchApiIntegrationTest extends IsolatedIntegrationTest {
                         .param("query", "pagination").param("size", "201"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.error.message", containsString("between 1 and 200")));
+                .andExpect(jsonPath("$.error.message").value("要求驗證失敗"));
     }
 
     @Test
