@@ -102,6 +102,33 @@ YYYY-MM-DD-<subject>-benchmark.md
 
 若某個數字會影響長期 decision，應把**方法、版本、aggregate result、限制與判定**整理進 evaluation；raw artifact 仍留在 ephemeral/generated evidence plane。
 
+### 5.1 Synthetic / simulation evidence authority
+
+Synthetic fixture、agent simulation、generated scenario、counterfactual world 或 model-produced trace 可以是高價值 evaluation evidence，但它證明的是：
+
+```text
+「系統在這個受控世界／fixture下是否滿足某個 invariant」
+```
+
+而不是自動證明：
+
+```text
+「現實世界就是這樣」
+「真實使用者會這樣行為」
+「未來會以這個機率發生」
+```
+
+因此：
+
+- synthetic / simulation evidence可用於 stress-test invariant、reproduce edge case、比較 policy、驗證 temporal/concurrency path與量測固定 fixture下的成本；
+- simulation output不得因「看起來像真實資料」就升格為 empirical ground truth、production usage statistics、real-world forecast或 canonical domain fact；
+- generated agent/persona/world state不得直接進 Published Wiki、citation authority或 Product Knowledge Graph；
+- 若 benchmark需要 gold，gold應由 repository/human 定義的 deterministic fixture + expected invariant + exact observable構成，不得以同一個待評估模型產生的 conclusion作唯一 gold；
+- synthetic state若需要被查詢，必須保有明確 synthetic/scenario/run identity，與 canonical source/evidence plane隔離；
+- raw simulation trace預設仍屬 §5 ephemeral/generated evidence plane；只有 method、aggregate、限制與 decision進 Git。
+
+這條規則不限特定工具；MiroFish evaluation（#537）是促成此 boundary明文化的 design input。
+
 ## 6. Evaluation → adoption lifecycle
 
 推薦流程：
