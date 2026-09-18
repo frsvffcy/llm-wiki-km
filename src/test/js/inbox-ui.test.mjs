@@ -403,3 +403,265 @@ test("inbox typed errors stay operator-safe", () => {
   assert.equal(inboxErrorMessage(undefined).title, "收件匣操作失敗");
   assert.equal(formatFileSize(2048), "2.0 KB");
 });
+
+test("extract success re-fetches authoritative row without manual filter (#517)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  let listCalls = 0;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method });
+    if (String(url).endsWith("/extract")) {
+      return jsonResponse(true, 200, {
+        data: { documentId: 1, parseStatus: "PROCESSED", chunkCount: 2,
+          errorCode: null, errorMessage: null }
+      });
+    }
+    listCalls += 1;
+    if (listCalls === 1) {
+      return jsonResponse(true, 200, {
+        data: [row({ documentId: 1, parseStatus: null })],
+        page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+      });
+    }
+    return jsonResponse(true, 200, {
+      data: [row({ documentId: 1, parseStatus: "PROCESSED" })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+
+  elements.statusFilter.value = "PENDING";
+  await controller.applyFilter({ preventDefault() {} });
+  assert.match(flatText(elements.list), /抽取狀態：尚未抽取/u);
+  assert.match(flatText(elements.list), /執行抽取/u);
+
+  await controller.extract(1);
+
+  const inboxGets = calls.filter(call => call.url.startsWith("/api/v1/inbox?"));
+  assert.equal(inboxGets.length, 2);
+  assert.match(inboxGets.at(-1).url, /status=PENDING/u);
+  assert.equal(elements.statusFilter.value, "PENDING",
+    "mutation refresh must preserve the user filter");
+  assert.match(flatText(elements.list), /抽取狀態：已抽取/u);
+  assert.match(flatText(elements.list), /重新抽取/u);
+  assert.match(elements.hint.textContent, /抽取完成，共 2 個片段/u);
+});
+
+test("single upload success appends authoritative row without clearing filters (#517)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  let listCalls = 0;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method });
+    if (String(url) === "/api/v1/inbox/files") {
+      return jsonResponse(true, 201, {
+        data: { documentId: 7, fileName: "new.pdf", status: "PENDING", duplicate: false }
+      });
+    }
+    listCalls += 1;
+    if (listCalls === 1) {
+      return jsonResponse(true, 200, {
+        data: [], page: { number: 0, size: 20, totalElements: 0, totalPages: 0 }
+      });
+    }
+    return jsonResponse(true, 200, {
+      data: [row({ documentId: 7, fileName: "new.pdf" })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+
+  elements.statusFilter.value = "PENDING";
+  await controller.applyFilter({ preventDefault() {} });
+  assert.equal(elements.list.children.length, 0);
+
+  elements.fileInput.files = [{ name: "new.pdf" }];
+  await elements.uploadForm.handlers.get("submit")({ preventDefault() {} });
+
+  const inboxGets = calls.filter(call => call.url.startsWith("/api/v1/inbox?"));
+  assert.equal(inboxGets.length, 2);
+  assert.match(inboxGets.at(-1).url, /status=PENDING/u);
+  assert.equal(elements.statusFilter.value, "PENDING");
+  assert.match(flatText(elements.list), /new\.pdf/u);
+  assert.match(elements.hint.textContent, /已上傳，狀態：待處理/u);
+});
+
+test("batch upload success refreshes from backend authority (#517)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  let listCalls = 0;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method });
+    if (String(url) === "/api/v1/inbox/files/batch") {
+      return jsonResponse(true, 201, {
+        data: { total: 1, accepted: 1, duplicate: 0, failed: 0,
+          documents: [{ documentId: 8 }], failures: [] }
+      });
+    }
+    listCalls += 1;
+    if (listCalls === 1) {
+      return jsonResponse(true, 200, {
+        data: [], page: { number: 0, size: 20, totalElements: 0, totalPages: 0 }
+      });
+    }
+    return jsonResponse(true, 200, {
+      data: [row({ documentId: 8, fileName: "batch.pdf" })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+  await controller.refresh();
+  assert.equal(elements.list.children.length, 0);
+
+  elements.batchInput.files = [{ name: "batch.pdf" }];
+  await elements.batchForm.handlers.get("submit")({ preventDefault() {} });
+
+  const inboxGets = calls.filter(call => call.url.startsWith("/api/v1/inbox?"));
+  assert.equal(inboxGets.length, 2);
+  assert.match(flatText(elements.batchResult), /共 1 檔/u);
+  assert.match(flatText(elements.list), /batch\.pdf/u);
+});
+
+test("rescan success refreshes from backend authority (#517)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  let listCalls = 0;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method });
+    if (String(url) === "/api/v1/inbox/rescan") {
+      return jsonResponse(true, 200, {
+        data: { newDocuments: 1, duplicates: 0, existing: 0, removed: 0 }
+      });
+    }
+    listCalls += 1;
+    if (listCalls === 1) {
+      return jsonResponse(true, 200, {
+        data: [], page: { number: 0, size: 20, totalElements: 0, totalPages: 0 }
+      });
+    }
+    return jsonResponse(true, 200, {
+      data: [row({ documentId: 9, fileName: "rescanned.pdf" })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+  await controller.refresh();
+
+  await controller.rescan();
+
+  const inboxGets = calls.filter(call => call.url.startsWith("/api/v1/inbox?"));
+  assert.equal(inboxGets.length, 2);
+  assert.match(elements.rescanResult.textContent, /新文件 1/u);
+  assert.match(flatText(elements.list), /rescanned\.pdf/u);
+});
+
+test("remove success refreshes from backend authority (#517)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  let listCalls = 0;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method });
+    if (String(url) === "/api/v1/inbox/files/1" && options?.method === "DELETE") {
+      return { ok: true, status: 204, json: async () => null };
+    }
+    listCalls += 1;
+    if (listCalls === 1) {
+      return jsonResponse(true, 200, {
+        data: [row({ documentId: 1, fileName: "gone.pdf" })],
+        page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+      });
+    }
+    return jsonResponse(true, 200, {
+      data: [], page: { number: 0, size: 20, totalElements: 0, totalPages: 0 }
+    });
+  };
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+  await controller.refresh();
+  assert.match(flatText(elements.list), /gone\.pdf/u);
+
+  await controller.remove(1);
+
+  const inboxGets = calls.filter(call => call.url.startsWith("/api/v1/inbox?"));
+  assert.equal(inboxGets.length, 2);
+  assert.equal(elements.list.children.length, 0);
+  assert.match(elements.hint.textContent, /已從收件匣移除/u);
+});
+
+test("concurrent refresh and mutation stay guarded without dropping follow-up fetch (#517)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  let releaseUpload;
+  const uploadGate = new Promise(resolve => { releaseUpload = resolve; });
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method });
+    if (String(url) === "/api/v1/inbox/files") {
+      await uploadGate;
+      return jsonResponse(true, 201, {
+        data: { documentId: 11, fileName: "slow.pdf", status: "PENDING", duplicate: false }
+      });
+    }
+    return jsonResponse(true, 200, {
+      data: [row({ documentId: 11, fileName: "slow.pdf" })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+  elements.fileInput.files = [{ name: "slow.pdf" }];
+
+  const pending = controller.uploadSingle({ preventDefault() {} });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const callsDuringMutation = calls.length;
+
+  await controller.extract(1);
+  await controller.refresh();
+  assert.equal(calls.length, callsDuringMutation,
+    "concurrent mutation/refresh during an upload must not issue duplicate fetches");
+
+  releaseUpload();
+  await pending;
+
+  const inboxGets = calls.filter(call => call.url.startsWith("/api/v1/inbox?"));
+  assert.equal(inboxGets.length, 1,
+    "successful mutation must still issue its follow-up authoritative GET");
+  assert.match(flatText(elements.list), /slow\.pdf/u);
+
+  await controller.refresh();
+  assert.equal(calls.filter(call => call.url.startsWith("/api/v1/inbox?")).length, 2,
+    "lock must be released after the mutation so later refresh works");
+});
+
+test("mutation failure keeps typed error without optimistic rows (#517)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), method: options?.method });
+    if (String(url).endsWith("/extract")) {
+      return jsonResponse(false, 422, {
+        error: { code: "EXTRACTION_PARSE_FAILED", message: "parse failed" }
+      });
+    }
+    if (String(url) === "/api/v1/inbox/files") {
+      return jsonResponse(false, 400, {
+        error: { code: "INVALID_REQUEST", message: "bad" }
+      });
+    }
+    return jsonResponse(true, 200, {
+      data: [row({ documentId: 1, parseStatus: null })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+  await controller.refresh();
+  assert.match(flatText(elements.list), /抽取狀態：尚未抽取/u);
+
+  await controller.extract(1);
+  assert.match(elements.hint.textContent, /抽取失敗：文件解析失敗/u);
+  assert.doesNotMatch(flatText(elements.list), /抽取狀態：已抽取/u,
+    "failure must not render an optimistic extracted row");
+
+  elements.fileInput.files = [{ name: "bad.pdf" }];
+  await elements.uploadForm.handlers.get("submit")({ preventDefault() {} });
+  assert.match(elements.hint.textContent, /要求不正確|收件匣操作失敗/u);
+  assert.doesNotMatch(flatText(elements.list), /bad\.pdf/u,
+    "failed upload must not invent a local row");
+});
