@@ -172,8 +172,7 @@ class AskProposalIngressIntegrationTest extends IsolatedIntegrationTest {
                         .contentType("application/json").content(staleWiki))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"))
-                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(
-                        result.getResponse().getContentAsString()).contains("attention.md"));
+                .andExpect(jsonPath("$.error.message").value("引用來源驗證失敗"));
 
         String unknownChunk = """
                 {
@@ -189,7 +188,8 @@ class AskProposalIngressIntegrationTest extends IsolatedIntegrationTest {
         mockMvc.perform(post("/api/v1/ask/proposals")
                         .contentType("application/json").content(unknownChunk))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"));
+                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"))
+                .andExpect(jsonPath("$.error.message").value("引用來源驗證失敗"));
 
         mockMvc.perform(get("/api/v1/proposals"))
                 .andExpect(status().isOk())
@@ -217,7 +217,8 @@ class AskProposalIngressIntegrationTest extends IsolatedIntegrationTest {
         mockMvc.perform(post("/api/v1/ask/proposals")
                         .contentType("application/json").content(body))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"));
+                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"))
+                .andExpect(jsonPath("$.error.message").value("引用來源驗證失敗"));
     }
 
     @Test

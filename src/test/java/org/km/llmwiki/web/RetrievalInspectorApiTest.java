@@ -88,13 +88,15 @@ class RetrievalInspectorApiTest {
                         .queryParam("question", "q")
                         .queryParam("mode", "NOT_A_MODE"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.message").value("要求驗證失敗"));
 
         mockMvc.perform(get("/api/v1/retrieval/inspect")
                         .queryParam("question", "   ")
                         .queryParam("mode", "WIKI_ONLY"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.message").value("要求驗證失敗"));
     }
 
     @Test

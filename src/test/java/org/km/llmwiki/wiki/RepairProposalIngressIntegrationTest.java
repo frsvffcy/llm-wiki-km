@@ -160,7 +160,8 @@ class RepairProposalIngressIntegrationTest extends IsolatedIntegrationTest {
                         .contentType("application/json")
                         .content("{\"knowledgeId\":\"" + fixture.knowledgeId() + "\"}"))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error.code").value("REPAIR_NOT_ELIGIBLE"));
+                .andExpect(jsonPath("$.error.code").value("REPAIR_NOT_ELIGIBLE"))
+                .andExpect(jsonPath("$.error.message").value("此診斷項目無法修復，僅可檢視"));
     }
 
     @Test
@@ -191,7 +192,8 @@ class RepairProposalIngressIntegrationTest extends IsolatedIntegrationTest {
                         .contentType("application/json")
                         .content("{\"knowledgeId\":\"wiki-hub\"}"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("REPAIR_FINDING_STALE"));
+                .andExpect(jsonPath("$.error.code").value("REPAIR_FINDING_STALE"))
+                .andExpect(jsonPath("$.error.message").value("修復對象已變動，請重新整理後再試一次"));
     }
 
     @Test
@@ -248,12 +250,14 @@ class RepairProposalIngressIntegrationTest extends IsolatedIntegrationTest {
                         .contentType("application/json")
                         .content("{\"knowledgeId\":\"wiki-unknown\"}"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("找不到指定的 Wiki 頁面"));
         mockMvc.perform(post("/api/v1/repair/proposals")
                         .contentType("application/json")
                         .content("{\"knowledgeId\":\"wiki-foreign\"}"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("WIKI_PAGE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("找不到指定的 Wiki 頁面"));
         mockMvc.perform(post("/api/v1/repair/proposals")
                         .contentType("application/json")
                         .content("{\"knowledgeId\":\"\"}"))
@@ -270,7 +274,8 @@ class RepairProposalIngressIntegrationTest extends IsolatedIntegrationTest {
                         .contentType("application/json")
                         .content("{\"knowledgeId\":\"wiki-x\"}"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("NO_ACTIVE_WORKSPACE"));
+                .andExpect(jsonPath("$.error.code").value("NO_ACTIVE_WORKSPACE"))
+                .andExpect(jsonPath("$.error.message").value("尚未開啟工作區"));
     }
 
     @Test

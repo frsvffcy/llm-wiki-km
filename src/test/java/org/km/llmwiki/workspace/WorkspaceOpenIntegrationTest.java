@@ -154,7 +154,8 @@ class WorkspaceOpenIntegrationTest extends IsolatedIntegrationTest {
 
         mockMvc.perform(get("/api/v1/workspaces/current"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("NO_ACTIVE_WORKSPACE"));
+                .andExpect(jsonPath("$.error.code").value("NO_ACTIVE_WORKSPACE"))
+                .andExpect(jsonPath("$.error.message").value("尚未開啟工作區"));
     }
     @Test
     void listsWorkspacesAndGetById() throws Exception {
@@ -177,7 +178,8 @@ class WorkspaceOpenIntegrationTest extends IsolatedIntegrationTest {
                                 {"workspaceId": 99999}
                                 """))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("WORKSPACE_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("WORKSPACE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("找不到指定的工作區"));
     }
     @Test
     void startupLoaderLoadsExistingActiveWorkspaceWithoutError() throws Exception {

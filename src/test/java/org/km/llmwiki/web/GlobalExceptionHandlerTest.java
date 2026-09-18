@@ -8,21 +8,39 @@ import org.km.llmwiki.graph.GraphProjectionException;
 import org.km.llmwiki.graph.GraphProjectionFailure;
 import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.rag.RetrievalUnavailableException;
+import org.km.llmwiki.source.DocumentAlreadyProcessedException;
 import org.km.llmwiki.source.DocumentExtractionException;
 import org.km.llmwiki.source.DocumentNotFoundException;
+import org.km.llmwiki.source.SourceChunkNotFoundException;
+import org.km.llmwiki.search.embedding.ProcessingJobNotFoundException;
+import org.km.llmwiki.processing.ProcessingOperationNotFoundException;
+import org.km.llmwiki.wiki.AskCitationInvalidException;
+import org.km.llmwiki.wiki.KnowledgeProposalNotFoundException;
+import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
+import org.km.llmwiki.wiki.PublishedWikiValidationException;
+import org.km.llmwiki.wiki.RepairFindingStaleException;
+import org.km.llmwiki.wiki.RepairNotEligibleException;
+import org.km.llmwiki.wiki.RepairRefusalReason;
 import org.km.llmwiki.wiki.WikiDraftLifecycleException;
+import org.km.llmwiki.wiki.WikiDraftNotFoundException;
+import org.km.llmwiki.wiki.WikiDraftTargetException;
+import org.km.llmwiki.wiki.WikiPageNotFoundException;
 import org.km.llmwiki.wiki.WikiPublishException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
+import org.km.llmwiki.workspace.NoActiveWorkspaceException;
+import org.km.llmwiki.workspace.WorkspaceNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Contract tests for the public REST error boundary: stable codes and HTTP statuses are
- * decided by the typed exception, and no exception class name, raw arbitrary message,
- * filesystem path, secret-like assignment, SQL fragment, or backend identity ever reaches the
- * response body. These tests actively falsify the redaction boundary with hostile messages.
+ * Contract tests for the public REST error boundary (#504): stable codes and HTTP statuses are
+ * decided by the typed exception, every application-owned message is a fixed Traditional
+ * Chinese projection, and no raw exception prose — safe English or hostile — ever reaches the
+ * response body. These tests actively falsify both the redaction boundary (hostile messages
+ * carrying paths/secrets/SQL/backend identity) and the language-governance boundary (safe
+ * English that would previously survive redaction and leak as user-facing prose).
  */
 @Tag("contract")
 class GlobalExceptionHandlerTest {
@@ -47,26 +65,29 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void illegalArgumentRedactsHostileMessagesAndKeepsSafeValidationWording() {
+    void illegalArgumentUsesFixedChineseMessageForSafeAndHostileInput() {
         ResponseEntity<ApiError> hostile = handler.handleIllegalArgument(
                 new IllegalArgumentException(HOSTILE));
         assertThat(hostile.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(code(hostile)).isEqualTo("INVALID_REQUEST");
         assertThat(message(hostile)).isEqualTo("要求驗證失敗");
 
+        // #504 regression: safe English validation wording must not passthrough as
+        // user-facing prose even though DiagnosticRedaction would deem it safe.
         ResponseEntity<ApiError> safe = handler.handleIllegalArgument(
                 new IllegalArgumentException("size must be between 1 and 200"));
-        assertThat(message(safe)).isEqualTo("size must be between 1 and 200");
         assertThat(safe.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(code(safe)).isEqualTo("INVALID_REQUEST");
+        assertThat(message(safe)).isEqualTo("要求驗證失敗");
     }
 
     @Test
-    void notFoundAndConflictHandlersKeepStableCodesAndRedactMessages() {
+    void notFoundAndConflictHandlersKeepStableCodesAndFixedChineseMessages() {
         ResponseEntity<ApiError> document = handler.handleDocumentNotFound(
                 new DocumentNotFoundException(42L));
         assertThat(document.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(code(document)).isEqualTo("DOCUMENT_NOT_FOUND");
-        assertThat(message(document)).isEqualTo("Document not found: 42");
+        assertThat(message(document)).isEqualTo("找不到指定的文件");
 
         ResponseEntity<ApiError> wikiLifecycle = handler.handleWikiDraftLifecycle(
                 new WikiDraftLifecycleException(HOSTILE));
@@ -84,6 +105,71 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void workspaceFamilyUsesFixedChineseMessages() {
+        ResponseEntity<ApiError> workspace = handler.handleWorkspaceNotFound(
+                new WorkspaceNotFoundException(99L));
+        assertThat(workspace.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(code(workspace)).isEqualTo("WORKSPACE_NOT_FOUND");
+        assertThat(message(workspace)).isEqualTo("找不到指定的工作區");
+
+        ResponseEntity<ApiError> noActive = handler.handleNoActiveWorkspace(
+                new NoActiveWorkspaceException());
+        assertThat(noActive.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(code(noActive)).isEqualTo("NO_ACTIVE_WORKSPACE");
+        assertThat(message(noActive)).isEqualTo("尚未開啟工作區");
+    }
+
+    @Test
+    void notFoundFamilyUsesFixedChineseMessages() {
+        assertThat(message(handler.handleSourceChunkNotFound(
+                new SourceChunkNotFoundException(7L)))).isEqualTo("找不到指定的來源片段");
+        assertThat(code(handler.handleSourceChunkNotFound(
+                new SourceChunkNotFoundException(7L)))).isEqualTo("SOURCE_CHUNK_NOT_FOUND");
+
+        assertThat(message(handler.handleKnowledgeProposalNotFound(
+                new KnowledgeProposalNotFoundException(7L)))).isEqualTo("找不到指定的提案");
+        assertThat(message(handler.handleWikiDraftNotFound(
+                new WikiDraftNotFoundException(7L)))).isEqualTo("找不到指定的 Wiki 草稿");
+        assertThat(message(handler.handleWikiPageNotFound(
+                new WikiPageNotFoundException("concept")))).isEqualTo("找不到指定的 Wiki 頁面");
+        assertThat(message(handler.handleProcessingJobNotFound(
+                new ProcessingJobNotFoundException()))).isEqualTo("找不到指定的處理工作");
+        assertThat(message(handler.handleProcessingOperationNotFound(
+                new ProcessingOperationNotFoundException()))).isEqualTo("找不到指定的處理工作");
+        assertThat(message(handler.handleDocumentAlreadyProcessed(
+                new DocumentAlreadyProcessedException(42L, "PROCESSED"))))
+                .isEqualTo("文件已處理，無法執行此操作");
+    }
+
+    @Test
+    void askRepairWikiFamilyUsesFixedChineseMessages() {
+        assertThat(message(handler.handleAskCitationInvalid(
+                new AskCitationInvalidException(java.util.List.of("WIKI:missing")))))
+                .isEqualTo("引用來源驗證失敗");
+        assertThat(code(handler.handleAskCitationInvalid(
+                new AskCitationInvalidException(java.util.List.of("WIKI:missing")))))
+                .isEqualTo("ASK_CITATION_INVALID");
+
+        assertThat(message(handler.handleRepairFindingStale(
+                new RepairFindingStaleException("no finding is present for page: concept"))))
+                .isEqualTo("修復對象已變動，請重新整理後再試一次");
+        assertThat(message(handler.handleRepairNotEligible(
+                new RepairNotEligibleException(RepairRefusalReason.SEMANTIC_JUDGMENT_REQUIRED))))
+                .isEqualTo("此診斷項目無法修復，僅可檢視");
+
+        assertThat(message(handler.handlePublishedWikiValidation(
+                new PublishedWikiValidationException(HOSTILE))))
+                .isEqualTo("已發布的 Wiki 內容不可用");
+        assertThat(message(handler.handlePublishedWikiUnavailable(
+                new PublishedWikiUnavailableException(HOSTILE, new IllegalStateException("x")))))
+                .isEqualTo("已發布的 Wiki 內容暫時無法使用");
+        assertThat(message(handler.handleWikiDraftTarget(
+                new WikiDraftTargetException(WikiDraftTargetException.Reason.TARGET_FILE_MISSING,
+                        "Repair target file does not exist in the active vault"))))
+                .isEqualTo("Wiki 草稿目標驗證失敗");
+    }
+
+    @Test
     void extractionHandlerKeepsItsErrorCodeAndRedactsTheMessage() {
         ResponseEntity<ApiError> response = handler.handleDocumentExtraction(
                 new DocumentExtractionException("EXTRACTION_PARSE_FAILED", HOSTILE));
@@ -93,13 +179,49 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void retrievalUnavailableKeepsItsTypedMessage() {
+    void retrievalUnavailableUsesFixedChineseMessage() {
         ResponseEntity<ApiError> response = handler.handleRetrievalUnavailable(
                 new RetrievalUnavailableException(RetrievalUnavailableException.Dependency.GRAPH,
                         new IllegalStateException("backend unavailable")));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(code(response)).isEqualTo("RETRIEVAL_UNAVAILABLE");
-        assertThat(message(response)).isEqualTo("Retrieval dependency is unavailable: GRAPH");
+        assertThat(message(response)).isEqualTo("檢索服務無法使用");
+    }
+
+    @Test
+    void safeEnglishExceptionProseNeverBecomesPublicMessage() {
+        // #504 language-governance regression: every raw message below is safe for
+        // DiagnosticRedaction (no path/secret/SQL/backend marker) and would previously
+        // passthrough verbatim. The public projection must stay fixed Chinese.
+        assertThat(message(handler.handleWorkspaceNotFound(
+                new WorkspaceNotFoundException(42L)))).isNotEqualTo("Workspace not found: 42");
+        assertThat(message(handler.handleDocumentNotFound(
+                new DocumentNotFoundException(42L)))).isNotEqualTo("Document not found: 42");
+        assertThat(message(handler.handleKnowledgeProposalNotFound(
+                new KnowledgeProposalNotFoundException(42L))))
+                .isNotEqualTo("Knowledge proposal not found: 42");
+        assertThat(message(handler.handleWikiDraftNotFound(
+                new WikiDraftNotFoundException(42L))))
+                .isNotEqualTo("Wiki Draft not found: 42");
+        assertThat(message(handler.handleWikiPageNotFound(
+                new WikiPageNotFoundException("concept"))))
+                .isNotEqualTo("Published Wiki page not found: concept");
+        assertThat(message(handler.handleProcessingJobNotFound(
+                new ProcessingJobNotFoundException())))
+                .isNotEqualTo("Embedding rebuild job not found");
+        assertThat(message(handler.handleProcessingOperationNotFound(
+                new ProcessingOperationNotFoundException())))
+                .isNotEqualTo("Processing job not found");
+        assertThat(message(handler.handleNoActiveWorkspace(new NoActiveWorkspaceException())))
+                .isNotEqualTo("No active workspace has been registered");
+        assertThat(message(handler.handleRetrievalUnavailable(
+                new RetrievalUnavailableException(
+                        RetrievalUnavailableException.Dependency.GRAPH,
+                        new IllegalStateException("backend unavailable")))))
+                .isNotEqualTo("Retrieval dependency is unavailable: GRAPH");
+        assertThat(message(handler.handleIllegalArgument(
+                new IllegalArgumentException("size must be between 1 and 200"))))
+                .isNotEqualTo("size must be between 1 and 200");
     }
 
     @Test

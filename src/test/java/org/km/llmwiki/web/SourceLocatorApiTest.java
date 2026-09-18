@@ -74,7 +74,8 @@ class SourceLocatorApiTest {
 
         mockMvc.perform(get("/api/v1/source-chunks/{chunkId}/locator", 42L))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("SOURCE_CHUNK_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("SOURCE_CHUNK_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("找不到指定的來源片段"));
     }
 
     @Test
@@ -88,7 +89,8 @@ class SourceLocatorApiTest {
         when(locatorService.locate(-7L)).thenThrow(new SourceChunkNotFoundException(-7L));
         mockMvc.perform(get("/api/v1/source-chunks/{chunkId}/locator", -7L))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("SOURCE_CHUNK_NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("SOURCE_CHUNK_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("找不到指定的來源片段"));
     }
 
     @Test
