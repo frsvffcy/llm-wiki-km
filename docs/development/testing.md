@@ -1890,10 +1890,11 @@ SKIP／missing→CONDITIONAL 阻止 READY；#456 R4：強制單一 manifest/bund
 version == Maven、現行 artifact SHA == manifest、逐份 report `sourceCommit` ==
 manifest `sourceCommit`，任一缺失／格式錯誤／不一致即 NO-GO；READY 後仍需 A2 human
 auth 才可 publish），
-文件見 `docs/release/release-candidate-procedure-v1.md`、
-`docs/release/native-capability-matrix.md`、
-`docs/release/v0.1.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source）、
-`docs/release/v0.1.1-browser-smoke-checklist.md`，workflow 為
+ 文件見 `docs/release/release-candidate-procedure-v1.md`、
+ `docs/release/native-capability-matrix.md`、
+ `docs/release/v0.2.0-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，
+ `v0.1.1-release-notes.md` 為 v0.1.1 tag 不可變 source）、
+ `docs/release/v0.1.1-browser-smoke-checklist.md`（v0.1.1 historical source），workflow 為
 `.github/workflows/release-candidate.yml`（retention 14 天，無 secrets）。
 
 ## Release identity 單一真相測試責任（#456)

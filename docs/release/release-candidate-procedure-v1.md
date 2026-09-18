@@ -1,4 +1,4 @@
-# Release-candidate procedure v1 (Refs #430 §A–§B; #454 §A/E v0.1.1 patch)
+# Release-candidate procedure v1 (Refs #430 §A–§B; #454 §A/E v0.1.1 patch; #512 v0.2.0 rebaseline)
 
 > Procedure identifier: `release-candidate-procedure-v1`（#454 沿用，不另造第二套 acceptance framework）。
 > Executable authority 是 `scripts/build-release-candidate.sh`、`scripts/verify-reproducible-build.sh`
@@ -9,12 +9,12 @@
 
 ```text
 sourceCommit  = git rev-parse HEAD（clean checkout；dirty 預設 fail-closed，僅 local 允許 --allow-dirty）
-version       = mvn help:evaluate -Dexpression=project.version（Maven project 唯一 truth；current 0.1.1，v0.1.0 tag 不可變）
+version       = mvn help:evaluate -Dexpression=project.version（Maven project 唯一 truth；current 0.2.0，v0.1.0 / v0.1.1 tags 不可變）
 artifactId    = mvn help:evaluate -Dexpression=project.artifactId
-artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.1.1.jar；v0.1.0 僅為歷史 tag 示例）
+artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.2.0.jar；v0.1.0 / v0.1.1 僅為歷史 tag 示例）
 ```
 
-- Workflow / script 不得另維護第二份 `0.1.1` / `0.1.0` 常數作 version truth；`--expected-version` 僅作
+- Workflow / script 不得另維護第二份版本常數作 version truth；`--expected-version` 僅作
   fail-closed 比對（不一致即 exit 1），不作 derive 來源。
 - `pom.xml` version 與 candidate version 不一致時 fail closed，不上傳半成品。
 - Runtime version 單一真相（Refs #456 R1）：`src/main/resources/version.properties` 由 Maven
@@ -34,7 +34,7 @@ artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.1.1.jar
 | Clean lifecycle | `mvn clean package -Dtest.execution.skip=true`（clean 移除 `target/`、existing generated-sources、local output；不重用 developer `target/`） |
 | jOOQ / Flyway | Clean 後由 `generate-sources` 經全部已發布 migration 在 fresh temp SQLite 重建（Build Integrity 同語意） |
 | Production resources | `src/main/resources` 經 Maven lifecycle 打包，不讀 working-tree 作 runtime dependency |
-| outputTimestamp | `2026-09-15T00:00:00Z`（`pom.xml` 唯一 authority；deterministic JAR entry timestamps，不含 runtime currentness；#454 version bump 不引入動態 timestamp，沿用此值） |
+| outputTimestamp | `2026-09-15T00:00:00Z`（`pom.xml` 唯一 authority；deterministic JAR entry timestamps，不含 runtime currentness；#454 / #512 version bump 皆不引入動態 timestamp，沿用此值；它只是 reproducibility input，不代表 release date / currentness） |
 | Network | 僅允許 Maven dependency 下載；provider calls 不得成 release prerequisite（script 不讀 `OPENAI_API_KEY` 等） |
 
 Release build 從 clean checkout 執行：CI 用 `actions/checkout` clean tree；local 需 `git status --porcelain`
@@ -48,8 +48,9 @@ Release build 從 clean checkout 執行：CI 用 `actions/checkout` clean tree�
 - 不為 bit-identical 固定 runtime currentness 動態資料；`createdAt` 只進 manifest，不進 artifact bytes。
 - 若標準工具限制使 bit-identical 不可行，需 typed / documented 理由與更強 provenance 替代；
   不得以「同一個 workflow 跑的」宣稱 reproducible。
-- Local evidence（2026-09-15，Zulu 21.0.5 / Maven 3.9.9 / macOS arm64）：
-  兩次 clean build 皆 `1f21e377…`（完整 hash 見 manifest / verify 腳本輸出），`cmp` BIT-IDENTICAL。
+- Local evidence（2026-09-15，Zulu 21.0.5 / Maven 3.9.9 / macOS arm64，v0.1.1-era 歷史紀錄）：
+  兩次 clean build 皆 `1f21e377…`（完整 hash 見當時 manifest / verify 腳本輸出），`cmp` BIT-IDENTICAL。
+  v0.2.0 不重寫此歷史 hash；current reproducibility 由每次 candidate 的 `verify-reproducible-build.sh` 重新證明。
 
 ## 4. Outputs
 
@@ -85,11 +86,12 @@ Manifest 不含 secret、API key、owner verifier、local absolute path、worksp
 - Readiness gate：`scripts/check-release-readiness.sh`（消費 #429 + #454 §B gate；failure/skip 阻止 READY_TO_PUBLISH；report glob 為 version-agnostic `*-product-acceptance.json`；Refs #456 R4：強制單一 manifest/bundle、manifest version == Maven、現行 artifact SHA == manifest、逐份 report `sourceCommit` == manifest `sourceCommit`，任一缺失／格式錯誤／不一致即 `NO-GO`）。
 - Browser first-mile gate：`scripts/browser-first-mile-smoke.sh`（Refs #458：驗證 exact candidate JAR 內含 #450 + #451 修正；
   artifact 解析與 install/backup smoke 共用同一 resolver，永不以 mtime 挑選；`--jar` 於 `cd` 前 canonicalize，
-  相對／絕對路徑一致且不依賴 `$OLDPWD`，Refs #456 R3；manual 層見 `docs/release/v0.1.1-browser-smoke-checklist.md`，不導入 headless framework）。
+  相對／絕對路徑一致且不依賴 `$OLDPWD`，Refs #456 R3；manual 層見 versioned checklist
+  （`docs/release/v0.1.1-browser-smoke-checklist.md` 為 v0.1.1 historical source），不導入 headless framework）。
 - Identity helpers：`scripts/release-identity.sh`（Refs #458：上述五個 gate 的 artifact 解析／校驗唯一實作
   `release_identity_resolve_candidate_jar`＋`release_identity_verify_candidate_sidecar_if_present`；
   行為由 `scripts/tests/test-release-identity.sh` 迴歸鎖定，fast tier 經 `ReleaseIdentityShellContractTest` 執行；
   所有 candidate smoke gate 共用同一 exact artifact identity contract，不各自維護 mtime 選取）。
 - Native matrix：`docs/release/native-capability-matrix.md`。
-- Release notes：`docs/release/v0.1.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source）。
+- Release notes：`docs/release/v0.2.0-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，`v0.1.1-release-notes.md` 為 v0.1.1 tag 不可變 source）。
 - Workflow：`.github/workflows/release-candidate.yml`（workflow_dispatch only，contents:read，無 publish 副作用）。

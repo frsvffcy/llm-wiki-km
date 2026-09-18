@@ -117,7 +117,7 @@ if [ ! -d "$EVIDENCE_DIR" ]; then
   VERDICT="CONDITIONAL"
   REASONS="no #429 release-evidence reports (run scripts/run-product-acceptance.sh --skip-build after building the candidate)"
 else
-  # Version-agnostic (Refs #454 §A): accept v0.1.0 and v0.1.1+ report names;
+  # Version-agnostic: accept versioned report names;
   # the version truth lives in pom.xml + manifest, never in this gate constant.
   REPORTS="$(find "$EVIDENCE_DIR" -name '*-product-acceptance.json' 2>/dev/null || true)"
   if [ -z "$REPORTS" ]; then
