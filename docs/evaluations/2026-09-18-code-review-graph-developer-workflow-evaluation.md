@@ -702,6 +702,7 @@ impact 預設 depth 2 hops；elapsed 皆 < 0.5s／call（速度非瓶頸）。
 - 「節省」只在 whole-corpus baseline 下成立（upstream 65x 的分母）；在 changed-file＋targeted grep
   baseline 下，本批 10 cases **無一節省**——與 Issue 前提（headline ≠ 真實 agent savings）一致，
   並與官方 changed-file benchmark「小 diff 可 < 1x」的自我揭露互相印證。
+  **［證據強度：DERIVED-PROXY，非 matched end-to-end 量測——見 §12.9 校正；不得引用為 workflow-level 實測節省結論。］**
 - `update --brief` Token Savings panel 在 no-op 上報 ~97% saved（2,499→70）：分母定義不同，
   不得引用為本專案 ROI。
 - Tool calls：B 每 case 約 3–5 calls（impact 1＋query 2–4＋必要 disambiguation），且 blocking rule 要求
@@ -768,4 +769,73 @@ benchmark 可重現），**correctness 側無獨立增益**——三者共享同
 Raw replay artifacts（10× impact JSON＋`.err`）為 ephemeral benchmark scratch，依 evaluations README §5
 不進 Git；本節方法、版本、aggregate result、限制與判定即為長期 decision evidence。
 
-Refs #505。
+### 12.9 Evidence-strength calibration（Refs #509；Path 2——不補跑 matched A/B）
+
+本節為 #509 的 remediation（Path 2：降級 claim，不補跑）。#505 的 `DEFER` 決策維持有效，
+且僅由 correctness blocking evidence（§12.7：R2／R5／R6／R7／R9 等）獨立成立；
+本節只收斂 efficiency evidence 的措辭強度，不弱化 correctness 結論、不重開 adoption、
+不分裂 CRG／CodeGraph／GitNexus roadmap、不改變 Product Knowledge Graph authority。
+
+#### 12.9.1 Path 選擇
+
+- 採用 Path 2（降級 claim）：保留現有 correctness benchmark，把 workflow-level token／time
+  savings（或 no-savings）claim 明確改為 `NOT MEASURED`（proxy only）。
+- 不採用 Path 1（補做 10 cases matched A/B end-to-end 重跑）：`DEFER` 已由 correctness
+  blocking rule 獨立支持，補跑 workflow total cost 無決策價值；依 #509 指示不得為形式完整
+  強迫執行昂貴 benchmark。
+- 若未來有人想重提 efficiency 作為 adoption 理由，必須先走 Path 1 的固定 protocol
+  （A／B 相同 ground truth 與 operator／rules，逐 case 記錄 total tool calls、source files／ranges、
+  total context／token、total wall time、correctness-critical dependencies，且 B 含 mandatory
+  source／tests revalidation），不得直接引用本節以前的 proxy 數字。
+
+#### 12.9.2 定義校正
+
+- `raw input`：本 benchmark 實測的是「餵給 `impact --files` 的輸入檔 raw file content」經
+  `tiktoken cl100k_base` 的 token 數（§12.3 已載明同 tokenizer）。它**不是** Baseline A
+  end-to-end workflow 的 total context，也不是 operator 實際讀取的全部 source／tests／Issue／ADR。
+- `impact JSON / raw input` 倍率（1.16–7.95x）：定義為 **response-overhead proxy**——
+  full-fidelity `impact` JSON 回應相對其輸入檔 raw content 的膨脹倍率。它**不等同**
+  「Baseline A vs Candidate B 完整 workflow cost」的比較。
+- B graph-only tool calls：實際執行並記錄的 graph calls（`impact` 1＋`query` 2–4＋必要
+  disambiguation，約 3–5／case）。
+- A baseline tool calls／total context／total elapsed：本次 benchmark **沒有**用固定 protocol
+  執行 Baseline A 的 operator workflow，因此皆為未量測。
+- Source／tests revalidation cost：blocking rule 要求 B 之後仍須回 source／tests 驗證
+  （§12.5「reads 並未減少」），但未逐 case 計數／計時，故量化成本為未量測；
+  「B 為純增成本（6 個零命中 case）」為定性推導，非 matched 計量。
+
+#### 12.9.3 §12.3～§12.5 逐項證據強度
+
+| # | 成本敘述（§12.3～§12.5） | 強度 | 說明 |
+| --- | --- | --- | --- |
+| 1 | `raw input` 定義（輸入檔 raw content token 數，同 tokenizer） | MEASURED（窄定義） | 量到的是輸入檔側 token；不得外推為 Baseline A total context |
+| 2 | `impact JSON / raw input` 1.16–7.95x（含 R1 7.95x、R2 5.09x、R3 4.77x、R4 4.52x、R5 2.58x、R6 3.84x、R8 1.74x、R9 1.80x） | MEASURED（作為 response-overhead 數字） | 數字本身為 tiktoken 實測；一旦用來推論 workflow savings 即為 DERIVED-PROXY |
+| 3 | B graph-only tool calls（每 case 約 3–5：impact 1＋query 2–4＋disambiguation） | MEASURED | 實際執行的 graph calls；不含後續 mandatory revalidation |
+| 4 | A baseline tool calls（Baseline A 的總 tool calls） | NOT MEASURED | 未以固定 protocol 執行 A；ground truth 僅取自 `gh pr view` 合併清單，非 operator trace |
+| 5 | A／B total context（end-to-end 總 context／token） | NOT MEASURED | 只量到 graph response 側；A 側與 B 含 revalidation 的全量未量測 |
+| 6 | A／B total elapsed（end-to-end 總耗時） | NOT MEASURED（workflow total）；MEASURED 僅限單項 | 實測僅：`impact` 單 call ＜0.5s、初次 build 約 9.6s、增量 no-op 約 0.4s；皆不等同 workflow total |
+| 7 | Source／tests revalidation cost | NOT MEASURED（量化）；DERIVED（定性要求） | Blocking rule 要求回 source／tests 驗證，但未逐 case 計數／計時 |
+| 8 | 「changed-file＋targeted grep baseline 下 10 cases 無一節省」（§12.5） | DERIVED-PROXY（workflow-level 為 NOT MEASURED） | 由 response-overhead proxy＋mandatory revalidation 推導的判斷；不是 10 cases matched A／B total 的實測結論（§12.5 已加註） |
+| 9 | `chars/4` 低估 cl100k 實測 7–21% | MEASURED | Tokenizer 校準實測，維持有效 |
+| 10 | `update --brief` no-op ~97% saved、R7 `context_savings` 95% | MEASURED（工具回報值）＋已揭露分母不同 | 數字本身實測，但分母為 whole-file／no-op baseline，不得引用為本專案 ROI（§12.5 原判維持） |
+
+#### 12.9.4 明確降級語句（Path 2 executable claim）
+
+1. `impact JSON vs raw input` 不得等同「完整 Baseline A vs Candidate B workflow cost」。
+2. 任何 workflow-level 的 token／time savings（或 no-savings）claim，在補做 Path 1 之前一律視為
+   `NOT MEASURED`；§12.5 的「無一節省」僅為 response-overhead proxy 推導（DERIVED-PROXY），
+   不是 10 cases matched end-to-end A／B evidence。
+3. #505 Completion Audit「AC 無缺口」一句中，efficiency A／B 部分為過度敘述，特此收斂：
+   correctness AC（pinned／cases／hit-miss／miss taxonomy／blocking rule／lineage／決策）為完整實測；
+   efficiency AC 僅 graph-side 部分實測（response tokens、graph calls、single-call elapsed、
+   build／incremental cost），workflow total（A／B total tool-call／context／elapsed）未量測。
+   Audit 的 `FULL GO` 對 `DEFER` 決策仍然成立，因為 `DEFER` 僅依賴 correctness blocking rule，
+   不依賴 workflow-level efficiency 數字。
+4. Correctness blocking evidence（R2 tests 全 miss、R5／R6／R9 跨層全 miss、R7 CI 全不可見、
+   MockMvc 系統性不可見、Flyway／URL-string／YAML／shell／runtime wiring ceiling）維持 §12.4／§12.6／§12.7
+   原判，不因本節降級 efficiency claim 而被弱化或誤改。
+5. Lineage 維持 developer code-intelligence sidecar `DEFER / BENCHMARK DONE`；本 benchmark 的
+   efficiency 部分在 lineage 中應讀為「graph-side proxy（workflow total NOT MEASURED）」，
+   correctness 部分維持「blocking miss 實測」。
+
+Refs #505，Refs #509。
