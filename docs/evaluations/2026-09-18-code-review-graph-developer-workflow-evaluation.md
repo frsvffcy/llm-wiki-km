@@ -546,19 +546,19 @@ No CI gate
 
 即使最後不安裝 CRG，也建議保留：
 
-1. **Blast-radius-first preflight**  
+1. **Blast-radius-first preflight**
    複雜變更先建立 candidate affected map，再深入讀 code。
 
-2. **Context budget evidence**  
+2. **Context budget evidence**
    不只記模型與 reasoning level，也量「為了完成 review，實際讀了多少 context」。
 
-3. **Partial/stale confidence**  
+3. **Partial/stale confidence**
    所有 derived developer index都必須能說「我不知道／我過期了／我只解析部分」。
 
-4. **Task-oriented semantic tools**  
+4. **Task-oriented semantic tools**
    `impact / review_context / affected_flows` 比 raw SQL/Cypher graph primitive更適合 agent。
 
-5. **Efficiency 永遠不能蓋過 correctness**  
+5. **Efficiency 永遠不能蓋過 correctness**
    Token節省只能作第二順位；miss critical dependency時即判候選失敗。
 
 ---
