@@ -1361,6 +1361,15 @@ FULL GO；`Architecture/security residuals` 須明確寫「無」或列出 resid
 CONDITIONAL GO 時必須同時記載限制範圍；security／correctness／external-conformance
 類 residual 不得判 FULL GO。
 
+逐 AC evidence row（L3＋／correctness-sensitive 建議；L1／L2 不強制）：`AC ↔ Code ↔ Test gaps`
+可以下列表格表達，每列為 `AC-ID | PASS／FAIL／UNVERIFIED | observation | evidence source`
+（詳細契約見 `criterion-evidence-traceability.md` §2～§6）。`observation` 須寫實際觀察內容；
+`evidence source` 優先為 source diff／exact lines、executable test、CI job／run、API re-fetch／
+post-condition、screenshot／browser observation、release artifact checksum／manifest、fresh repository audit。
+`agent 說已完成`、`tool call 回 success`、`PR merged` 本身不得計為 evidence；mutation／UI／external
+side effect 須另有 post-condition observation；L4／L5 須揭露 verifier 是否為 fresh／model-independent。
+`UNVERIFIED` 不得判 `FULL GO`。
+
 Retrospective 依據：#327（PR #329）completion report＋full tests 全綠後，actual-code
 audit 發現 MCP current-spec／security gap 而產出 #330（protocol／transport 修正）與
 #331（adapter layering 共用 boundary）；#330（PR #332）全綠後，再次由 actual-code
