@@ -172,7 +172,7 @@ code-review-graph 延續 CodeGraph／GitNexus 的 developer code-intelligence li
 - `NO CURRENT ADOPTION`：`apply_refactor_tool` 等 mutating surface、cloud source-code egress、risk-score required merge gate；
 - 相較 GitNexus，CRG 的新增評估價值在 MIT license、current Java/Spring DI／endpoint／event enrichment、可重現 benchmark/context-savings；但這些優勢不自動構成 adoption trigger。
 
-### 3.13 fireworks-tech-graph（#438）
+### 3.14 fireworks-tech-graph（#438）
 
 fireworks-tech-graph 的 current lineage 是 validated derived-diagram design input，不是第二份 architecture authority：
 
@@ -181,7 +181,7 @@ fireworks-tech-graph 的 current lineage 是 validated derived-diagram design in
 - `CONDITIONAL / DEFER`：single `system-overview.md` overview pilot（L0–L5 + mutation 旁路，Query Transformation 標 disabled、Graph/vector 標 degradable、MCP 標 loopback read-only；節點過多拆 view；zh-TW font/clipping 實測）需先過 §5 maintenance-cost gate；CI auto-regeneration 維持 `DEFER`；
 - 不與 #410/#424 VoT、#439 code-graph visualization、#443 visualizer 各自發展成平行 visualization governance；pilot 無 measurable docs benefit 則 `NO-GO/DEFER`。
 
-### 3.14 OpenObserve（#441）
+### 3.15 OpenObserve（#441）
 
 OpenObserve 的 current lineage 是 external observability sidecar design input，不是第二套 application authority：
 
