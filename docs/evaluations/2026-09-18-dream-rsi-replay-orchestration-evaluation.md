@@ -224,22 +224,22 @@ Paper 顯示，在其 long-horizon discovery setup 中，把 prior trajectories 
 
 Current `docs/development/model-routing.md` 已有多個與 Dream-RSI 相容的核心設計：
 
-1. **policy 與 model 分離**  
+1. **policy 與 model 分離**
    L1–L5 不綁 model；routing 是獨立 policy。
 
-2. **task-shape routing**  
+2. **task-shape routing**
    先看 boundedness / ambiguity / correctness risk，再選 executor。
 
-3. **lowest-sufficient-capability**  
+3. **lowest-sufficient-capability**
    目標不是一直升最高能力，而是達到 correctness 的最低充分成本。
 
-4. **evidence-triggered escalation**  
+4. **evidence-triggered escalation**
    escalation 由 evidence gap / counterexample / architecture ambiguity 觸發。
 
-5. **challenger / independent challenge**  
+5. **challenger / independent challenge**
    L4/L5 不只依 primary agent 自評。
 
-6. **repo-specific calibration**  
+6. **repo-specific calibration**
    已要求比較 correctness、test pass rate、defect、tool success、false-positive、cost/token、latency。
 
 因此 Dream-RSI **不需要推翻 current routing governance**。
