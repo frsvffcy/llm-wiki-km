@@ -82,9 +82,12 @@ public final class ProductAcceptanceReport {
                 node.put("verdict", step.verdict().name());
                 node.put("detail", step.detail());
             }
-            Files.writeString(directory.resolve("v0.1.1-product-acceptance.json"),
+            // Refs #512: report filename is version-neutral on purpose — the
+            // version truth lives in pom.xml + the release manifest, never in
+            // a second filename constant (readiness globs *-product-acceptance.json).
+            Files.writeString(directory.resolve("candidate-product-acceptance.json"),
                     mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root) + "\n");
-            Files.writeString(directory.resolve("v0.1.1-product-acceptance.md"),
+            Files.writeString(directory.resolve("candidate-product-acceptance.md"),
                     markdown(sourceSha, javaVersion, os, arch));
         } catch (Exception failure) {
             throw new IllegalStateException("failed to write acceptance report", failure);
@@ -93,7 +96,7 @@ public final class ProductAcceptanceReport {
 
     private String markdown(String sourceSha, String javaVersion, String os, String arch) {
         StringBuilder report = new StringBuilder();
-        report.append("# v0.1.1 product acceptance report\n\n");
+        report.append("# product acceptance report\n\n");
         report.append("- corpus: `").append(ProductAcceptanceCorpusV1.VERSION).append("`\n");
         report.append("- procedure: `").append(ProductAcceptanceCorpusV1.PROCEDURE_VERSION)
                 .append("`\n");
