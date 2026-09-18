@@ -5,7 +5,7 @@
 
 ## 1. Core JAR（platform-neutral 範圍）
 
-- `target/llm-wiki-km-0.1.1.jar` 為 Spring Boot executable JAR（含 v0.1.0 同等內容；v0.1.0 JAR 保持不可變，見 v0.1.0 tag），含全部 Java 應用碼、
+- `target/llm-wiki-km-<version>.jar`（例如 current `llm-wiki-km-0.2.0.jar`）為 Spring Boot executable JAR（含歷史版本同等內容；v0.1.0 / v0.1.1 JAR 保持不可變，見對應 tag），含全部 Java 應用碼、
   production resources、Flyway migrations、jOOQ 生成碼。
 - Core JAR **不內含** sqlite-vec native binary（Xerial SQLite 與 sqlite-vec 是兩個 packaging boundary，
   見 ADR 0003）；不同 OS / CPU binary 不可互換，不得把 binary 打包進 application / domain jar。

@@ -37,7 +37,7 @@ job 負責，不包含在 `mvn clean verify -Pfull`。詳細流程請參閱
 ## 啟動
 
 ```bash
-java -jar target/llm-wiki-km-0.1.1.jar
+java -jar target/llm-wiki-km-0.2.0.jar
 ```
 
 應用程式預設只監聽 `127.0.0.1:8765`。啟動後以瀏覽器開啟 <http://127.0.0.1:8765/>；瀏覽器只呼叫本機 REST API，不直接接觸 SQLite、工作區檔案或服務提供者金鑰。
@@ -598,7 +598,7 @@ curl http://127.0.0.1:8765/api/v1/system/status
 {
   "data": {
     "status": "READY",
-    "version": "0.1.1"
+    "version": "0.2.0"
   }
 }
 ```
