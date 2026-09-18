@@ -622,4 +622,150 @@ Repository lineage：
 - `docs/development/v020-product-trigger-decision-20260916.md`
 - `AGENTS.md`
 
+---
+
+## 12. #505 Historical replay benchmark 執行紀錄（2026-09-18／19）
+
+本節為 §7 protocol 的實際執行結果。前文 §1／§10 撰寫時尚無本專案 A/B evidence；
+以下結果出爐後，§10 的「Historical A/B benchmark — CONDITIONAL GO」即視為已執行，
+決策以後述 §12.8 為準（`DEFER`；不晉升為 default workflow／sidecar）。
+
+### 12.1 Environment pin 與隔離方式
+
+- 外部工具：`code-review-graph==2.3.8`（PyPI pinned；upstream tag commit `2c6dae3`，2026-08-21，MIT）。
+- 安裝位置：repo 外隔離 venv（`/tmp` 下），`pip install "code-review-graph==2.3.8"`＋`tiktoken==0.14.0`（僅作 token 校準）。
+- **未執行** `code-review-graph install`（不寫入任何 MCP／hooks／skills／platform config，不碰 root `AGENTS.md`）。
+- **未啟用** embeddings（`--embedding-provider` 全程未帶；無 local/cloud embedding egress）。
+- Graph 儲存：`build --data-dir` 指向 repo 外隔離目錄；repo 內**未產生** `.code-review-graph/`，
+  `git status` 全程乾淨（僅既有 `work/` untracked）。
+- Baseline：`65910b7`（`main`，PR #506 合併後）。
+
+### 12.2 初次 build／狀態／增量成本
+
+- 初次 build：1008 files parsed（tracked 1102，扣 gitignored），8126 nodes／126217 edges；
+  wall 約 9.6s；`graph.db` 約 208MB。
+  Spring resolver 回報：912 Java files 中 resolve 1351 CALLS；event 0；另有 1395 evidence-backed
+  bare CALLS targets（未鏈接到具名節點）與 729 evidence-backed bare TESTED_BY sources。
+- `status --json`：`built_at_commit == current_sha` 時判 CURRENT（含 branch/commit 比對；本次相符）。
+- 增量 no-op `update`：約 0.4s（0 files updated）。
+- Edge kinds（DB 實測）：CALLS 69660、TESTED_BY 36728、CONTAINS 6984、IMPORTS_FROM 6199、
+  INJECTS 328、INHERITS 191、HANDLES 57、DEPENDS_ON_CONFIG 10、REFERENCES 9。
+  HANDLES 形如 `Controller.create → POST /api/v1/ask/proposals` endpoint node；INJECTS 形如
+  `AskService → RetrievalService`。
+
+### 12.3 Replay set（10 cases，覆蓋 Issue 要求的 8 類）
+
+| ID | 歷史 PR | 類別 | 輸入（餵給 `impact --files`） |
+| --- | --- | --- | --- |
+| R1 | #491 Draft Preview／Diff HTTP method 修正 | REST typed error＋Browser JS↔REST | `review-ui.js` |
+| R2 | #489 Inspector evidence currentness | Graph/RAG admission／currentness | `RetrievalInspectorService.java`＋`RetrievalInspectionMapper.java` |
+| R3 | #333 MCP adapter 去 REST 依賴 | cross-package refactor | `McpToolExecutor.java`＋`AskApplicationService.java` |
+| R4 | #324 歷史升級矩陣 | persistence／Flyway | `HistoricalUpgradeMatrixIntegrationTest.java` |
+| R5 | #377 Ask→Proposal V30 ingress | controller→service→repository＋migration | Ingress Service／Controller／Repository |
+| R6 | #371 Proposal transition 後端 authority | controller→service＋JS contract | `KnowledgeProposalReviewResponse.java`＋`KnowledgeProposalStatus.java` |
+| R7 | #502 語言治理 CI gate | CI／governance | `.github/workflows/pr-ci.yml` |
+| R8 | #483 static asset cache | lifecycle＋config wiring | `StaticAssetVersioner.java`＋`StaticAssetCacheConfiguration.java` |
+| R9 | #389 repair proposal ingress | controller→service→repository＋migration | `RepairProposalIngressService.java`＋`VaultRepairService.java` |
+| R10 | #440 sqlite-vec JarProcess | concurrency／lifecycle＋acceptance | `scripts/run-product-acceptance.sh` |
+
+Baseline A：`gh pr view` 實際合併檔案清單（ground truth）＋`git diff`／`grep`／source read。
+Candidate B：A＋`impact`（1 call／case）＋`query`（`callers_of`／`tests_for`／`file_summary`，2–4 calls／case）。
+Token 以 `tiktoken cl100k_base` 實測 impact JSON；raw input 亦同 tokenizer 實測。
+
+### 12.4 Per-case 結果
+
+impact 預設 depth 2 hops；elapsed 皆 < 0.5s／call（速度非瓶頸）。
+
+| ID | impact 結果 | Ground-truth 命中 | 錯失（miss） | 誤報／備註 |
+| --- | --- | --- | --- | --- |
+| R1 | 40 changed／23 impacted／3 files | ✅ `review-ui.test.mjs`（真測試） | —（JS 內聚覆蓋完整） | impact JSON 185KB／55.5k tokens，約 raw input（7.0k）**7.95x**；小改動 overhead 實證 |
+| R2 | 21／13／4 files | ✅ `RetrievalInspectorController`、跨 package `McpToolExecutor`（經共用 mapper 的真耦合） | ❌ 全部 4–6 個 ground-truth tests（`RetrievalInspectorIntegrationTest`、`RetrievalInspectorServiceTest`、`RetrievalInspectorApiTest`、`SourceLocatorApiTest`＋2 JS tests）皆未出現 | 附帶命中 `McpAdapterParityIntegrationTest`（他 feature 的 parity test，弱耦合、非本 PR 測試）；`tests_for(service)` 回 0＋confidence |
+| R3 | 19／7／3 files | ✅ `McpServerController`、`McpConfiguration`、parity test | ❌ 同 PR 的 Ask 側（`AskController` 直接引用 `AskApplicationService`，grep 可見）與 inspector 側（`RetrievalInspectorController`／mapper）皆未出現在 impacted | overhead 4.77x；MCP 側命中、Ask 側漏失的不對稱值得注意 |
+| R4 | 10／0／0＋confidence | △ test-only 變更本就無 caller（graph 與 grep 一致，皆無下游） | Flyway 語意耦合（V18–V28 fixture→migration chain）不在 graph model 內 | `tests_for` 不適用；此類 case graph 無增益亦無減損 |
+| R5 | 24／**0**／**0**＋confidence | 無（0 impacted） | ❌ Controller、Repository、V30 migration、JS `ask-ui.js`、MockMvc integration test 全 miss；`AskProposalIngressController.create → createIngress` CALLS 以 bare target 存於 DB卻無法反向 traverse | confidence 誠實引用 `#592`（AOP／reflective gap） |
+| R6 | 7／**0**／**0**＋confidence | 無（0 impacted） | ❌ `review-ui.js`（JS 經 URL 字串呼叫 `PATCH /api/v1/proposals/{id}/status`）、`KnowledgeProposalReviewApiIntegrationTest` 全 miss（bare／URL-string coupling） | overhead 3.84x 且零命中 |
+| R7 | **0 changed nodes**／0／0＋confidence | 無（該檔零 nodes：`target not indexed: no node matching 'pr-ci.yml'`） | ❌ 新增的 `language-governance.test.mjs` gate、六個 evidence jobs 語意全不可見 | `context_savings` 卻報 95% saved——分母為 whole-file baseline 的誤導性節省數字（見 §12.5） |
+| R8 | 11／**0**／**0**＋confidence | 無（0 impacted） | ❌ Ground-truth test（`StaticAssetVersionIntegrationTest`）、`application.yml` 的 key 引用、`pom.xml` 耦合全 miss；Spring config／lifecycle runtime wiring（`@Configuration`／`@Bean`／static chain）不被 traversal 涵蓋 | overhead 1.74x 零命中 |
+| R9 | 13／**0**／**0**＋confidence | 無（0 impacted） | ❌ Controller、Repository、V31 migration 全 miss（同 R5 機制） | overhead 1.80x |
+| R10 | 3／0／0＋confidence | 無（0 impacted；confidence 自稱 `real absence`） | ❌ acceptance tests、shell→Maven→Java 語意鏈不可見 | `real absence` 為 overclaim（該 script 真實觸發 release gate tests，只是 coupling 不在 graph model 內）；overhead 1.16x |
+
+`query` 補充：bare class 名一律 `ambiguous`（須逐 method qualified_name 重查，每個 symbol 多耗 1–2 calls）；
+`tests_for(AskProposalIngressService.java)` 回 0——該 test 經 MockMvc HTTP 而非直接呼叫 service，
+屬模型內預期行為，但對 reviewer 而言仍是 missed test linkage。
+
+### 12.5 Token／context 方法學與校準
+
+- `chars/4` 估算在本批 JSON 上系統性低估 cl100k 實測約 7–21%（ratio 0.79–0.93x）；下述倍率一律用 tiktoken 實測值。
+- Full-fidelity `impact` JSON 為 raw input 的 **1.16–7.95x**（R1 7.95x、R2 5.09x、R3 4.77x、R4 4.52x；
+  零命中組 R5 2.58x／R6 3.84x／R8 1.74x／R9 1.80x；倍率皆為 tiktoken 實測）。膨脹主因是
+  `changed_nodes` 全量展開。
+- 「節省」只在 whole-corpus baseline 下成立（upstream 65x 的分母）；在 changed-file＋targeted grep
+  baseline 下，本批 10 cases **無一節省**——與 Issue 前提（headline ≠ 真實 agent savings）一致，
+  並與官方 changed-file benchmark「小 diff 可 < 1x」的自我揭露互相印證。
+- `update --brief` Token Savings panel 在 no-op 上報 ~97% saved（2,499→70）：分母定義不同，
+  不得引用為本專案 ROI。
+- Tool calls：B 每 case 約 3–5 calls（impact 1＋query 2–4＋必要 disambiguation），且 blocking rule 要求
+  之後**仍須回 source／tests 驗證**，reads 並未減少；6 個零命中 case 中 B 為純增成本。
+
+### 12.6 Framework／static-analysis miss taxonomy（本專案實測）
+
+1. **Bare CALLS 未鏈接**：controller→service 同層 Java 呼叫以未 resolve target 存於 DB，
+   `impact` 無法反向 traverse（R5／R9；DB 內 1395 bare CALLS 佐證非個案）。
+2. **MockMvc／HTTP-level tests 不可見**：本 repo 主流 API 測試經 URL 字串＋`MockMvc`，
+   `TESTED_BY`（36728 條）覆蓋直接呼叫測試，不覆蓋此類（R2／R5／R6）。
+3. **Browser JS↔REST URL-string coupling 不可見**：`fetch("/api/v1/...")` 字串到 HANDLES endpoint
+   的鏈接不存在（R1 只見 JS 內聚；R6 的 JS↔Java 全 miss）。
+4. **Flyway／SQL 語意耦合不在 model 內**：migration↔repository／fixture chain 需語意理解（R4）。
+5. **CI workflow 語意不在 traversal 內**：YAML 雖在支援語言列，但該 workflow 檔零 nodes
+   （`target not indexed`；R7）；job／step／script 語意無 edges。
+6. **Shell→build→Java 語意鏈不在 model 內**，且 confidence 可 overclaim `real absence`（R10）。
+7. **Spring config／lifecycle runtime wiring**（`@Configuration`／`@Bean`／static chain）不被 traversal 涵蓋（R8）。
+8. **Query ergonomics**：class-level 查詢必 `ambiguous`，須改用冗長的 method-level qualified_name
+   重查，agent 每次多耗 calls（B 成本項）。
+
+正面亦須記錄：空結果 confidence 語意誠實（R5／R6／R8 引用 `#592`；R7 明示 `not indexed`），
+符合 v2.3.8 release notes「Honest empty results」；HANDLES／INJECTS edges 確實存在且 R2／R3 產生
+真命中（controller 發現、MCP 跨 package delegation）。問題是 **recall 不足以作 completion 語意**，
+且 `real absence`（R10）與節省百分比（R7／no-op 97%）兩處有 false-confidence 形態。
+
+### 12.7 Blocking-rule 判定（Issue §D）
+
+- ❌ missed correctness-critical dependency > baseline：成立（R2 tests 全 miss、R5／R6／R9 跨層全 miss、
+  R7 CI 全不可見；baseline grep 以 URL／symbol 字串可找到其中多數）。
+- ❌ missed Flyway／schema／API impact：成立（R4 語意鏈、R5 V30、R9 V31、R6 API contract 全 miss）。
+- ❌ missed failure-path test：成立（MockMvc 類 tests 系統性不可見；R2 為代表）。
+- ⚠️ stale 誤判：本次未直接觀測（全程 CURRENT），但 R10 `real absence` overclaim 與 R7 高節省百分比
+  證明「graph 自稱無影響」不可作完成證據——§1 既有「stale 只作 navigation hint」維持且範圍應擴及
+  `real absence` 自稱。
+- ❌ Spring reflection／AOP／config／annotation wiring 造成 false confidence：成立（confidence 自引 `#592`；
+  R8／R10 為實例）。
+- ✅ risk score 未接 gate：本次未啟用 refactor／risk-gate（維持 NO CURRENT ADOPTION，無違規）。
+
+**結論：觸發 blocking rule——不得升格為 default workflow。**
+
+### 12.8 最終決策（取代 §10 的 pending benchmark 項）
+
+```text
+Production/runtime adoption                 NO-GO（維持）
+Product Knowledge Graph integration         NO-GO（維持）
+Required PR risk-score gate                 NO CURRENT ADOPTION（維持）
+Default developer sidecar enablement        DEFER（benchmark 後確認，不晉升 Stage 2）
+Owner-optional discovery-assist pilot       CONDITIONAL（僅接受 miss＋強制 source revalidation 的 owner；非預設）
+Blast-radius-first preflight pattern        ADOPT AS WORKFLOW INPUT（維持；本 benchmark 即其執行範例）
+Context-budget／partial-stale 語意          ADOPT AS GOVERNANCE INPUT（維持；另增：real-absence 與節省百分比不得作完成證據）
+Mutating refactor tools                     NO CURRENT ADOPTION（維持；本次未測）
+Cloud embeddings／code egress               NO CURRENT ADOPTION（維持；本次未啟用）
+```
+
+相較 CodeGraph（#400）／GitNexus（#439）：CRG 在本專案的**獨立增益僅為操作面**
+（MIT license pilot 摩擦較低、HANDLES／INJECTS 與 Java／Spring 較貼合、empty-result confidence 較誠實、
+benchmark 可重現），**correctness 側無獨立增益**——三者共享同一 static-analysis ceiling
+（MockMvc／URL-string／Flyway／YAML／shell／runtime wiring 不可見），而本 repo 的測試與契約風格
+（MockMvc API tests、JS URL 字串、Flyway 語意鏈）恰落在該 ceiling 之外。因此不建立 vendor-specific
+平行 workflow；developer code-intelligence sidecar family 維持單一 `DEFER／BENCHMARK DONE` 收斂
+（lineage §3.13／§4 已同步）。
+
+Raw replay artifacts（10× impact JSON＋`.err`）為 ephemeral benchmark scratch，依 evaluations README §5
+不進 Git；本節方法、版本、aggregate result、限制與判定即為長期 decision evidence。
+
 Refs #505。
