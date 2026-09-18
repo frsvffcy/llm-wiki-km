@@ -6,7 +6,7 @@
 - Audited HEAD：`47971618cf9559aab57cfd5b79a9c9636cbfa64d`
 - Current version metadata：`0.18.10`
 - Core/workspace license：Apache-2.0；desktop app另有 AGPL-3.0 surface，不能把整個 monorepo簡化成單一 license
-- 本專案 baseline：`llm-wiki-km main@0457a7bddf3818a62562d84b44ba6df3c8dd523b`
+- 本專案 baseline：`llm-wiki-km main@8da51957da669247e25390d16b4f1382ef31c154`
 - Tracking：#540
 - Follow-up：#541、#542
 
