@@ -313,10 +313,13 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     elements.pageInfo.textContent = "";
   }
 
-  async function refresh() {
-    if (inFlight) return;
-    inFlight = true;
-    elements.hint.textContent = "";
+  async function fetchList() {
+    // Internal list fetch without the in-flight guard (#517): the caller must
+    // already hold the lock (`refresh` acquires it; mutations hold it across
+    // the mutation + follow-up fetch). Success leaves `hint` untouched so a
+    // mutation success message set by the caller survives; failure renders the
+    // typed list error. Returns true only when the list was re-rendered from
+    // backend authority (no optimistic local rows).
     try {
       const params = new URLSearchParams({ page: String(state.page), size: String(PAGE_SIZE) });
       if (state.status) params.set("status", state.status);
@@ -325,7 +328,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
       const envelope = await readEnvelope(response);
       if (!response.ok) {
         showTypedError(envelope && envelope.error ? envelope.error : undefined);
-        return;
+        return false;
       }
       const rows = envelope && Array.isArray(envelope.data) ? envelope.data : [];
       const pageMeta = envelope && envelope.page ? envelope.page : null;
@@ -334,8 +337,19 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
         onPreview: openPreview,
         onRemove: remove
       });
+      return true;
     } catch {
       showTypedError(undefined);
+      return false;
+    }
+  }
+
+  async function refresh() {
+    if (inFlight) return;
+    inFlight = true;
+    elements.hint.textContent = "";
+    try {
+      await fetchList();
     } finally {
       inFlight = false;
     }
@@ -361,11 +375,16 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
         return;
       }
       const uploaded = envelope.data || {};
-      elements.hint.textContent = uploaded.duplicate
+      const successMessage = uploaded.duplicate
         ? `「${text(uploaded.fileName)}」為重複檔案：內容與既有文件相同。`
         : `「${text(uploaded.fileName)}」已上傳，狀態：待處理。可執行抽取以產生可檢索內容。`;
       elements.fileInput.value = "";
-      await refresh();
+      // Mutation holds the lock, so follow-up must use fetchList(): refresh()
+      // would early-return on inFlight and leave a stale projection (#517).
+      // Filter/page state is preserved because fetchList reuses current state.
+      const listOk = await fetchList();
+      if (!listOk) return;
+      elements.hint.textContent = successMessage;
     } catch {
       showTypedError(undefined);
     } finally {
@@ -394,7 +413,9 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
         return;
       }
       renderBatchResult(elements, envelope.data, documentRef);
-      await refresh();
+      const listOk = await fetchList();
+      if (!listOk) return;
+      elements.hint.textContent = "";
     } catch {
       showTypedError(undefined);
     } finally {
@@ -414,7 +435,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
         return;
       }
       renderRescan(elements, envelope.data, documentRef);
-      await refresh();
+      await fetchList();
     } catch {
       showTypedError(undefined);
     } finally {
@@ -438,8 +459,9 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
         return;
       }
       const outcome = extractionOutcome(envelope.data, null);
+      const listOk = await fetchList();
+      if (!listOk) return;
       elements.hint.textContent = outcome.label;
-      await refresh();
     } catch {
       showTypedError(undefined);
     } finally {
@@ -481,8 +503,9 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
         showTypedError(envelope && envelope.error ? envelope.error : undefined);
         return;
       }
+      const listOk = await fetchList();
+      if (!listOk) return;
       elements.hint.textContent = "已從收件匣移除（標記為已刪除）。";
-      await refresh();
     } catch {
       showTypedError(undefined);
     } finally {
