@@ -308,6 +308,21 @@ MiroFish 的 current lineage 是 **synthetic evolving-world evaluation / simulat
 - `GOVERNANCE PROMOTION`：#537 將 synthetic/simulation evidence authority寫入 `docs/evaluations/README.md`：synthetic evidence可驗 invariant，不自動代表 empirical reality；benchmark gold須 repository-owned deterministic fixture / invariant。
 - `DEFER`：current沒有 repeated currentness/contradiction/temporal-citation failure足以支持立即 benchmark；trigger成立後再開新的 question-first Issue，不保留 MiroFish vendor backlog。
 
+### 3.24 Wenlan（#540）
+
+Wenlan 的 current lineage 是 **local-first Product Knowledge lifecycle + evaluation-trust + multi-agent mutation-ownership design input**，不是另一套 Product Memory/Wiki/Graph/RAG runtime：
+
+- `SOURCE PIN`：`7xuanlu/wenlan` default `main` audited `47971618...`，current version metadata `0.18.10`；core/workspace Apache-2.0，desktop app另有 AGPL-3.0 surface，license需按 component判讀。
+- `CURRENTLY COVERED`：Sources / maintained Pages、hybrid lexical+vector retrieval、derived graph、scope isolation、read-only lint/health、local MCP等，本專案已有 current authority owner；不得建立第二套 Wenlan runtime、Product Memory/Wiki/Graph/RAG。
+- `LIFECYCLE INPUT`：Wenlan明確拆 Source / atomic Memory / maintained Page；Memory replacement保留 provenance/supersession，Page refresh需 citation support，human-edited Page不 silent overwrite。此 pattern與 #443 OpenWiki / #515 Hindsight及 current Proposal→Human Review→Publish相容，只作 reinforcement/future input。
+- `HUMAN-BYTES SAFETY`：current #768 證明 system `origin_id` 不能證明 current file bytes仍 fully machine-owned；human可能原地修改而 frontmatter不變。migration應 preserve/archive不可重建的人類 bytes。current archive/vault安全原則已較強，future filesystem projection/OKF/Obsidian migration需把此 case列入 challenge，不另開 current production bug。
+- `ACTIONABLE — #542`：current #765 曾讓 pre-commit讀取另一 actor 的 unstaged edits後 regenerate + auto-stage inventory，造成 unrelated commit scope contamination；修正為 check-only、explicit regenerate/review/stage，pre-stop對 ambiguous dirty state改 advisory。抽象成 repository-wide **automation mutation ownership**：pre-existing/ownership-unknown dirty state不得被 agent/hook無聲 mutation/stage/delete。
+- `ACTIONABLE — #541`：Wenlan eval harness的 producer+consumer substrate liveness、environment/feature stamp、content-addressed seed currentness、conditional A/A noise floor、per-query channel attribution與 verify-the-verifier補足本專案既有 #509/#520/#523的 experiment-validity seam。未 live / 未 touched 必須是 `EVAL REFUSED / UNOBSERVED`，不得被寫成 `NO BENEFIT`。
+- `DEFER — RANKING DRIFT ORACLE`：ranking overlap golden可偵測 silent drift，但只能證明「變了」不能證明「更正確」；current labeled golden quality gate尚無 repeated miss evidence，故只留 trigger-gated input。
+- `OKF SIGNAL`：current #766 已實作 OKF bundle import並保留 provenance/links/scope，強化 #443 的 interoperability ecosystem signal；但 current llm-wiki-km無 import/export需求，仍 `DEFER`，先不建立 OKF implementation Story。
+- 外部 LongMemEval / reranker headline不作 own-project ROI；可借鏡的是 substrate validity、environment identity、evidence-strength與 statistical-resolution discipline。
+- 不建立 Wenlan-specific permanent roadmap；後續 actionable owner只有 #541、#542，其餘回到既有 candidate family與 trigger gate。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
@@ -328,6 +343,9 @@ MiroFish 的 current lineage 是 **synthetic evolving-world evaluation / simulat
 | Developer verification / criterion-evidence traceability | COG（#522）、#509 evidence precision、current Completion Code Review Gate | `ADOPT AS DESIGN INPUT → #523`；L3+ / correctness-sensitive work建立 stable criterion→observation→evidence mapping，L4/L5優先 fresh/read-only artifact-first verification；不複製完整 CP-0～CP-7，不強制 L1/L2 ceremony |
 | Developer orchestration / historical replay calibration | Dream-RSI（#519）、#505/#509 historical replay evidence discipline、current model-routing §7 | `CALIBRATION DONE — #520`：12 traces＋1 fresh canary 離線比較 current baseline（P0）與 3 candidates，winner P0 → `KEEP CURRENT`（不改 model-routing；P1 tune hard fail、P2 無增益高排程、P3 留 UNOBSERVED 風險）。只在 developer evaluation plane比較 routing／escalation／challenge policy；完整 Issue/PR trace作 split unit，correctness hard gate先於 cost，replay winner需 fresh unseen canary；不自動改治理、不建立 Product runtime或 vendor-specific RSI roadmap。重跑 triggers 見 #520 evaluation §9 |
 | Developer code-intelligence sidecar | GitNexus（#439）、CodeGraph、code-review-graph（#505/#509）、Graphify（#535） | `DEFER；#505 與 #535 correctness benchmarks DONE`。Product Knowledge Graph 與 Developer Graph 硬分離；所有 derived graph 只作 discovery，不作 completion authority。Graphify G0 的 R2／R3／R5／R9 與 G1 的 R7 recovery 證明 material difference，但 R8／R6／R10 僅 partial、R4 仍 miss；JS↔REST、Flyway、shell→Maven→Java、Spring runtime wiring 的 correctness ceiling 未解除。Family 不升格 owner-optional／default，不採 graph-first／strict-first／remote MCP／product integration，也不按 vendor 拆 parallel roadmap |
+| Evaluation substrate validity / feature attribution | Wenlan（#540）、#509 evidence precision、#520 replay、#523 criterion-evidence | `ADOPT AS GOVERNANCE INPUT → #541`；對 Hybrid/Graph/Rerank/Query Transformation建立 substrate-liveness + environment stamp + feature-touch attribution。未 live/未 touched 為 EVAL REFUSED/UNOBSERVED，不得寫成 no-benefit；A/A只用於 noisy/stochastic arms；drift oracle維持 trigger-gated，不取代 labeled correctness |
+| Agent / hook mutation ownership | Wenlan #765（#540）、current Action Risk / Git preflight | `ADOPT AS GOVERNANCE INPUT → #542`；automation只可 mutation/stage task-owned change set；pre-existing/ambiguous dirty state預設 read-only/advisory，禁止 whole-tree regenerate + auto-stage造成跨 actor scope contamination；若 current repo無 executable defect則不新增無需求 hook |
+
 | Architecture visualization / derived diagram | fireworks-tech-graph（#438） | `DEFER / CONDITIONAL PILOT`，diagram 僅為 Architecture VoT derived projection（GENERATED/DERIVED/NON-AUTHORITATIVE）；validated loop + anti-drift 先行，single overview pilot 需過 maintenance-cost gate；CI auto-regeneration 不提前建立 |
 | External observability sidecar / OTel telemetry | OpenObserve（#441） | `DEFER / PILOT CANDIDATE`，backend 只消費 telemetry 不決定 domain/citation/readiness/authority；OTel boundary + correlation + #282/#323 privacy allowlist 先行，Ask telemetry 為 `CONDITIONAL / PRIVACY-GATED`；RUM/SLO/incident 等 real pain 再議 |
 | Metadata-aware retrieval | Dify | `DEFER`，需要 corpus/UX證據；若做必須是 typed/versioned/applicability-gated policy |
