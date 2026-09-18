@@ -143,7 +143,65 @@ diagnosis；本 gate 再補一層語意：
   enforcement（ruleset），GitHub enforcement 也不能取代 agent 判斷——兩層各自獨立成立
   （#361）。direct push 失敗後不得無聲改走另一個 admin API 繞過（challenge 6）。
 
-## 8. Challenge scenarios（table-driven governance review）
+## 8. Automation mutation ownership
+
+本節把 A1 的「bounded local file mutation」收斂為 repository-wide ownership 契約；它不建立
+新的 risk taxonomy，也不取代 §7 Git preflight、Completion Code Review Gate 或既有安全紅線。
+可逆不代表可任意碰觸整個 working tree：只有**本次任務明確擁有**的 change set 才是可 mutation
+範圍。
+
+### 8.1 Preflight ownership classes
+
+開始 mutation 前，agent／hook／formatter／generator／verifier 必須以 latest baseline、index 與
+起始 `git status` 至少區分：
+
+| 類別 | 預設處置 |
+| --- | --- |
+| baseline tracked state | 唯讀參考；只有在 task scope 明確涵蓋時才取得 mutation ownership |
+| 本次 task 產生或修改的 path | 可依 A1 交付流程 mutation；仍須 review diff 與留下 verification evidence |
+| pre-existing dirty tracked change | **不可修改、format、regenerate、stage、restore 或刪除**；若與 owned path 重疊，停止並要求人工判定 |
+| pre-existing untracked／local-only state | **不可修改、stage、搬移、清理或刪除**；不得把存在本身當成本次 task evidence |
+| generated artifact | 只有本次 task 明確觸發、輸出範圍明確且由本次 task 擁有時才可重新產生；否則只檢查或提示 |
+
+ownership 來自明確 task scope 與本次操作的可追溯 provenance，不得因檔案位於同一 repository、
+工具能寫入、或 validation 能看見它，就推定 agent 擁有它。
+
+### 8.2 Check-only、regenerate 與 staging 規則
+
+1. hook／CI helper／verifier 預設 **check-only**；可以讀取完成 validation 所需的 bounded surface，
+   但不得因 whole-worktree dirty state 自行 regenerate、format、cleanup 或 stage。
+2. validation 若要求更新 generated artifact，須回報明確 command 與預期輸出；由本次 task 顯式
+   執行 scoped regeneration，確認輸出 path 屬 owned change set，review diff 後才可 stage。
+3. 禁止 automation 使用 `git add -A`、`git add .` 或 wildcard 把 ownership 不明的 path 納入。
+   staging 必須使用明確 owned path；automation 執行前後的 staged set 不得無聲擴張。
+4. finding 若無法綁定 ownership，預設為 advisory；若該不確定性會破壞 correctness，則 fail-closed
+   要求人工判定，仍不得代替人修改或吸收 change。
+5. dirty tree 本身不證明「本 agent 未完成」。Completion／stop blocker 必須綁定本次 owned change、
+   acceptance criterion 或其必要 verification；pre-existing／unrelated finding 可如實回報，但不得
+   冒充 task failure 或完成證據。
+
+### 8.3 Current repository automation audit（#542）
+
+本輪以 latest main 的 tracked `.github/workflows/`、`scripts/`、`deploy/`、Maven build/codegen 與
+repository Git 設定為 bounded surface。結果如下：
+
+| Surface | Mutation／status 行為 | Ownership 判定 |
+| --- | --- | --- |
+| Git hooks | 無 tracked hook，亦無 repository-configured `core.hooksPath` | 無 auto-stage／hook mutation surface；不為形式新增 hook |
+| PR／main CI helpers | `actions/checkout` 的隔離 checkout；執行 tests、`git diff --check` 與 read-only metadata audit | 無 `git add`／reset／cleanup；CI 產物留在 runner 的 `target/` 或 workflow artifact |
+| Maven／jOOQ build | `clean` 重建 Maven-owned `target/`；jOOQ 只寫 `target/generated-sources/jooq` | bounded derived output，不覆寫 tracked source 或既有 staged set |
+| Release candidate／dependency inventory | `build-release-candidate.sh` 以 `git status --porcelain` 要求 clean source（明確 `--allow-dirty` 只供 local iteration 且寫入 manifest）；產物與 inventory 寫入明確 `target/release-candidate/` | dirty check 是 source-authority guard，不是 agent completion evidence；無 stage、無 whole-tree regeneration |
+| Smoke／hygiene scripts | 使用自行建立的 `mktemp` roots 或 `target/`，cleanup 只針對那些 bounded paths | 不清理 working tree、local-only 或 ownership 不明的內容 |
+| Backup／restore helpers | backup retention 只輪替明確 `BACKUP_DIR` 的 `llm-wiki-km-*` artifacts；restore 只接受明確且為空的 `TARGET_ROOT` | 屬 operator 明確設定的運維資料範圍，不是 Git working-tree cleanup／staging surface |
+| Formatter／whole-tree generator | 未找到 repository formatter、whole-tree source generator 或 auto-fix workflow；dependency inventory 接受顯式 output dir，無隱式呼叫 | 無 formatter 覆寫未 owned file；generator 只能由 caller 顯式觸發並依 §8.2 取得 output ownership |
+| Dirty／stop gate | 除 release clean-source guard 外，未找到以 pre-existing dirty state 判定 agent task 成敗的 gate | 無 executable defect |
+
+因此 current repository **沒有需要修補的 executable automation mutation defect**；本輪只建立
+governance 與未來 regression policy，不新增 hook、runtime code 或無實際被測 surface 的 regression
+test。未來若加入會 mutation／stage 的 automation，必須在同一變更中加入 behavioral regression，
+證明 unrelated unstaged／untracked state 不會被修改或加入 staged set。
+
+## 9. Challenge scenarios（table-driven governance review）
 
 | # | Scenario | Complexity | Action Risk | 正確決策 | 被防止的誤判 |
 | --- | --- | --- | --- | --- | --- |
@@ -158,7 +216,7 @@ diagnosis；本 gate 再補一層語意：
 | 9 | reversible action 的 rollback 需要更高 permission | 任意 | 至少 A2 或如實降級 | rollback 特權面納入 reversibility factor | 「可逆」名義下的低風險誤標 |
 | 10 | action-risk taxonomy 綁定 model tier／effort | — | 禁止 | 本契約只描述 action；model 路由見 model-routing.md | 重蹈 L1–L5 已修掉的耦合 |
 
-## 9. 記錄與演進
+## 10. 記錄與演進
 
 * 新 capability 進 main 時，§5 mapping 必須同步（隨該 capability 的 PR）。
 * A-level 命名（A0～A2）為本文件 authority；調整需更新 root AGENTS.md §0.2 對照。
