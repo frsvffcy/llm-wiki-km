@@ -8,15 +8,17 @@
 - Current package：`graphifyy 0.9.63`
 - Current license：Apache-2.0（root `LICENSE` + `pyproject.toml`）
 - llm-wiki-km baseline：`c76817faecf8c754e4ca8ec77875c6d50c75d16b`
+- Phase B latest benchmark baseline：`0457a7bddf3818a62562d84b44ba6df3c8dd523b`
 - Tracking Issue：#535
 - Classification：TRACK_FULL developer-workflow / code-intelligence / self-improvement evaluation
+- Final status：**DEFER / BENCHMARK DONE**
 - Related：#439、#505、#509、#515、#520、#528、#533
 
 ---
 
 ## 1. Executive decision
 
-Graphify 對 `llm-wiki-km` **有可借鏡價值，而且相較既有 GitNexus / code-review-graph lineage 有 material difference**；但 current evidence 仍不足以把它升格成 default developer dependency，更不應進 Product Knowledge Graph。
+Graphify 對 `llm-wiki-km` **有可借鏡價值，而且相較既有 GitNexus / code-review-graph lineage 有 material difference**；Phase B G0／G1 benchmark 已完成，但 correctness-critical gaps 仍存在，因此不升格成 default 或 owner-optional developer dependency，更不進 Product Knowledge Graph。Final decision 為 **DEFER / BENCHMARK DONE**。
 
 Current decision：
 
@@ -24,22 +26,23 @@ Current decision：
 | --- | --- |
 | Product Knowledge Graph / ArcadeDB integration | **NO-GO** |
 | Production runtime dependency | **NO-GO** |
-| Developer discovery sidecar | **BENCHMARK CANDIDATE → #535** |
+| Developer discovery sidecar | **DEFER / BENCHMARK DONE** |
+| Owner-optional sidecar | **NO-GO** |
 | Cross-artifact graph pattern | **ADOPT AS DESIGN INPUT** |
 | Edge provenance `EXTRACTED / INFERRED / AMBIGUOUS` | **ADOPT AS DESIGN INPUT** |
 | built-at-commit + graph health / fail-closed writes | **ADOPT AS GOVERNANCE INPUT** |
 | Outcome feedback `useful/dead_end/corrected` | **ADOPT AS DESIGN INPUT** |
 | Auto-feed agent Q&A into Product Graph | **NO-GO** |
 | Graph-first strict source blocking | **NO-GO** |
-| Default skills/hooks/MCP enablement | **DEFER** |
+| Default skills/hooks/MCP enablement | **NO-GO** |
 | Remote/shared HTTP MCP | **NO CURRENT ADOPTION** |
 | Upstream benchmark → own-project ROI | **NO-GO** |
 
 最重要的結論不是「Graphify 比既有 code graph 強」，而是：
 
-> Graphify 提供一個值得重驗 #505 結論的**不同 candidate shape**：它把 code AST、docs/ADR、SQL、Bash、YAML/manifests、package/config references 等 cross-artifact signal 放進同一 derived graph，並且把 edge provenance、incremental currentness 與 experiential feedback 顯式化。
+> Graphify 提供一個足以重驗 #505 結論的**不同 candidate shape**：它把 code AST、docs/ADR、SQL、Bash、YAML/manifests、package/config references 等 cross-artifact signal 放進同一 derived graph，並且把 edge provenance、incremental currentness 與 experiential feedback 顯式化。
 
-但它沒有證明能完整理解 Spring runtime wiring、MockMvc HTTP contract、Browser URL contract 或 Flyway semantic impact；這些仍必須用 `llm-wiki-km` 自己的 historical ground truth 量測。
+實測確認它能找回部分不同訊號，但沒有完整理解 Spring runtime wiring、MockMvc HTTP contract、Browser URL contract、Flyway semantic impact 或 shell→Maven→Java execution chain。Semantic edges 只能作 discovery，不可作 proof；empty result 或 no-path 也不可證明 dependency 不存在。
 
 ---
 
@@ -125,7 +128,7 @@ README current surface還包含：
 
 ---
 
-## 4. 與 #505 measured miss taxonomy 的對照
+## 4. 與 #505 measured miss taxonomy 的 source-audit 對照
 
 #505 已有 10-case historical replay，不需另造 toy benchmark。
 
@@ -142,9 +145,11 @@ Known blocking misses：
 | controller → service → repository | cross-file Java calls/imports可解析，但 DI/proxy仍可能漏 | **PARTIAL CANDIDATE** |
 | tests / API consumer | generic refs可能提供 hints，不代表 complete test linkage | **UNPROVEN** |
 
-所以 Graphify不是「已知解法」，而是：
+這份 Phase A source-audit 對照當時證明 Graphify不是「已知解法」，而是：
 
 > 有足夠不同的 artifact coverage，可以合理重跑同一 ground truth；但沒有資格跳過 benchmark。
+
+Phase B 實測結果與 final decision 見 §14～§17。
 
 ---
 
@@ -348,9 +353,11 @@ README / skill current behavior顯示：
 
 - source/code/document egress不得默默發生；
 - remote provider需沿既有 provider-egress governance；
-- benchmark G0應先採 structural-only；
-- G1 semantic mode只有在G0結果不足且decision值得成本時再做；
-- G1必須 pin extraction prompt/version/provider class與資料邊界。
+- benchmark protocol 要求 G0 先採 structural-only；
+- G1 semantic mode 只有在 G0 結果不足且 decision 值得成本時才解鎖；
+- G1 必須 pin extraction prompt/version/provider class 與資料邊界。
+
+Phase B 實際依此順序完成；G1 的 host-agent fallback 與限制見 §14.4。
 
 ### 9.3 Prompt injection
 
@@ -569,7 +576,7 @@ Graphify的唯一合理理由是：
 
 > 它是否能用 cross-artifact coverage補回 #505已知miss？
 
-所以 #535必須重用同一 ground truth，不重做 marketing benchmark。
+因此 #535 已重用同一 ground truth，不重做 marketing benchmark；實測答案見 §14。
 
 ### #515 Hindsight
 
@@ -597,11 +604,13 @@ Graphify reflection是 Developer discovery/work-memory hint。
 
 ---
 
-## 14. Bounded follow-up benchmark：#535
+## 14. Phase B bounded benchmark：#535
 
-### 14.1 Question
+### 14.1 Question 與執行邊界
 
 > Cross-artifact graph是否能關掉 #505 的 static-analysis blocking misses，至少到足以成為 owner-optional L3+ discovery sidecar？
+
+Phase B 重用 #505 R1～R10 ground truth，不新增 toy corpus。G0 從 Phase A merged baseline `894879c377f7d7606603348bafe9fb66a2cbf43b` 執行；G1 從 latest benchmark baseline `0457a7bddf3818a62562d84b44ba6df3c8dd523b` 執行，兩個 baseline 之間沒有 Java/JS/schema/CI 差異。G0 與 G1 均使用 pinned Graphify `v0.9.63`、隔離環境與隔離輸出；未執行 `graphify install`、未修改 AGENTS/MCP/hooks、未啟用 always-on／strict graph-first，也未修改 production Java/JS/schema/Flyway/CI。
 
 ### 14.2 Ground truth
 
@@ -618,7 +627,7 @@ Graphify reflection是 Developer discovery/work-memory hint。
 - R9；
 - R10。
 
-### 14.3 G0 structural-only
+### 14.3 G0 structural-only 實測
 
 ~~~text
 Graphify v0.9.63
@@ -631,20 +640,55 @@ no AGENTS mutation
 read-only query/path/explain
 ~~~
 
-先回答 deterministic graph有沒有增益。
+G0 使用 `--code-only --no-cluster`，只執行 local deterministic structural extraction；未使用 cloud provider 或 semantic docs agent。
 
-### 14.4 G1 semantic cross-artifact
+Base build 掃描 1007 個 code files，產生 8490 nodes／32560 edges，wall time 約 6.9 秒；加裝 SQL extra 後為 8622 nodes／32775 edges。`pr-ci.yml` 與 `application.yml` 均為 0 nodes，`pom.xml` 只有 package hub nodes；base 下 34 個 SQL 檔因缺少 `tree_sitter_sql` 無貢獻。
 
-只有 G0不足且仍有 decision value才解鎖。
+| Case | G0 observation | 判定 |
+| --- | --- | --- |
+| R1 review UI | 可由 `imports_from` 找回 `review-ui.test.mjs` | HIT |
+| R2 Inspector | 找回 controller、IntegrationTest／ApiTest／ServiceTest 與 MCP cross-package；仍漏 SourceLocatorApiTest、2 個 JS 與 mapper qualified-name | **materially-different recovery** |
+| R3 MCP | 找回 AskController／AskApiIntegrationTest／AskApplicationServiceTest，且 McpToolExecutor→AskApplicationService 可達 | **materially-different recovery** |
+| R4 Flyway | 只有內部 methods；`affected` 為 0，migration semantic chain 不可見 | **MISS** |
+| R5 Ask ingress | 找回 controller／service／repositories；V30、ask-ui 與 MockMvc 仍不足 | **materially-different partial recovery** |
+| R6 JS↔REST | URL-string coupling 與 directed path 不可見 | **MISS** |
+| R7 CI YAML | `pr-ci.yml` 無 node | **MISS** |
+| R8 config | `application.yml` 無 node；versioner→config 無 path | **MISS** |
+| R9 repair ingress | 找回 controller／repository／VaultRepairService／RepairProposalIngressIntegrationTest | **materially-different recovery** |
+| R10 shell | 只有 `fail`／`provision` definitions；shell→Maven→Java semantics 不可見 | **MISS** |
 
-要求：
+因此 G0 證明 R2／R3／R5／R9 有 materially-different recovery，但未解除任何 blocking rule。Class-name explain 也有歧義，部分查詢必須以 qualified name／path 重查；query cost 不可忽略。
 
-- pin prompt；
-- pin provider/host mode；
-- egress disclosure；
-- no secrets；
-- raw agent answer不得變 proof；
-- semantic edge標 derived。
+### 14.4 G1 semantic cross-artifact 實測
+
+G0 仍留下多個 correctness-critical misses，但 materially-different recovery 使 bounded G1 保有 decision value，因此依 gate 解鎖。
+
+#### Egress 與可重現性限制
+
+- 自動 semantic backend 未成功執行：本機唯一 keyless backend `claude-cli` 回報 `Not logged in · Please run /login`；其他 provider key 未配置，Ollama 也沒有本機 server。這次沒有成功的計費 provider 呼叫，且**不需要、也未要求新增 API key**。
+- 合法 fallback 使用既有 host-agent session，逐字採用 `graphifyy 0.9.63` 內建 pinned extraction prompt；結果寫入 Graphify 官方 semantic cache，再由 Graphify 0.9.63 自家 merge／shrink／manifest 路徑重放。Prompt identity 為 `llm._EXTRACTION_SYSTEM` SHA-256 `f18e9d676ba49b6c6a0fee583f9ac0064e472654e7ed037058966ae95fdda08a`，cache namespace fingerprint 為 `p5e80268fecd6`。
+- 此方法的 prompt 與 merge path 可重現，但 agent 產生的 edge 內容非 byte-deterministic，也不是 Graphify 自動 backend dispatch 的證明；只量測 pinned prompt 下 semantic signal 能否補足 coupling。
+- Semantic input 限 7 個 git-tracked 公開檔案；未納入 untracked／local-only 內容，未發現 secret／credential literal。Bounded doc set 並未覆蓋全部 99 個 semantic candidates。
+
+G1 產生 8497 nodes／32614 edges；相較 G0 repro 增加 7 個 document nodes 與 54 條 semantic edges。54/54 均為 `EXTRACTED` `references`，逐條 literal 驗證通過，0 false positive；未產生 `INFERRED`／`AMBIGUOUS` edge。
+
+| Case | G1 observation | 判定 |
+| --- | --- | --- |
+| R7 CI YAML | `pr-ci.yml` 找回 Browser JS contract tests、governance scripts、metadata tests、sqlite-vec smoke 與 ArcadeDB／Graph integration tests | **RECOVERED**；但依賴 host-agent semantic pass，且皆為 grep 可得的 literal mention |
+| R8 config／lifecycle | `application.yml` 找回 StaticAssetCacheConfiguration；StaticAssetVersionIntegrationTest、pom coupling 與 Spring runtime wiring 仍不可見 | **PARTIAL** |
+| R6 JS↔REST | `index.html` 找回 `review-ui.js` adjacency；JS URL-string↔REST endpoint 仍無 path | **PARTIAL** |
+| R10 shell→Maven→Java | workflow／procedure 找回 `run-product-acceptance.sh`；script 內 `mvn -Dtest=...` 到 Java test 的 execution chain 仍不可見 | **PARTIAL** |
+| R4 Flyway | fixture→migration semantic chain 仍不可見 | **MISS** |
+| R2／R3／R5／R9 | G0 recovery 維持，無 semantic regression；R5 的 V30／ask-ui／MockMvc 缺口仍在 | 持平 |
+
+G1 找回 R7，並讓 R8／R6／R10 出現 partial signal，但 **JS↔REST、Flyway semantic coupling、shell→Maven→Java 與 Spring runtime wiring 仍是 correctness blocking gaps**。R4 仍 miss。
+
+#### Authority 與 currentness
+
+- Semantic edges 只可作 discovery，不可作 proof；即使標為 `EXTRACTED`，也只證明來源檔中有 literal mention，不證明 runtime、profile、migration impact 或完整 dependency chain。
+- Empty result／no-path 不可證明 dependency 不存在。R4、R6 core 與 R10 core 都有 source 可驗證的真實 coupling，但 graph 無 path。
+- 本次 graph 由 baseline `0457a7bddf3818a62562d84b44ba6df3c8dd523b` 的 `git archive HEAD` 建立，抽查檔案與 HEAD byte-identical；currentness 是外部 git／manifest 比對結果。`--no-cluster` 的 `graph.json` 頂層沒有可獨立宣告 CURRENT 的 `built_at_commit`，不得因 graph 存在就稱 current。
+- G1 是 bounded subset，且由同一 agent context 自審；不是 model-independent challenge。這項限制不影響「blocking gaps 仍存在」的 defer 結論，但禁止把結果外推成完整 semantic coverage。
 
 ### 14.5 Correctness metrics
 
@@ -673,23 +717,20 @@ read-only query/path/explain
 
 ---
 
-## 15. Adoption gate
+## 15. Adoption gate result
 
-### GO to owner-optional sidecar only if
+### Owner-optional sidecar gate
 
-- correctness-critical recall不低於 baseline；
-- 至少關掉 #505一組有決策價值的 known misses；
-- graph absence不產生 false proof；
-- currentness可驗證；
-- source/test revalidation成本仍合理；
-- G0優先，不需靠 uncontrolled semantic egress才能成立。
+結果為 **NO-GO**：雖然 R2／R3／R5／R9 有 materially-different recovery，G1 也找回 R7，但 correctness-critical gaps 未解除；semantic 增益需要 authenticated host CLI、provider key 或本次受限的 host-agent fallback，且找回的內容皆為 grep 可得的 literal reference。這不足以正式化 owner-optional sidecar。
 
-### DEFER if
+### DEFER / BENCHMARK DONE
 
-- 只提供更漂亮的 graph；
-- known misses仍系統性存在；
-- cost增益未量測；
-- semantic mode才有幫助但 governance成本過高。
+- Phase B G0／G1 已足額回答 Research Question；
+- known misses 仍系統性存在；
+- correctness blocking rule 未解除；
+- workflow-level cost 未以 matched end-to-end protocol 量測；
+- 不建立 Graphify dependency、MCP、hooks、AGENTS 修改或 product integration；
+- 不再保留 vendor-specific adoption follow-up。
 
 ### NO-GO if
 
@@ -702,7 +743,7 @@ read-only query/path/explain
 
 ## 16. 對自我改善最值得留下的 pattern
 
-即使 #535 benchmark最後是 DEFER，也建議長期保留五個 pattern：
+#535 benchmark 最後判定為 `DEFER / BENCHMARK DONE`；仍建議長期保留五個 pattern：
 
 1. **Provenance-first derived relation**
    - explicit / inferred / ambiguous。
@@ -731,8 +772,9 @@ read-only query/path/explain
 Product/runtime adoption                  NO-GO
 Product Knowledge Graph integration       NO-GO
 
-Developer sidecar                         BENCHMARK CANDIDATE (#535)
-Default Graphify install                  DEFER
+Developer sidecar                         DEFER / BENCHMARK DONE
+Owner-optional sidecar                    NO-GO
+Default Graphify install                  NO-GO
 Strict graph-first                        NO-GO
 Remote MCP                                NO CURRENT ADOPTION
 
@@ -747,8 +789,8 @@ Graphify不是 current product roadmap的新 lane。
 
 它現在最合理的角色是：
 
-> 用一個 materially different candidate，重驗既有「developer code-intelligence sidecar」family是否真的已碰到共同 static-analysis ceiling。
+> 作為已完成 benchmark 的 design／governance input，證明 cross-artifact graph 可改善 discovery，但沒有跨越既有 static-analysis correctness ceiling。
 
-答案必須由 #535 的 own-project replay決定。
+Phase B own-project replay 已回答問題：G0 的 R2／R3／R5／R9 recovery 與 G1 的 R7 recovery 都成立，但 R8／R6／R10 只有 partial，R4 仍 miss；JS↔REST、Flyway semantic coupling、shell→Maven→Java、Spring runtime wiring 仍屬 correctness blocking gaps。Final decision 為 **DEFER / BENCHMARK DONE**。
 
 Refs #535 #439 #505 #509 #515 #520 #528 #533
