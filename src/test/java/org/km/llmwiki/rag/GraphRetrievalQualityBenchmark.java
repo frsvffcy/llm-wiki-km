@@ -42,7 +42,8 @@ final class GraphRetrievalQualityBenchmark {
     record Evaluation(String corpusVersion, String rankingPolicyVersion, int k,
                       String graphProjectionVersion, long graphAppliedGeneration,
                       List<QueryMetrics> metrics, Map<String, ModeAggregate> aggregates,
-                      List<String> safetyViolations, boolean degradedBaselineRetained) {
+                      List<String> safetyViolations, boolean degradedBaselineRetained,
+                      EvaluationTrustContract.Assessment trust) {
 
         String toJson() {
             try {
@@ -61,6 +62,11 @@ final class GraphRetrievalQualityBenchmark {
             report.append("- graph projection: `").append(graphProjectionVersion).append("` generation ")
                     .append(graphAppliedGeneration).append('\n');
             report.append("- degraded baseline retained: ").append(degradedBaselineRetained)
+                    .append('\n');
+            report.append("- evaluation evidence strength: `")
+                    .append(trust.evidenceStrength()).append("`\n");
+            report.append("- evaluation trust findings: ")
+                    .append(trust.findings().isEmpty() ? "none" : trust.findings())
                     .append("\n\n");
             report.append("| mode | recall@k | mrr | noise | graph-added found/expected |\n");
             report.append("| --- | --- | --- | --- | --- |\n");
@@ -117,6 +123,8 @@ final class GraphRetrievalQualityBenchmark {
         Map<String, Integer> graphAddedFound = new LinkedHashMap<>();
         Map<String, Integer> graphAddedExpected = new LinkedHashMap<>();
         List<String> safetyViolations = new ArrayList<>();
+        Map<String, Boolean> substrateLive = new LinkedHashMap<>();
+        Map<String, Boolean> touched = new LinkedHashMap<>();
 
         for (Map.Entry<String, Function<String, EvidenceBundle>> mode : modeRunners.entrySet()) {
             recalls.put(mode.getKey(), new ArrayList<>());
@@ -124,11 +132,30 @@ final class GraphRetrievalQualityBenchmark {
             noise.put(mode.getKey(), 0);
             graphAddedFound.put(mode.getKey(), 0);
             graphAddedExpected.put(mode.getKey(), 0);
+            substrateLive.put(mode.getKey(), false);
+            touched.put(mode.getKey(), false);
         }
 
         for (GraphRetrievalGoldenCorpus.GoldenQuery query : queries) {
             for (Map.Entry<String, Function<String, EvidenceBundle>> mode : modeRunners.entrySet()) {
                 EvidenceBundle bundle = mode.getValue().apply(query.text());
+                RetrievalDiagnostics diagnostics = bundle.diagnostics();
+                boolean modeLive = switch (mode.getKey()) {
+                    case "HYBRID_FTS" -> diagnostics.lexicalSignalUsed();
+                    case "HYBRID_VECTOR" ->
+                            diagnostics.vectorSignalUsed() && !diagnostics.vectorUnavailable();
+                    case "HYBRID_GRAPH" ->
+                            diagnostics.graphSignalUsed() && !diagnostics.graphUnavailable();
+                    default -> true;
+                };
+                boolean modeTouched = switch (mode.getKey()) {
+                    case "HYBRID_FTS" -> diagnostics.lexicalSignalUsed();
+                    case "HYBRID_VECTOR" -> diagnostics.vectorSignalUsed();
+                    case "HYBRID_GRAPH" -> diagnostics.graphSignalUsed();
+                    default -> true;
+                };
+                substrateLive.merge(mode.getKey(), modeLive, Boolean::logicalOr);
+                touched.merge(mode.getKey(), modeTouched, Boolean::logicalOr);
                 List<String> retrieved = bundle.items().stream()
                         .map(org.km.llmwiki.rag.EvidenceItem::stableIdentity).toList();
                 Set<String> unique = new java.util.LinkedHashSet<>(retrieved);
@@ -173,9 +200,45 @@ final class GraphRetrievalQualityBenchmark {
                 && new java.util.LinkedHashSet<>(degradedGraphOutcome.retrieved())
                 .equals(degradedBaselineExpectation);
 
+        List<String> fingerprintParts = new ArrayList<>();
+        fingerprintParts.add(corpusVersion);
+        fingerprintParts.add(rankingPolicyVersion);
+        fingerprintParts.add(graphProjectionVersion);
+        fingerprintParts.add(Long.toString(graphAppliedGeneration));
+        fingerprintParts.addAll(modeRunners.keySet());
+        for (GraphRetrievalGoldenCorpus.GoldenQuery query : queries) {
+            fingerprintParts.add(query.id() + "|" + query.queryClass() + "|" + query.text()
+                    + "|" + query.relevant() + "|" + query.graphOnlyRelevant());
+        }
+        String fingerprint = EvaluationTrustContract.fingerprint(fingerprintParts);
+        EvaluationTrustContract.EnvironmentStamp environment =
+                new EvaluationTrustContract.EnvironmentStamp(
+                        corpusVersion,
+                        rankingPolicyVersion,
+                        List.copyOf(modeRunners.keySet()),
+                        graphProjectionVersion,
+                        graphAppliedGeneration,
+                        "N/A",
+                        "N/A",
+                        "N/A",
+                        true,
+                        "release-quality",
+                        fingerprint);
+        List<EvaluationTrustContract.ChannelObservation> channelObservations =
+                modeRunners.keySet().stream()
+                        .map(mode -> new EvaluationTrustContract.ChannelObservation(
+                                mode,
+                                true,
+                                substrateLive.getOrDefault(mode, false),
+                                touched.getOrDefault(mode, false),
+                                "production-equivalent retrieval runner"))
+                        .toList();
+        EvaluationTrustContract.Assessment trust = EvaluationTrustContract.assess(
+                environment, fingerprint, channelObservations);
+
         return new Evaluation(corpusVersion, rankingPolicyVersion, k, graphProjectionVersion,
                 graphAppliedGeneration, List.copyOf(metrics), Map.copyOf(aggregates),
-                List.copyOf(safetyViolations), degradedBaselineRetained);
+                List.copyOf(safetyViolations), degradedBaselineRetained, trust);
     }
 
     static void writeReports(Evaluation evaluation, Path directory) {
