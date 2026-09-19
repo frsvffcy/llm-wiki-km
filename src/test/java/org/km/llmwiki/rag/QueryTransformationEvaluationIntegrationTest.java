@@ -232,8 +232,12 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
             List<String> overlapAudit = lexicalOverlapAudit(queries, evidenceText);
             EvaluationTrustContract.Assessment trust = evaluateTrust(runs, projection);
             violations.addAll(trust.findings());
-            Decision decision = decide(runs, violations, poolGainQueries, windowGainQueries,
-                    missTaxonomy, multiQueryUnlocked);
+            Decision decision = trust.findings().isEmpty()
+                    ? decide(runs, violations, poolGainQueries, windowGainQueries,
+                            missTaxonomy, multiQueryUnlocked)
+                    : new Decision("EVAL REFUSED / UNOBSERVED",
+                            List.of("experiment trust gates failed; quality/no-benefit "
+                                    + "conclusions are not observable"));
             writeReports(runs, decision, violations, projection, missTaxonomy, fallbackScenarios,
                     degradation, poolGainQueries, windowGainQueries, multiQueryUnlocked,
                     overlapAudit, trust);
