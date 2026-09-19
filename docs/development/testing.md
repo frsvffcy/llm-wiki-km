@@ -1937,8 +1937,8 @@ manifest `sourceCommit`，任一缺失／格式錯誤／不一致即 NO-GO；REA
 auth 才可 publish），
  文件見 `docs/release/release-candidate-procedure-v1.md`、
  `docs/release/native-capability-matrix.md`、
- `docs/release/v0.2.0-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，
- `v0.1.1-release-notes.md` 為 v0.1.1 tag 不可變 source）、
+ `docs/release/v0.2.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，
+ `v0.1.1-release-notes.md` 為 v0.1.1 tag 不可變 source，`v0.2.0-release-notes.md` 為 v0.2.0 tag 不可變 source）、
  `docs/release/v0.1.1-browser-smoke-checklist.md`（v0.1.1 historical source），workflow 為
 `.github/workflows/release-candidate.yml`（retention 14 天，無 secrets）。
 
