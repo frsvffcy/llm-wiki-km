@@ -40,6 +40,7 @@ final class GraphRetrievalQualityBenchmark {
     }
 
     record Evaluation(String corpusVersion, String rankingPolicyVersion, int k,
+                      String branch, String headSha, String originMainSha,
                       String graphProjectionVersion, long graphAppliedGeneration,
                       List<QueryMetrics> metrics, Map<String, ModeAggregate> aggregates,
                       List<String> safetyViolations, boolean degradedBaselineRetained,
@@ -58,6 +59,9 @@ final class GraphRetrievalQualityBenchmark {
             report.append("# Graph-grounded retrieval quality report\n\n");
             report.append("- corpus: `").append(corpusVersion).append("`\n");
             report.append("- ranking policy: `").append(rankingPolicyVersion).append("`\n");
+            report.append("- revision: branch `").append(branch).append("`, HEAD `")
+                    .append(headSha).append("`, origin/main `").append(originMainSha)
+                    .append("`\n");
             report.append("- k: ").append(k).append('\n');
             report.append("- graph projection: `").append(graphProjectionVersion).append("` generation ")
                     .append(graphAppliedGeneration).append('\n');
@@ -238,8 +242,12 @@ final class GraphRetrievalQualityBenchmark {
         EvaluationTrustContract.Assessment trust = EvaluationTrustContract.assess(
                 environment, fingerprint, channelObservations);
 
-        return new Evaluation(corpusVersion, rankingPolicyVersion, k, graphProjectionVersion,
-                graphAppliedGeneration, List.copyOf(metrics), Map.copyOf(aggregates),
+        return new Evaluation(corpusVersion, rankingPolicyVersion, k,
+                git("rev-parse", "--abbrev-ref", "HEAD"),
+                git("rev-parse", "HEAD"),
+                git("rev-parse", "origin/main"),
+                graphProjectionVersion, graphAppliedGeneration,
+                List.copyOf(metrics), Map.copyOf(aggregates),
                 List.copyOf(safetyViolations), degradedBaselineRetained, trust);
     }
 
@@ -252,6 +260,21 @@ final class GraphRetrievalQualityBenchmark {
                     evaluation.toMarkdown());
         } catch (IOException failure) {
             throw new IllegalStateException("Benchmark report could not be written", failure);
+        }
+    }
+
+    private static String git(String... args) {
+        try {
+            Process process = new ProcessBuilder(
+                    java.util.stream.Stream.concat(java.util.stream.Stream.of("git", "-C", "."),
+                            java.util.Arrays.stream(args)).toList())
+                    .redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8).strip();
+            process.waitFor();
+            return process.exitValue() == 0 && !output.isBlank() ? output : "unavailable";
+        } catch (Exception failure) {
+            return "unavailable";
         }
     }
 
