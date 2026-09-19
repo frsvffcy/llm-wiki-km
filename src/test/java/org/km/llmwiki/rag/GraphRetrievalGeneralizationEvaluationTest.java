@@ -254,7 +254,10 @@ class GraphRetrievalGeneralizationEvaluationTest extends IsolatedIntegrationTest
         }
         assertPerQueryGates(baseline, selected, gateFailures);
 
-        String decision = gateFailures.isEmpty() ? "GO" : "NO-GO";
+        boolean trustObserved = baseline.trust().findings().isEmpty()
+                && selected.trust().findings().isEmpty();
+        String decision = !trustObserved ? "EVAL REFUSED / UNOBSERVED"
+                : gateFailures.isEmpty() ? "GO" : "NO-GO";
         writeReports(baseline, selected, decision, gateFailures, queries);
         assertThat(gateFailures).as("generalization decision " + decision).isEmpty();
     }
