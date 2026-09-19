@@ -206,6 +206,12 @@ class GraphRetrievalGeneralizationEvaluationTest extends IsolatedIntegrationTest
     private void writeReportAndAssertGates(Evaluation baseline, Evaluation selected,
                                            List<GoldenQuery> queries) throws IOException {
         List<String> gateFailures = new ArrayList<>();
+        if (!baseline.trust().findings().isEmpty()) {
+            gateFailures.add("baseline evaluation trust findings: " + baseline.trust().findings());
+        }
+        if (!selected.trust().findings().isEmpty()) {
+            gateFailures.add("selected evaluation trust findings: " + selected.trust().findings());
+        }
         if (!baseline.safetyViolations().isEmpty()) {
             gateFailures.add("baseline safety violations: " + baseline.safetyViolations());
         }
@@ -248,7 +254,10 @@ class GraphRetrievalGeneralizationEvaluationTest extends IsolatedIntegrationTest
         }
         assertPerQueryGates(baseline, selected, gateFailures);
 
-        String decision = gateFailures.isEmpty() ? "GO" : "NO-GO";
+        boolean trustObserved = baseline.trust().findings().isEmpty()
+                && selected.trust().findings().isEmpty();
+        String decision = !trustObserved ? "EVAL REFUSED / UNOBSERVED"
+                : gateFailures.isEmpty() ? "GO" : "NO-GO";
         writeReports(baseline, selected, decision, gateFailures, queries);
         assertThat(gateFailures).as("generalization decision " + decision).isEmpty();
     }

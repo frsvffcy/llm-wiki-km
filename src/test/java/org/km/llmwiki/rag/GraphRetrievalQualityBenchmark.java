@@ -40,9 +40,11 @@ final class GraphRetrievalQualityBenchmark {
     }
 
     record Evaluation(String corpusVersion, String rankingPolicyVersion, int k,
+                      String branch, String headSha, String originMainSha,
                       String graphProjectionVersion, long graphAppliedGeneration,
                       List<QueryMetrics> metrics, Map<String, ModeAggregate> aggregates,
-                      List<String> safetyViolations, boolean degradedBaselineRetained) {
+                      List<String> safetyViolations, boolean degradedBaselineRetained,
+                      EvaluationTrustContract.Assessment trust) {
 
         String toJson() {
             try {
@@ -57,10 +59,18 @@ final class GraphRetrievalQualityBenchmark {
             report.append("# Graph-grounded retrieval quality report\n\n");
             report.append("- corpus: `").append(corpusVersion).append("`\n");
             report.append("- ranking policy: `").append(rankingPolicyVersion).append("`\n");
+            report.append("- revision: branch `").append(branch).append("`, HEAD `")
+                    .append(headSha).append("`, origin/main `").append(originMainSha)
+                    .append("`\n");
             report.append("- k: ").append(k).append('\n');
             report.append("- graph projection: `").append(graphProjectionVersion).append("` generation ")
                     .append(graphAppliedGeneration).append('\n');
             report.append("- degraded baseline retained: ").append(degradedBaselineRetained)
+                    .append('\n');
+            report.append("- evaluation evidence strength: `")
+                    .append(trust.evidenceStrength()).append("`\n");
+            report.append("- evaluation trust findings: ")
+                    .append(trust.findings().isEmpty() ? "none" : trust.findings())
                     .append("\n\n");
             report.append("| mode | recall@k | mrr | noise | graph-added found/expected |\n");
             report.append("| --- | --- | --- | --- | --- |\n");
@@ -117,6 +127,8 @@ final class GraphRetrievalQualityBenchmark {
         Map<String, Integer> graphAddedFound = new LinkedHashMap<>();
         Map<String, Integer> graphAddedExpected = new LinkedHashMap<>();
         List<String> safetyViolations = new ArrayList<>();
+        Map<String, Boolean> substrateLive = new LinkedHashMap<>();
+        Map<String, Boolean> touched = new LinkedHashMap<>();
 
         for (Map.Entry<String, Function<String, EvidenceBundle>> mode : modeRunners.entrySet()) {
             recalls.put(mode.getKey(), new ArrayList<>());
@@ -124,11 +136,30 @@ final class GraphRetrievalQualityBenchmark {
             noise.put(mode.getKey(), 0);
             graphAddedFound.put(mode.getKey(), 0);
             graphAddedExpected.put(mode.getKey(), 0);
+            substrateLive.put(mode.getKey(), false);
+            touched.put(mode.getKey(), false);
         }
 
         for (GraphRetrievalGoldenCorpus.GoldenQuery query : queries) {
             for (Map.Entry<String, Function<String, EvidenceBundle>> mode : modeRunners.entrySet()) {
                 EvidenceBundle bundle = mode.getValue().apply(query.text());
+                RetrievalDiagnostics diagnostics = bundle.diagnostics();
+                boolean modeLive = switch (mode.getKey()) {
+                    case "HYBRID_FTS" -> diagnostics.lexicalSignalUsed();
+                    case "HYBRID_VECTOR" ->
+                            diagnostics.vectorSignalUsed() && !diagnostics.vectorUnavailable();
+                    case "HYBRID_GRAPH" ->
+                            diagnostics.graphSignalUsed() && !diagnostics.graphUnavailable();
+                    default -> true;
+                };
+                boolean modeTouched = switch (mode.getKey()) {
+                    case "HYBRID_FTS" -> diagnostics.lexicalSignalUsed();
+                    case "HYBRID_VECTOR" -> diagnostics.vectorSignalUsed();
+                    case "HYBRID_GRAPH" -> diagnostics.graphSignalUsed();
+                    default -> true;
+                };
+                substrateLive.merge(mode.getKey(), modeLive, Boolean::logicalOr);
+                touched.merge(mode.getKey(), modeTouched, Boolean::logicalOr);
                 List<String> retrieved = bundle.items().stream()
                         .map(org.km.llmwiki.rag.EvidenceItem::stableIdentity).toList();
                 Set<String> unique = new java.util.LinkedHashSet<>(retrieved);
@@ -173,9 +204,61 @@ final class GraphRetrievalQualityBenchmark {
                 && new java.util.LinkedHashSet<>(degradedGraphOutcome.retrieved())
                 .equals(degradedBaselineExpectation);
 
-        return new Evaluation(corpusVersion, rankingPolicyVersion, k, graphProjectionVersion,
-                graphAppliedGeneration, List.copyOf(metrics), Map.copyOf(aggregates),
-                List.copyOf(safetyViolations), degradedBaselineRetained);
+        List<String> fingerprintParts = new ArrayList<>();
+        fingerprintParts.add(corpusVersion);
+        fingerprintParts.add(rankingPolicyVersion);
+        fingerprintParts.add(graphProjectionVersion);
+        fingerprintParts.add(Long.toString(graphAppliedGeneration));
+        List<String> enabledChannels = modeRunners.keySet().stream().sorted().toList();
+        fingerprintParts.addAll(enabledChannels);
+        for (GraphRetrievalGoldenCorpus.GoldenQuery query : queries) {
+            fingerprintParts.add(query.id() + "|" + query.queryClass() + "|" + query.text()
+                    + "|" + query.relevant().stream().sorted().toList()
+                    + "|" + query.graphOnlyRelevant().stream().sorted().toList());
+        }
+        String fingerprint = EvaluationTrustContract.fingerprint(fingerprintParts);
+        EvaluationTrustContract.EnvironmentStamp environment =
+                new EvaluationTrustContract.EnvironmentStamp(
+                        corpusVersion,
+                        rankingPolicyVersion,
+                        enabledChannels,
+                        graphProjectionVersion,
+                        graphAppliedGeneration,
+                        "N/A",
+                        "N/A",
+                        "N/A",
+                        true,
+                        "release-quality",
+                        fingerprint);
+        List<EvaluationTrustContract.ChannelObservation> channelObservations =
+                enabledChannels.stream()
+                        .map(mode -> {
+                            boolean meaningfulSubstrate = substrateLive.getOrDefault(mode, false);
+                            String detail = "production-equivalent retrieval runner";
+                            if ("HYBRID_GRAPH".equals(mode)) {
+                                meaningfulSubstrate = meaningfulSubstrate
+                                        && graphAddedExpected.getOrDefault(mode, 0) > 0;
+                                detail = "READY graph channel plus at least one declared "
+                                        + "graph-only relevance target";
+                            }
+                            return new EvaluationTrustContract.ChannelObservation(
+                                    mode,
+                                    true,
+                                    meaningfulSubstrate,
+                                    touched.getOrDefault(mode, false),
+                                    detail);
+                        })
+                        .toList();
+        EvaluationTrustContract.Assessment trust = EvaluationTrustContract.assess(
+                environment, fingerprint, channelObservations);
+
+        return new Evaluation(corpusVersion, rankingPolicyVersion, k,
+                git("rev-parse", "--abbrev-ref", "HEAD"),
+                git("rev-parse", "HEAD"),
+                git("rev-parse", "origin/main"),
+                graphProjectionVersion, graphAppliedGeneration,
+                List.copyOf(metrics), Map.copyOf(aggregates),
+                List.copyOf(safetyViolations), degradedBaselineRetained, trust);
     }
 
     static void writeReports(Evaluation evaluation, Path directory) {
@@ -187,6 +270,21 @@ final class GraphRetrievalQualityBenchmark {
                     evaluation.toMarkdown());
         } catch (IOException failure) {
             throw new IllegalStateException("Benchmark report could not be written", failure);
+        }
+    }
+
+    private static String git(String... args) {
+        try {
+            Process process = new ProcessBuilder(
+                    java.util.stream.Stream.concat(java.util.stream.Stream.of("git", "-C", "."),
+                            java.util.Arrays.stream(args)).toList())
+                    .redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8).strip();
+            process.waitFor();
+            return process.exitValue() == 0 && !output.isBlank() ? output : "unavailable";
+        } catch (Exception failure) {
+            return "unavailable";
         }
     }
 

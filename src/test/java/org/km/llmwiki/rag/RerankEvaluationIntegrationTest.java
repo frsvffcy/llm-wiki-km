@@ -201,9 +201,15 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
             runs.add(productionRun);
             runs.add(productionRepeat);
 
-            Decision decision = decide(runs, violations, exactReproducible);
+            EvaluationTrustContract.Assessment trust = evaluateTrust(runs, projection);
+            violations.addAll(trust.findings());
+            Decision decision = trust.findings().isEmpty()
+                    ? decide(runs, violations, exactReproducible)
+                    : new Decision("EVAL REFUSED / UNOBSERVED",
+                            List.of("experiment trust gates failed; quality/no-benefit "
+                                    + "conclusions are not observable"));
             writeReports(runs, decision, violations, projection, corpusObservationList,
-                    exactReproducible);
+                    exactReproducible, trust);
             assertThat(violations)
                     .as("rerank evaluation correctness gates (see "
                             + "target/quality-reports/rerank-evaluation-v1.md)")
@@ -268,7 +274,7 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
                     recallAtK(rerankedOrder, query.relevant()),
                     precisionAtK(rerankedOrder, query.relevant()),
                     query.graphOnlyRelevant().stream().filter(baselineOrder::contains).toList(),
-                    graphOnlyRetained));
+                    graphOnlyRetained, true, !baselineOrder.equals(rerankedOrder)));
         }
         return new ModeRun("rerank-policy-v1-exact-anchor [production]", queryRuns, orders,
                 rerankOverheadTotal, retrievalNanos);
@@ -278,7 +284,8 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
                             List<String> baseline, List<String> reranked, double baselineMrr,
                             double rerankedMrr, double baselineRecallAtK,
                             double rerankedRecallAtK, double rerankedPrecisionAtK,
-                            List<String> graphOnlyInBaseline, boolean graphAddedRankRetained) {
+                            List<String> graphOnlyInBaseline, boolean graphAddedRankRetained,
+                            boolean rerankTouched, boolean rankingChanged) {
     }
 
     private record Decision(String verdict, List<String> reasons) {
@@ -370,7 +377,9 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
                     recallAtK(baselineOrder, query.relevant()),
                     recallAtK(rerankedOrder, query.relevant()),
                     precisionAtK(rerankedOrder, query.relevant()),
-                    graphOnlyInBaseline, graphAddedRankRetained));
+                    graphOnlyInBaseline, graphAddedRankRetained,
+                    !policy.name().equals("NO_RERANK"),
+                    !baselineOrder.equals(rerankedOrder)));
             if (!graphAddedRankRetained) {
                 violations.add(query.id() + "/" + policy.name()
                         + ": rerank degraded graph-added relevant ranking");
@@ -461,9 +470,61 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
         return new Decision("NO-GO", reasons);
     }
 
+    private EvaluationTrustContract.Assessment evaluateTrust(
+            List<ModeRun> runs, GraphProjectionStatusResponse projection) {
+        List<String> fingerprintParts = new ArrayList<>();
+        fingerprintParts.add(RerankEvaluationCorpusV1.VERSION);
+        fingerprintParts.add(FusionRankingPolicy.production().version());
+        fingerprintParts.add(projection.projectionVersion());
+        fingerprintParts.add(Long.toString(projection.appliedGeneration()));
+        for (ModeRun run : runs) {
+            fingerprintParts.add(run.policy());
+            for (QueryRun query : run.queries()) {
+                fingerprintParts.add(query.queryId() + "|" + query.queryClass()
+                        + "|" + query.relevant().stream().sorted().toList());
+            }
+        }
+        String fingerprint = EvaluationTrustContract.fingerprint(fingerprintParts);
+        EvaluationTrustContract.EnvironmentStamp environment =
+                new EvaluationTrustContract.EnvironmentStamp(
+                        RerankEvaluationCorpusV1.VERSION,
+                        FusionRankingPolicy.production().version(),
+                        List.of("HYBRID_GRAPH", "RERANK"),
+                        projection.projectionVersion(),
+                        projection.appliedGeneration(),
+                        "N/A",
+                        "N/A",
+                        "N/A",
+                        true,
+                        "release-quality",
+                        fingerprint);
+
+        boolean baselineSubstrateLive = projection.status().equals("READY")
+                && runs.stream().flatMap(run -> run.queries().stream())
+                .anyMatch(query -> !query.baseline().isEmpty());
+        boolean rerankSubstrateLive = runs.stream()
+                .filter(run -> !run.policy().equals("NO_RERANK"))
+                .flatMap(run -> run.queries().stream())
+                .anyMatch(query -> !query.baseline().isEmpty());
+        boolean rerankTouched = runs.stream().flatMap(run -> run.queries().stream())
+                .anyMatch(QueryRun::rerankTouched);
+
+        return EvaluationTrustContract.assess(
+                environment,
+                fingerprint,
+                List.of(
+                        new EvaluationTrustContract.ChannelObservation(
+                                "HYBRID_GRAPH", true, baselineSubstrateLive, true,
+                                "READY graph projection with a non-empty candidate window"),
+                        new EvaluationTrustContract.ChannelObservation(
+                                "RERANK", true, rerankSubstrateLive, rerankTouched,
+                                "at least one non-control rerank policy must execute")));
+    }
+
     private void writeReports(List<ModeRun> runs, Decision decision, List<String> violations,
                               GraphProjectionStatusResponse projection,
-                              List<String> corpusObservations, boolean exactReproducible)
+                              List<String> corpusObservations, boolean exactReproducible,
+                              EvaluationTrustContract.Assessment trust)
             throws IOException {
         Path reports = Path.of("target", "quality-reports");
         Files.createDirectories(reports);
@@ -471,11 +532,14 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
         json.put("corpus", RerankEvaluationCorpusV1.VERSION);
         json.put("branch", git("rev-parse", "--abbrev-ref", "HEAD"));
         json.put("headSha", git("rev-parse", "HEAD"));
+        json.put("originMainSha", git("rev-parse", "origin/main"));
         json.put("decision", decision.verdict());
         json.put("decisionReasons", decision.reasons());
         json.put("crossEncoderFeasibility", CROSS_ENCODER_DECISION);
         json.put("k", K);
         json.put("graphProjectionVersion", projection.projectionVersion());
+        json.put("graphAppliedGeneration", projection.appliedGeneration());
+        json.put("evaluationTrust", trust);
         json.put("corpusObservations", corpusObservations);
         json.put("runs", runs.stream().map(run -> {
             Map<String, Object> runJson = new LinkedHashMap<>();
@@ -495,6 +559,8 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
                 queryJson.put("rerankedOrder", query.reranked());
                 queryJson.put("graphOnlyInBaseline", query.graphOnlyInBaseline());
                 queryJson.put("graphAddedRankRetained", query.graphAddedRankRetained());
+                queryJson.put("rerankTouched", query.rerankTouched());
+                queryJson.put("rankingChanged", query.rankingChanged());
                 return queryJson;
             }).toList());
             return runJson;
@@ -506,7 +572,7 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
         Files.writeString(reports.resolve("rerank-evaluation-v1.json"),
                 new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(json) + "\n");
         Files.writeString(reports.resolve("rerank-evaluation-v1.md"), markdown(runs, decision,
-                violations, projection, corpusObservations, exactReproducible));
+                violations, projection, corpusObservations, exactReproducible, trust));
     }
 
     private static String git(String... args) {
@@ -526,17 +592,24 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
 
     private String markdown(List<ModeRun> runs, Decision decision, List<String> violations,
                             GraphProjectionStatusResponse projection,
-                            List<String> corpusObservations, boolean exactReproducible) {
+                            List<String> corpusObservations, boolean exactReproducible,
+                            EvaluationTrustContract.Assessment trust) {
         StringBuilder report = new StringBuilder();
         report.append("# Second-stage reranking evaluation report (v1)\n\n");
         report.append("- corpus: `").append(RerankEvaluationCorpusV1.VERSION).append("`\n");
         report.append("- branch: `").append(git("rev-parse", "--abbrev-ref", "HEAD"))
-                .append("`, HEAD: `").append(git("rev-parse", "HEAD")).append("`\n");
+                .append("`, HEAD: `").append(git("rev-parse", "HEAD"))
+                .append("`, origin/main: `").append(git("rev-parse", "origin/main"))
+                .append("`\n");
         report.append("- baseline: current production deterministic ranking (fusion policy ")
                 .append(FusionRankingPolicy.production().version()).append(", k=")
                 .append(K).append(")\n");
         report.append("- graph projection: `").append(projection.projectionVersion())
                 .append("` generation ").append(projection.appliedGeneration()).append('\n');
+        report.append("- evaluation evidence strength: `")
+                .append(trust.evidenceStrength()).append("`\n");
+        report.append("- evaluation trust findings: ")
+                .append(trust.findings().isEmpty() ? "none" : trust.findings()).append('\n');
         report.append("- local cross-encoder candidate: ").append(CROSS_ENCODER_DECISION)
                 .append('\n');
         report.append("- deterministic/reproducible: ").append(exactReproducible).append("\n");
@@ -566,8 +639,8 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
         report.append("\n## Per-query detail (baseline vs rerank)\n\n");
         report.append("| query | class | baseline mrr | rerank mrr | baseline recall@")
                 .append(K).append(" | rerank recall@").append(K).append(" | precision@")
-                .append(K).append(" | graph rank retained |\n");
-        report.append("| --- | --- | --- | --- | --- | --- | --- | --- |\n");
+                .append(K).append(" | graph rank retained | rerank touched | ranking changed |\n");
+        report.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
         for (ModeRun run : runs) {
             for (QueryRun query : run.queries()) {
                 report.append("| ").append(run.policy()).append("/").append(query.queryId())
@@ -577,7 +650,9 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
                         .append(String.format("%.4f", query.baselineRecallAtK())).append(" | ")
                         .append(String.format("%.4f", query.rerankedRecallAtK())).append(" | ")
                         .append(String.format("%.4f", query.rerankedPrecisionAtK())).append(" | ")
-                        .append(query.graphAddedRankRetained()).append(" |\n");
+                        .append(query.graphAddedRankRetained()).append(" | ")
+                        .append(query.rerankTouched()).append(" | ")
+                        .append(query.rankingChanged()).append(" |\n");
             }
         }
         report.append("\n## Per-query regression list\n\n");
