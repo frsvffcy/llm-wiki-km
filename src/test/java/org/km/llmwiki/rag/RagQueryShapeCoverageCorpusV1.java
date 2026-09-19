@@ -46,19 +46,19 @@ final class RagQueryShapeCoverageCorpusV1 {
                         "正式上線原公告",
                         "產品正式上線日期為 10 月 1 日，依原公告執行。",
                         List.of("release", "announcement"),
-                        true),
+                        false),
                 new GraphRetrievalGoldenCorpus.GoldenPage(
                         RELEASE_DELAYED,
                         "正式上線延期公告",
                         "產品正式上線日期已延期，新的正式上線日期為 10 月 15 日。",
                         List.of("release", "announcement"),
-                        true),
+                        false),
                 new GraphRetrievalGoldenCorpus.GoldenPage(
                         DEPLOY_MIGRATION,
                         "部署檢查資料庫",
                         "部署檢查必須完成資料庫 migration，確認 schema 已正確套用。",
                         List.of("deployment", "database"),
-                        true),
+                        false),
                 new GraphRetrievalGoldenCorpus.GoldenPage(
                         DEPLOY_ROLLBACK,
                         "部署檢查回復",
