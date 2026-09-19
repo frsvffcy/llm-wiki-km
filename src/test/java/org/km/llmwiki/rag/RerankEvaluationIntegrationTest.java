@@ -203,7 +203,11 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
 
             EvaluationTrustContract.Assessment trust = evaluateTrust(runs, projection);
             violations.addAll(trust.findings());
-            Decision decision = decide(runs, violations, exactReproducible);
+            Decision decision = trust.findings().isEmpty()
+                    ? decide(runs, violations, exactReproducible)
+                    : new Decision("EVAL REFUSED / UNOBSERVED",
+                            List.of("experiment trust gates failed; quality/no-benefit "
+                                    + "conclusions are not observable"));
             writeReports(runs, decision, violations, projection, corpusObservationList,
                     exactReproducible, trust);
             assertThat(violations)
