@@ -232,12 +232,22 @@ final class GraphRetrievalQualityBenchmark {
                         fingerprint);
         List<EvaluationTrustContract.ChannelObservation> channelObservations =
                 enabledChannels.stream()
-                        .map(mode -> new EvaluationTrustContract.ChannelObservation(
-                                mode,
-                                true,
-                                substrateLive.getOrDefault(mode, false),
-                                touched.getOrDefault(mode, false),
-                                "production-equivalent retrieval runner"))
+                        .map(mode -> {
+                            boolean meaningfulSubstrate = substrateLive.getOrDefault(mode, false);
+                            String detail = "production-equivalent retrieval runner";
+                            if ("HYBRID_GRAPH".equals(mode)) {
+                                meaningfulSubstrate = meaningfulSubstrate
+                                        && graphAddedExpected.getOrDefault(mode, 0) > 0;
+                                detail = "READY graph channel plus at least one declared "
+                                        + "graph-only relevance target";
+                            }
+                            return new EvaluationTrustContract.ChannelObservation(
+                                    mode,
+                                    true,
+                                    meaningfulSubstrate,
+                                    touched.getOrDefault(mode, false),
+                                    detail);
+                        })
                         .toList();
         EvaluationTrustContract.Assessment trust = EvaluationTrustContract.assess(
                 environment, fingerprint, channelObservations);
