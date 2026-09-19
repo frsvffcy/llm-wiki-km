@@ -38,7 +38,7 @@ class HybridRetrievalQualityMeasurementTest {
                 .map(fixture -> fixture.label() + "|"
                         + fixture.lexical().stream().map(SearchCandidate::stableId).toList() + "|"
                         + fixture.vector().stream().map(SearchCandidate::stableId).toList() + "|"
-                        + fixture.relevant())
+                        + fixture.relevant().stream().sorted().toList())
                 .toList();
         String fingerprint = EvaluationTrustContract.fingerprint(fingerprintParts);
         EvaluationTrustContract.Assessment trust = EvaluationTrustContract.assess(
