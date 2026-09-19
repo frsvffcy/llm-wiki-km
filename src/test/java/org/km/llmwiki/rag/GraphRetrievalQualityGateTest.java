@@ -134,6 +134,11 @@ class GraphRetrievalQualityGateTest extends IsolatedIntegrationTest {
         assertThat(reports.resolve("graph-retrieval-quality.json")).exists();
         assertThat(reports.resolve("graph-retrieval-quality.md")).exists();
 
+        // Experiment validity is a hard gate before any quality score may be interpreted.
+        assertThat(evaluation.trust().findings())
+                .as("graph evaluation trust findings")
+                .isEmpty();
+
         // Authority correctness, workspace isolation, and production MENTIONS NO-GO are hard
         // gates: no mode may ever retrieve a stale, foreign, or mention-only identity.
         assertThat(evaluation.safetyViolations()).isEmpty();
