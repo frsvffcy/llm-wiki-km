@@ -477,7 +477,7 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
             fingerprintParts.add(run.policy());
             for (QueryRun query : run.queries()) {
                 fingerprintParts.add(query.queryId() + "|" + query.queryClass()
-                        + "|" + query.relevant());
+                        + "|" + query.relevant().stream().sorted().toList());
             }
         }
         String fingerprint = EvaluationTrustContract.fingerprint(fingerprintParts);
