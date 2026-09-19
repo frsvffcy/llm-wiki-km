@@ -34,6 +34,39 @@ class HybridRetrievalQualityMeasurementTest {
                 Fixture.of("mixed Wiki + Source", List.of("wiki-exact", "source-noise"),
                         List.of("source-semantic", "wiki-exact"), Set.of("wiki-exact", "source-semantic")));
 
+        List<String> fingerprintParts = fixtures.stream()
+                .map(fixture -> fixture.label() + "|"
+                        + fixture.lexical().stream().map(SearchCandidate::stableId).toList() + "|"
+                        + fixture.vector().stream().map(SearchCandidate::stableId).toList() + "|"
+                        + fixture.relevant())
+                .toList();
+        String fingerprint = EvaluationTrustContract.fingerprint(fingerprintParts);
+        EvaluationTrustContract.Assessment trust = EvaluationTrustContract.assess(
+                new EvaluationTrustContract.EnvironmentStamp(
+                        "hybrid-retrieval-quality-v1",
+                        "reciprocal-rank-fusion-default",
+                        List.of("LEXICAL", "VECTOR"),
+                        "N/A",
+                        null,
+                        "N/A",
+                        "N/A",
+                        "N/A",
+                        true,
+                        "contract",
+                        fingerprint),
+                fingerprint,
+                List.of(
+                        new EvaluationTrustContract.ChannelObservation(
+                                "LEXICAL", true,
+                                fixtures.stream().anyMatch(fixture -> !fixture.lexical().isEmpty()),
+                                true, "offline deterministic lexical fixture"),
+                        new EvaluationTrustContract.ChannelObservation(
+                                "VECTOR", true,
+                                fixtures.stream().anyMatch(fixture -> !fixture.vector().isEmpty()),
+                                true, "offline deterministic vector fixture")));
+        assertThat(trust.findings()).isEmpty();
+        assertThat(trust.environment().requiresAaFloor()).isFalse();
+
         Metrics lexical = aggregate(fixtures, fixture -> fixture.lexical());
         Metrics hybrid = aggregate(fixtures, fixture -> ranker.fuse(
                 fixture.lexical(), fixture.vector(), 2));
