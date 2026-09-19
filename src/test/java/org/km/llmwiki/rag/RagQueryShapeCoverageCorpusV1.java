@@ -64,7 +64,7 @@ final class RagQueryShapeCoverageCorpusV1 {
                         "部署檢查回復",
                         "部署檢查必須完成備份與 rollback 演練，確認失敗時可以安全回復。",
                         List.of("deployment", "recovery"),
-                        true));
+                        false));
     }
 
     List<GoldenCase> cases() {
