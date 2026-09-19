@@ -230,11 +230,13 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
                     retrievalService, queries, evidenceText, violations);
 
             List<String> overlapAudit = lexicalOverlapAudit(queries, evidenceText);
+            EvaluationTrustContract.Assessment trust = evaluateTrust(runs, projection);
+            violations.addAll(trust.findings());
             Decision decision = decide(runs, violations, poolGainQueries, windowGainQueries,
                     missTaxonomy, multiQueryUnlocked);
             writeReports(runs, decision, violations, projection, missTaxonomy, fallbackScenarios,
                     degradation, poolGainQueries, windowGainQueries, multiQueryUnlocked,
-                    overlapAudit);
+                    overlapAudit, trust);
             assertThat(violations)
                     .as("query transformation evaluation correctness gates (see "
                             + "target/quality-reports/query-transformation-evaluation-v1.md)")
@@ -810,6 +812,61 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
         return List.copyOf(audit);
     }
 
+    private EvaluationTrustContract.Assessment evaluateTrust(
+            Map<String, List<VariantQueryRun>> runs,
+            GraphProjectionStatusResponse projection) {
+        List<String> fingerprintParts = new ArrayList<>();
+        fingerprintParts.add(QueryTransformationEvaluationCorpusV1.VERSION);
+        fingerprintParts.add(QueryTransformationEvaluationCorpusV1.REWRITE_FIXTURES_VERSION);
+        fingerprintParts.add(FusionRankingPolicy.production().version());
+        fingerprintParts.add(projection.projectionVersion());
+        fingerprintParts.add(Long.toString(projection.appliedGeneration()));
+        for (Map.Entry<String, List<VariantQueryRun>> entry : runs.entrySet()) {
+            fingerprintParts.add(entry.getKey());
+            for (VariantQueryRun run : entry.getValue()) {
+                fingerprintParts.add(run.queryId() + "|" + run.queryClass() + "|"
+                        + run.inputs() + "|" + run.events());
+            }
+        }
+        String fingerprint = EvaluationTrustContract.fingerprint(fingerprintParts);
+        EvaluationTrustContract.EnvironmentStamp environment =
+                new EvaluationTrustContract.EnvironmentStamp(
+                        QueryTransformationEvaluationCorpusV1.VERSION,
+                        FusionRankingPolicy.production().version(),
+                        List.of("HYBRID_GRAPH", "QUERY_TRANSFORMATION"),
+                        projection.projectionVersion(),
+                        projection.appliedGeneration(),
+                        "evaluation-fixture",
+                        "N/A",
+                        "N/A",
+                        true,
+                        "release-quality",
+                        fingerprint);
+
+        boolean retrievalSubstrateLive = projection.status().equals("READY")
+                && runs.values().stream().flatMap(List::stream)
+                .anyMatch(run -> !run.mergedOrder().isEmpty());
+        List<VariantQueryRun> transformed = runs.entrySet().stream()
+                .filter(entry -> !entry.getKey().equals(ORIGINAL_QUERY))
+                .flatMap(entry -> entry.getValue().stream())
+                .toList();
+        boolean transformationSubstrateLive = !transformed.isEmpty();
+        boolean transformationTouched = transformed.stream()
+                .anyMatch(run -> run.inputOrigins().stream().anyMatch("REWRITE"::equals));
+
+        return EvaluationTrustContract.assess(
+                environment,
+                fingerprint,
+                List.of(
+                        new EvaluationTrustContract.ChannelObservation(
+                                "HYBRID_GRAPH", true, retrievalSubstrateLive, true,
+                                "READY production-equivalent retrieval baseline"),
+                        new EvaluationTrustContract.ChannelObservation(
+                                "QUERY_TRANSFORMATION", true, transformationSubstrateLive,
+                                transformationTouched,
+                                "at least one non-control plan must execute a REWRITE input")));
+    }
+
     // ------------------------------------------------------------------ reports
 
     private void writeReports(Map<String, List<VariantQueryRun>> runs, Decision decision,
@@ -818,7 +875,8 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
                               List<FallbackScenario> fallbackScenarios,
                               List<DegradationScenario> degradation, List<String> poolGainQueries,
                               List<String> windowGainQueries, boolean multiQueryUnlocked,
-                              List<String> overlapAudit)
+                              List<String> overlapAudit,
+                              EvaluationTrustContract.Assessment trust)
             throws IOException {
         Path reports = Path.of("target", "quality-reports");
         Files.createDirectories(reports);
@@ -833,6 +891,8 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
         json.put("k", K);
         json.put("fusionPolicyVersion", FusionRankingPolicy.production().version());
         json.put("graphProjectionVersion", projection.projectionVersion());
+        json.put("graphAppliedGeneration", projection.appliedGeneration());
+        json.put("evaluationTrust", trust);
         json.put("lexicalQueryProjection", org.km.llmwiki.search.CjkBigramProjector.VERSION
                 + " (deterministic lexical projection, not semantic rewriting)");
         json.put("multiQueryUnlocked", multiQueryUnlocked);
@@ -873,7 +933,7 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
         Files.writeString(reports.resolve("query-transformation-evaluation-v1.md"),
                 markdown(runs, decision, violations, projection, missTaxonomy, fallbackScenarios,
                         degradation, poolGainQueries, windowGainQueries, multiQueryUnlocked,
-                        overlapAudit));
+                        overlapAudit, trust));
     }
 
     private static Map<String, Object> runToJson(VariantQueryRun run) {
@@ -893,6 +953,12 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
         json.put("insufficientEvidence", run.insufficientEvidence());
         json.put("fanOut", run.fanOut());
         json.put("providerCallAttempts", run.providerCallAttempts());
+        json.put("transformationTouched",
+                run.inputOrigins().stream().anyMatch("REWRITE"::equals));
+        json.put("retrievalDeltaObserved",
+                !run.additionalRelevantInPool().isEmpty()
+                        || !run.additionalRelevantInBundle().isEmpty()
+                        || !run.additionalNoiseInBundle().isEmpty());
         json.put("additionalRelevantInPool", run.additionalRelevantInPool());
         json.put("additionalRelevantInBundle", run.additionalRelevantInBundle());
         json.put("additionalNoiseInBundle", run.additionalNoiseInBundle());
@@ -911,7 +977,8 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
                             List<FallbackScenario> fallbackScenarios,
                             List<DegradationScenario> degradation, List<String> poolGainQueries,
                             List<String> windowGainQueries, boolean multiQueryUnlocked,
-                            List<String> overlapAudit) {
+                            List<String> overlapAudit,
+                            EvaluationTrustContract.Assessment trust) {
         StringBuilder report = new StringBuilder();
         report.append("# Query transformation recall evaluation report (v1)\n\n");
         report.append("- corpus: `").append(QueryTransformationEvaluationCorpusV1.VERSION)
@@ -927,6 +994,10 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
                 .append(", lexical projection ")
                 .append(org.km.llmwiki.search.CjkBigramProjector.VERSION).append(", k=")
                 .append(K).append(")\n");
+        report.append("- evaluation evidence strength: `")
+                .append(trust.evidenceStrength()).append("`\n");
+        report.append("- evaluation trust findings: ")
+                .append(trust.findings().isEmpty() ? "none" : trust.findings()).append('\n');
         report.append("- terminology: SQLite relational persistence = operational/control plane; ")
                 .append("SQLite FTS5 = rebuildable lexical projection; sqlite-vec = vector ")
                 .append("projection; ArcadeDB = derived graph projection; vault/ + canonical ")
@@ -957,8 +1028,8 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
         }
         report.append("\n## Per-query detail\n\n");
         report.append("| candidate | query | class | pool recall | recall@").append(K)
-                .append(" | mrr | noise | fan-out | events |\n");
-        report.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+                .append(" | mrr | noise | fan-out | transform touched | delta observed | events |\n");
+        report.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
         for (Map.Entry<String, List<VariantQueryRun>> entry : runs.entrySet()) {
             for (VariantQueryRun run : entry.getValue()) {
                 report.append("| ").append(entry.getKey()).append(" | ").append(run.queryId())
@@ -966,6 +1037,12 @@ class QueryTransformationEvaluationIntegrationTest extends IsolatedIntegrationTe
                         .append(fmt(run.poolRecall())).append(" | ").append(fmt(run.recallAtK()))
                         .append(" | ").append(fmt(run.mrr())).append(" | ")
                         .append(run.noiseCount()).append(" | ").append(run.fanOut())
+                        .append(" | ")
+                        .append(run.inputOrigins().stream().anyMatch("REWRITE"::equals))
+                        .append(" | ")
+                        .append(!run.additionalRelevantInPool().isEmpty()
+                                || !run.additionalRelevantInBundle().isEmpty()
+                                || !run.additionalNoiseInBundle().isEmpty())
                         .append(" | ").append(String.join("; ", run.events())).append(" |\n");
             }
         }
