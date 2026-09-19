@@ -205,17 +205,19 @@ final class GraphRetrievalQualityBenchmark {
         fingerprintParts.add(rankingPolicyVersion);
         fingerprintParts.add(graphProjectionVersion);
         fingerprintParts.add(Long.toString(graphAppliedGeneration));
-        fingerprintParts.addAll(modeRunners.keySet());
+        List<String> enabledChannels = modeRunners.keySet().stream().sorted().toList();
+        fingerprintParts.addAll(enabledChannels);
         for (GraphRetrievalGoldenCorpus.GoldenQuery query : queries) {
             fingerprintParts.add(query.id() + "|" + query.queryClass() + "|" + query.text()
-                    + "|" + query.relevant() + "|" + query.graphOnlyRelevant());
+                    + "|" + query.relevant().stream().sorted().toList()
+                    + "|" + query.graphOnlyRelevant().stream().sorted().toList());
         }
         String fingerprint = EvaluationTrustContract.fingerprint(fingerprintParts);
         EvaluationTrustContract.EnvironmentStamp environment =
                 new EvaluationTrustContract.EnvironmentStamp(
                         corpusVersion,
                         rankingPolicyVersion,
-                        List.copyOf(modeRunners.keySet()),
+                        enabledChannels,
                         graphProjectionVersion,
                         graphAppliedGeneration,
                         "N/A",
@@ -225,7 +227,7 @@ final class GraphRetrievalQualityBenchmark {
                         "release-quality",
                         fingerprint);
         List<EvaluationTrustContract.ChannelObservation> channelObservations =
-                modeRunners.keySet().stream()
+                enabledChannels.stream()
                         .map(mode -> new EvaluationTrustContract.ChannelObservation(
                                 mode,
                                 true,
