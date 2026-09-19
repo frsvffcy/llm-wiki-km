@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>{@code pom.xml} {@code project.version} is the only authority; the
  * runtime version must follow it without a manual Java-literal sync, so a
- * {@code pom.xml=0.2.0} bump can never keep serving the old version after a
+ * {@code pom.xml=0.2.1} bump can never keep serving the old version after a
  * rebuild.
  */
 @Tag("unit")

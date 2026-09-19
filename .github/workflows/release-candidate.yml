@@ -1,6 +1,6 @@
 name: Release Candidate
 
-# release-candidate pipeline (Refs #430; #454 §C/E patch; #512 v0.2.0 rebaseline).
+# release-candidate pipeline (Refs #430; #454 §C/E patch; #512 v0.2.0 rebaseline; #554 v0.2.1 rebaseline).
 #
 # Version truth lives in pom.xml + the manifest, never in a workflow-maintained
 # constant: this header stays version-neutral on purpose.

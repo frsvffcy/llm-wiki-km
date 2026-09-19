@@ -1,4 +1,4 @@
-# Release-candidate procedure v1 (Refs #430 §A–§B; #454 §A/E v0.1.1 patch; #512 v0.2.0 rebaseline)
+# Release-candidate procedure v1 (Refs #430 §A–§B; #454 §A/E v0.1.1 patch; #512 v0.2.0 rebaseline; #554 v0.2.1 rebaseline)
 
 > Procedure identifier: `release-candidate-procedure-v1`（#454 沿用，不另造第二套 acceptance framework）。
 > Executable authority 是 `scripts/build-release-candidate.sh`、`scripts/verify-reproducible-build.sh`
@@ -9,9 +9,9 @@
 
 ```text
 sourceCommit  = git rev-parse HEAD（clean checkout；dirty 預設 fail-closed，僅 local 允許 --allow-dirty）
-version       = mvn help:evaluate -Dexpression=project.version（Maven project 唯一 truth；current 0.2.0，v0.1.0 / v0.1.1 tags 不可變）
+version       = mvn help:evaluate -Dexpression=project.version（Maven project 唯一 truth；current 0.2.1，v0.1.0 / v0.1.1 / v0.2.0 tags 不可變）
 artifactId    = mvn help:evaluate -Dexpression=project.artifactId
-artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.2.0.jar；v0.1.0 / v0.1.1 僅為歷史 tag 示例）
+artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.2.1.jar；v0.1.0 / v0.1.1 / v0.2.0 僅為歷史 tag 示例）
 ```
 
 - Workflow / script 不得另維護第二份版本常數作 version truth；`--expected-version` 僅作
@@ -34,7 +34,7 @@ artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.2.0.jar
 | Clean lifecycle | `mvn clean package -Dtest.execution.skip=true`（clean 移除 `target/`、existing generated-sources、local output；不重用 developer `target/`） |
 | jOOQ / Flyway | Clean 後由 `generate-sources` 經全部已發布 migration 在 fresh temp SQLite 重建（Build Integrity 同語意） |
 | Production resources | `src/main/resources` 經 Maven lifecycle 打包，不讀 working-tree 作 runtime dependency |
-| outputTimestamp | `2026-09-15T00:00:00Z`（`pom.xml` 唯一 authority；deterministic JAR entry timestamps，不含 runtime currentness；#454 / #512 version bump 皆不引入動態 timestamp，沿用此值；它只是 reproducibility input，不代表 release date / currentness） |
+| outputTimestamp | `2026-09-15T00:00:00Z`（`pom.xml` 唯一 authority；deterministic JAR entry timestamps，不含 runtime currentness；#454 / #512 / #554 version bump 皆不引入動態 timestamp，沿用此值；它只是 reproducibility input，不代表 release date / currentness） |
 | Network | 僅允許 Maven dependency 下載；provider calls 不得成 release prerequisite（script 不讀 `OPENAI_API_KEY` 等） |
 
 Release build 從 clean checkout 執行：CI 用 `actions/checkout` clean tree；local 需 `git status --porcelain`
@@ -50,7 +50,7 @@ Release build 從 clean checkout 執行：CI 用 `actions/checkout` clean tree�
   不得以「同一個 workflow 跑的」宣稱 reproducible。
 - Local evidence（2026-09-15，Zulu 21.0.5 / Maven 3.9.9 / macOS arm64，v0.1.1-era 歷史紀錄）：
   兩次 clean build 皆 `1f21e377…`（完整 hash 見當時 manifest / verify 腳本輸出），`cmp` BIT-IDENTICAL。
-  v0.2.0 不重寫此歷史 hash；current reproducibility 由每次 candidate 的 `verify-reproducible-build.sh` 重新證明。
+  v0.2.0 / v0.2.1 不重寫此歷史 hash；current reproducibility 由每次 candidate 的 `verify-reproducible-build.sh` 重新證明。
 
 ## 4. Outputs
 
@@ -93,5 +93,5 @@ Manifest 不含 secret、API key、owner verifier、local absolute path、worksp
   行為由 `scripts/tests/test-release-identity.sh` 迴歸鎖定，fast tier 經 `ReleaseIdentityShellContractTest` 執行；
   所有 candidate smoke gate 共用同一 exact artifact identity contract，不各自維護 mtime 選取）。
 - Native matrix：`docs/release/native-capability-matrix.md`。
-- Release notes：`docs/release/v0.2.0-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，`v0.1.1-release-notes.md` 為 v0.1.1 tag 不可變 source）。
+- Release notes：`docs/release/v0.2.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，`v0.1.1-release-notes.md` 為 v0.1.1 tag 不可變 source，`v0.2.0-release-notes.md` 為 v0.2.0 tag 不可變 source）。
 - Workflow：`.github/workflows/release-candidate.yml`（workflow_dispatch only，contents:read，無 publish 副作用）。

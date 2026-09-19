@@ -27,7 +27,8 @@ class ReleaseCandidateContractTest {
     private static final Path PROCEDURE = Path.of("docs/release/release-candidate-procedure-v1.md");
     private static final Path NOTES_V010 = Path.of("docs/release/v0.1.0-release-notes.md");
     private static final Path NOTES_V011 = Path.of("docs/release/v0.1.1-release-notes.md");
-    private static final Path NOTES = Path.of("docs/release/v0.2.0-release-notes.md");
+    private static final Path NOTES_V020 = Path.of("docs/release/v0.2.0-release-notes.md");
+    private static final Path NOTES = Path.of("docs/release/v0.2.1-release-notes.md");
     private static final Path BROWSER_CHECKLIST = Path.of("docs/release/v0.1.1-browser-smoke-checklist.md");
     private static final Path MATRIX = Path.of("docs/release/native-capability-matrix.md");
 
@@ -50,32 +51,35 @@ class ReleaseCandidateContractTest {
     void reproducibleTimestampIsPinnedInPom() throws Exception {
         String pom = read(POM);
         assertThat(pom).contains("<project.build.outputTimestamp>2026-09-15T00:00:00Z</project.build.outputTimestamp>");
-        // #512 §C: the timestamp stays pinned across the 0.2.0 rebaseline; it is
+        // #554 §C: the timestamp stays pinned across the 0.2.1 rebaseline; it is
         // only a reproducibility input and must never become dynamic build-time
         // data or a second version identity.
-        // #512: project identity is now 0.2.0; v0.1.0 / v0.1.1 tags/artifacts stay immutable.
-        assertThat(pom).contains("<version>0.2.0</version>");
+        // #554: project identity is now 0.2.1; v0.1.0 / v0.1.1 / v0.2.0 tags/artifacts stay immutable.
+        assertThat(pom).contains("<version>0.2.1</version>");
         assertThat(pom).contains("<java.version>21</java.version>");
     }
 
     @Test
-    void v010V011NotesStayImmutableAndV020NotesExist() throws Exception {
-        // v0.1.0 / v0.1.1 notes are the immutable sources for their tags; the
-        // 0.2.0 rebaseline must not rewrite them (no retag / asset overwrite).
+    void v010V011V020NotesStayImmutableAndV021NotesExist() throws Exception {
+        // v0.1.0 / v0.1.1 / v0.2.0 notes are the immutable sources for their tags; the
+        // 0.2.1 rebaseline must not rewrite them (no retag / asset overwrite).
         String v010 = read(NOTES_V010);
         assertThat(v010).contains("# v0.1.0 Release notes");
         String v011 = read(NOTES_V011);
         assertThat(v011).contains("# v0.1.1 Release notes");
-        String v020 = read(NOTES);
+        String v020 = read(NOTES_V020);
         assertThat(v020).contains("# v0.2.0 Release notes");
+        String v021 = read(NOTES);
+        assertThat(v021).contains("# v0.2.1 Release notes");
         for (String token : List.of("SUPPORTED", "CANDIDATE", "NOT SUPPORTED")) {
-            assertThat(v020).as("v0.2.0 notes must cover %s", token).contains(token);
+            assertThat(v021).as("v0.2.1 notes must cover %s", token).contains(token);
         }
-        // v0.2.0 scope tokens (Refs #512): rebaseline keeps the same support
-        // boundary shape without promoting candidates.
-        for (String token : List.of("#512", "LOCAL_ONLY", "PRIVATE_INGRESS",
+        // v0.2.1 scope tokens (Refs #554): patch rebaseline keeps the same support
+        // boundary shape without promoting candidates; #517 is the only production
+        // runtime corrective since v0.2.0.
+        for (String token : List.of("#554", "#517", "LOCAL_ONLY", "PRIVATE_INGRESS",
                 "Public HTTPS", "OCR", "MCP", "REVERSE_PROXY_CANDIDATE")) {
-            assertThat(v020).as("v0.2.0 notes must cover %s", token).contains(token);
+            assertThat(v021).as("v0.2.1 notes must cover %s", token).contains(token);
         }
         String checklist = read(BROWSER_CHECKLIST);
         assertThat(checklist).contains("Browser first-mile smoke checklist");
@@ -101,6 +105,7 @@ class ReleaseCandidateContractTest {
         assertThat(service).doesNotContain("return \"0.1.0\"");
         assertThat(service).doesNotContain("return \"0.1.1\"");
         assertThat(service).doesNotContain("return \"0.2.0\"");
+        assertThat(service).doesNotContain("return \"0.2.1\"");
         assertThat(service).contains("ApplicationVersion");
         String provider = read(Path.of("src/main/java/org/km/llmwiki/system/ApplicationVersion.java"));
         assertThat(provider).contains("version.properties");
@@ -303,10 +308,12 @@ class ReleaseCandidateContractTest {
         assertThat(readiness).contains("NO-GO");
         // Challenge 10: #429 failure/skip blocks READY.
         assertThat(readiness).contains("release-evidence");
-        // #454 §A → #512: version-agnostic report glob (no second version truth).
+        // #454 §A → #512 → #554: version-agnostic report glob (no second version truth).
         assertThat(readiness).contains("*-product-acceptance.json");
         assertThat(readiness).doesNotContain("v0.1.0-product-acceptance.json");
         assertThat(readiness).doesNotContain("v0.1.1-product-acceptance.json");
+        assertThat(readiness).doesNotContain("v0.2.0-product-acceptance.json");
+        assertThat(readiness).doesNotContain("v0.2.1-product-acceptance.json");
         // Publication stays human-authorized.
         assertThat(readiness).contains("human authorization");
         // Refs #456 R4: single-manifest/bundle, Maven version match, artifact
@@ -320,7 +327,7 @@ class ReleaseCandidateContractTest {
 
     @Test
     void acceptanceReportFilenameStaysVersionNeutral() throws Exception {
-        // Refs #512 §B: the acceptance report filename must not embed a release
+        // Refs #512 §B → #554: the acceptance report filename must not embed a release
         // version literal — the version truth lives in pom.xml + the manifest.
         String report = read(Path.of(
                 "src/test/java/org/km/llmwiki/acceptance/ProductAcceptanceReport.java"));
@@ -328,6 +335,7 @@ class ReleaseCandidateContractTest {
         assertThat(report).doesNotContain("v0.1.0-product-acceptance.json");
         assertThat(report).doesNotContain("v0.1.1-product-acceptance.json");
         assertThat(report).doesNotContain("v0.2.0-product-acceptance.json");
+        assertThat(report).doesNotContain("v0.2.1-product-acceptance.json");
     }
 
     @Test
