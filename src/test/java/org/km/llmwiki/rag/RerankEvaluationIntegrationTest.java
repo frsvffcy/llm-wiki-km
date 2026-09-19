@@ -528,6 +528,7 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
         json.put("corpus", RerankEvaluationCorpusV1.VERSION);
         json.put("branch", git("rev-parse", "--abbrev-ref", "HEAD"));
         json.put("headSha", git("rev-parse", "HEAD"));
+        json.put("originMainSha", git("rev-parse", "origin/main"));
         json.put("decision", decision.verdict());
         json.put("decisionReasons", decision.reasons());
         json.put("crossEncoderFeasibility", CROSS_ENCODER_DECISION);
@@ -593,7 +594,9 @@ class RerankEvaluationIntegrationTest extends IsolatedIntegrationTest {
         report.append("# Second-stage reranking evaluation report (v1)\n\n");
         report.append("- corpus: `").append(RerankEvaluationCorpusV1.VERSION).append("`\n");
         report.append("- branch: `").append(git("rev-parse", "--abbrev-ref", "HEAD"))
-                .append("`, HEAD: `").append(git("rev-parse", "HEAD")).append("`\n");
+                .append("`, HEAD: `").append(git("rev-parse", "HEAD"))
+                .append("`, origin/main: `").append(git("rev-parse", "origin/main"))
+                .append("`\n");
         report.append("- baseline: current production deterministic ranking (fusion policy ")
                 .append(FusionRankingPolicy.production().version()).append(", k=")
                 .append(K).append(")\n");
