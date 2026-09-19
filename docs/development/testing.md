@@ -260,7 +260,43 @@ configuration.
 evidence sources、finding priority、residual risk 與 non-goal。
 
 Benchmark 或 metric 是帶有 corpus、policy、版本與 revision 脈絡的 versioned observation，
-不是 universal guarantee 或固定 SLA。`target/quality-reports/` 可維持 git-ignored runtime
+不是 universal guarantee 或固定 SLA。
+
+### Retrieval evaluation trust contract（#541）
+
+可用於 roadmap/default decision 的 retrieval benchmark，必須先證明「這次實驗有效」，再解讀
+recall/MRR/precision 等品質分數。共通規則：
+
+- **Environment stamp**：至少記錄 corpus/fixture identity、ranking/policy version、enabled
+  channels、適用時的 Graph projection version + generation、provider/model（若不適用明記
+  `N/A`）、cache/seed identity（無 cache 明記 `N/A`）、deterministic/stochastic 與 run kind；
+  tracked/report convention 仍須依上文保留 branch／HEAD／origin-main revision。
+- **Substrate liveness**：需要 Graph/vector/rerank/rewrite substrate 的 benchmark，在量測前／量測中
+  必須有 executable observation 證明 substrate真的可用。必要 substrate 不成立時結果為
+  `EVAL_REFUSED`／`UNOBSERVED`，不得輸出可被誤讀成「功能沒幫助」的 decision-grade headline。
+- **Channel attribution**：report至少能回答 feature/channel 是否真的被 touched；對會改候選集／排序的
+  feature，同時記錄是否觀察到 candidate/ranking delta。Metadata/diagnostic 不因此升格為
+  Evidence/citation authority。
+- **A/A noise floor**：只有 provider、approximate index、外部 runtime、stochastic ordering 等真的有
+  measurable noise 的 evaluation 才要求 A/A。完全 deterministic fixture 不為 ceremony 強制 A/A。
+- **Cache/currentness**：重用 expensive cache/seed 時，identity 必須包含會影響 substrate 的
+  code/config/fixture content identity；mismatch fail closed。無 cache 的 harness 明記 `N/A`。
+- **Evidence strength**：沿 #509 使用 `MEASURED`／`DERIVED_PROXY`／`UNOBSERVED`；
+  `EVAL_REFUSED / UNOBSERVED ≠ PASS ≠ NO BENEFIT`。
+
+Current applicability：
+
+| Evaluation | Substrate requirement | Attribution / trust rule |
+| --- | --- | --- |
+| Hybrid deterministic fixture | in-memory lexical + vector fixture；無 external provider/cache | fixture fingerprint + lexical/vector touched；deterministic，因此 A/A = N/A |
+| Graph quality/generalization | READY/current Graph projection + production-equivalent lexical/vector/graph runners | 三個 mode 都需 live/touched；report帶 projection version/generation + trust assessment |
+| Rerank | non-empty qualified baseline candidate window + 至少一個 non-control rerank policy | per-query `rerankTouched` 與 `rankingChanged`；沒候選或沒執行 rerank則拒絕解讀 |
+| Query Transformation | production-equivalent retrieval baseline + 至少一個 non-control transformation plan | per-query rewrite touch / retrieval delta；全部退回 ORIGINAL 而無 rewrite input 時為 UNOBSERVED |
+
+共通 executable owner 是
+`rag.EvaluationTrustContract`／`rag.EvaluationTrustContractTest`（test-only，不進 production
+serving path）。Negative canary 至少覆蓋：starved substrate、live-but-untouched channel、
+stale/mismatched fixture stamp；這些 case 必須讓 verifier 變紅，而不是產生看似正常的 score。`target/quality-reports/` 可維持 git-ignored runtime
 evidence；若要保存 tracked summary，必須說明用途，且不得取代本文件的 canonical test ownership。
 `.ai_llm_wiki_km/` 若為 local-only／git-ignored，只能在 tracked 文件中描述其 authority 與保存
 邊界，不得假裝已透過 GitHub PR 更新私人檔案。
