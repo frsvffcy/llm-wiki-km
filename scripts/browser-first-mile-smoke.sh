@@ -36,6 +36,10 @@
 set -eu
 
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/release-identity.sh"
+# Packaged-content assertions are single-sourced (Refs #560): the production
+# gate and the hermetic fixture matrix share browser-first-mile-content.sh,
+# so the executable stale-rejection proof cannot drift from this gate.
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/browser-first-mile-content.sh"
 
 JAR=""
 while [ $# -gt 0 ]; do
@@ -83,61 +87,11 @@ CSS="BOOT-INF/classes/static/styles.css"
 JS="BOOT-INF/classes/static/inbox-ui.js"
 HTML="BOOT-INF/classes/static/index.html"
 
-async_function_block() {
-  # Extract one controller-level async function up to (but excluding) the
-  # next controller-level async function. This is a packaged-source gate,
-  # not a JavaScript parser; it deliberately keys on the repository's
-  # stable two-space indentation used by createInboxController.
-  awk -v fn="$1" '
-    $0 ~ "^  async function " fn "\\(" { capture = 1 }
-    capture && $0 ~ "^  async function " && $0 !~ "^  async function " fn "\\(" { exit }
-    capture { print }
-  ' "$JS"
-}
-
-# --- #450: hidden authority survives .empty-state grid -----------------------
-grep -Eq '\[hidden\][[:space:]]*\{[[:space:]]*display[[:space:]]*:[[:space:]]*none[[:space:]]*!important' "$CSS" \
-  || fail "styles.css lacks global [hidden]{display:none!important} (#450)"
-grep -Eq '\.empty-state[[:space:]]*\{[[:space:]]*display[[:space:]]*:[[:space:]]*grid' "$CSS" \
-  || fail "styles.css lacks .empty-state{display:grid} layout (#450 keeps layout, fixes authority)"
-pass "#450 hidden authority present in packaged styles.css"
-
-# --- #451: dual-state projection ---------------------------------------------
-grep -q 'data-status' "$JS" || fail "inbox-ui.js lacks data-status lifecycle badge (#451)"
-grep -q 'data-parse-status' "$JS" || fail "inbox-ui.js lacks data-parse-status extraction badge (#451)"
-grep -q '文件狀態' "$JS" || fail "inbox-ui.js lacks 文件狀態 label (#451)"
-grep -q '抽取狀態' "$JS" || fail "inbox-ui.js lacks 抽取狀態 label (#451)"
-grep -q 'LIFECYCLE_FILTER_STATUSES' "$JS" || fail "inbox-ui.js lacks lifecycle filter contract (#451)"
-grep -q 'PARSE_STATUSES' "$JS" || fail "inbox-ui.js lacks parseStatus filter contract (#451)"
-grep -q '重新抽取' "$JS" || fail "inbox-ui.js lacks 重新抽取 semantics (#451)"
-grep -q '執行抽取' "$JS" || fail "inbox-ui.js lacks 執行抽取 semantics (#451)"
-pass "#451 lifecycle/parseStatus dual projection present in packaged inbox-ui.js"
-
-# --- #517: mutation follow-up fetch bypasses the held inFlight guard ----------
-FETCH_LIST_COUNT="$(grep -Ec '^[[:space:]]{2}async function fetchList\(\)' "$JS" || true)"
-[ "$FETCH_LIST_COUNT" -eq 1 ]   || fail "inbox-ui.js must contain exactly one async function fetchList() (#517; found $FETCH_LIST_COUNT)"
-
-REFRESH_BLOCK="$(async_function_block refresh)"
-[ -n "$REFRESH_BLOCK" ] || fail "inbox-ui.js lacks refresh() controller function (#517)"
-printf '%s\n' "$REFRESH_BLOCK" | grep -Fq 'if (inFlight) return;'   || fail "refresh() lost the inFlight guard (#517)"
-printf '%s\n' "$REFRESH_BLOCK" | grep -Fq 'await fetchList();'   || fail "refresh() no longer delegates to fetchList() (#517)"
-
-for MUTATION in uploadSingle uploadBatch rescan extract remove; do
-  MUTATION_BLOCK="$(async_function_block "$MUTATION")"
-  [ -n "$MUTATION_BLOCK" ] || fail "inbox-ui.js lacks $MUTATION() mutation handler (#517)"
-  printf '%s\n' "$MUTATION_BLOCK" | grep -Fq 'await fetchList();'     || fail "$MUTATION() does not refresh from backend authority via fetchList() (#517)"
-  if printf '%s\n' "$MUTATION_BLOCK" | grep -Fq 'await refresh();'; then
-    fail "$MUTATION() still uses await refresh() while holding inFlight (#517 stale-state regression)"
-  fi
-done
-pass "#517 mutation handlers use fetchList() while refresh keeps the inFlight guard"
-
-# --- shell: hidden empty-state panels -----------------------------------------
-COUNT="$(grep -o 'empty-state' "$HTML" | wc -l | tr -d ' ')"
-HIDDEN_COUNT="$(grep -c 'hidden' "$HTML" || true)"
-[ "$COUNT" -ge 2 ] || fail "index.html has fewer than 2 empty-state panels (found $COUNT)"
-[ "$HIDDEN_COUNT" -ge 2 ] || fail "index.html has fewer than 2 hidden markers (found $HIDDEN_COUNT)"
-pass "index.html carries hidden empty-state panels (empty-state=$COUNT, hidden-lines=$HIDDEN_COUNT)"
+# Content assertions live in browser-first-mile-content.sh (Refs #560); this
+# gate keeps the exact-candidate identity above and delegates the
+# #450/#451/#517/shell verdict to the shared implementation. Executable
+# stale/current proof is scripts/tests/test-browser-first-mile-smoke.sh.
+browser_content_check "$CSS" "$JS" "$HTML" || exit 1
 
 cd "$START_DIR"
 echo "[browser-smoke] PASS: exact candidate artifact carries #450 + #451 + #517 Browser fixes"

@@ -363,25 +363,19 @@ class ReleaseCandidateContractTest {
 
     @Test
     void browserFirstMileGateLocksPackagedFixes() throws Exception {
+        // Refs #560: string presence in this test is NOT the stale/current
+        // proof. The executable proof is the hermetic shell matrix
+        // (scripts/tests/test-browser-first-mile-smoke.sh, executed via
+        // BrowserFirstMileSmokeShellContractTest); this test only locks the
+        // structural wiring so the production gate cannot bypass the shared
+        // implementation it proves.
         String smoke = read(Path.of("scripts/browser-first-mile-smoke.sh"));
-        assertThat(smoke).contains("[hidden]");
-        assertThat(smoke).contains("data-parse-status");
-        assertThat(smoke).contains("LIFECYCLE_FILTER_STATUSES");
-        assertThat(smoke).contains("empty-state");
         assertThat(smoke).contains("target/release-candidate/");
         assertThat(smoke).contains("BOOT-INF/classes/static/");
-        // Refs #557 / #517: the packaged gate must reject a stale Inbox
-        // implementation where mutation handlers call refresh() while already
-        // holding inFlight. Lock both the helper and the mutation-specific checks.
-        assertThat(smoke).contains("FETCH_LIST_COUNT");
-        assertThat(smoke).contains("async_function_block");
-        assertThat(smoke).contains("async_function_block() {");
-        assertThat(smoke).doesNotContain("function async_function_block() {");
-        assertThat(smoke).contains("await fetchList();");
-        assertThat(smoke).contains("if (inFlight) return;");
-        assertThat(smoke).contains(
-                "uploadSingle", "uploadBatch", "rescan", "extract", "remove");
-        assertThat(smoke).contains("#517 stale-state regression");
+        // The gate delegates the verdict to the single-sourced content
+        // implementation instead of inlining its own assertions.
+        assertThat(smoke).contains("browser-first-mile-content.sh");
+        assertThat(smoke).contains("browser_content_check");
         // Refs #456 R3 (via #458 resolver): exact resolution canonicalizes
         // before cd; never assemble via $OLDPWD.
         assertThat(smoke).contains("release_identity_resolve_candidate_jar");
@@ -396,6 +390,47 @@ class ReleaseCandidateContractTest {
         assertThat(smoke).contains("release_identity_resolve_candidate_jar");
         assertThat(smoke).contains("release_identity_verify_jar_internal_version");
         assertThat(smoke).contains("release_identity_verify_candidate_sidecar_if_present");
+        // The hermetic matrix and its fast-tier executor must exist; without
+        // them the delegation above would be an unproven claim.
+        assertThat(Path.of("scripts/tests/test-browser-first-mile-smoke.sh")).isRegularFile();
+        String executor = read(Path.of(
+                "src/test/java/org/km/llmwiki/release/BrowserFirstMileSmokeShellContractTest.java"));
+        assertThat(executor).contains("scripts/tests/test-browser-first-mile-smoke.sh");
+    }
+
+    @Test
+    void browserContentLibraryIsSingleSourcedAndTested() throws Exception {
+        // Refs #560: the #450/#451/#517/shell assertions live in exactly one
+        // POSIX library sourced by both the production gate and the hermetic
+        // matrix, so executable stale-rejection cannot drift from the gate.
+        Path library = Path.of("scripts/browser-first-mile-content.sh");
+        assertThat(library).isRegularFile();
+        String content = Files.readString(library);
+        assertThat(content).contains("browser_content_check()");
+        assertThat(content).contains("browser_content_async_block()");
+        assertThat(content).doesNotContain("function browser_content_check() {");
+        assertThat(content).doesNotContain("function browser_content_async_block() {");
+        // The #517 stale-state contract tokens live here (not only in the gate).
+        assertThat(content).contains("async function fetchList()");
+        assertThat(content).contains("await fetchList();");
+        assertThat(content).contains("if (inFlight) return;");
+        assertThat(content).contains(
+                "uploadSingle", "uploadBatch", "rescan", "extract", "remove");
+        assertThat(content).contains("#517 stale-state regression");
+        assertThat(content).contains("[hidden]");
+        assertThat(content).contains("data-parse-status");
+        assertThat(content).contains("LIFECYCLE_FILTER_STATUSES");
+        assertThat(content).contains("empty-state");
+        for (String consumer : List.of(
+                "scripts/browser-first-mile-smoke.sh",
+                "scripts/tests/test-browser-first-mile-smoke.sh")) {
+            assertThat(read(Path.of(consumer)))
+                    .as("%s must source the single content library", consumer)
+                    .contains("browser-first-mile-content.sh");
+        }
+        Path suite = Path.of("scripts/tests/test-browser-first-mile-smoke.sh");
+        assertThat(suite).isRegularFile();
+        assertThat(Files.isExecutable(suite)).isTrue();
     }
 
     @Test
