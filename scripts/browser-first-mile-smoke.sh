@@ -2,8 +2,9 @@
 # Browser first-mile packaged-artifact gate (Refs #454 §C).
 #
 # Verifies the exact candidate JAR's embedded static resources contain the
-# #450 hidden-visibility fix and the #451 lifecycle/parseStatus dual-state
-# contract — i.e. the Browser smoke runs against fixed bits, not a stale JAR.
+# #450 hidden-visibility fix, the #451 lifecycle/parseStatus dual-state
+# contract, and the #517 mutation follow-up fetch fix — i.e. the Browser
+# smoke runs against fixed bits, not a stale JAR.
 #
 # Checks (all fail-closed, no DOM/DB forgery):
 #   #450: BOOT-INF/classes/static/styles.css contains
@@ -11,6 +12,10 @@
 #   #451: BOOT-INF/classes/static/inbox-ui.js contains dual badges
 #         (data-status + data-parse-status, 文件狀態 + 抽取狀態,
 #          LIFECYCLE_FILTER_STATUSES + PARSE_STATUSES, 重新抽取/執行抽取)
+#   #517: packaged inbox-ui.js contains exactly one fetchList helper;
+#         refresh keeps the inFlight guard and delegates to fetchList;
+#         uploadSingle/uploadBatch/rescan/extract/remove call fetchList
+#         directly while holding the mutation lock and never call refresh
 #   shell: BOOT-INF/classes/static/index.html contains at least 2 hidden
 #         .empty-state panels (inbox + wiki minimum)
 #
@@ -78,6 +83,18 @@ CSS="BOOT-INF/classes/static/styles.css"
 JS="BOOT-INF/classes/static/inbox-ui.js"
 HTML="BOOT-INF/classes/static/index.html"
 
+function async_function_block() {
+  # Extract one controller-level async function up to (but excluding) the
+  # next controller-level async function. This is a packaged-source gate,
+  # not a JavaScript parser; it deliberately keys on the repository's
+  # stable two-space indentation used by createInboxController.
+  awk -v fn="$1" '
+    $0 ~ "^  async function " fn "\\(" { capture = 1 }
+    capture && $0 ~ "^  async function " && $0 !~ "^  async function " fn "\\(" { exit }
+    capture { print }
+  ' "$JS"
+}
+
 # --- #450: hidden authority survives .empty-state grid -----------------------
 grep -Eq '\[hidden\][[:space:]]*\{[[:space:]]*display[[:space:]]*:[[:space:]]*none[[:space:]]*!important' "$CSS" \
   || fail "styles.css lacks global [hidden]{display:none!important} (#450)"
@@ -96,6 +113,25 @@ grep -q '重新抽取' "$JS" || fail "inbox-ui.js lacks 重新抽取 semantics (
 grep -q '執行抽取' "$JS" || fail "inbox-ui.js lacks 執行抽取 semantics (#451)"
 pass "#451 lifecycle/parseStatus dual projection present in packaged inbox-ui.js"
 
+# --- #517: mutation follow-up fetch bypasses the held inFlight guard ----------
+FETCH_LIST_COUNT="$(grep -Ec '^[[:space:]]{2}async function fetchList\(\)' "$JS" || true)"
+[ "$FETCH_LIST_COUNT" -eq 1 ]   || fail "inbox-ui.js must contain exactly one async function fetchList() (#517; found $FETCH_LIST_COUNT)"
+
+REFRESH_BLOCK="$(async_function_block refresh)"
+[ -n "$REFRESH_BLOCK" ] || fail "inbox-ui.js lacks refresh() controller function (#517)"
+printf '%s\n' "$REFRESH_BLOCK" | grep -Fq 'if (inFlight) return;'   || fail "refresh() lost the inFlight guard (#517)"
+printf '%s\n' "$REFRESH_BLOCK" | grep -Fq 'await fetchList();'   || fail "refresh() no longer delegates to fetchList() (#517)"
+
+for MUTATION in uploadSingle uploadBatch rescan extract remove; do
+  MUTATION_BLOCK="$(async_function_block "$MUTATION")"
+  [ -n "$MUTATION_BLOCK" ] || fail "inbox-ui.js lacks $MUTATION() mutation handler (#517)"
+  printf '%s\n' "$MUTATION_BLOCK" | grep -Fq 'await fetchList();'     || fail "$MUTATION() does not refresh from backend authority via fetchList() (#517)"
+  if printf '%s\n' "$MUTATION_BLOCK" | grep -Fq 'await refresh();'; then
+    fail "$MUTATION() still uses await refresh() while holding inFlight (#517 stale-state regression)"
+  fi
+done
+pass "#517 mutation handlers use fetchList() while refresh keeps the inFlight guard"
+
 # --- shell: hidden empty-state panels -----------------------------------------
 COUNT="$(grep -o 'empty-state' "$HTML" | wc -l | tr -d ' ')"
 HIDDEN_COUNT="$(grep -c 'hidden' "$HTML" || true)"
@@ -104,4 +140,4 @@ HIDDEN_COUNT="$(grep -c 'hidden' "$HTML" || true)"
 pass "index.html carries hidden empty-state panels (empty-state=$COUNT, hidden-lines=$HIDDEN_COUNT)"
 
 cd "$START_DIR"
-echo "[browser-smoke] PASS: exact candidate artifact carries #450 + #451 Browser fixes"
+echo "[browser-smoke] PASS: exact candidate artifact carries #450 + #451 + #517 Browser fixes"

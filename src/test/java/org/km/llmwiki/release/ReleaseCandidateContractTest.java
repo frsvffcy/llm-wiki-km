@@ -370,6 +370,16 @@ class ReleaseCandidateContractTest {
         assertThat(smoke).contains("empty-state");
         assertThat(smoke).contains("target/release-candidate/");
         assertThat(smoke).contains("BOOT-INF/classes/static/");
+        // Refs #557 / #517: the packaged gate must reject a stale Inbox
+        // implementation where mutation handlers call refresh() while already
+        // holding inFlight. Lock both the helper and the mutation-specific checks.
+        assertThat(smoke).contains("FETCH_LIST_COUNT");
+        assertThat(smoke).contains("async_function_block");
+        assertThat(smoke).contains("await fetchList();");
+        assertThat(smoke).contains("if (inFlight) return;");
+        assertThat(smoke).contains(
+                "uploadSingle", "uploadBatch", "rescan", "extract", "remove");
+        assertThat(smoke).contains("#517 stale-state regression");
         // Refs #456 R3 (via #458 resolver): exact resolution canonicalizes
         // before cd; never assemble via $OLDPWD.
         assertThat(smoke).contains("release_identity_resolve_candidate_jar");
