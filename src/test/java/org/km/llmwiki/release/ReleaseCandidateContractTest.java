@@ -375,6 +375,8 @@ class ReleaseCandidateContractTest {
         // holding inFlight. Lock both the helper and the mutation-specific checks.
         assertThat(smoke).contains("FETCH_LIST_COUNT");
         assertThat(smoke).contains("async_function_block");
+        assertThat(smoke).contains("async_function_block() {");
+        assertThat(smoke).doesNotContain("function async_function_block() {");
         assertThat(smoke).contains("await fetchList();");
         assertThat(smoke).contains("if (inFlight) return;");
         assertThat(smoke).contains(

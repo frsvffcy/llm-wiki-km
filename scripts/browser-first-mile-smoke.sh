@@ -83,7 +83,7 @@ CSS="BOOT-INF/classes/static/styles.css"
 JS="BOOT-INF/classes/static/inbox-ui.js"
 HTML="BOOT-INF/classes/static/index.html"
 
-function async_function_block() {
+async_function_block() {
   # Extract one controller-level async function up to (but excluding) the
   # next controller-level async function. This is a packaged-source gate,
   # not a JavaScript parser; it deliberately keys on the repository's
