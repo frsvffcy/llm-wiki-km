@@ -30,8 +30,16 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Run clean full regression, Flyway, jOOQ and package gate
         run: mvn --batch-mode clean verify -Pfull
+      - name: Check Browser contract test classification completeness (Refs #561)
+        run: sh scripts/run-browser-contract-tests.sh check
+      - name: Run required deterministic Browser contract suite (Refs #561)
+        run: sh scripts/run-browser-contract-tests.sh required
       - name: Run Browser first-mile packaged gate fixture matrix (Refs #560)
         run: sh scripts/tests/test-browser-first-mile-smoke.sh
       - name: Upload Surefire reports and package artifacts

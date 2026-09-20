@@ -79,10 +79,18 @@ test("語言治理契約測試本身由 PR CI 執行", async () => {
   const workflow = await readRelative(".github/workflows/pr-ci.yml");
   const section = prMetadataSection(workflow);
 
+  // Refs #561：governance set 經共用 runner 執行，不再手動列舉；兩層同時鎖定，
+  // wiring 才不會被靜默移除。
   assert.match(
     section,
+    /run-browser-contract-tests\.sh governance/u,
+    "pr-metadata job 必須經共用 runner 執行 governance set",
+  );
+  const runner = await readRelative("scripts/run-browser-contract-tests.sh");
+  assert.match(
+    runner,
     /src\/test\/js\/language-governance\.test\.mjs/u,
-    "pr-metadata job 的 guard tests 必須包含本契約測試，wiring 才不會被靜默移除",
+    "runner 的 governance 清單必須包含本契約測試",
   );
 });
 
