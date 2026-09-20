@@ -32,6 +32,8 @@ jobs:
           cache: maven
       - name: Run clean full regression, Flyway, jOOQ and package gate
         run: mvn --batch-mode clean verify -Pfull
+      - name: Run Browser first-mile packaged gate fixture matrix (Refs #560)
+        run: sh scripts/tests/test-browser-first-mile-smoke.sh
       - name: Upload Surefire reports and package artifacts
         if: always()
         uses: actions/upload-artifact@v4
