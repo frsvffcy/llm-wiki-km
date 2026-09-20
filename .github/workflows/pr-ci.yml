@@ -24,8 +24,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run PR metadata guard tests
-        run: node --test src/test/js/pr-metadata.test.mjs src/test/js/merge-settings.test.mjs src/test/js/merge-commit-guard.test.mjs src/test/js/language-governance.test.mjs
+      - name: Run Browser contract governance tests (Refs #561)
+        run: sh scripts/run-browser-contract-tests.sh governance
       - name: 執行語言治理檢查
         run: node scripts/check-language-governance.mjs
       - name: Validate PR base, title and Issue linkage
@@ -60,28 +60,12 @@ jobs:
         run: sh -n scripts/browser-first-mile-content.sh && sh -n scripts/tests/test-browser-first-mile-smoke.sh
       - name: Run Browser first-mile packaged gate fixture matrix (Refs #560)
         run: sh scripts/tests/test-browser-first-mile-smoke.sh
-      - name: Run Browser Ask UI contract tests
-        run: node --test src/test/js/ask-ui.test.mjs
-      - name: Run Browser navigation shell contract tests
-        run: node --test src/test/js/navigation-ui.test.mjs
-      - name: Run Browser workspace UI contract tests
-        run: node --test src/test/js/workspace-ui.test.mjs
-      - name: Run Browser inbox UI contract tests
-        run: node --test src/test/js/inbox-ui.test.mjs
-      - name: Run Browser published Wiki UI contract tests
-        run: node --test src/test/js/wiki-ui.test.mjs
-      - name: Run Browser review workbench UI contract tests
-        run: node --test src/test/js/review-ui.test.mjs
-      - name: Run Browser Graph operations UI contract tests
-        run: node --test src/test/js/graph-operations-ui.test.mjs
-      - name: Run Browser Retrieval Inspector UI contract tests
-        run: node --test src/test/js/retrieval-inspector-ui.test.mjs
-      - name: Run Browser Source Chunk Inspector UI contract tests
-        run: node --test src/test/js/source-chunk-inspector-ui.test.mjs
-      - name: Run Browser Retrieval Inspector UI contract tests
-        run: node --test src/test/js/retrieval-inspector-ui.test.mjs
-      - name: Run Browser Source Chunk inspector UI contract tests
-        run: node --test src/test/js/source-chunk-inspector-ui.test.mjs
+      - name: Validate Browser contract runner POSIX shell syntax
+        run: sh -n scripts/run-browser-contract-tests.sh
+      - name: Check Browser contract test classification completeness (Refs #561)
+        run: sh scripts/run-browser-contract-tests.sh check
+      - name: Run required deterministic Browser contract suite (Refs #561)
+        run: sh scripts/run-browser-contract-tests.sh required
       - name: Run fast test tier
         run: mvn --batch-mode test -Pfast
 

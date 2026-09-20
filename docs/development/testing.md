@@ -55,10 +55,11 @@ Maven lifecycle: Flyway-backed jOOQ generation, compilation, Spring Boot packagi
 is complementary to—not a replacement for—the Fast and Integration test inventories or the local
 and canary `full` gate.
 
-The `full` profile and the Full Regression Canary are Maven-only. They do not run the Browser
-JavaScript suites; every `src/test/js/*.test.mjs` Browser UI suite (Ask, navigation shell,
-workspace, inbox, Graph operations) is owned by the PR Fast job and must be run locally whenever
-its JavaScript surface is touched.
+The `full` profile is Maven-only. The Full Regression Canary runs
+`mvn --batch-mode clean verify -Pfull` plus the same required deterministic Browser
+contract suite as the PR Fast job, both through the single classification authority
+`scripts/run-browser-contract-tests.sh` (Refs #561). Every `src/test/js/*.test.mjs` Browser
+UI suite must still be run locally whenever its JavaScript surface is touched.
 
 ## Local verification by change type
 
@@ -190,8 +191,8 @@ below; ordinary delivery still targets `main`:
 
 | CI job | Command | Purpose |
 | --- | --- | --- |
-| PR metadata | `node --test src/test/js/pr-metadata.test.mjs`<br>`node --test src/test/js/merge-settings.test.mjs`<br>`node --test src/test/js/merge-commit-guard.test.mjs`<br>`node --test src/test/js/language-governance.test.mjs`<br>`node scripts/check-language-governance.mjs`<br>`node scripts/validate-pr-metadata.mjs`<br>`node scripts/audit-merge-settings.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, absence of auto-closing keywords in **the PR title, the PR body and every source commit message** (`Closes/Fixes/Resolves` ＋ `#N`／`owner/repo#N`／issue URL，colon/uppercase 變形，任何 target repository；以單一 closing-reference grammar 掃描；title/commit 掃 raw text 不享 Markdown-strip 特權；commit retrieval 失敗 fail-closed — Issues close only after the Completion Audit；#349／#357), non-closing Issue references (`Refs #N`), and same-repository Issue existence with a read-only token。Issue linkage（`Refs #N`／bare `#N`）與 PR lineage（`PR #N`／`Pull Request #N`／`/pull/N` URL）為分層契約（#411）：PR reference 不充當 Issue linkage、不觸發 Issue-existence error，`Refs #N` 指向 PR 仍 fail closed。Title/body/base 以當下 GitHub PR metadata（live API）為 authority，workflow rerun 不重用 stale event snapshot；current metadata 取回失敗 fail-closed。`audit-merge-settings.mjs` 以官方 enum＋recorded baseline 驗證 repository merge/squash/rebase 設定，證明 merge-generated commit text 皆可追溯到已受 guard 的 title/body/source commits（#357）；Actions `GITHUB_TOKEN` 只能取得 reduced repository object（無 merge settings 欄位）時進入 documented safe fallback（structural enum coverage 測試＋post-merge guard 承接；見 github-delivery-governance.md）。`check-language-governance.mjs` 為 current UI 與治理入口的 bounded 回歸提醒（#501），失敗即 fail-closed；術語唯一詳細來源仍為 `language-and-terminology.md` |
-| Fast unit and contract tests | `node --test src/test/js/ask-ui.test.mjs`<br>`node --test src/test/js/navigation-ui.test.mjs`<br>`node --test src/test/js/workspace-ui.test.mjs`<br>`node --test src/test/js/inbox-ui.test.mjs`<br>`node --test src/test/js/graph-operations-ui.test.mjs`<br>`node --test src/test/js/retrieval-inspector-ui.test.mjs`<br>`node --test src/test/js/source-chunk-inspector-ui.test.mjs`<br>`mvn --batch-mode test -Pfast` | Browser UI contract regression (Ask, navigation shell, workspace, inbox, Graph operations, Retrieval Inspector, Source Chunk Inspector) plus quick feedback for pure Java and contract coverage |
+| PR metadata | `sh scripts/run-browser-contract-tests.sh governance`<br>`node scripts/check-language-governance.mjs`<br>`node scripts/validate-pr-metadata.mjs`<br>`node scripts/audit-merge-settings.mjs` | Validates the `main` base, explicit stacked/non-Issue exception, absence of auto-closing keywords in **the PR title, the PR body and every source commit message** (`Closes/Fixes/Resolves` ＋ `#N`／`owner/repo#N`／issue URL，colon/uppercase 變形，任何 target repository；以單一 closing-reference grammar 掃描；title/commit 掃 raw text 不享 Markdown-strip 特權；commit retrieval 失敗 fail-closed — Issues close only after the Completion Audit；#349／#357), non-closing Issue references (`Refs #N`), and same-repository Issue existence with a read-only token。Issue linkage（`Refs #N`／bare `#N`）與 PR lineage（`PR #N`／`Pull Request #N`／`/pull/N` URL）為分層契約（#411）：PR reference 不充當 Issue linkage、不觸發 Issue-existence error，`Refs #N` 指向 PR 仍 fail closed。Title/body/base 以當下 GitHub PR metadata（live API）為 authority，workflow rerun 不重用 stale event snapshot；current metadata 取回失敗 fail-closed。`audit-merge-settings.mjs` 以官方 enum＋recorded baseline 驗證 repository merge/squash/rebase 設定，證明 merge-generated commit text 皆可追溯到已受 guard 的 title/body/source commits（#357）；Actions `GITHUB_TOKEN` 只能取得 reduced repository object（無 merge settings 欄位）時進入 documented safe fallback（structural enum coverage 測試＋post-merge guard 承接；見 github-delivery-governance.md）。`check-language-governance.mjs` 為 current UI 與治理入口的 bounded 回歸提醒（#501），失敗即 fail-closed；術語唯一詳細來源仍為 `language-and-terminology.md` |
+| Fast unit and contract tests | `sh scripts/run-browser-contract-tests.sh check`<br>`sh scripts/run-browser-contract-tests.sh required`<br>`sh scripts/tests/test-browser-first-mile-smoke.sh`<br>`mvn --batch-mode test -Pfast` | Browser UI contract regression through the shared runner (classification completeness guard plus the deterministic offline suite including the wiring lock, each file exactly once) and the packaged-gate fixture matrix, plus quick feedback for pure Java and contract coverage |
 | Integration tests | `mvn --batch-mode test -Pintegration` | Spring, SQLite, Flyway, filesystem, REST, parser, and FTS coverage |
 | Production ArcadeDB graph adapter smoke | `mvn --batch-mode -Dtest=ArcadeDbGraphProjectionLifecycleIntegrationTest,ArcadeDbGraphProjectionBackendFactoryTest,CanonicalGraphIngressIntegrationTest,ArcadeDbGraphTraversalTest,CanonicalGraphTraversalIntegrationTest,GraphEvidenceAdmissionIntegrationTest,GraphProjectionOperationalApiIntegrationTest test` | Linux／Java 21 evidence for the production embedded lifecycle, canonical ingress/currentness, deterministic bounded traversal, graph evidence admission, operational API lifecycle, restart/recovery, workspace isolation, file locking, and deterministic resource close/reopen contract |
 | Build integrity | `git diff --check`<br>`mvn --batch-mode clean verify -Pbuild-integrity` | Whitespace check plus clean Flyway/jOOQ source generation, compilation, verification, and package; Java tests are not re-executed |
@@ -217,13 +218,13 @@ same source with the official macOS aarch64 archive. See
 [ADR 0003](../adr/0003-vector-capability-and-sqlite-vec-feasibility.md) for the platform matrix and
 exact checksums.
 
-`.github/workflows/full-regression-canary.yml` retains `mvn --batch-mode clean verify -Pfull` as
-Maven-only clean end-to-end evidence on every push to `main`, daily at 02:17 Asia/Taipei, and on
-manual dispatch. It intentionally does not run Browser JavaScript; every `src/test/js/*.test.mjs`
-Browser UI suite (Ask, navigation shell, workspace, inbox, Graph operations) is regression
-evidence owned by the PR Fast job. This separates the
-complete Maven regression canary from the PR's complementary evidence jobs without removing the
-full safety net.
+`.github/workflows/full-regression-canary.yml` runs `mvn --batch-mode clean verify -Pfull` as
+Maven clean end-to-end evidence on every push to `main`, daily at 02:17 Asia/Taipei, and on
+manual dispatch, followed by the same required deterministic Browser contract suite the PR
+Fast job gates (`sh scripts/run-browser-contract-tests.sh check` then `required`, Refs #561).
+This keeps one classification authority across PR and canary instead of two drifting file
+lists, while the complete Maven regression canary and the PR's complementary evidence jobs
+retain their split without removing the full safety net.
 
 Before this split, PR #216 recorded Fast 339 + Integration 249 = Full 588 Java test executions,
 so the PR workflow repeated the Java regression inventory. After this split, Fast and Integration
