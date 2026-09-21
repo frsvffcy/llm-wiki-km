@@ -117,17 +117,21 @@ class RepairProposalIngressIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data.proposal.id").value((int) repairId))
                 .andExpect(jsonPath("$.data.duplicate").value(true));
 
-        // The existing governed flow takes over unchanged: approve, draft, preview/diff,
-        // explicit publish. Approval never publishes by itself.
-        mockMvc.perform(patch("/api/v1/proposals/{id}/status", repairId)
+        // The existing governed flow takes over unchanged: approve (auto-preparing the
+        // draft), preview/diff, explicit publish. Approval never publishes by itself.
+        MvcResult approved = mockMvc.perform(patch("/api/v1/proposals/{id}/status", repairId)
                         .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("APPROVED"));
-
+                .andExpect(jsonPath("$.data.status").value("APPROVED"))
+                .andReturn();
+        // #601 single-usable-draft：手動 POST 沿用核准時自動準備的草稿（200＋同一 id）。
+        long autoDraftId = ((Number) com.jayway.jsonpath.JsonPath.read(
+                approved.getResponse().getContentAsString(), "$.data.autoDraft.draftId")).longValue();
         MvcResult draft = mockMvc.perform(post("/api/v1/wiki-drafts")
                         .contentType("application/json")
                         .content("{\"proposalId\":" + repairId + "}"))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value((int) autoDraftId))
                 .andExpect(jsonPath("$.data.status").value("READY"))
                 .andReturn();
         long draftId = ((Number) com.jayway.jsonpath.JsonPath.read(draft.getResponse().getContentAsString(),
@@ -345,15 +349,20 @@ class RepairProposalIngressIntegrationTest extends IsolatedIntegrationTest {
                 .andReturn();
         long askId = ((Number) com.jayway.jsonpath.JsonPath.read(ask.getResponse().getContentAsString(),
                 "$.data.proposal.id")).longValue();
-        mockMvc.perform(patch("/api/v1/proposals/{id}/status", askId)
+        MvcResult approved = mockMvc.perform(patch("/api/v1/proposals/{id}/status", askId)
                         .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andReturn();
+        // #601 single-usable-draft：核准已自動準備草稿，手動 POST 沿用同一筆（200＋同一 id）。
+        long autoDraftId = ((Number) com.jayway.jsonpath.JsonPath.read(
+                approved.getResponse().getContentAsString(), "$.data.autoDraft.draftId")).longValue();
         MvcResult draft = mockMvc.perform(post("/api/v1/wiki-drafts")
                         .contentType("application/json").content("{\"proposalId\":" + askId + "}"))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn();
         long draftId = ((Number) com.jayway.jsonpath.JsonPath.read(draft.getResponse().getContentAsString(),
                 "$.data.id")).longValue();
+        org.assertj.core.api.Assertions.assertThat(draftId).isEqualTo(autoDraftId);
         MvcResult published = mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
                 .andExpect(result -> org.assertj.core.api.Assertions.assertThat(
                         result.getResponse().getStatus()).isIn(200, 201))

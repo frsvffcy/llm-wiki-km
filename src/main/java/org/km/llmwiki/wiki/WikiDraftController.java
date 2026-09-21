@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Synchronous review APIs for persisted Wiki Draft metadata, preview, and diff. */
@@ -17,17 +16,26 @@ import org.springframework.web.bind.annotation.RestController;
 public class WikiDraftController {
 
     private final WikiDraftPersistenceService service;
+    private final WikiDraftCreationService creationService;
     private final WikiPublishService publishService;
 
-    public WikiDraftController(WikiDraftPersistenceService service, WikiPublishService publishService) {
+    public WikiDraftController(WikiDraftPersistenceService service, WikiDraftCreationService creationService,
+                               WikiPublishService publishService) {
         this.service = service;
+        this.creationService = creationService;
         this.publishService = publishService;
     }
 
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<WikiDraftResponse> create(@RequestBody CreateWikiDraftRequest request) {
-        return new ApiResponse<>(service.create(request));
+    public ResponseEntity<ApiResponse<WikiDraftResponse>> create(@RequestBody CreateWikiDraftRequest request) {
+        if (request == null || request.proposalId() <= 0) {
+            throw new IllegalArgumentException("proposalId must be positive");
+        }
+        // #601：與 auto-draft 共用 atomic create-or-reuse（衝突沿用，不重複建立）；
+        // 沿用既有草稿回 200，只有真正新建回 201（與 publish 端點同例）。
+        WikiDraftCreationService.CreatedDraft result = creationService.createOrReuse(request.proposalId());
+        HttpStatus status = result.reused() ? HttpStatus.OK : HttpStatus.CREATED;
+        return ResponseEntity.status(status).body(new ApiResponse<>(result.response()));
     }
 
     @GetMapping("/{draftId}")
@@ -51,9 +59,10 @@ public class WikiDraftController {
     }
 
     @PostMapping("/{draftId}/regenerate")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<WikiDraftResponse> regenerate(@PathVariable long draftId) {
-        return new ApiResponse<>(service.regenerate(draftId));
+    public ResponseEntity<ApiResponse<WikiDraftResponse>> regenerate(@PathVariable long draftId) {
+        WikiDraftCreationService.CreatedDraft result = creationService.regenerate(draftId);
+        HttpStatus status = result.reused() ? HttpStatus.OK : HttpStatus.CREATED;
+        return ResponseEntity.status(status).body(new ApiResponse<>(result.response()));
     }
 
     @PostMapping("/{draftId}/publish")

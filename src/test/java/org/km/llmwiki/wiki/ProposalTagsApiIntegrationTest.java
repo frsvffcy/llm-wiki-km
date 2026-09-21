@@ -183,13 +183,18 @@ class ProposalTagsApiIntegrationTest extends IsolatedIntegrationTest {
         mockMvc.perform(patch("/api/v1/proposals/{proposalId}/tags", fixture.proposalId())
                         .contentType("application/json").content("{\"tags\":[\"human-tag\"]}"))
                 .andExpect(status().isOk());
-        mockMvc.perform(patch("/api/v1/proposals/{proposalId}/status", fixture.proposalId())
+        String approved = mockMvc.perform(patch("/api/v1/proposals/{proposalId}/status", fixture.proposalId())
                         .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long autoDraftId = new com.fasterxml.jackson.databind.ObjectMapper().readTree(approved)
+                .path("data").path("autoDraft").path("draftId").asLong();
 
+        // #601 single-usable-draft：手動 POST 沿用核准時自動準備的草稿（200＋同一 id）。
         String created = mockMvc.perform(post("/api/v1/wiki-drafts").contentType("application/json")
                         .content("{\"proposalId\":" + fixture.proposalId() + "}"))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(autoDraftId))
                 .andReturn().getResponse().getContentAsString();
         long draftId = new com.fasterxml.jackson.databind.ObjectMapper()
                 .readTree(created).path("data").path("id").asLong();
