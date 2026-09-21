@@ -577,6 +577,13 @@ curl -X POST http://127.0.0.1:8765/api/v1/inbox/files \
 
 Returns `201 Created` with `documentId`, `fileName`, `status: PENDING`, and `duplicate`. The file is stored under the workspace `inbox/`, its SHA-256 is computed while streaming, and the `document` record is only kept when the file lands successfully. Path-traversal filenames are stripped to their final component; name collisions get a `-1`, `-2`, … suffix instead of overwriting. Every ingested document stores its original source filename (preserved across collision renames) plus a normalized lowercase `extension`.
 
+Browser 上傳會使用 `autoProcess=true`，由後端的 bounded single-worker ingest queue 自動執行文字抽取與 Source FTS 同步；Browser 不會自行串接 extraction/indexing，也不會用 `parseStatus` 猜測文件是否可搜尋。既有 REST 呼叫若未帶 `autoProcess`，仍維持原本只上傳、不自動處理的相容行為；需要相同行為的 API client 可明確指定：
+
+```bash
+curl -X POST 'http://127.0.0.1:8765/api/v1/inbox/files?autoProcess=true' \
+  -F "file=@/path/to/document.pdf"
+```
+
 List the current inbox with pagination, lifecycle/extraction filters and sorting:
 
 ```bash
@@ -586,7 +593,9 @@ curl "http://127.0.0.1:8765/api/v1/inbox?page=0&size=50&parseStatus=PROCESSED"
 
 Returns `{ "data": [...], "page": { number, size, totalElements, totalPages } }`. Sortable fields: `fileName`, `fileSize`, `status`, `createdAt` (default: `createdAt,desc`; max page size 200).
 
-Each row carries two independent typed states: `status` is the document lifecycle (`PENDING`/`DUPLICATE` in the inbox projection; `DELETED`/`SUPERSEDED`/`ARCHIVED` are excluded) and `parseStatus` is the extraction lifecycle (`null` = never extracted, `PROCESSED`/`FAILED`/`UNSUPPORTED`/`NEED_OCR`). `status=` filters only `document.status` and `parseStatus=` filters only `document.parse_status`; extraction success keeps `status: PENDING` and sets `parseStatus: PROCESSED`, so a successful extract remains soft-deletable under the lifecycle contract. Re-running extraction on a `PROCESSED` row replaces its extracted bytes/chunks lineage atomically.
+Each row keeps the two existing typed states: `status` is the document lifecycle (`PENDING`/`DUPLICATE` in the inbox projection; `DELETED`/`SUPERSEDED`/`ARCHIVED` are excluded) and `parseStatus` is the extraction lifecycle (`null` = never extracted, `PROCESSED`/`FAILED`/`UNSUPPORTED`/`NEED_OCR`). It additionally returns application-owned `usability` with `status`, `searchReady`, and `nextAction`. `READY_TO_USE` is emitted only when Source FTS is `SYNCED` and passes the same canonical freshness proof used by serving; `INDEX_PENDING` / `INDEX_STALE` remain fail-closed and are never shown as searchable. Browser uses this projection as its readiness authority.
+
+`status=` filters only `document.status` and `parseStatus=` filters only `document.parse_status`; extraction success keeps `status: PENDING` and sets `parseStatus: PROCESSED`, so a successful extract remains soft-deletable under the lifecycle contract. Re-running extraction on a `PROCESSED` row replaces its extracted bytes/chunks lineage atomically.
 
 ## System status
 

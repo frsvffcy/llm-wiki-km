@@ -35,12 +35,17 @@ public abstract class IsolatedIntegrationTest {
     @Qualifier("embeddingProjectionTaskExecutor")
     private ThreadPoolTaskExecutor embeddingProjectionTaskExecutor;
 
+    @Autowired
+    @Qualifier("ingestTaskExecutor")
+    private ThreadPoolTaskExecutor ingestTaskExecutor;
+
     protected final JdbcClient db() {
         return jdbcClient;
     }
 
     @BeforeEach
     void resetApplicationTables() throws SQLException {
+        awaitIngestProcessingTasks();
         awaitEmbeddingProjectionTasks();
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
@@ -68,6 +73,18 @@ public abstract class IsolatedIntegrationTest {
             throw new IllegalStateException("Interrupted while draining embedding projection tasks", interrupted);
         } catch (ExecutionException | TimeoutException failure) {
             throw new IllegalStateException("Embedding projection tasks did not drain before database reset", failure);
+        }
+    }
+
+    /** Drains bounded automatic ingest work before assertions or database cleanup. */
+    protected final void awaitIngestProcessingTasks() {
+        try {
+            ingestTaskExecutor.submit(() -> { }).get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while draining ingest processing tasks", interrupted);
+        } catch (ExecutionException | TimeoutException failure) {
+            throw new IllegalStateException("Ingest processing tasks did not drain before database reset", failure);
         }
     }
 

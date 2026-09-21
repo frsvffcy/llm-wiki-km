@@ -13,7 +13,9 @@ import {
   parseStatusLabel,
   renderInboxList,
   renderBatchResult,
-  statusLabel
+  statusLabel,
+  usabilityDetail,
+  usabilityLabel
 } from "../../main/resources/static/inbox-ui.js";
 
 class FakeElement {
@@ -111,6 +113,7 @@ function row(overrides = {}) {
     errorCode: null,
     errorMessage: null,
     createdAt: "2026-09-12T00:00:00Z",
+    usability: { status: "NOT_PROCESSED", searchReady: false, nextAction: "RETRY_PROCESSING" },
     ...overrides
   };
 }
@@ -129,6 +132,14 @@ test("typed status labels cover DocumentStatus without guessing the state machin
   assert.equal(isDeletable("FAILED"), true);
 });
 
+test("usability labels keep search readiness distinct from extraction state", () => {
+  assert.equal(usabilityLabel({ status: "PROCESSING" }), "系統正在處理");
+  assert.equal(usabilityLabel({ status: "READY_TO_USE" }), "可以開始使用");
+  assert.equal(usabilityLabel({ status: "INDEX_PENDING" }), "搜尋索引尚未就緒");
+  assert.equal(usabilityLabel({ status: "INDEX_STALE" }), "搜尋索引需要更新");
+  assert.match(usabilityDetail({ status: "INDEX_PENDING" }), /目前不會把它當成可搜尋內容/u);
+});
+
 test("lifecycle and extraction states stay on separate typed projections (#451)", () => {
   assert.deepEqual(LIFECYCLE_FILTER_STATUSES, ["PENDING", "DUPLICATE"]);
   assert.deepEqual(PARSE_STATUSES, ["PROCESSED", "FAILED", "UNSUPPORTED", "NEED_OCR"]);
@@ -144,13 +155,14 @@ test("lifecycle and extraction states stay on separate typed projections (#451)"
   assert.equal(extractActionLabel("PROCESSED"), "重新抽取");
 });
 
-test("list render exposes row actions only for the allowed delete contract", () => {
+test("list render follows backend usability instead of deriving readiness from parseStatus", () => {
   const elements = uiElements();
   renderInboxList(elements, [
     row({ documentId: 1, status: "PENDING", parseStatus: null }),
-    row({ documentId: 2, status: "ARCHIVED", parseStatus: null }),
-    row({ documentId: 3, status: "DUPLICATE", parseStatus: "NEED_OCR", errorCode: "OCR_REQUIRED",
-      errorMessage: "scanned copy" })
+    row({ documentId: 2, status: "ARCHIVED", parseStatus: "PROCESSED",
+      usability: { status: "READY_TO_USE", searchReady: true, nextAction: "START_USING" } }),
+    row({ documentId: 3, status: "DUPLICATE", parseStatus: null, errorCode: null,
+      usability: { status: "DUPLICATE", searchReady: false, nextAction: "USE_EXISTING_DOCUMENT" } })
   ], { number: 0, size: 20, totalElements: 3, totalPages: 1 },
   { createElement: () => new FakeElement() }, {
     onExtract: () => {}, onPreview: () => {}, onRemove: () => {}
@@ -159,44 +171,45 @@ test("list render exposes row actions only for the allowed delete contract", () 
   assert.equal(elements.empty.hidden, true);
   const text = flatText(elements.list);
   assert.match(text, /report\.pdf/u);
-  assert.match(text, /文件狀態：待處理/u);
-  assert.match(text, /抽取狀態：尚未抽取/u);
-  assert.match(text, /抽取狀態：需要 OCR/u);
-  assert.match(text, /OCR_REQUIRED：scanned copy/u);
+  assert.match(text, /尚未處理/u);
+  assert.match(text, /可以開始使用/u);
+  assert.match(text, /內容已存在/u);
   assert.match(text, /2\.0 KB/u);
   const items = elements.list.children;
   const actionsOf = item => item.children.find(child => child.className === "inbox-actions");
   const actionText = item => flatText(actionsOf(item));
-  for (const item of items) {
-    assert.match(actionText(item), /抽取/u);
-    assert.match(actionText(item), /檢視抽取內容/u);
-  }
+  assert.match(actionText(items[0]), /重新處理/u);
   assert.match(actionText(items[0]), /從收件匣移除/u);
+  assert.match(actionText(items[1]), /開始提問/u);
+  assert.match(actionText(items[1]), /檢視處理內容/u);
   assert.doesNotMatch(actionText(items[1]), /從收件匣移除/u);
   assert.match(actionText(items[2]), /從收件匣移除/u);
 });
 
-test("extracted rows keep lifecycle status and show re-extract with extraction badge (#451)", () => {
+test("ready, failed and unsupported documents render task-oriented next actions", () => {
   const elements = uiElements();
   renderInboxList(elements, [
-    row({ documentId: 1, status: "PENDING", parseStatus: "PROCESSED" }),
-    row({ documentId: 2, status: "PENDING", parseStatus: "FAILED" }),
-    row({ documentId: 3, status: "PENDING", parseStatus: "UNSUPPORTED" })
+    row({ documentId: 1, parseStatus: "PROCESSED",
+      usability: { status: "READY_TO_USE", searchReady: true, nextAction: "START_USING" } }),
+    row({ documentId: 2, parseStatus: "FAILED",
+      usability: { status: "FAILED", searchReady: false, nextAction: "RETRY_PROCESSING" } }),
+    row({ documentId: 3, parseStatus: "UNSUPPORTED",
+      usability: { status: "UNSUPPORTED", searchReady: false, nextAction: "NONE" } })
   ], { number: 0, size: 20, totalElements: 3, totalPages: 1 },
   { createElement: () => new FakeElement() }, {
     onExtract: () => {}, onPreview: () => {}, onRemove: () => {}
   });
 
   const text = flatText(elements.list);
-  assert.match(text, /文件狀態：待處理/u);
-  assert.match(text, /抽取狀態：已抽取/u);
-  assert.match(text, /抽取狀態：抽取失敗/u);
-  assert.match(text, /抽取狀態：不支援抽取/u);
+  assert.match(text, /可以開始使用/u);
+  assert.match(text, /處理失敗/u);
+  assert.match(text, /不支援此格式/u);
   const items = elements.list.children;
   const actionsOf = item => item.children.find(child => child.className === "inbox-actions");
-  assert.match(flatText(actionsOf(items[0])), /重新抽取/u);
-  assert.match(flatText(actionsOf(items[1])), /執行抽取/u);
-  // Extraction success keeps the lifecycle status: the row stays soft-deletable.
+  assert.match(flatText(actionsOf(items[0])), /開始提問/u);
+  assert.match(flatText(actionsOf(items[0])), /檢視處理內容/u);
+  assert.match(flatText(actionsOf(items[1])), /重新處理/u);
+  assert.doesNotMatch(flatText(actionsOf(items[2])), /重新處理/u);
   for (const item of items) {
     assert.match(flatText(actionsOf(item)), /從收件匣移除/u);
   }
@@ -250,13 +263,13 @@ test("refresh filters and pages through the existing list contract", async () =>
     "/api/v1/inbox?page=1&size=20&status=PENDING&parseStatus=PROCESSED");
 });
 
-test("single upload reports duplicate versus accepted without assuming extraction", async () => {
+test("single upload opts into backend auto-processing without Browser calling extract", async () => {
   const elements = uiElements();
   const calls = [];
   let duplicate = false;
   const fetchImpl = async (url, options) => {
     calls.push({ url: String(url), method: options?.method });
-    if (url === "/api/v1/inbox/files") {
+    if (String(url) === "/api/v1/inbox/files?autoProcess=true") {
       return jsonResponse(true, 201, {
         data: { documentId: 5, fileName: "a.pdf", status: "PENDING", duplicate }
       });
@@ -267,9 +280,9 @@ test("single upload reports duplicate versus accepted without assuming extractio
   elements.fileInput.files = [{ name: "a.pdf" }];
 
   await elements.uploadForm.handlers.get("submit")({ preventDefault() {} });
-  assert.match(elements.hint.textContent, /已上傳，狀態：待處理/u);
+  assert.match(elements.hint.textContent, /已上傳，系統會自動處理/u);
   assert.ok(calls.every(call => !String(call.url).includes("/extract")),
-    "upload must not trigger extraction by itself (challenge 5)");
+    "Browser must request backend orchestration instead of calling /extract itself");
 
   duplicate = true;
   elements.fileInput.files = [{ name: "a.pdf" }];
@@ -307,6 +320,90 @@ test("extraction outcomes are typed: success, NEED_OCR, UNSUPPORTED and failures
     assert.match(elements.hint.textContent, outcome.expected,
       `outcome for ${JSON.stringify(outcome.payload)}`);
   }
+});
+
+test("processing rows schedule an authoritative refresh until backend reports ready", async () => {
+  const elements = uiElements();
+  let listCalls = 0;
+  let scheduled = null;
+  const timers = {
+    set(fn) { scheduled = fn; return 1; },
+    clear() { scheduled = null; }
+  };
+  const fetchImpl = async () => {
+    listCalls += 1;
+    const usability = listCalls === 1
+      ? { status: "PROCESSING", searchReady: false, nextAction: "WAIT" }
+      : { status: "READY_TO_USE", searchReady: true, nextAction: "START_USING" };
+    return jsonResponse(true, 200, {
+      data: [row({ parseStatus: listCalls === 1 ? null : "PROCESSED", usability })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+  const controller = createInboxController(elements, fetchImpl, fakeDocument(), timers);
+  await controller.refresh();
+  assert.match(flatText(elements.list), /系統正在處理/u);
+  assert.equal(typeof scheduled, "function");
+
+  const callback = scheduled;
+  scheduled = null; // real one-shot timers are no longer pending when their callback fires
+  await callback();
+
+  assert.equal(listCalls, 2);
+  assert.match(flatText(elements.list), /可以開始使用/u);
+  assert.equal(scheduled, null);
+});
+
+test("processing refresh re-arms when its timer races with an in-flight mutation", async () => {
+  const elements = uiElements();
+  let listCalls = 0;
+  let scheduled = null;
+  let releaseUpload;
+  const uploadGate = new Promise(resolve => { releaseUpload = resolve; });
+  const timers = {
+    set(fn) { scheduled = fn; return 1; },
+    clear() { scheduled = null; }
+  };
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/files?autoProcess=true")) {
+      await uploadGate;
+      return jsonResponse(true, 201, {
+        data: { documentId: 1, fileName: "race.pdf", status: "PENDING", duplicate: false }
+      });
+    }
+    listCalls += 1;
+    const usability = listCalls < 3
+      ? { status: "PROCESSING", searchReady: false, nextAction: "WAIT" }
+      : { status: "READY_TO_USE", searchReady: true, nextAction: "START_USING" };
+    return jsonResponse(true, 200, {
+      data: [row({ fileName: "race.pdf", usability,
+        parseStatus: usability.status === "READY_TO_USE" ? "PROCESSED" : null })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+
+  const controller = createInboxController(elements, fetchImpl, fakeDocument(), timers);
+  await controller.refresh();
+  assert.equal(typeof scheduled, "function");
+
+  elements.fileInput.files = [{ name: "race.pdf" }];
+  const upload = controller.uploadSingle({ preventDefault() {} });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const blockedTimer = scheduled;
+  scheduled = null;
+  await blockedTimer();
+  assert.equal(typeof scheduled, "function",
+    "PROCESSING timer must re-arm instead of being lost while another mutation owns inFlight");
+
+  releaseUpload();
+  await upload;
+
+  const retryTimer = scheduled;
+  scheduled = null;
+  await retryTimer();
+
+  assert.match(flatText(elements.list), /可以開始使用/u);
 });
 
 test("preview renders bounded chunks and reports missing extraction as typed state", async () => {
@@ -419,12 +516,14 @@ test("extract success re-fetches authoritative row without manual filter (#517)"
     listCalls += 1;
     if (listCalls === 1) {
       return jsonResponse(true, 200, {
-        data: [row({ documentId: 1, parseStatus: null })],
+        data: [row({ documentId: 1, parseStatus: null,
+          usability: { status: "NOT_PROCESSED", searchReady: false, nextAction: "RETRY_PROCESSING" } })],
         page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
       });
     }
     return jsonResponse(true, 200, {
-      data: [row({ documentId: 1, parseStatus: "PROCESSED" })],
+      data: [row({ documentId: 1, parseStatus: "PROCESSED",
+        usability: { status: "READY_TO_USE", searchReady: true, nextAction: "START_USING" } })],
       page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
     });
   };
@@ -432,8 +531,8 @@ test("extract success re-fetches authoritative row without manual filter (#517)"
 
   elements.statusFilter.value = "PENDING";
   await controller.applyFilter({ preventDefault() {} });
-  assert.match(flatText(elements.list), /抽取狀態：尚未抽取/u);
-  assert.match(flatText(elements.list), /執行抽取/u);
+  assert.match(flatText(elements.list), /尚未處理/u);
+  assert.match(flatText(elements.list), /重新處理/u);
 
   await controller.extract(1);
 
@@ -442,8 +541,8 @@ test("extract success re-fetches authoritative row without manual filter (#517)"
   assert.match(inboxGets.at(-1).url, /status=PENDING/u);
   assert.equal(elements.statusFilter.value, "PENDING",
     "mutation refresh must preserve the user filter");
-  assert.match(flatText(elements.list), /抽取狀態：已抽取/u);
-  assert.match(flatText(elements.list), /重新抽取/u);
+  assert.match(flatText(elements.list), /可以開始使用/u);
+  assert.match(flatText(elements.list), /開始提問/u);
   assert.match(elements.hint.textContent, /抽取完成，共 2 個片段/u);
 });
 
@@ -453,7 +552,7 @@ test("single upload success appends authoritative row without clearing filters (
   let listCalls = 0;
   const fetchImpl = async (url, options) => {
     calls.push({ url: String(url), method: options?.method });
-    if (String(url) === "/api/v1/inbox/files") {
+    if (String(url) === "/api/v1/inbox/files?autoProcess=true") {
       return jsonResponse(true, 201, {
         data: { documentId: 7, fileName: "new.pdf", status: "PENDING", duplicate: false }
       });
@@ -483,7 +582,7 @@ test("single upload success appends authoritative row without clearing filters (
   assert.match(inboxGets.at(-1).url, /status=PENDING/u);
   assert.equal(elements.statusFilter.value, "PENDING");
   assert.match(flatText(elements.list), /new\.pdf/u);
-  assert.match(elements.hint.textContent, /已上傳，狀態：待處理/u);
+  assert.match(elements.hint.textContent, /已上傳，系統會自動處理/u);
 });
 
 test("batch upload success refreshes from backend authority (#517)", async () => {
@@ -492,7 +591,7 @@ test("batch upload success refreshes from backend authority (#517)", async () =>
   let listCalls = 0;
   const fetchImpl = async (url, options) => {
     calls.push({ url: String(url), method: options?.method });
-    if (String(url) === "/api/v1/inbox/files/batch") {
+    if (String(url) === "/api/v1/inbox/files/batch?autoProcess=true") {
       return jsonResponse(true, 201, {
         data: { total: 1, accepted: 1, duplicate: 0, failed: 0,
           documents: [{ documentId: 8 }], failures: [] }
@@ -594,7 +693,7 @@ test("concurrent refresh and mutation stay guarded without dropping follow-up fe
   const uploadGate = new Promise(resolve => { releaseUpload = resolve; });
   const fetchImpl = async (url, options) => {
     calls.push({ url: String(url), method: options?.method });
-    if (String(url) === "/api/v1/inbox/files") {
+    if (String(url) === "/api/v1/inbox/files?autoProcess=true") {
       await uploadGate;
       return jsonResponse(true, 201, {
         data: { documentId: 11, fileName: "slow.pdf", status: "PENDING", duplicate: false }
@@ -640,7 +739,7 @@ test("mutation failure keeps typed error without optimistic rows (#517)", async 
         error: { code: "EXTRACTION_PARSE_FAILED", message: "parse failed" }
       });
     }
-    if (String(url) === "/api/v1/inbox/files") {
+    if (String(url) === "/api/v1/inbox/files?autoProcess=true") {
       return jsonResponse(false, 400, {
         error: { code: "INVALID_REQUEST", message: "bad" }
       });
@@ -652,11 +751,11 @@ test("mutation failure keeps typed error without optimistic rows (#517)", async 
   };
   const controller = createInboxController(elements, fetchImpl, fakeDocument());
   await controller.refresh();
-  assert.match(flatText(elements.list), /抽取狀態：尚未抽取/u);
+  assert.match(flatText(elements.list), /尚未處理/u);
 
   await controller.extract(1);
   assert.match(elements.hint.textContent, /抽取失敗：文件解析失敗/u);
-  assert.doesNotMatch(flatText(elements.list), /抽取狀態：已抽取/u,
+  assert.doesNotMatch(flatText(elements.list), /可以開始使用/u,
     "failure must not render an optimistic extracted row");
 
   elements.fileInput.files = [{ name: "bad.pdf" }];

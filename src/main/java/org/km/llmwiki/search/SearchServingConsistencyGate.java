@@ -25,24 +25,28 @@ public class SearchServingConsistencyGate {
         Set<Long> fresh = new LinkedHashSet<>();
         for (Long matchedDocumentId
                 : ftsRepository.findMatchedSourceDocumentIds(workspaceId, query, documentId)) {
-            var authority = authorityRepository.findDocument(workspaceId, matchedDocumentId);
-            var ledger = syncRepository.find(workspaceId, matchedDocumentId);
-            if (authority.isEmpty() || ledger.isEmpty()
-                    || !SourceSearchEligibilityPolicy.documentEligible(authority.get())
-                    || ledger.get().status() != SourceSearchIndexSyncStatus.SYNCED
-                    || !CjkBigramProjector.VERSION.equals(ledger.get().projectionVersion())) {
-                continue;
-            }
-            var eligible = SourceSearchFreshness.eligibleDocuments(authority.get());
-            String fingerprint = SourceSearchFreshness.fingerprint(eligible);
-            if (!eligible.isEmpty()
-                    && ledger.get().eligibleChunkCount() == eligible.size()
-                    && ledger.get().indexedChunkCount() == eligible.size()
-                    && fingerprint.equals(ledger.get().canonicalFingerprint())
-                    && fingerprint.equals(ledger.get().indexedFingerprint())) {
+            if (isDocumentFresh(workspaceId, matchedDocumentId)) {
                 fresh.add(matchedDocumentId);
             }
         }
         return Set.copyOf(fresh);
     }
+    public boolean isDocumentFresh(long workspaceId, long documentId) {
+        var authority = authorityRepository.findDocument(workspaceId, documentId);
+        var ledger = syncRepository.find(workspaceId, documentId);
+        if (authority.isEmpty() || ledger.isEmpty()
+                || !SourceSearchEligibilityPolicy.documentEligible(authority.get())
+                || ledger.get().status() != SourceSearchIndexSyncStatus.SYNCED
+                || !CjkBigramProjector.VERSION.equals(ledger.get().projectionVersion())) {
+            return false;
+        }
+        var eligible = SourceSearchFreshness.eligibleDocuments(authority.get());
+        String fingerprint = SourceSearchFreshness.fingerprint(eligible);
+        return !eligible.isEmpty()
+                && ledger.get().eligibleChunkCount() == eligible.size()
+                && ledger.get().indexedChunkCount() == eligible.size()
+                && fingerprint.equals(ledger.get().canonicalFingerprint())
+                && fingerprint.equals(ledger.get().indexedFingerprint());
+    }
+
 }

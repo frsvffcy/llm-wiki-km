@@ -1,7 +1,7 @@
 #!/bin/sh
 # Browser first-mile packaged-content assertions (Refs #560).
 #
-# Single implementation of the #450 / #451 / #517 / shell checks shared by
+# Single implementation of the #450 / #451 / #517 / #567 / shell checks shared by
 #   - scripts/browser-first-mile-smoke.sh (production packaged gate), and
 #   - scripts/tests/test-browser-first-mile-smoke.sh (hermetic fixture matrix).
 #
@@ -33,8 +33,9 @@ browser_content_async_block() {
 }
 
 # Entry point: verify extracted Browser static resources carry the
-# #450 hidden-visibility fix, the #451 lifecycle/parseStatus dual-state
-# contract, and the #517 mutation follow-up fetch fix, plus the hidden
+# #450 hidden-visibility fix, the #451 lifecycle/parseStatus filter separation,
+# the #517 mutation follow-up fetch fix, and the #567 backend-owned usability /
+# auto-processing contract, plus the hidden
 # empty-state shell panels. Args: cssFile jsFile htmlFile.
 browser_content_check() {
   _css="$1"
@@ -54,24 +55,31 @@ browser_content_check() {
     || { browser_content_fail "styles.css lacks .empty-state{display:grid} layout (#450 keeps layout, fixes authority)"; return 1; }
   browser_content_pass "#450 hidden authority present in packaged styles.css"
 
-  # --- #451: dual-state projection -------------------------------------------
-  grep -q 'data-status' "$_js" \
-    || { browser_content_fail "inbox-ui.js lacks data-status lifecycle badge (#451)"; return 1; }
-  grep -q 'data-parse-status' "$_js" \
-    || { browser_content_fail "inbox-ui.js lacks data-parse-status extraction badge (#451)"; return 1; }
-  grep -q '文件狀態' "$_js" \
-    || { browser_content_fail "inbox-ui.js lacks 文件狀態 label (#451)"; return 1; }
-  grep -q '抽取狀態' "$_js" \
-    || { browser_content_fail "inbox-ui.js lacks 抽取狀態 label (#451)"; return 1; }
+  # --- #451: lifecycle / extraction filter separation ------------------------
   grep -q 'LIFECYCLE_FILTER_STATUSES' "$_js" \
     || { browser_content_fail "inbox-ui.js lacks lifecycle filter contract (#451)"; return 1; }
   grep -q 'PARSE_STATUSES' "$_js" \
     || { browser_content_fail "inbox-ui.js lacks parseStatus filter contract (#451)"; return 1; }
-  grep -q '重新抽取' "$_js" \
-    || { browser_content_fail "inbox-ui.js lacks 重新抽取 semantics (#451)"; return 1; }
-  grep -q '執行抽取' "$_js" \
-    || { browser_content_fail "inbox-ui.js lacks 執行抽取 semantics (#451)"; return 1; }
-  browser_content_pass "#451 lifecycle/parseStatus dual projection present in packaged inbox-ui.js"
+  grep -q 'params.set("status"' "$_js" \
+    || { browser_content_fail "inbox-ui.js no longer maps lifecycle status to status= (#451)"; return 1; }
+  grep -q 'params.set("parseStatus"' "$_js" \
+    || { browser_content_fail "inbox-ui.js no longer maps extraction status to parseStatus= (#451)"; return 1; }
+  browser_content_pass "#451 lifecycle/parseStatus filter separation present in packaged inbox-ui.js"
+
+  # --- #567: backend-owned usability + bounded automatic processing -----------
+  grep -q 'data-usability-status' "$_js" \
+    || { browser_content_fail "inbox-ui.js lacks backend usability projection (#567)"; return 1; }
+  grep -q 'READY_TO_USE' "$_js" \
+    || { browser_content_fail "inbox-ui.js lacks READY_TO_USE semantics (#567)"; return 1; }
+  grep -q 'START_USING' "$_js" \
+    || { browser_content_fail "inbox-ui.js lacks START_USING next action (#567)"; return 1; }
+  grep -q 'autoProcess=true' "$_js" \
+    || { browser_content_fail "inbox-ui.js no longer opts into backend automatic processing (#567)"; return 1; }
+  grep -q 'scheduleProcessingRefresh' "$_js" \
+    || { browser_content_fail "inbox-ui.js lacks authoritative PROCESSING refresh (#567)"; return 1; }
+  grep -q '開始提問' "$_js" \
+    || { browser_content_fail "inbox-ui.js lacks READY_TO_USE task handoff (#567)"; return 1; }
+  browser_content_pass "#567 usability/readiness and automatic-processing contract present in packaged inbox-ui.js"
 
   # --- #517: mutation follow-up fetch bypasses the held inFlight guard --------
   _fetch_list_count="$(grep -Ec '^[[:space:]]{2}async function fetchList\(\)' "$_js" || true)"

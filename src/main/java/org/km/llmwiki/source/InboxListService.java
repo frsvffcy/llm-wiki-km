@@ -23,10 +23,14 @@ public class InboxListService {
 
     private final WorkspaceService workspaceService;
     private final DocumentRepository documentRepository;
+    private final DocumentUsabilityReadinessService readinessService;
 
-    public InboxListService(WorkspaceService workspaceService, DocumentRepository documentRepository) {
+    public InboxListService(WorkspaceService workspaceService,
+                            DocumentRepository documentRepository,
+                            DocumentUsabilityReadinessService readinessService) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
+        this.readinessService = readinessService;
     }
 
     /**
@@ -51,7 +55,10 @@ public class InboxListService {
         List<InboxDocumentRow> items = totalElements == 0
                 ? List.of()
                 : documentRepository.findInboxDocuments(workspace.id(), statusFilter, parseStatusFilter,
-                        extensionFilter, orderBy, pageSize, pageNumber * pageSize);
+                        extensionFilter, orderBy, pageSize, pageNumber * pageSize)
+                        .stream()
+                        .map(row -> row.withUsability(readinessService.resolve(workspace.id(), row)))
+                        .toList();
 
         return PageResponse.of(items, pageNumber, pageSize, totalElements);
     }
@@ -59,7 +66,8 @@ public class InboxListService {
     public Optional<InboxDocumentRow> getInboxDocument(long documentId) {
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
                 .orElseThrow(NoActiveWorkspaceException::new);
-        return documentRepository.findInboxDocument(workspace.id(), documentId);
+        return documentRepository.findInboxDocument(workspace.id(), documentId)
+                .map(row -> row.withUsability(readinessService.resolve(workspace.id(), row)));
     }
 
     private static String validateStatus(String status, String paramName) {
