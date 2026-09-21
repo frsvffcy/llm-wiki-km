@@ -359,6 +359,7 @@ public class RetrievalService {
             budgetTruncated |= bounded.truncated();
             if (bounded.truncated() || evidence.size() >= limits.maxItems()) {
                 budgetTruncated |= hasFurtherUniqueCandidate(ordered, index + 1, identities);
+                recordRemainingBudgetExclusions(ordered, index + 1, identities, collector);
                 break;
             }
         }
@@ -379,5 +380,26 @@ public class RetrievalService {
             }
         }
         return false;
+    }
+
+    /**
+     * The terminal budget stop is observable only in Inspector mode.  Record every remaining
+     * unique candidate so a measured miss can be attributed to the ranking/window boundary;
+     * this does not change selection, ordering, or the production evidence handoff.
+     */
+    private static void recordRemainingBudgetExclusions(List<SearchCandidate> candidates,
+                                                        int fromIndex,
+                                                        Set<String> seen,
+                                                        RetrievalInspectionCollector collector) {
+        if (collector == null) {
+            return;
+        }
+        for (int index = fromIndex; index < candidates.size(); index++) {
+            SearchCandidate candidate = candidates.get(index);
+            String identity = candidate.kind().name() + ":" + candidate.stableId();
+            if (seen.add(identity)) {
+                collector.budgetExcluded(identity);
+            }
+        }
     }
 }
