@@ -121,6 +121,29 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void syncedLedgerWithCanonicalDriftIsStaleAndNeverReady() throws Exception {
+        createWorkspace();
+        long documentId = uploadAuto("stale.txt", "原始內容 stale-token");
+        awaitIngestProcessingTasks();
+
+        db().sql("""
+                UPDATE source_chunk
+                   SET normalized_content = '內容已變動 stale-token-new',
+                       content_hash = :hash
+                 WHERE document_id = :document
+                """)
+                .param("hash", sha256("內容已變動 stale-token-new"))
+                .param("document", documentId)
+                .update();
+
+        mockMvc.perform(get("/api/v1/inbox"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].usability.status").value("INDEX_STALE"))
+                .andExpect(jsonPath("$.data[0].usability.searchReady").value(false))
+                .andExpect(jsonPath("$.data[0].usability.nextAction").value("RETRY_PROCESSING"));
+    }
+
+    @Test
     void unsupportedAutoProcessedDocumentExposesTypedNextActionInsteadOfReady() throws Exception {
         createWorkspace();
         mockMvc.perform(multipart("/api/v1/inbox/files")
@@ -148,6 +171,11 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data.duplicate").value(false))
                 .andReturn().getResponse().getContentAsString();
         return Long.parseLong(response.replaceAll(".*\\\"documentId\\\":(\\d+).*", "$1"));
+    }
+
+    private static String sha256(String value) throws Exception {
+        return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8)));
     }
 
     private void createWorkspace() throws Exception {
