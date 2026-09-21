@@ -31,13 +31,21 @@ public class DocumentUsabilityReadinessService {
                     DocumentUsabilityReadiness.NextAction.USE_EXISTING_DOCUMENT);
         }
 
-        if (jobItems.findActiveIngestState(workspaceId, document.documentId()).isPresent()) {
+        var activeIngest = jobItems.findActiveIngestState(workspaceId, document.documentId());
+        if (activeIngest.isPresent()) {
             return readiness(DocumentUsabilityReadiness.Status.PROCESSING, false,
                     DocumentUsabilityReadiness.NextAction.WAIT);
         }
 
         String parseStatus = document.parseStatus();
         if (parseStatus == null || parseStatus.isBlank()) {
+            var latestIngest = jobItems.findLatestIngestState(workspaceId, document.documentId());
+            if (latestIngest.isPresent()
+                    && latestIngest.get().status()
+                    == org.km.llmwiki.processing.ProcessingJobItemStatus.FAILED) {
+                return readiness(DocumentUsabilityReadiness.Status.FAILED, false,
+                        DocumentUsabilityReadiness.NextAction.RETRY_PROCESSING);
+            }
             return readiness(DocumentUsabilityReadiness.Status.NOT_PROCESSED, false,
                     DocumentUsabilityReadiness.NextAction.RETRY_PROCESSING);
         }
