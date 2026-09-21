@@ -51,6 +51,43 @@ const PARSE_STATUS_LABELS = Object.freeze({
 
 const NOT_EXTRACTED_LABEL = "尚未抽取";
 
+
+const USABILITY_LABELS = Object.freeze({
+  PROCESSING: "系統正在處理",
+  READY_TO_USE: "可以開始使用",
+  NOT_PROCESSED: "尚未處理",
+  INDEX_PENDING: "搜尋索引尚未就緒",
+  NOT_SEARCHABLE: "沒有可搜尋內容",
+  NEED_OCR: "需要 OCR",
+  UNSUPPORTED: "不支援此格式",
+  FAILED: "處理失敗",
+  DUPLICATE: "內容已存在"
+});
+
+const USABILITY_DETAILS = Object.freeze({
+  PROCESSING: "系統會自動完成文字抽取與搜尋索引，完成後即可提問。",
+  READY_TO_USE: "文件已完成處理並通過搜尋索引 freshness 驗證。",
+  NOT_PROCESSED: "尚未完成處理，可重新啟動處理。",
+  INDEX_PENDING: "文件已抽取，但搜尋索引尚未同步完成；目前不會把它當成可搜尋內容。",
+  NOT_SEARCHABLE: "文件沒有符合目前搜尋索引條件的可用內容。",
+  NEED_OCR: "文件缺少可用文字層，需要先完成 OCR。",
+  UNSUPPORTED: "目前不支援此文件格式的文字抽取。",
+  FAILED: "自動處理失敗，可重新處理。",
+  DUPLICATE: "內容與既有文件相同，不會重複處理。"
+});
+
+export function usabilityLabel(usability) {
+  const key = usability && typeof usability.status === "string"
+    ? usability.status.toUpperCase() : "";
+  return USABILITY_LABELS[key] || "無法確認可用狀態";
+}
+
+export function usabilityDetail(usability) {
+  const key = usability && typeof usability.status === "string"
+    ? usability.status.toUpperCase() : "";
+  return USABILITY_DETAILS[key] || "請重新整理後再確認。";
+}
+
 /** Only these statuses may be removed, exactly as the backend soft-delete contract allows. */
 export const DELETABLE_STATUSES = Object.freeze([
   "PENDING", "FAILED", "DUPLICATE", "UNSUPPORTED", "NEED_OCR"
@@ -181,33 +218,43 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
     appendTextElement(documentRef, item, "p", "inbox-file-name", text(data.fileName));
     appendTextElement(documentRef, item, "p", "inbox-item-meta",
       `${text(data.extension)} · ${formatFileSize(data.fileSize)} · 建立於 ${text(data.createdAt)}`);
-    const badge = appendTextElement(documentRef, item, "span",
-      `status-badge status-badge--${statusKey.toLowerCase() || "unknown"}`,
-      `文件狀態：${statusLabel(data.status)}`);
-    badge.setAttribute("data-status", statusKey);
-    const parseBadge = appendTextElement(documentRef, item, "span",
-      `status-badge status-badge--parse-${parseKey.toLowerCase() || "not-extracted"}`,
-      `抽取狀態：${parseStatusLabel(data.parseStatus)}`);
-    parseBadge.setAttribute("data-parse-status", parseKey);
+    const usability = data.usability && typeof data.usability === "object" ? data.usability : {};
+    const usabilityKey = typeof usability.status === "string"
+      ? usability.status.toUpperCase() : "";
+    const usabilityBadge = appendTextElement(documentRef, item, "span",
+      `status-badge status-badge--usability-${usabilityKey.toLowerCase() || "unknown"}`,
+      usabilityLabel(usability));
+    usabilityBadge.setAttribute("data-usability-status", usabilityKey);
+    appendTextElement(documentRef, item, "p", "inbox-usability-detail",
+      usabilityDetail(usability));
     if (data.errorCode) {
       appendTextElement(documentRef, item, "p", "inbox-item-error",
         `${text(data.errorCode)}${data.errorMessage ? `：${text(data.errorMessage)}` : ""}`);
     }
     const actionRow = documentRef.createElement("div");
     actionRow.className = "inbox-actions";
-    if (typeof actions.onExtract === "function") {
+    const nextAction = typeof usability.nextAction === "string"
+      ? usability.nextAction.toUpperCase() : "";
+    if (nextAction === "START_USING") {
+      const use = documentRef.createElement("a");
+      use.className = "wiki-handoff inbox-use";
+      use.href = "#/ask";
+      use.textContent = "開始提問";
+      actionRow.append(use);
+    }
+    if (nextAction === "RETRY_PROCESSING" && typeof actions.onExtract === "function") {
       const extract = documentRef.createElement("button");
       extract.type = "button";
       extract.className = "inbox-extract";
-      extract.textContent = extractActionLabel(data.parseStatus);
+      extract.textContent = "重新處理";
       extract.addEventListener("click", () => actions.onExtract(data.documentId));
       actionRow.append(extract);
     }
-    if (typeof actions.onPreview === "function") {
+    if (parseKey === "PROCESSED" && typeof actions.onPreview === "function") {
       const preview = documentRef.createElement("button");
       preview.type = "button";
       preview.className = "inbox-preview";
-      preview.textContent = "檢視抽取內容";
+      preview.textContent = "檢視處理內容";
       preview.addEventListener("click", () => actions.onPreview(data.documentId));
       actionRow.append(preview);
     }
@@ -287,9 +334,21 @@ async function readEnvelope(response) {
   }
 }
 
-export function createInboxController(elements, fetchImpl = fetch, documentRef = document) {
+export function createInboxController(elements, fetchImpl = fetch, documentRef = document,
+                                      timers = { set: setTimeout, clear: clearTimeout }) {
   const state = { page: 0, status: "", parseStatus: "", documentId: null, previewPage: 0 };
   let inFlight = false;
+  let processingRefreshTimer = null;
+
+  function scheduleProcessingRefresh(rows) {
+    const processing = rows.some(row => row && row.usability
+      && String(row.usability.status || "").toUpperCase() === "PROCESSING");
+    if (!processing || processingRefreshTimer !== null) return;
+    processingRefreshTimer = timers.set(async () => {
+      processingRefreshTimer = null;
+      await refresh();
+    }, 750);
+  }
 
   function showTypedError(error) {
     const { title, message } = inboxErrorMessage(error);
@@ -298,6 +357,10 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
 
   function reset() {
     // Workspace isolation: nothing from the previous workspace survives a switch.
+    if (processingRefreshTimer !== null) {
+      timers.clear(processingRefreshTimer);
+      processingRefreshTimer = null;
+    }
     state.page = 0;
     state.status = "";
     state.parseStatus = "";
@@ -337,6 +400,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
         onPreview: openPreview,
         onRemove: remove
       });
+      scheduleProcessingRefresh(rows);
       return true;
     } catch {
       showTypedError(undefined);
@@ -368,7 +432,8 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     try {
       const data = new FormData();
       data.append("file", file);
-      const response = await fetchImpl(INBOX_ENDPOINT + "/files", { method: "POST", body: data });
+      const response = await fetchImpl(INBOX_ENDPOINT + "/files?autoProcess=true",
+        { method: "POST", body: data });
       const envelope = await readEnvelope(response);
       if (!response.ok) {
         showTypedError(envelope && envelope.error ? envelope.error : undefined);
@@ -377,7 +442,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
       const uploaded = envelope.data || {};
       const successMessage = uploaded.duplicate
         ? `「${text(uploaded.fileName)}」為重複檔案：內容與既有文件相同。`
-        : `「${text(uploaded.fileName)}」已上傳，狀態：待處理。可執行抽取以產生可檢索內容。`;
+        : `「${text(uploaded.fileName)}」已上傳，系統會自動處理；完成後即可開始提問。`;
       elements.fileInput.value = "";
       // Mutation holds the lock, so follow-up must use fetchList(): refresh()
       // would early-return on inFlight and leave a stale projection (#517).
@@ -405,7 +470,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     try {
       const data = new FormData();
       files.forEach(file => data.append("files", file));
-      const response = await fetchImpl(INBOX_ENDPOINT + "/files/batch",
+      const response = await fetchImpl(INBOX_ENDPOINT + "/files/batch?autoProcess=true",
         { method: "POST", body: data });
       const envelope = await readEnvelope(response);
       if (!response.ok) {
@@ -446,7 +511,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
   async function extract(documentId) {
     if (inFlight) return;
     inFlight = true;
-    elements.hint.textContent = "抽取中…";
+    elements.hint.textContent = "重新處理中…";
     try {
       const response = await fetchImpl(
         `${DOCUMENTS_ENDPOINT_BASE}/${documentId}/extract`, { method: "POST" });
