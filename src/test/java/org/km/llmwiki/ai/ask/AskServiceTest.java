@@ -164,6 +164,7 @@ class AskServiceTest {
                         failure -> assertThat(failure.reason()).isEqualTo(reason));
 
         org.mockito.Mockito.verify(validator, org.mockito.Mockito.times(2)).requireCurrent(any());
+        org.mockito.Mockito.verify(retrieval).retrieve(any());
         org.mockito.Mockito.verifyNoInteractions(provider);
     }
 
@@ -181,7 +182,24 @@ class AskServiceTest {
         assertThat(result.status()).isEqualTo(AskStatus.INSUFFICIENT_EVIDENCE);
         assertThat(result.insufficientEvidence()).isTrue();
         org.mockito.Mockito.verify(validator, org.mockito.Mockito.times(2)).requireCurrent(any());
+        org.mockito.Mockito.verify(retrieval).retrieve(any());
         org.mockito.Mockito.verifyNoInteractions(provider);
+    }
+
+    @Test
+    void unscopedNoEvidenceDoesNotConsultDocumentScopeValidator() {
+        AskDocumentScopeValidator validator = mock(AskDocumentScopeValidator.class);
+        RetrievalService retrieval = retrievalReturning(bundle(List.of()));
+        AnswerClient provider = mock(AnswerClient.class);
+        AskService service = new AskService(retrieval, projector(), noopRerank(), provider,
+                org.km.llmwiki.ai.query.QueryTransformationService.disabled(), validator);
+
+        AskResult result = service.ask(
+                AskRequest.defaults("unknown", RetrievalMode.WIKI_ONLY));
+
+        assertThat(result.status()).isEqualTo(AskStatus.INSUFFICIENT_EVIDENCE);
+        org.mockito.Mockito.verifyNoInteractions(validator, provider);
+        org.mockito.Mockito.verify(retrieval).retrieve(any());
     }
 
     @Test
