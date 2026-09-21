@@ -196,6 +196,10 @@ class McpToolInputContractTest {
                 .isInstanceOf(McpToolInputException.class)
                 .hasMessage("retrievalMode is invalid");
         assertThatThrownBy(() ->
+                validate("km_ask", "{\"question\":\"q\",\"documentId\":42}"))
+                .isInstanceOf(McpToolInputException.class)
+                .hasMessage("unsupported argument: documentId");
+        assertThatThrownBy(() ->
                 validate("km_retrieval_inspect", "{\"question\":\"q\",\"mode\":\"REBUILD\"}"))
                 .isInstanceOf(McpToolInputException.class)
                 .hasMessage("mode is invalid");

@@ -39,6 +39,8 @@ function uiElements() {
   return {
     form: new FakeElement(), question: new FakeElement(), retrievalMode: new FakeElement(),
     submit: new FakeElement(), hint: new FakeElement(), result: new FakeElement(),
+    documentScope: new FakeElement(), documentScopeLabel: new FakeElement(),
+    documentScopeClear: new FakeElement(),
     empty: new FakeElement(), error: new FakeElement(), errorTitle: new FakeElement(),
     errorMessage: new FakeElement(), insufficient: new FakeElement(), answer: new FakeElement(),
     answerText: new FakeElement(), metadata: new FakeElement(), citations: new FakeElement(),
@@ -55,6 +57,22 @@ function uiElements() {
     sourcePreviewErrorMessage: new FakeElement(), sourcePreviewNotFound: new FakeElement(),
     sourcePreviewNotFoundTitle: new FakeElement(),
     sourcePreviewNotFoundMessage: new FakeElement()
+  };
+}
+
+function routedDocument(hash = "#/ask") {
+  const documentListeners = new Map();
+  const viewListeners = new Map();
+  const view = {
+    location: { hash },
+    addEventListener(name, handler) { viewListeners.set(name, handler); }
+  };
+  return {
+    createElement: () => new FakeElement(),
+    defaultView: view,
+    addEventListener(name, handler) { documentListeners.set(name, handler); },
+    documentListeners,
+    viewListeners
   };
 }
 
@@ -372,6 +390,143 @@ test("sends the selected graph-grounded retrieval mode", async () => {
   assert.equal(requestBody.retrievalMode, "HYBRID_GRAPH");
 });
 
+test("loads an authoritative document scope and submits its application identity", async () => {
+  const elements = uiElements();
+  const routed = routedDocument("#/ask?documentId=42");
+  const bodies = [];
+  const controller = createAskController(elements, async (url, options) => {
+    if (String(url) === "/api/v1/inbox/documents/42") {
+      return { ok: true, async json() { return { data: {
+        documentId: 42, fileName: "規格 A.pdf",
+        usability: { status: "READY_TO_USE", searchReady: true }
+      } }; } };
+    }
+    bodies.push(JSON.parse(options.body));
+    return { ok: true, async json() { return { data: {
+      status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true, citations: []
+    } }; } };
+  }, routed);
+
+  await controller.loadDocumentScope();
+  assert.equal(elements.documentScope.hidden, false);
+  assert.equal(elements.documentScopeLabel.textContent, "目前針對：規格 A.pdf");
+  elements.question.value = "這份文件的限制是什麼？";
+  elements.retrievalMode.value = "HYBRID_GRAPH";
+  await controller.submit(event());
+
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].documentId, 42);
+  assert.equal(bodies[0].retrievalMode, "HYBRID_GRAPH");
+});
+
+test("clearing document scope restores the original unscoped Ask request", async () => {
+  const elements = uiElements();
+  const routed = routedDocument("#/ask?documentId=7");
+  let body;
+  const controller = createAskController(elements, async (url, options) => {
+    if (String(url).includes("/inbox/documents/")) {
+      return { ok: true, async json() { return { data: {
+        documentId: 7, fileName: "A.txt",
+        usability: { status: "READY_TO_USE", searchReady: true }
+      } }; } };
+    }
+    body = JSON.parse(options.body);
+    return { ok: true, async json() { return { data: {
+      status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true, citations: []
+    } }; } };
+  }, routed);
+  await controller.loadDocumentScope();
+
+  elements.documentScopeClear.handlers.get("click")();
+  assert.equal(routed.defaultView.location.hash, "#/ask");
+  assert.equal(elements.documentScope.hidden, true);
+  elements.question.value = "改問全部";
+  elements.retrievalMode.value = "HYBRID_FTS";
+  await controller.submit(event());
+
+  assert.equal(Object.hasOwn(body, "documentId"), false);
+});
+
+test("clearing scope rejects an in-flight response from the previous document", async () => {
+  const elements = uiElements();
+  const routed = routedDocument("#/ask?documentId=8");
+  let releaseAsk;
+  const pendingAsk = new Promise(resolve => { releaseAsk = resolve; });
+  const controller = createAskController(elements, async (url) => {
+    if (String(url).includes("/inbox/documents/")) {
+      return { ok: true, async json() { return { data: {
+        documentId: 8, fileName: "舊範圍.txt",
+        usability: { status: "READY_TO_USE", searchReady: true }
+      } }; } };
+    }
+    await pendingAsk;
+    return { ok: true, async json() { return { data: {
+      status: "ANSWERED", insufficientEvidence: false, answer: "舊範圍回答",
+      citations: [{ kind: "SOURCE_CHUNK", documentId: 8, title: "舊範圍.txt" }]
+    } }; } };
+  }, routed);
+  await controller.loadDocumentScope();
+  elements.question.value = "先問舊範圍";
+  elements.retrievalMode.value = "HYBRID_FTS";
+
+  const submission = controller.submit(event());
+  elements.documentScopeClear.handlers.get("click")();
+  releaseAsk();
+  await submission;
+
+  assert.equal(elements.documentScope.hidden, true);
+  assert.equal(elements.answer.hidden, true);
+  assert.equal(elements.citations.children.length, 0);
+  assert.equal(routed.defaultView.location.hash, "#/ask");
+});
+
+test("workspace switch clears scope and ignores the previous workspace response", async () => {
+  const elements = uiElements();
+  const routed = routedDocument("#/ask?documentId=9");
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const controller = createAskController(elements, async url => {
+    if (String(url).includes("/inbox/documents/")) {
+      await pending;
+      return { ok: true, async json() { return { data: {
+        documentId: 9, fileName: "舊工作區.txt",
+        usability: { status: "READY_TO_USE", searchReady: true }
+      } }; } };
+    }
+    throw new Error("workspace switch must prevent Ask submission");
+  }, routed);
+
+  routed.documentListeners.get("workspace-changed")();
+  assert.equal(routed.defaultView.location.hash, "#/ask");
+  release();
+  await controller.loadDocumentScope();
+  assert.equal(elements.documentScope.hidden, true);
+  assert.equal(elements.documentScopeLabel.textContent, "");
+});
+
+test("invalid document scope fails closed instead of silently asking the whole knowledge base", async () => {
+  const elements = uiElements();
+  const routed = routedDocument("#/ask?documentId=15");
+  let askCalls = 0;
+  const controller = createAskController(elements, async (url) => {
+    if (String(url).includes("/inbox/documents/")) {
+      return { ok: false, async json() { return { error: {
+        code: "DOCUMENT_NOT_FOUND", message: "not found"
+      } }; } };
+    }
+    askCalls += 1;
+    throw new Error("must not ask");
+  }, routed);
+  await controller.loadDocumentScope();
+  elements.question.value = "不能偷跑";
+  elements.retrievalMode.value = "HYBRID_FTS";
+  await controller.submit(event());
+
+  assert.equal(askCalls, 0);
+  assert.match(elements.documentScopeLabel.textContent, /無法使用/u);
+  assert.match(elements.hint.textContent, /尚未通過可用性確認/u);
+});
+
 test("renders a graph-grounded answer with degradation as a safe notice, not a failure", () => {
   const elements = uiElements();
   renderAskResponse(elements, { data: {
@@ -457,7 +612,8 @@ test("does not add persistence, unsafe HTML APIs, vendor internals, or graph end
   assert.doesNotMatch(source, /ArcadeDB|sqlite-vec|snapshotToken|sourceFingerprint|vendorScore/i);
   // The only allowed non-ask endpoint is the read-only provider egress transparency surface;
   // it is an application-owned descriptor (no credentials, no raw endpoints, no mutations).
-  assert.doesNotMatch(source, /api\/v1\/(?!ask\b|system\/ai-provider-egress\b|system\/ai-provider-egress\?)/);
+  assert.doesNotMatch(source,
+    /api\/v1\/(?!ask\b|inbox\/documents\/[${}\w-]+|system\/ai-provider-egress\b|system\/ai-provider-egress\?)/);
 });
 
 test("loads and renders the provider egress trust indicator with safe text only", async () => {

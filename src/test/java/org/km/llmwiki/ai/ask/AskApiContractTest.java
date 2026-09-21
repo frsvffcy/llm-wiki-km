@@ -37,6 +37,41 @@ class AskApiContractTest {
     }
 
     @Test
+    void documentScopeUsesOnlyAPositiveApplicationOwnedDocumentId() {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var scoped = AskApiRequest.fromJson(mapper.valueToTree(Map.of(
+                "question", "只問這份文件",
+                "retrievalMode", "HYBRID_GRAPH",
+                "documentId", 42)));
+
+        assertThat(scoped.documentId()).isEqualTo(42L);
+        assertThat(scoped.toApplicationRequest().documentScope().documentId()).isEqualTo(42L);
+        assertThat(scoped.toApplicationRequest().retrievalRequest().corpus())
+                .isEqualTo(org.km.llmwiki.search.SearchCorpus.SOURCE);
+
+        for (Object invalid : List.of(0, -1, 1.5, "42")) {
+            var body = mapper.valueToTree(Map.of(
+                    "question", "q", "retrievalMode", "HYBRID_FTS", "documentId", invalid));
+            assertThatThrownBy(() -> AskApiRequest.fromJson(body))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("documentId");
+        }
+    }
+
+    @Test
+    void omittedDocumentScopePreservesTheExistingUnscopedAskContract() {
+        var body = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of(
+                "question", "整個知識庫", "retrievalMode", "HYBRID_FTS"));
+
+        AskRequest request = AskApiRequest.fromJson(body).toApplicationRequest();
+
+        assertThat(request.documentScope()).isNull();
+        assertThat(request.retrievalRequest().documentScope()).isNull();
+        assertThat(request.retrievalRequest().corpus())
+                .isEqualTo(org.km.llmwiki.search.SearchCorpus.ALL);
+    }
+
+    @Test
     void rejectsBlankAndOversizedUnicodeQuestion() {
         assertThatThrownBy(() -> new AskApiRequest(" \t", RetrievalMode.WIKI_ONLY))
                 .isInstanceOf(IllegalArgumentException.class);

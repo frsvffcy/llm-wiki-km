@@ -219,6 +219,32 @@ class AskApiIntegrationTest {
     }
 
     @Test
+    void mapsInvalidAndStaleDocumentScopesToTypedFailClosedErrors() throws Exception {
+        when(askService.ask(any())).thenThrow(new AskDocumentScopeException(
+                AskDocumentScopeException.Reason.INVALID));
+
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("""
+                                {"question":"只問這份文件","retrievalMode":"HYBRID_FTS",
+                                 "documentId":42}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ASK_DOCUMENT_SCOPE_INVALID"));
+
+        reset(askService);
+        when(askService.ask(any())).thenThrow(new AskDocumentScopeException(
+                AskDocumentScopeException.Reason.STALE));
+
+        mockMvc.perform(post("/api/v1/ask").contentType(APPLICATION_JSON)
+                        .content("""
+                                {"question":"只問這份文件","retrievalMode":"HYBRID_FTS",
+                                 "documentId":42}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ASK_DOCUMENT_SCOPE_STALE"));
+    }
+
+    @Test
     void mapsRetrievalUnavailableWithoutProviderOrDiagnosticDetails() throws Exception {
         when(askService.ask(any())).thenReturn(failed(AskFailureType.RETRIEVAL_UNAVAILABLE,
                 "database password=secret; full prompt=raw prompt"));

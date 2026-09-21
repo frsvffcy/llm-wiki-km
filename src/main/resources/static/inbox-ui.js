@@ -240,7 +240,7 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
     if (nextAction === "START_USING") {
       const use = documentRef.createElement("a");
       use.className = "wiki-handoff inbox-use";
-      use.href = "#/ask";
+      use.href = `#/ask?documentId=${encodeURIComponent(String(data.documentId))}`;
       use.textContent = "開始提問";
       actionRow.append(use);
     }

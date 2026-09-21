@@ -96,6 +96,30 @@ class RetrievalServiceIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void documentScopeAdmitsOnlySameDocumentEvidenceAndExcludesWikiAndOtherDocuments()
+            throws Exception {
+        WorkspaceFixture active = insertWorkspace("document-scope", "ACTIVE");
+        insertWiki(active, "scope-wiki", "Scope Wiki", "scope-token shared authority");
+        SourceFixture selected = insertSource(active.id(), "selected.txt", 1, null,
+                null, null, "scope-token selected evidence");
+        SourceFixture other = insertSource(active.id(), "other.txt", 1, null,
+                null, null, "scope-token other evidence");
+        RetrievalRequest request = RetrievalRequest.of("scope-token", RetrievalMode.HYBRID_FTS,
+                RetrievalStrategy.LEXICAL, null, null,
+                new DocumentRetrievalScope(selected.documentId()));
+
+        EvidenceBundle bundle = retrievalService.retrieve(request);
+
+        assertThat(bundle.items()).isNotEmpty()
+                .allSatisfy(item -> {
+                    assertThat(item.kind()).isEqualTo(EvidenceKind.SOURCE_CHUNK);
+                    assertThat(item.documentId()).isEqualTo(selected.documentId());
+                });
+        assertThat(bundle.items()).extracting(EvidenceItem::documentId)
+                .doesNotContain(other.documentId());
+    }
+
+    @Test
     void isolatesWorkspaceAndFailsClosedWhenAuthoritativeWikiAndSourceDrift() throws Exception {
         WorkspaceFixture active = insertWorkspace("authority-active", "ACTIVE");
         WikiFixture wiki = insertWiki(active, "active-wiki", "Active Wiki",

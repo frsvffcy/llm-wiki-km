@@ -102,7 +102,8 @@ public final class QueryTransformationService {
         }
 
         RetrievalRequest rewriteRequest = RetrievalRequest.of(rewritten, originalRequest.mode(),
-                originalRequest.strategy(), originalRequest.maxItems(), originalRequest.maxCharacters());
+                originalRequest.strategy(), originalRequest.maxItems(), originalRequest.maxCharacters(),
+                originalRequest.documentScope());
         try {
             EvidenceBundle rewrittenEvidence = retrieval.apply(rewriteRequest);
             EvidenceBundle merged = merge(originalEvidence, rewrittenEvidence);

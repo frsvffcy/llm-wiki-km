@@ -3,6 +3,7 @@ package org.km.llmwiki.source;
 import org.km.llmwiki.web.ApiResponse;
 import org.km.llmwiki.web.PageResponse;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +41,16 @@ public class InboxController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
         return inboxListService.list(status, parseStatus, extension, sort, page, size);
+    }
+
+    /** Active-workspace display/readiness projection used by the document-scoped Ask UI. */
+    @GetMapping("/documents/{documentId}")
+    public ApiResponse<InboxDocumentRow> getDocument(@PathVariable long documentId) {
+        if (documentId <= 0) {
+            throw new IllegalArgumentException("documentId must be positive");
+        }
+        return new ApiResponse<>(inboxListService.getInboxDocument(documentId)
+                .orElseThrow(() -> new DocumentNotFoundException(documentId)));
     }
 
     @org.springframework.web.bind.annotation.DeleteMapping("/files/{documentId}")

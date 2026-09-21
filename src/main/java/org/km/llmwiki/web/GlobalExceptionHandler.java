@@ -1,6 +1,7 @@
 package org.km.llmwiki.web;
 
 import org.km.llmwiki.ai.ask.AskApiException;
+import org.km.llmwiki.ai.ask.AskDocumentScopeException;
 import org.km.llmwiki.ai.ask.AskFailureType;
 import org.km.llmwiki.graph.GraphProjectionException;
 import org.km.llmwiki.graph.GraphProjectionFailureType;
@@ -290,6 +291,16 @@ public class GlobalExceptionHandler {
             case LOCAL_VALIDATION -> "提問要求遭拒";
         };
         return respond(status, type.publicCode(), message, exception);
+    }
+
+    @ExceptionHandler(AskDocumentScopeException.class)
+    public ResponseEntity<ApiError> handleAskDocumentScope(AskDocumentScopeException exception) {
+        String code = exception.reason() == AskDocumentScopeException.Reason.STALE
+                ? "ASK_DOCUMENT_SCOPE_STALE" : "ASK_DOCUMENT_SCOPE_INVALID";
+        String message = exception.reason() == AskDocumentScopeException.Reason.STALE
+                ? "指定文件的搜尋索引已過期，請重新處理後再提問"
+                : "指定文件目前無法用於提問，請重新選擇文件";
+        return respond(HttpStatus.CONFLICT, code, message, exception);
     }
 
     @ExceptionHandler({NoResourceFoundException.class, MethodArgumentTypeMismatchException.class})

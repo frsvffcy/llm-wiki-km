@@ -77,8 +77,11 @@ public class FusedRetrievalOrchestrator {
     public EvidenceBundle retrieveFused(RetrievalRequest request,
                                         RetrievalInspectionCollector collector) {
         RetrievalBudgetPolicy.ResolvedBudget limits = RetrievalBudgetPolicy.resolve(request);
-        FusedEvidenceRequest fusedRequest = FusedEvidenceRequest.of(
-                request.query(), limits.maxItems(), limits.maxCharacters(), true);
+        FusedEvidenceRequest fusedRequest = request.documentScope() == null
+                ? FusedEvidenceRequest.of(request.query(), limits.maxItems(),
+                        limits.maxCharacters(), true)
+                : FusedEvidenceRequest.scoped(request.query(), limits.maxItems(),
+                        limits.maxCharacters(), request.documentScope().documentId());
         FusedEvidenceResult result = collector == null
                 ? fusedEvidenceService.fuse(fusedRequest)
                 : fusedEvidenceService.fuse(fusedRequest, collector);
@@ -141,6 +144,17 @@ public class FusedRetrievalOrchestrator {
         Iterator<EvidenceItem> iterator = items.iterator();
         while (iterator.hasNext()) {
             EvidenceItem item = iterator.next();
+            if (request.documentScope() != null
+                    && (item.kind() != EvidenceKind.SOURCE_CHUNK
+                    || item.documentId() == null
+                    || !item.documentId().equals(request.documentScope().documentId()))) {
+                iterator.remove();
+                handoffRejected++;
+                if (collector != null) {
+                    collector.rejected(item.stableIdentity(), "DOCUMENT_SCOPE_MISMATCH");
+                }
+                continue;
+            }
             PublicationOutcome outcome = authorityRevalidator.publicationCurrent(item,
                     result.workspace().id(), handoffSourceCache);
             if (outcome.wasRejected()) {

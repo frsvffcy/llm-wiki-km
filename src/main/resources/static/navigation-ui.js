@@ -35,7 +35,7 @@ export const VIEW_TITLES = Object.freeze({
 });
 
 export function parseRoute(hash) {
-  const raw = String(hash ?? "").replace(/^#\/?/, "").trim().toLowerCase();
+  const raw = String(hash ?? "").replace(/^#\/?/, "").split("?", 1)[0].trim().toLowerCase();
   return ROUTES.includes(raw) ? raw : "home";
 }
 

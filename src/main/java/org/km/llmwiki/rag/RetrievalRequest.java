@@ -3,11 +3,17 @@ package org.km.llmwiki.rag;
 /** Provider-neutral retrieval input; no prompt or model settings belong here. */
 public record RetrievalRequest(String query, RetrievalMode mode,
                                Integer maxItems, Integer maxCharacters,
-                               RetrievalStrategy strategy) {
+                               RetrievalStrategy strategy,
+                               DocumentRetrievalScope documentScope) {
+
+    public RetrievalRequest(String query, RetrievalMode mode, Integer maxItems,
+                            Integer maxCharacters, RetrievalStrategy strategy) {
+        this(query, mode, maxItems, maxCharacters, strategy, null);
+    }
 
     public RetrievalRequest(String query, RetrievalMode mode,
                             Integer maxItems, Integer maxCharacters) {
-        this(query, mode, maxItems, maxCharacters, mode == null ? null : mode.strategy());
+        this(query, mode, maxItems, maxCharacters, mode == null ? null : mode.strategy(), null);
     }
 
     public RetrievalRequest {
@@ -32,7 +38,14 @@ public record RetrievalRequest(String query, RetrievalMode mode,
         return new RetrievalRequest(query, mode, maxItems, maxCharacters, strategy);
     }
 
+    public static RetrievalRequest of(String query, RetrievalMode mode, RetrievalStrategy strategy,
+                                      Integer maxItems, Integer maxCharacters,
+                                      DocumentRetrievalScope documentScope) {
+        return new RetrievalRequest(query, mode, maxItems, maxCharacters, strategy, documentScope);
+    }
+
     public org.km.llmwiki.search.SearchCorpus corpus() {
-        return mode.searchCorpus();
+        return documentScope == null
+                ? mode.searchCorpus() : org.km.llmwiki.search.SearchCorpus.SOURCE;
     }
 }

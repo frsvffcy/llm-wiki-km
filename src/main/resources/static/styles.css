@@ -184,6 +184,20 @@ button:focus-visible {
   outline-offset: 2px;
 }
 .form-row { align-items: end; margin-top: 18px; }
+
+.ask-document-scope {
+  align-items: center;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+.ask-document-scope[hidden] { display: none; }
 .field-group { width: min(280px, 100%); }
 /* #494 base button contracts: primary is the default button; secondary/danger are
    explicit modifier classes. All state motion is bounded via motion tokens. */

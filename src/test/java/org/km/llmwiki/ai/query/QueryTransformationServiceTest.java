@@ -9,6 +9,7 @@ import org.km.llmwiki.rag.EvidenceBundle;
 import org.km.llmwiki.rag.EvidenceItem;
 import org.km.llmwiki.rag.EvidenceKind;
 import org.km.llmwiki.rag.EvidenceWorkspace;
+import org.km.llmwiki.rag.DocumentRetrievalScope;
 import org.km.llmwiki.rag.RetrievalDiagnostics;
 import org.km.llmwiki.rag.RetrievalMode;
 import org.km.llmwiki.rag.ModalityOutcome;
@@ -57,6 +58,28 @@ class QueryTransformationServiceTest {
                 .isEqualTo(QueryTransformationStatus.REWRITE_APPLIED);
         assertThat(result.evidence().items()).extracting(EvidenceItem::stableIdentity)
                 .containsExactly("WIKI:original", "WIKI:target");
+    }
+
+    @Test
+    void rewriteRetrievalPreservesDocumentScope() {
+        DocumentRetrievalScope scope = new DocumentRetrievalScope(73L);
+        RetrievalRequest scoped = RetrievalRequest.of(REQUEST.query(), REQUEST.mode(),
+                REQUEST.strategy(), REQUEST.maxItems(), REQUEST.maxCharacters(), scope);
+        List<RetrievalRequest> rewrittenRequests = new ArrayList<>();
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            rewrittenRequests.add(invocation.getArgument(0));
+            return bundle("rewrite", List.of(item("target")));
+        });
+
+        new QueryTransformationService(new SingleRewritePolicyV1(),
+                (query, protectedTokens) -> "資料庫 busy_timeout")
+                .apply(scoped, bundle("original", List.of(item("original"))), retrieval);
+
+        assertThat(rewrittenRequests).singleElement().satisfies(request -> {
+            assertThat(request.documentScope()).isEqualTo(scope);
+            assertThat(request.corpus()).isEqualTo(org.km.llmwiki.search.SearchCorpus.SOURCE);
+        });
     }
 
     @Test

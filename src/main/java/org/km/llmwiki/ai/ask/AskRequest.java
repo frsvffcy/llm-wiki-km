@@ -4,6 +4,7 @@ import org.km.llmwiki.ai.answer.AnswerContextBudget;
 import org.km.llmwiki.ai.answer.AnswerGenerationOptions;
 import org.km.llmwiki.rag.RetrievalMode;
 import org.km.llmwiki.rag.RetrievalRequest;
+import org.km.llmwiki.rag.DocumentRetrievalScope;
 
 /** Provider-neutral input for one bounded application-level ask operation. */
 public record AskRequest(
@@ -12,7 +13,8 @@ public record AskRequest(
         Integer retrievalMaxItems,
         Integer retrievalMaxCharacters,
         AnswerContextBudget contextBudget,
-        AnswerGenerationOptions generationOptions
+        AnswerGenerationOptions generationOptions,
+        DocumentRetrievalScope documentScope
 ) {
 
     public static final int MAX_RETRIEVAL_ITEMS = 50;
@@ -40,16 +42,31 @@ public record AskRequest(
 
     public AskRequest(String question, RetrievalMode retrievalMode) {
         this(question, retrievalMode, null, null, AnswerContextBudget.DEFAULT,
-                AnswerGenerationOptions.defaults());
+                AnswerGenerationOptions.defaults(), null);
+    }
+
+    public AskRequest(String question, RetrievalMode retrievalMode,
+                      Integer retrievalMaxItems, Integer retrievalMaxCharacters,
+                      AnswerContextBudget contextBudget,
+                      AnswerGenerationOptions generationOptions) {
+        this(question, retrievalMode, retrievalMaxItems, retrievalMaxCharacters,
+                contextBudget, generationOptions, null);
     }
 
     public static AskRequest defaults(String question, RetrievalMode retrievalMode) {
         return new AskRequest(question, retrievalMode);
     }
 
+    public static AskRequest defaults(String question, RetrievalMode retrievalMode,
+                                      Long documentId) {
+        return new AskRequest(question, retrievalMode, null, null,
+                AnswerContextBudget.DEFAULT, AnswerGenerationOptions.defaults(),
+                documentId == null ? null : new DocumentRetrievalScope(documentId));
+    }
+
     public RetrievalRequest retrievalRequest() {
         return new RetrievalRequest(question, retrievalMode, retrievalMaxItems,
-                retrievalMaxCharacters);
+                retrievalMaxCharacters, retrievalMode.strategy(), documentScope);
     }
 
     private static void validateBound(Integer value, int minimum, int maximum, String field) {

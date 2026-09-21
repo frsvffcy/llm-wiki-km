@@ -151,7 +151,7 @@ public class RetrievalService {
         SearchCandidatePage page;
         try {
             page = searchService.findCandidates(new SearchQuery(
-                    request.query(), request.corpus(), null, null,
+                    request.query(), request.corpus(), null, scopedDocumentId(request),
                     0, limits.candidateLimit()));
         } catch (DataAccessException infrastructureFailure) {
             throw new RetrievalUnavailableException(
@@ -186,7 +186,7 @@ public class RetrievalService {
         try {
             page = vectorCandidateSearchService.findCandidates(
                             new VectorCandidateSearchQuery(request.query(), request.corpus(),
-                            limits.candidateLimit()),
+                            limits.candidateLimit(), scopedDocumentId(request)),
                     new org.km.llmwiki.search.SearchWorkspaceProvenance(active.id(), active.name()));
         } catch (VectorCandidateSearchUnavailableException unavailable) {
             throw new RetrievalUnavailableException(
@@ -215,7 +215,7 @@ public class RetrievalService {
         try {
             SearchCandidatePage vector = vectorCandidateSearchService.findCandidates(
                     new VectorCandidateSearchQuery(request.query(), request.corpus(),
-                            limits.candidateLimit()),
+                            limits.candidateLimit(), scopedDocumentId(request)),
                     new org.km.llmwiki.search.SearchWorkspaceProvenance(active.id(), active.name()));
             if (collector != null) {
                 collector.ensureChannel(CandidateSignal.VECTOR);
@@ -260,7 +260,7 @@ public class RetrievalService {
                                                        RetrievalBudgetPolicy.ResolvedBudget limits) {
         try {
             return searchService.findCandidates(new SearchQuery(
-                    request.query(), request.corpus(), null, null,
+                    request.query(), request.corpus(), null, scopedDocumentId(request),
                     0, limits.candidateLimit()));
         } catch (DataAccessException infrastructureFailure) {
             throw new RetrievalUnavailableException(
@@ -314,6 +314,13 @@ public class RetrievalService {
         for (int index = 0; index < ordered.size(); index++) {
             SearchCandidate candidate = ordered.get(index);
             String identity = candidate.kind().name() + ":" + candidate.stableId();
+            if (!withinDocumentScope(request, candidate)) {
+                rejected++;
+                if (collector != null) {
+                    collector.rejected(identity, "DOCUMENT_SCOPE_MISMATCH");
+                }
+                continue;
+            }
             if (!identities.add(identity)) {
                 if (collector != null) {
                     collector.duplicateFolded(identity);
@@ -386,6 +393,18 @@ public class RetrievalService {
                 evidence.size(), usedCharacters, (usedCharacters + 3) / 4, budgetTruncated);
         return new EvidenceBundle(request.query().strip(), request.mode(), workspace, evidence,
                 budget, ordered.size(), rejected, evidence.isEmpty(), diagnostics);
+    }
+
+    private static Long scopedDocumentId(RetrievalRequest request) {
+        return request.documentScope() == null ? null : request.documentScope().documentId();
+    }
+
+    private static boolean withinDocumentScope(RetrievalRequest request,
+                                               SearchCandidate candidate) {
+        Long documentId = scopedDocumentId(request);
+        return documentId == null
+                || (candidate.kind() == org.km.llmwiki.search.SearchResultKind.SOURCE_CHUNK
+                && documentId.equals(candidate.documentId()));
     }
 
     private static boolean hasFurtherUniqueCandidate(List<SearchCandidate> candidates,

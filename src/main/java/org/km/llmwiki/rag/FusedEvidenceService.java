@@ -157,7 +157,8 @@ public class FusedEvidenceService {
         List<SearchCandidate> lexicalCandidates;
         try {
             lexicalCandidates = List.copyOf(searchService.findCandidates(new SearchQuery(
-                    request.query(), SearchCorpus.ALL, null, null, 0,
+                    request.query(), request.documentId() == null ? SearchCorpus.ALL : SearchCorpus.SOURCE,
+                    null, request.documentId(), 0,
                     limits.candidateLimit())).items());
         } catch (DataAccessException infrastructureFailure) {
             throw new RetrievalUnavailableException(
@@ -171,8 +172,9 @@ public class FusedEvidenceService {
         String vectorDetail = null;
         try {
             vectorCandidates = List.copyOf(vectorCandidateSearchService.findCandidates(
-                    new VectorCandidateSearchQuery(request.query(), SearchCorpus.ALL,
-                            limits.candidateLimit()),
+                    new VectorCandidateSearchQuery(request.query(),
+                            request.documentId() == null ? SearchCorpus.ALL : SearchCorpus.SOURCE,
+                            limits.candidateLimit(), request.documentId()),
                     new SearchWorkspaceProvenance(active.id(), active.name())).items());
         } catch (VectorCandidateSearchUnavailableException unavailable) {
             vectorOutcome = ModalityOutcome.UNAVAILABLE;
