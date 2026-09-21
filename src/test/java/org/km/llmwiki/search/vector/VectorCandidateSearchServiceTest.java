@@ -124,6 +124,42 @@ class VectorCandidateSearchServiceTest {
     }
 
     @Test
+    void documentScopeReachesStorageBeforeBoundedKnnSelection() {
+        long selectedDocumentId = 9L;
+        String content = "Lower-scoring content from the selected document.";
+        String hash = sha256(content);
+        when(similaritySearch.findNearest(any(VectorSimilarityQuery.class))).thenAnswer(invocation -> {
+            VectorSimilarityQuery request = invocation.getArgument(0);
+            // More than the global storage window can rank ahead of the selected row. A scoped
+            // adapter must apply documentId before ranking/limit and therefore return this row.
+            long higherScoringForeignRows = 201L;
+            assertThat(higherScoringForeignRows).isGreaterThan(VectorSimilarityQuery.MAX_LIMIT);
+            return request.documentId() != null && request.documentId() == selectedDocumentId
+                    ? List.of(match(EmbeddingEvidenceKind.SOURCE_CHUNK, "41", hash, 0.41d))
+                    : List.of();
+        });
+        when(sourceRepository.findDocumentByChunk(WORKSPACE.id(), 41L)).thenReturn(Optional.of(
+                new SourceSearchAuthorityDocument(WORKSPACE.id(), selectedDocumentId, "selected.md",
+                        sha256("document"), "PROCESSED", "PROCESSED",
+                        List.of(new SourceSearchAuthorityChunk(41L, 1, 1,
+                                "Selected", "Selected", content, hash)))));
+
+        SearchCandidatePage page = service.findCandidates(
+                new VectorCandidateSearchQuery("query", SearchCorpus.SOURCE, 1,
+                        selectedDocumentId), WORKSPACE);
+
+        assertThat(page.items()).singleElement().satisfies(candidate -> {
+            assertThat(candidate.kind()).isEqualTo(SearchResultKind.SOURCE_CHUNK);
+            assertThat(candidate.stableId()).isEqualTo("41");
+        });
+        var captor = org.mockito.ArgumentCaptor.forClass(VectorSimilarityQuery.class);
+        verify(similaritySearch).findNearest(captor.capture());
+        assertThat(captor.getValue().documentId()).isEqualTo(selectedDocumentId);
+        assertThat(captor.getValue().evidenceKinds())
+                .containsExactly(EmbeddingEvidenceKind.SOURCE_CHUNK);
+    }
+
+    @Test
     void allCorpusPassesBothEvidenceKindsAndKeepsWorkspaceInQuery() {
         when(similaritySearch.findNearest(any(VectorSimilarityQuery.class))).thenAnswer(invocation -> {
             VectorSimilarityQuery query = invocation.getArgument(0);

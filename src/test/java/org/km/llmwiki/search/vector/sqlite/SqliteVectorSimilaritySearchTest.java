@@ -104,6 +104,43 @@ class SqliteVectorSimilaritySearchTest {
     }
 
     @Test
+    void appliesDocumentScopeBeforeDistanceOrderingAndLimit() throws Exception {
+        DataSource dataSource = mock(DataSource.class);
+        Connection connection = mock(Connection.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
+        ResultSet result = mock(ResultSet.class);
+        when(dataSource.getConnection()).thenReturn(connection);
+        when(connection.prepareStatement(any(String.class))).thenReturn(statement);
+        when(statement.executeQuery()).thenReturn(result);
+        when(result.next()).thenReturn(false);
+
+        assertThat(adapter(dataSource).findNearest(query(3, 6, 91L))).isEmpty();
+
+        var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(connection).prepareStatement(sqlCaptor.capture());
+        String sql = sqlCaptor.getValue();
+        assertThat(sql)
+                .contains("evidence_kind = 'SOURCE_CHUNK'")
+                .contains("EXISTS (SELECT 1 FROM source_chunk scoped_chunk")
+                .contains("CAST(scoped_chunk.id AS TEXT) = projection.stable_id")
+                .contains("scoped_chunk.document_id = ?")
+                .containsSubsequence("scoped_chunk.document_id = ?", "ORDER BY distance", "LIMIT ? OFFSET ?");
+        verify(statement).setLong(5, 91L);
+        verify(statement).setInt(10, 3);
+        verify(statement).setInt(11, 6);
+    }
+
+    @Test
+    void documentScopeUsesOptionalPositiveCanonicalIdentity() {
+        assertThat(query(1, 0, null).documentId()).isNull();
+        assertThat(query(1, 0, 91L).documentId()).isEqualTo(91L);
+        assertThatThrownBy(() -> query(1, 0, 0L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> query(1, 0, -1L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void normalizesCosineDistanceToHigherIsBetterSimilarity() {
         assertThat(SqliteVectorSimilaritySearch.normalizeCosineDistance(0.0d)).isEqualTo(1.0d);
         assertThat(SqliteVectorSimilaritySearch.normalizeCosineDistance(1.0d)).isEqualTo(0.5d);
@@ -111,7 +148,11 @@ class SqliteVectorSimilaritySearchTest {
     }
 
     private VectorSimilarityQuery query(int limit, int offset) {
-        return new VectorSimilarityQuery(7L,
+        return query(limit, offset, null);
+    }
+
+    private VectorSimilarityQuery query(int limit, int offset, Long documentId) {
+        return new VectorSimilarityQuery(7L, documentId,
                 List.of(EmbeddingEvidenceKind.WIKI, EmbeddingEvidenceKind.SOURCE_CHUNK),
                 "test-provider", "test-model", VECTOR.size(), EmbeddingProjectionContract.VERSION,
                 VECTOR, limit, offset, true);

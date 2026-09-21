@@ -26,6 +26,7 @@ import org.km.llmwiki.search.embedding.EmbeddingProjectionIdentity;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessRepository;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionRepository;
 import org.km.llmwiki.search.vector.VectorCandidateSearchService;
+import org.km.llmwiki.search.vector.VectorSimilarityQuery;
 import org.km.llmwiki.wiki.PublishedWikiContentReader;
 import org.km.llmwiki.wiki.PublishedWikiRepository;
 import org.km.llmwiki.wiki.WikiContentHash;
@@ -199,6 +200,62 @@ class RetrievalInspectorIntegrationTest extends IsolatedIntegrationTest {
         });
         assertThat(report.finalEvidence()).singleElement().satisfies(evidence ->
                 assertThat(evidence.identity()).isEqualTo("SOURCE_CHUNK:" + sourceChunkId));
+    }
+
+    @Test
+    void documentScopedSemanticSearchAppliesScopeBeforeBoundedKnnWindow() throws Exception {
+        WorkspaceFixture ws = workspace("semantic-document-scope");
+        long rebuildJobId = jobs.create(ws.id(), "inspector-scoped-full-" + ws.id(),
+                ProcessingJobType.EMBEDDING_REBUILD, 202).id();
+        long generation = embeddingReadiness.markQueued(ws.id(), rebuildJobId,
+                EmbeddingEvidenceKind.SOURCE_CHUNK, 0);
+        embeddingReadiness.markRunning(ws.id(), rebuildJobId,
+                EmbeddingEvidenceKind.SOURCE_CHUNK);
+        long selectedChunkId = sourceWithoutIndex(ws, "selected.pdf",
+                "search design selected authority", 0);
+        long selectedDocumentId = documentId(selectedChunkId);
+        upsertSourceEmbedding(ws, selectedChunkId, "search design selected authority",
+                generation);
+
+        for (int index = 1; index <= 201; index++) {
+            String content = "search foreign authority " + index;
+            long foreignChunkId = sourceWithoutIndex(ws, "foreign-" + index + ".pdf",
+                    content, index);
+            upsertSourceEmbedding(ws, foreignChunkId, content, generation);
+        }
+        embeddingReadiness.markCompletedForGeneration(ws.id(), rebuildJobId,
+                EmbeddingEvidenceKind.SOURCE_CHUNK, generation, 202, 202, 0,
+                DeterministicConceptEmbeddingClient.PROVIDER,
+                DeterministicConceptEmbeddingClient.MODEL,
+                DeterministicConceptEmbeddingClient.DIMENSION, true,
+                "scoped-bounded-window-proof");
+        List<String> globalWindow = new DeterministicVectorSimilaritySearch(db()).findNearest(
+                        new VectorSimilarityQuery(ws.id(), null,
+                                List.of(EmbeddingEvidenceKind.SOURCE_CHUNK),
+                                DeterministicConceptEmbeddingClient.PROVIDER,
+                                DeterministicConceptEmbeddingClient.MODEL,
+                                DeterministicConceptEmbeddingClient.DIMENSION,
+                                DeterministicConceptEmbeddingClient.PROJECTION_VERSION,
+                                embedder.embedText("search"), 200, 0, true))
+                .stream().map(match -> match.stableId()).toList();
+        RetrievalInspectorService inspector = inspector(withVector());
+        RetrievalRequest request = RetrievalRequest.of("search",
+                RetrievalMode.SEMANTIC_SOURCE, RetrievalStrategy.SEMANTIC, 50, null,
+                new DocumentRetrievalScope(selectedDocumentId));
+
+        RetrievalInspectionReport report = inspector.inspect(request);
+
+        assertThat(globalWindow).hasSize(200)
+                .doesNotContain(Long.toString(selectedChunkId));
+        assertThat(report.modalities()).singleElement().satisfies(section -> {
+            assertThat(section.modality()).isEqualTo(CandidateSignal.VECTOR);
+            assertThat(section.outcome()).isEqualTo(ModalityOutcome.CONTRIBUTED);
+            assertThat(section.candidates()).extracting(
+                            RetrievalInspectionTrace.CandidateTrace::identity)
+                    .containsExactly("SOURCE_CHUNK:" + selectedChunkId);
+        });
+        assertThat(report.finalEvidence()).singleElement().satisfies(evidence ->
+                assertThat(evidence.identity()).isEqualTo("SOURCE_CHUNK:" + selectedChunkId));
     }
 
     @Test
@@ -658,6 +715,13 @@ class RetrievalInspectorIntegrationTest extends IsolatedIntegrationTest {
     }
 
     private long source(WorkspaceFixture ws, String documentName, String content) {
+        long chunkId = sourceWithoutIndex(ws, documentName, content, documentName.hashCode());
+        sourceChunkIndexingService.reindexDocument(ws.id(), documentId(chunkId));
+        return chunkId;
+    }
+
+    private long sourceWithoutIndex(WorkspaceFixture ws, String documentName, String content,
+                                    int identitySeed) {
         KeyHolder documentKey = new GeneratedKeyHolder();
         db().sql("""
                         INSERT INTO document (workspace_id, file_name, original_file_name, source_path,
@@ -666,7 +730,9 @@ class RetrievalInspectorIntegrationTest extends IsolatedIntegrationTest {
                                 '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')
                         """)
                 .param("workspace", ws.id()).param("name", documentName)
-                .param("path", "archive/" + documentName).param("hash", "d".repeat(64))
+                .param("path", "archive/" + documentName)
+                .param("hash", WikiContentHash.sha256(
+                        (documentName + ":" + identitySeed).getBytes(StandardCharsets.UTF_8)))
                 .update(documentKey);
         long documentId = documentKey.getKey().longValue();
         String hash = WikiContentHash.sha256(content.getBytes(StandardCharsets.UTF_8));
@@ -678,9 +744,33 @@ class RetrievalInspectorIntegrationTest extends IsolatedIntegrationTest {
                         """)
                 .param("document", documentId).param("content", content).param("hash", hash)
                 .update();
-        sourceChunkIndexingService.reindexDocument(ws.id(), documentId);
         return db().sql("SELECT id FROM source_chunk WHERE document_id = :documentId AND chunk_no = 1")
                 .param("documentId", documentId).query(Long.class).single();
+    }
+
+    private long documentId(long sourceChunkId) {
+        return db().sql("SELECT document_id FROM source_chunk WHERE id = :id")
+                .param("id", sourceChunkId).query(Long.class).single();
+    }
+
+    private void upsertSourceEmbedding(WorkspaceFixture ws, long sourceChunkId, String content) {
+        upsertSourceEmbedding(ws, sourceChunkId, content, 0L);
+    }
+
+    private void upsertSourceEmbedding(WorkspaceFixture ws, long sourceChunkId, String content,
+                                       long generation) {
+        String chunkHash = db().sql("SELECT content_hash FROM source_chunk WHERE id = :id")
+                .param("id", sourceChunkId).query(String.class).single();
+        List<Double> vector = embedder.embedText(content);
+        byte[] blob = org.km.llmwiki.search.embedding.EmbeddingVectorCodec.encode(
+                new EmbeddingVector(EmbeddingInput.identityFor(content), vector));
+        embeddingRepository.upsertFresh(new EmbeddingProjectionIdentity(ws.id(),
+                EmbeddingEvidenceKind.SOURCE_CHUNK, Long.toString(sourceChunkId), chunkHash,
+                DeterministicConceptEmbeddingClient.PROVIDER,
+                DeterministicConceptEmbeddingClient.MODEL,
+                DeterministicConceptEmbeddingClient.DIMENSION,
+                DeterministicConceptEmbeddingClient.PROJECTION_VERSION), blob,
+                "2026-09-01T00:00:00Z", generation);
     }
 
     private void indexEmbeddings(WorkspaceFixture ws, List<WikiFixture> pages) {
