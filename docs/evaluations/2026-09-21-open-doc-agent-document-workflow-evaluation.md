@@ -1,11 +1,11 @@
 # open-doc Agent Document Workflow Evaluation
 
-> Classification: `TRACK_FULL`  
-> Evaluated: 2026-09-21  
-> External repository: `simonliu-ai-product/open-doc`  
-> Audited revision: `68d5d063f332161efa71e907dcfa3e11f59dbb2e`  
-> License: MIT  
-> llm-wiki-km baseline at audit: `7b9bdbb31df42ba558a179233a99d548748ae3fe`  
+> Classification: `TRACK_FULL`
+> Evaluated: 2026-09-21
+> External repository: `simonliu-ai-product/open-doc`
+> Audited revision: `68d5d063f332161efa71e907dcfa3e11f59dbb2e`
+> License: MIT
+> llm-wiki-km baseline at audit: `7b9bdbb31df42ba558a179233a99d548748ae3fe`
 > Tracking: Refs #585, actionable follow-up Refs #586
 
 ## 1. Evaluation question
