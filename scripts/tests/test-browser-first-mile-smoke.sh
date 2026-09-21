@@ -4,8 +4,8 @@
 # Proves with real executions (not string presence) that the shared
 # implementation in scripts/browser-first-mile-content.sh — the same code
 # sourced by scripts/browser-first-mile-smoke.sh — accepts current-like
-# packaged Browser resources and rejects stale #517 / missing / guard-less
-# resources fail-closed.
+# packaged Browser resources and rejects stale #517 / #567 / missing /
+# guard-less resources fail-closed.
 #
 # Hermetic: temp dirs only, no Maven, no network, no JAR build, no repository
 # state (aside from the read-only production-source dogfood case). Fixtures
@@ -114,6 +114,11 @@ mkdir -p "$WORK/missing-js"
 write_css "$WORK/missing-js/styles.css"
 write_html "$WORK/missing-js/index.html"
 
+cp -R "$WORK/current" "$WORK/stale-manual-upload"
+sed 's/autoProcess=true/autoProcess=false/' "$WORK/stale-manual-upload/inbox-ui.js" \
+  > "$WORK/stale-manual-upload/inbox-ui.js.tmp"
+mv "$WORK/stale-manual-upload/inbox-ui.js.tmp" "$WORK/stale-manual-upload/inbox-ui.js"
+
 # --- assertion helpers ---------------------------------------------------------
 
 expect_check_pass() {
@@ -157,6 +162,12 @@ expect_check_fail "stale mutation (fetchList + await refresh())" "#517 stale-sta
   "$WORK/stale-both-call/styles.css" \
   "$WORK/stale-both-call/inbox-ui.js" \
   "$WORK/stale-both-call/index.html"
+
+echo "[test] #567 regression: manual-only Browser upload FAILS"
+expect_check_fail "manual-only upload" "backend automatic processing (#567)" \
+  "$WORK/stale-manual-upload/styles.css" \
+  "$WORK/stale-manual-upload/inbox-ui.js" \
+  "$WORK/stale-manual-upload/index.html"
 
 echo "[test] AC-03 missing static resources fail closed"
 expect_check_fail "missing styles.css" "styles.css missing" \
