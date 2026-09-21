@@ -145,6 +145,45 @@ class AskServiceTest {
         org.mockito.Mockito.verifyNoInteractions(provider);
     }
 
+    @ParameterizedTest
+    @EnumSource(AskDocumentScopeException.Reason.class)
+    void documentScopeDriftWinsOverEmptyEvidenceAtConsumptionBoundary(
+            AskDocumentScopeException.Reason reason) {
+        AskDocumentScopeValidator validator = mock(AskDocumentScopeValidator.class);
+        org.mockito.Mockito.doNothing()
+                .doThrow(new AskDocumentScopeException(reason))
+                .when(validator).requireCurrent(any());
+        RetrievalService retrieval = retrievalReturning(bundle(List.of()));
+        AnswerClient provider = mock(AnswerClient.class);
+        AskService service = new AskService(retrieval, projector(), noopRerank(), provider,
+                org.km.llmwiki.ai.query.QueryTransformationService.disabled(), validator);
+
+        assertThatThrownBy(() -> service.ask(
+                AskRequest.defaults("question", RetrievalMode.HYBRID_FTS, 900L)))
+                .isInstanceOfSatisfying(AskDocumentScopeException.class,
+                        failure -> assertThat(failure.reason()).isEqualTo(reason));
+
+        org.mockito.Mockito.verify(validator, org.mockito.Mockito.times(2)).requireCurrent(any());
+        org.mockito.Mockito.verifyNoInteractions(provider);
+    }
+
+    @Test
+    void currentDocumentScopeWithNoEvidenceStillReturnsInsufficientEvidence() {
+        AskDocumentScopeValidator validator = mock(AskDocumentScopeValidator.class);
+        RetrievalService retrieval = retrievalReturning(bundle(List.of()));
+        AnswerClient provider = mock(AnswerClient.class);
+        AskService service = new AskService(retrieval, projector(), noopRerank(), provider,
+                org.km.llmwiki.ai.query.QueryTransformationService.disabled(), validator);
+
+        AskResult result = service.ask(
+                AskRequest.defaults("unknown", RetrievalMode.HYBRID_FTS, 900L));
+
+        assertThat(result.status()).isEqualTo(AskStatus.INSUFFICIENT_EVIDENCE);
+        assertThat(result.insufficientEvidence()).isTrue();
+        org.mockito.Mockito.verify(validator, org.mockito.Mockito.times(2)).requireCurrent(any());
+        org.mockito.Mockito.verifyNoInteractions(provider);
+    }
+
     @Test
     void invalidDocumentScopeFailsBeforeRetrievalOrProviderExecution() {
         AskDocumentScopeValidator validator = mock(AskDocumentScopeValidator.class);
