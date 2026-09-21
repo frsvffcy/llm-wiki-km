@@ -23,6 +23,9 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private IngestStartupReconciler startupReconciler;
+
     @Test
     void autoProcessedUploadBecomesReadyOnlyAfterFreshSourceIndexExists() throws Exception {
         createWorkspace();
@@ -118,6 +121,13 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
                          WHERE document_id = :document
                         """).param("document", documentId).query(String.class).single())
                 .isEqualTo("INDEX_PENDING");
+        assertThat(db().sql("""
+                        SELECT item.status FROM processing_job_item item
+                        JOIN processing_job job ON job.id = item.job_id
+                        WHERE job.job_type = 'INGEST' AND item.document_id = :document
+                        ORDER BY item.id DESC LIMIT 1
+                        """).param("document", documentId).query(String.class).single())
+                .isEqualTo("FAILED");
     }
 
     @Test
@@ -144,6 +154,49 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void interruptedIngestFailsClosedAfterRestartAndDoesNotRemainProcessing() throws Exception {
+        createWorkspace();
+        long documentId = uploadManual("restart.txt", "restart-boundary");
+        long workspaceId = db().sql("SELECT workspace_id FROM document WHERE id = :document")
+                .param("document", documentId).query(Long.class).single();
+
+        db().sql("""
+                INSERT INTO processing_job
+                    (workspace_id, job_id, job_type, status, total_count, created_at, updated_at)
+                VALUES (:workspace, 'interrupted-ingest', 'INGEST', 'RUNNING', 1,
+                        '2026-09-21T00:00:00Z', '2026-09-21T00:00:00Z')
+                """).param("workspace", workspaceId).update();
+        long jobId = db().sql("SELECT id FROM processing_job WHERE job_id = 'interrupted-ingest'")
+                .query(Long.class).single();
+        db().sql("""
+                INSERT INTO processing_job_item
+                    (job_id, document_id, status, current_step, retry_count, retry_eligible, started_at)
+                VALUES (:job, :document, 'RUNNING', 'INGEST', 0, 0,
+                        '2026-09-21T00:00:01Z')
+                """).param("job", jobId).param("document", documentId).update();
+
+        mockMvc.perform(get("/api/v1/inbox"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].usability.status").value("PROCESSING"));
+
+        startupReconciler.reconcile();
+
+        mockMvc.perform(get("/api/v1/inbox"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].usability.status").value("FAILED"))
+                .andExpect(jsonPath("$.data[0].usability.searchReady").value(false))
+                .andExpect(jsonPath("$.data[0].usability.nextAction").value("RETRY_PROCESSING"));
+
+        assertThat(db().sql("SELECT status FROM processing_job WHERE id = :job")
+                .param("job", jobId).query(String.class).single()).isEqualTo("FAILED");
+        assertThat(db().sql("""
+                        SELECT status FROM processing_job_item
+                         WHERE job_id = :job AND document_id = :document
+                        """).param("job", jobId).param("document", documentId)
+                .query(String.class).single()).isEqualTo("FAILED");
+    }
+
+    @Test
     void unsupportedAutoProcessedDocumentExposesTypedNextActionInsteadOfReady() throws Exception {
         createWorkspace();
         mockMvc.perform(multipart("/api/v1/inbox/files")
@@ -160,6 +213,15 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data[0].usability.status").value("UNSUPPORTED"))
                 .andExpect(jsonPath("$.data[0].usability.searchReady").value(false))
                 .andExpect(jsonPath("$.data[0].usability.nextAction").value("NONE"));
+    }
+
+    private long uploadManual(String fileName, String body) throws Exception {
+        String response = mockMvc.perform(multipart("/api/v1/inbox/files")
+                        .file(new MockMultipartFile("file", fileName, "text/plain",
+                                body.getBytes(StandardCharsets.UTF_8))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return Long.parseLong(response.replaceAll(".*\\\"documentId\\\":(\\d+).*", "$1"));
     }
 
     private long uploadAuto(String fileName, String body) throws Exception {
