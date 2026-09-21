@@ -119,6 +119,27 @@ public class ProcessingJobItemRepository {
                         record.get(PROCESSING_JOB_ITEM.ERROR_MESSAGE)));
     }
 
+    public Optional<ProcessingJobItemState> findLatestIngestState(long workspaceId, long documentId) {
+        return dsl.select(
+                        PROCESSING_JOB_ITEM.STATUS,
+                        PROCESSING_JOB_ITEM.CURRENT_STEP,
+                        PROCESSING_JOB_ITEM.ERROR_CODE,
+                        PROCESSING_JOB_ITEM.ERROR_MESSAGE)
+                .from(PROCESSING_JOB_ITEM)
+                .join(PROCESSING_JOB)
+                .on(PROCESSING_JOB.ID.eq(PROCESSING_JOB_ITEM.JOB_ID))
+                .where(PROCESSING_JOB.WORKSPACE_ID.eq(Math.toIntExact(workspaceId)))
+                .and(PROCESSING_JOB.JOB_TYPE.eq(ProcessingJobType.INGEST.name()))
+                .and(PROCESSING_JOB_ITEM.DOCUMENT_ID.eq(Math.toIntExact(documentId)))
+                .orderBy(PROCESSING_JOB_ITEM.ID.desc())
+                .limit(1)
+                .fetchOptional(record -> new ProcessingJobItemState(
+                        ProcessingJobItemStatus.valueOf(record.get(PROCESSING_JOB_ITEM.STATUS)),
+                        record.get(PROCESSING_JOB_ITEM.CURRENT_STEP),
+                        record.get(PROCESSING_JOB_ITEM.ERROR_CODE),
+                        record.get(PROCESSING_JOB_ITEM.ERROR_MESSAGE)));
+    }
+
     public int markInterruptedIngest(List<Long> jobIds, String failureDetail) {
         if (jobIds.isEmpty()) {
             return 0;
