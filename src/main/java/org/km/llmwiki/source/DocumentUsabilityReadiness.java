@@ -11,6 +11,7 @@ public record DocumentUsabilityReadiness(
         READY_TO_USE,
         NOT_PROCESSED,
         INDEX_PENDING,
+        INDEX_STALE,
         NOT_SEARCHABLE,
         NEED_OCR,
         UNSUPPORTED,
