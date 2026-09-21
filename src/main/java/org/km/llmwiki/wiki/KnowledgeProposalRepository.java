@@ -177,11 +177,19 @@ public class KnowledgeProposalRepository {
     }
 
     public long countReviewable(long workspaceId, KnowledgeProposalStatus status) {
+        return countReviewable(workspaceId, status, null);
+    }
+
+    /**
+     * #569：organize surface 需要「某文件在審核中的提案」；documentId 為 null 時維持原語意。
+     * ASK-sourced proposals 沒有 document，指定 documentId 時自然排除。
+     */
+    public long countReviewable(long workspaceId, KnowledgeProposalStatus status, Long documentId) {
         Integer count = dsl.select(count())
                 .from(KNOWLEDGE_PROPOSAL)
                 .leftJoin(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
                 .leftJoin(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
-                .where(reviewableCondition(workspaceId, status))
+                .where(reviewableCondition(workspaceId, status, documentId))
                 .fetchOne(0, Integer.class);
 
         return count == null ? 0 : count.longValue();
@@ -189,15 +197,60 @@ public class KnowledgeProposalRepository {
 
     public List<KnowledgeProposalReview> findReviewable(long workspaceId, KnowledgeProposalStatus status,
                                                          long offset, int limit) {
+        return findReviewable(workspaceId, status, offset, limit, null);
+    }
+
+    /** #569：同 {@link #countReviewable(long, KnowledgeProposalStatus, Long)} 的 document 過濾語意。 */
+    public List<KnowledgeProposalReview> findReviewable(long workspaceId, KnowledgeProposalStatus status,
+                                                         long offset, int limit, Long documentId) {
         return dsl.select(reviewColumns())
                 .from(KNOWLEDGE_PROPOSAL)
                 .leftJoin(DOCUMENT).on(DOCUMENT.ID.eq(KNOWLEDGE_PROPOSAL.DOCUMENT_ID))
                 .leftJoin(KNOWLEDGE_CANDIDATE).on(KNOWLEDGE_CANDIDATE.ID.eq(KNOWLEDGE_PROPOSAL.KNOWLEDGE_CANDIDATE_ID))
-                .where(reviewableCondition(workspaceId, status))
+                .where(reviewableCondition(workspaceId, status, documentId))
                 .orderBy(KNOWLEDGE_PROPOSAL.ID.desc())
                 .limit(limit)
                 .offset((int) offset)
                 .fetch(this::toReview);
+    }
+
+    /** #569 tags mutation 的 workspace-scoped 讀取錨點（狀態＋來源種類＋normalized data）。 */
+    public Optional<ProposalTagTarget> findTagTarget(long workspaceId, long proposalId) {
+        return dsl.select(
+                        KNOWLEDGE_PROPOSAL.ID,
+                        KNOWLEDGE_PROPOSAL.STATUS,
+                        KNOWLEDGE_PROPOSAL.SOURCE_KIND,
+                        KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON)
+                .from(KNOWLEDGE_PROPOSAL)
+                .where(KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId))
+                .and(KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId))
+                .fetchOptional(r -> new ProposalTagTarget(
+                        r.get(KNOWLEDGE_PROPOSAL.ID).longValue(),
+                        KnowledgeProposalStatus.valueOf(r.get(KNOWLEDGE_PROPOSAL.STATUS)),
+                        r.get(KNOWLEDGE_PROPOSAL.SOURCE_KIND),
+                        r.get(KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON)));
+    }
+
+    /**
+     * #569：條件式寫入 tags——只有仍為 REVIEW 的 proposal 才會被更新（SQL 層樂觀守衛；
+     * mutation 當下狀態已漂移則回傳 {@code false}，由 service 轉為 typed 失敗）。
+     */
+    @Transactional
+    public boolean updateNormalizedTags(long workspaceId, long proposalId, String normalizedDataJson) {
+        String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        int updated = dsl.update(KNOWLEDGE_PROPOSAL)
+                .set(KNOWLEDGE_PROPOSAL.NORMALIZED_DATA_JSON, normalizedDataJson)
+                .set(KNOWLEDGE_PROPOSAL.UPDATED_AT, now)
+                .where(KNOWLEDGE_PROPOSAL.ID.eq((int) proposalId))
+                .and(KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId))
+                .and(KNOWLEDGE_PROPOSAL.STATUS.eq(KnowledgeProposalStatus.REVIEW.name()))
+                .execute();
+        return updated == 1;
+    }
+
+    /** #569 tags mutation 錨點：workspace 內可見 proposal 的狀態、來源種類與 normalized data。 */
+    public record ProposalTagTarget(long proposalId, KnowledgeProposalStatus status, String sourceKind,
+                                    String normalizedDataJson) {
     }
 
     public Optional<KnowledgeProposalReview> findReviewableById(long workspaceId, long proposalId) {
@@ -322,10 +375,17 @@ public class KnowledgeProposalRepository {
      * provenance columns.
      */
     private Condition reviewableCondition(long workspaceId, KnowledgeProposalStatus status) {
+        return reviewableCondition(workspaceId, status, null);
+    }
+
+    private Condition reviewableCondition(long workspaceId, KnowledgeProposalStatus status, Long documentId) {
         Condition condition = KNOWLEDGE_PROPOSAL.WORKSPACE_ID.eq((int) workspaceId)
                 .and(DOCUMENT.ID.isNull().or(DOCUMENT.STATUS.notIn("DELETED", "SUPERSEDED")));
         if (status != null) {
             condition = condition.and(KNOWLEDGE_PROPOSAL.STATUS.eq(status.name()));
+        }
+        if (documentId != null) {
+            condition = condition.and(KNOWLEDGE_PROPOSAL.DOCUMENT_ID.eq(documentId.intValue()));
         }
         return condition;
     }

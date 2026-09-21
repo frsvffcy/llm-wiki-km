@@ -48,7 +48,9 @@ public class WikiDraftConverter {
         WikiPageType pageType = pageTypeResolver.resolve(source.candidateType(), requestedPageType);
         String title = optionalInline(data, "title", source.candidateTitle());
         String summary = optionalInline(data, "summary", source.candidateSummary());
-        List<String> tags = normalizedStrings(data, "tags", true);
+        // #569: tags 的正規化唯一 authority 是 KnowledgeTagPolicy（與 proposal tags
+        // PATCH 共用；含小寫／去重／確定性排序／有界 fail-closed）。
+        List<String> tags = KnowledgeTagPolicy.normalizedTags(data);
         List<String> aliases = normalizedStrings(data, "aliases", false);
         List<Long> sourceChunkIds = validatedSourceChunkIds(data, source);
         List<WikiDraftEvidence> evidence = normalizedEvidence(source.proposalEvidence());

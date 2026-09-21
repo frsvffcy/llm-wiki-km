@@ -219,6 +219,31 @@ test("ready, failed and unsupported documents render task-oriented next actions"
   }
 });
 
+test("extracted documents offer the organize entry without owning organize state (#569)", () => {
+  const elements = uiElements();
+  const organized = [];
+  renderInboxList(elements, [
+    row({ documentId: 11, parseStatus: "PROCESSED",
+      usability: { status: "READY_TO_USE", searchReady: true, nextAction: "START_USING" } }),
+    row({ documentId: 12, parseStatus: "FAILED",
+      usability: { status: "FAILED", searchReady: false, nextAction: "RETRY_PROCESSING" } })
+  ], { number: 0, size: 20, totalElements: 2, totalPages: 1 },
+  { createElement: () => new FakeElement() }, {
+    onExtract: () => {}, onPreview: () => {}, onRemove: () => {},
+    onOrganize: id => organized.push(id)
+  });
+
+  const items = elements.list.children;
+  const actionsOf = item => item.children.find(child => child.className === "inbox-actions");
+  const processedActions = actionsOf(items[0]).children;
+  const organizeButton = processedActions.find(child => child.className === "inbox-organize");
+  assert.ok(organizeButton);
+  assert.equal(organizeButton.textContent, "整理與標籤");
+  organizeButton.handlers.get("click")();
+  assert.deepEqual(organized, [11]);
+  assert.doesNotMatch(flatText(actionsOf(items[1])), /整理與標籤/u);
+});
+
 test("empty list renders the empty state and pager meta stays honest", () => {
   const elements = uiElements();
   renderInboxList(elements, [], { number: 0, size: 20, totalElements: 0, totalPages: 0 },

@@ -260,6 +260,16 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
       preview.addEventListener("click", () => actions.onPreview(data.documentId));
       actionRow.append(preview);
     }
+    // #569：已抽取文件提供整理入口；實際面板由 organize-ui 經 open-organize 事件開啟，
+    // 此處不持有 organize 狀態、不做任何分類推導。
+    if (parseKey === "PROCESSED" && typeof actions.onOrganize === "function") {
+      const organize = documentRef.createElement("button");
+      organize.type = "button";
+      organize.className = "inbox-organize";
+      organize.textContent = "整理與標籤";
+      organize.addEventListener("click", () => actions.onOrganize(data.documentId));
+      actionRow.append(organize);
+    }
     if (typeof actions.onRemove === "function" && isDeletable(data.status)) {
       const remove = documentRef.createElement("button");
       remove.type = "button";
@@ -414,6 +424,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
       renderInboxList(elements, rows, pageMeta, documentRef, {
         onExtract: extract,
         onPreview: openPreview,
+        onOrganize: openOrganize,
         onRemove: remove
       });
       scheduleProcessingRefresh(rows);
@@ -623,6 +634,15 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
   function closePreview() {
     elements.previewPanel.hidden = true;
     state.documentId = null;
+  }
+
+  function openOrganize(documentId) {
+    // #569：跨模組 handoff 經 DOM 事件（organize-ui 監聽開啟；workspace-ui 的
+    // workspace-changed 即為既有前例）。inbox 不持有 organize 面板狀態。
+    if (documentRef && typeof documentRef.dispatchEvent === "function"
+        && typeof CustomEvent === "function") {
+      documentRef.dispatchEvent(new CustomEvent("open-organize", { detail: { documentId } }));
+    }
   }
 
   elements.filterForm.addEventListener("submit", applyFilter);

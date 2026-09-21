@@ -11,6 +11,7 @@
   <script type="module" src="/owner-auth-ui.js"></script>
   <script type="module" src="/workspace-ui.js"></script>
   <script type="module" src="/inbox-ui.js"></script>
+  <script type="module" src="/organize-ui.js"></script>
   <script type="module" src="/wiki-ui.js"></script>
   <script type="module" src="/review-ui.js"></script>
   <script type="module" src="/ask-ui.js"></script>
@@ -277,6 +278,33 @@
           <span id="inbox-page-info" class="inbox-page-info"></span>
           <button id="inbox-next-page" type="button" class="secondary-button">下一頁</button>
         </div>
+      </section>
+
+      <section id="organize-panel" class="panel" aria-labelledby="organize-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">整理</p>
+            <h3 id="organize-heading">整理與標籤</h3>
+          </div>
+          <button id="organize-close" type="button" class="secondary-button">關閉</button>
+        </div>
+        <p class="panel-description">
+          系統會依文件分析給出分類建議；標籤調整只會寫入審核中的提案，不會直接發布。
+          調整後需在<a href="#/review">審核</a>中重新產生草稿才會生效。
+        </p>
+        <p id="organize-freshness" class="form-hint" role="status" aria-live="polite"></p>
+        <p id="organize-empty" class="empty-state" hidden>目前沒有可顯示的整理建議。</p>
+        <ul id="organize-list" class="organize-list"></ul>
+        <div class="field-group">
+          <label for="organize-proposal-select">要調整標籤的提案</label>
+          <select id="organize-proposal-select"></select>
+        </div>
+        <div class="field-group">
+          <label for="organize-tag-input">標籤（以逗號或空白分隔；清空則移除全部標籤）</label>
+          <input id="organize-tag-input" name="tags" type="text" autocomplete="off">
+        </div>
+        <button id="organize-save" type="button">更新標籤</button>
+        <p id="organize-result" class="form-hint" role="status" aria-live="polite" hidden></p>
       </section>
 
       <section id="inbox-preview-panel" class="panel" aria-labelledby="inbox-preview-heading" hidden>

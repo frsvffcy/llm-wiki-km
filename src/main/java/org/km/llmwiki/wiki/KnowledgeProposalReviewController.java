@@ -27,8 +27,9 @@ public class KnowledgeProposalReviewController {
     public PageResponse<List<KnowledgeProposalReviewResponse>> list(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer size) {
-        return reviewService.list(status, page, size);
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) Long documentId) {
+        return reviewService.list(status, page, size, documentId);
     }
 
     @GetMapping("/{proposalId}")
@@ -40,5 +41,15 @@ public class KnowledgeProposalReviewController {
     public ApiResponse<KnowledgeProposalReviewResponse> updateStatus(
             @PathVariable long proposalId, @RequestBody KnowledgeProposalStatusUpdateRequest request) {
         return new ApiResponse<>(reviewService.updateStatus(proposalId, request));
+    }
+
+    /**
+     * #569：人類在 REVIEW 階段調整 proposal tags（唯一的人控 tag mutation point；
+     * REPAIR lineage 回 422，APPROVED／REJECTED 等 terminal 狀態回 400）。
+     */
+    @PatchMapping("/{proposalId}/tags")
+    public ApiResponse<KnowledgeProposalReviewResponse> updateTags(
+            @PathVariable long proposalId, @RequestBody UpdateProposalTagsRequest request) {
+        return new ApiResponse<>(reviewService.updateTags(proposalId, request));
     }
 }
