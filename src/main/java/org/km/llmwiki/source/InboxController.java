@@ -55,15 +55,18 @@ public class InboxController {
     }
 
     @PostMapping("/files")
-    public ResponseEntity<ApiResponse<UploadedFileResponse>> upload(@RequestPart("file") MultipartFile file) {
-        UploadedFileResponse response = inboxFileService.upload(file);
+    public ResponseEntity<ApiResponse<UploadedFileResponse>> upload(
+            @RequestPart("file") MultipartFile file,
+            @RequestParam(defaultValue = "false") boolean autoProcess) {
+        UploadedFileResponse response = inboxFileService.upload(file, autoProcess);
         return ResponseEntity.status(HttpStatus.CREATED).body(new ApiResponse<>(response));
     }
 
     @PostMapping("/files/batch")
     public ApiResponse<BatchUploadResponse> uploadBatch(
             @RequestParam(value = "files", required = false) List<MultipartFile> files,
-            @RequestParam(value = "files[]", required = false) List<MultipartFile> filesWithBrackets) {
+            @RequestParam(value = "files[]", required = false) List<MultipartFile> filesWithBrackets,
+            @RequestParam(defaultValue = "false") boolean autoProcess) {
         List<MultipartFile> all = new ArrayList<>();
         if (files != null) {
             all.addAll(files);
@@ -74,6 +77,6 @@ public class InboxController {
         if (all.isEmpty()) {
             throw new IllegalArgumentException("at least one file is required");
         }
-        return new ApiResponse<>(inboxFileService.uploadAll(all));
+        return new ApiResponse<>(inboxFileService.uploadAll(all, autoProcess));
     }
 }
