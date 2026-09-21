@@ -37,6 +37,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -306,8 +309,28 @@ public class GlobalExceptionHandler {
 
     private static ResponseEntity<ApiError> respond(HttpStatus status, String code, String message,
                                                     Exception exception) {
-        // The full cause chain stays server-side; only the fixed Chinese projection responds.
-        log.debug("REST error mapped to {} ({}): {}", code, status, message, exception);
+        // Public response stays fixed/localized (#282/#504). Server diagnostics are
+        // severity-aware: unexpected 500s must be visible at the default INFO runtime,
+        // while normal 4xx validation/not-found traffic remains quiet unless DEBUG is enabled.
+        String request = currentRequest();
+        if (status == HttpStatus.INTERNAL_SERVER_ERROR) {
+            log.error("REST {} -> {} {}", request, status.value(), code, exception);
+        } else if (status.is5xxServerError()) {
+            log.warn("REST {} -> {} {}", request, status.value(), code, exception);
+        } else {
+            log.debug("REST {} -> {} {}", request, status.value(), code, exception);
+        }
         return ResponseEntity.status(status).body(ApiError.of(code, message));
+    }
+
+    private static String currentRequest() {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        if (attributes instanceof ServletRequestAttributes servletAttributes) {
+            var request = servletAttributes.getRequest();
+            // Intentionally omit query string, headers and body: method + path are enough
+            // for local correlation without copying user content or credentials into logs.
+            return request.getMethod() + " " + request.getRequestURI();
+        }
+        return "request-unavailable";
     }
 }
