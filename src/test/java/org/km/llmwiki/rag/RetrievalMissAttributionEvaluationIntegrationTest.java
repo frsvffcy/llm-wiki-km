@@ -154,7 +154,8 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
                         MissCause.CORPUS_MISMATCH);
         assertThat(observations.stream().filter(Observation::truthPresent)
                 .filter(result -> result.classification() == MissCause.NONE))
-                .allMatch(result -> result.recallAtK() == 1.0d);
+                .allMatch(result -> result.candidateRecall() == 1.0d
+                        && result.evidenceRecall() == 1.0d);
 
         ProductionDefaults defaults = new ProductionDefaults(queryTransformation.activeVersion(),
                 rerank.activeVersion(), fusionPolicy.policy().version(), contextPolicy.activeVersion());
@@ -213,26 +214,48 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
 
         MissCause actual = classify(truthPresent, readiness, expectedIdentity, candidates,
                 finals, selection);
+        // Actual resolved windows/budgets (#580): direct limit is the corpus K probe window;
+        // candidateLimit/maxItems/maxCharacters come from the resolved Ask request; used
+        // item/character counts come from the Inspector-reported evidence budget.
+        int directLimit = RetrievalMissEvaluationCorpusV1.K;
+        RetrievalBudgetPolicy.ResolvedBudget resolved = RetrievalBudgetPolicy.resolve(request);
+        double candidateRecall = truthPresent && expectedIdentity != null
+                && candidates.contains(expectedIdentity) ? 1.0d : 0.0d;
+        double evidenceRecall = truthPresent && expectedIdentity != null
+                && finals.contains(expectedIdentity) ? 1.0d : 0.0d;
         Observation result = new Observation(id, query, truthPresent, readiness, expectedIdentity,
                 direct, candidates, modalities, modalityDiagnostics, finals, actual,
                 expectedIdentity != null && direct.contains(expectedIdentity),
                 expectedIdentity != null && candidates.contains(expectedIdentity),
                 expectedIdentity != null && finals.contains(expectedIdentity),
-                truthPresent && expectedIdentity != null && finals.contains(expectedIdentity)
-                        ? 1.0d : 0.0d,
+                candidateRecall, evidenceRecall,
+                directLimit, resolved.candidateLimit(), resolved.maxItems(),
+                resolved.maxCharacters(), ask.budget().usedItems(),
+                ask.budget().usedCharacters(),
                 selection == null ? null : selection.disposition().name(),
                 selection == null ? null : selection.reasonCode(), levers);
         assertThat(actual).as(id).isEqualTo(expected);
         if (expected == MissCause.QUERY_PROJECTION) {
-            assertThat(result.recallAtK()).as(id + " baseline miss recall").isZero();
+            assertThat(result.candidateRecall()).as(id + " baseline candidate miss").isZero();
+            assertThat(result.evidenceRecall()).as(id + " baseline evidence miss").isZero();
             assertThat(result.candidatePresent()).as(id + " baseline miss").isFalse();
             assertThat(levers).as(id + " bounded levers").hasSize(2)
                     .allSatisfy(lever -> {
                         assertThat(lever.directCandidates()).contains(expectedIdentity);
                         assertThat(lever.askCandidates()).contains(expectedIdentity);
                         assertThat(lever.finalEvidence()).contains(expectedIdentity);
-                        assertThat(lever.recallAtK()).isEqualTo(1.0d);
+                        assertThat(lever.candidateRecall()).isEqualTo(1.0d);
+                        assertThat(lever.evidenceRecall()).isEqualTo(1.0d);
                         assertThat(lever.selectionDisposition()).isEqualTo("SELECTED");
+                        // Before/after parity: same corpus window and evidence budget.
+                        assertThat(lever.directLimit()).as(id + " lever direct window")
+                                .isEqualTo(result.directLimit());
+                        assertThat(lever.candidateLimit()).as(id + " lever candidate window")
+                                .isEqualTo(result.candidateLimit());
+                        assertThat(lever.maxItems()).as(id + " lever maxItems")
+                                .isEqualTo(result.maxItems());
+                        assertThat(lever.maxCharacters()).as(id + " lever maxCharacters")
+                                .isEqualTo(result.maxCharacters());
                     });
         }
         if (expected == MissCause.INDEX_READINESS) {
@@ -241,7 +264,15 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
                     .isFalse();
             assertThat(result.finalEvidencePresent()).as(id + " final evidence fail-closed")
                     .isFalse();
-            assertThat(result.recallAtK()).as(id + " readiness miss recall").isZero();
+            assertThat(result.candidateRecall()).as(id + " readiness candidate miss").isZero();
+            assertThat(result.evidenceRecall()).as(id + " readiness evidence miss").isZero();
+        }
+        if (expected == MissCause.RANKING_WINDOW) {
+            // Candidate hit but evidence-budget excluded: the two recalls must diverge.
+            assertThat(result.candidateRecall()).as(id + " ranking-window candidate hit")
+                    .isEqualTo(1.0d);
+            assertThat(result.evidenceRecall()).as(id + " ranking-window evidence miss")
+                    .isZero();
         }
         if (expected == MissCause.RANKING_WINDOW) {
             assertThat(result.selectionDisposition()).as(id + " stable disposition")
@@ -273,8 +304,13 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
         RetrievalInspectionTrace.SelectionTrace selection = report.selection().stream()
                 .filter(item -> item.identity().equals(expectedIdentity)).reduce((a, b) -> b)
                 .orElse(null);
+        RetrievalBudgetPolicy.ResolvedBudget resolved = RetrievalBudgetPolicy.resolve(request);
         return new LeverObservation(lever.id(), lever.query(), direct, candidates, finalEvidence,
+                expectedIdentity != null && candidates.contains(expectedIdentity) ? 1.0d : 0.0d,
                 expectedIdentity != null && finalEvidence.contains(expectedIdentity) ? 1.0d : 0.0d,
+                RetrievalMissEvaluationCorpusV1.K, resolved.candidateLimit(),
+                resolved.maxItems(), resolved.maxCharacters(),
+                report.budget().usedItems(), report.budget().usedCharacters(),
                 selection == null ? null : selection.disposition().name());
     }
 
@@ -429,16 +465,21 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
         StringBuilder markdown = new StringBuilder("# Retrieval miss attribution v1\n\n")
                 .append("Decision: **").append(report.decision()).append("**  \n")
                 .append("Corpus: `").append(report.corpusVersion()).append("`  \n")
-                .append("k: ").append(report.k()).append("\n\n")
-                .append("| Case | Truth | Readiness | Direct | Ask candidate | Final | Recall@k | Classification | Lever hit |\n")
-                .append("|---|---:|---|---:|---:|---:|---:|---|---:|\n");
+                .append("Corpus k (direct probe window): ").append(report.k())
+                .append("; per-case candidateLimit/maxItems/maxCharacters/used budget are listed below\n\n")
+                .append("| Case | Truth | Readiness | Direct | Ask candidate | Final | CandRecall | EvRecall | CandWin | EvBudget | Classification | Lever hit |\n")
+                .append("|---|---:|---|---:|---:|---:|---:|---:|---:|---|---:|---|\n");
         for (Observation item : report.observations()) {
             markdown.append("| ").append(item.id()).append(" | ").append(item.truthPresent())
                     .append(" | ").append(item.readiness()).append(" | ")
                     .append(item.directCandidatePresent()).append(" | ")
                     .append(item.candidatePresent()).append(" | ")
                     .append(item.finalEvidencePresent()).append(" | ")
-                    .append(item.recallAtK()).append(" | ").append(item.classification())
+                    .append(item.candidateRecall()).append(" | ").append(item.evidenceRecall())
+                    .append(" | ").append(item.directLimit()).append("/").append(item.candidateLimit())
+                    .append(" | ").append(item.maxItems()).append("/").append(item.maxCharacters())
+                    .append("/used ").append(item.usedItems()).append("/").append(item.usedCharacters())
+                    .append(" | ").append(item.classification())
                     .append(" | ").append(leverSummary(item))
                     .append(" |\n");
         }
@@ -467,7 +508,8 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
                 .map(lever -> lever.id() + "=direct:" + lever.directCandidates().contains(
                         observation.expectedIdentity()) + ",ask:" + lever.askCandidates().contains(
                         observation.expectedIdentity()) + ",final:" + lever.finalEvidence().contains(
-                        observation.expectedIdentity()) + ",recall@k=" + lever.recallAtK())
+                        observation.expectedIdentity()) + ",candRecall=" + lever.candidateRecall()
+                        + ",evRecall=" + lever.evidenceRecall())
                 .reduce((left, right) -> left + "; " + right).orElse("N/A");
     }
 
@@ -507,7 +549,7 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
 
     private static boolean passedPositive(List<Observation> observations, String id) {
         return observations.stream().filter(item -> item.id().equals(id))
-                .anyMatch(item -> item.recallAtK() == 1.0d
+                .anyMatch(item -> item.candidateRecall() == 1.0d && item.evidenceRecall() == 1.0d
                         && item.directCandidatePresent() && item.candidatePresent());
     }
 
@@ -533,7 +575,10 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
                        List<String> finalEvidence,
                        MissCause classification,
                        boolean directCandidatePresent, boolean candidatePresent,
-                       boolean finalEvidencePresent, double recallAtK,
+                       boolean finalEvidencePresent, double candidateRecall,
+                       double evidenceRecall,
+                       int directLimit, int candidateLimit, int maxItems, int maxCharacters,
+                       int usedItems, int usedCharacters,
                        String selectionDisposition, String rejectionReason,
                        List<LeverObservation> boundedLevers) { }
     record ModalityObservation(String modality, String outcome, List<String> candidates,
@@ -542,7 +587,10 @@ class RetrievalMissAttributionEvaluationIntegrationTest extends IsolatedIntegrat
     record RejectionObservation(String identity, String reason) { }
     record LeverObservation(String id, String query, List<String> directCandidates,
                             List<String> askCandidates, List<String> finalEvidence,
-                            double recallAtK, String selectionDisposition) { }
+                            double candidateRecall, double evidenceRecall,
+                            int directLimit, int candidateLimit, int maxItems,
+                            int maxCharacters, int usedItems, int usedCharacters,
+                            String selectionDisposition) { }
     record ProductionDefaults(String queryTransformation, String rerank, String fusion,
                               String context) { }
     record EvaluationReport(String corpusVersion, int k, String decision,
