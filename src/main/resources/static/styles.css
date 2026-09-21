@@ -576,6 +576,11 @@ button:disabled {
 .inbox-file-name { font-weight: 600; margin-bottom: 2px; }
 .inbox-item-meta,
 .inbox-item-error { font-size: var(--text-small); color: var(--foreground-muted); margin-bottom: 4px; }
+.inbox-usability-detail {
+  margin: 6px 0 4px;
+  color: var(--foreground-muted);
+  font-size: var(--text-small);
+}
 .inbox-item-error { color: var(--critical); }
 .inbox-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: 6px; }
 .inbox-actions button {
