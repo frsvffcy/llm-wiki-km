@@ -71,7 +71,15 @@ public class ExtractedContentService {
 
     @Transactional(noRollbackFor = DocumentExtractionException.class)
     public ExtractionResponse extract(long documentId) {
-        WorkspaceResponse workspace = activeWorkspace();
+        return extractIn(activeWorkspace(), documentId);
+    }
+
+    @Transactional(noRollbackFor = DocumentExtractionException.class)
+    public ExtractionResponse extractForWorkspace(long workspaceId, long documentId) {
+        return extractIn(workspaceService.get(workspaceId), documentId);
+    }
+
+    private ExtractionResponse extractIn(WorkspaceResponse workspace, long documentId) {
         DocumentExtractionTarget document = target(workspace, documentId);
         scheduleSourceIndexSync(workspace.id(), document.documentId());
         DocumentParser parser = parserRegistry.findParser(document.mimeType(), document.fileName())
