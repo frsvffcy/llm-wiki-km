@@ -42,6 +42,24 @@ java -jar target/llm-wiki-km-0.2.1.jar
 
 應用程式預設只監聽 `127.0.0.1:8765`。啟動後以瀏覽器開啟 <http://127.0.0.1:8765/>；瀏覽器只呼叫本機 REST API，不直接接觸 SQLite、工作區檔案或服務提供者金鑰。
 
+### 本機排錯日誌
+
+預設啟動模式以終端機作為主要診斷輸出，不需要開全域 DEBUG：
+
+- HTTP 500 會輸出 `ERROR` + stack trace。
+- 其他 5xx 會輸出 `WARN` + stack trace。
+- 一般 4xx validation / not-found 維持 DEBUG，避免正常操作淹沒終端機。
+- 非預期的背景 ingest failure 會輸出 job/workspace/document ID 與 stack trace；不主動把檔名、文件內容或 request query/body 寫成 log 欄位。
+
+若要在一次真人測試期間保留 log 檔，可明確 opt-in：
+
+```bash
+mkdir -p logs
+java -jar target/llm-wiki-km-0.2.1.jar --logging.file.name=logs/llm-wiki-km.log
+```
+
+不建議把 file logging 當預設常駐設定，因為 stack trace 可能包含本機路徑或第三方 exception detail。分享 log 前仍應先檢查是否含私人路徑、credential 或文件內容。
+
 建議的第一個操作順序如下：
 
 1. 在「工作區」建立或開啟知識庫。

@@ -1,5 +1,9 @@
 package org.km.llmwiki.web;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.km.llmwiki.ai.ask.AskApiException;
@@ -29,8 +33,12 @@ import org.km.llmwiki.wiki.WikiPublishException;
 import org.km.llmwiki.workspace.DuplicateWorkspaceException;
 import org.km.llmwiki.workspace.NoActiveWorkspaceException;
 import org.km.llmwiki.workspace.WorkspaceNotFoundException;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -51,6 +59,65 @@ class GlobalExceptionHandlerTest {
                     + "{\"error\":{\"message\":\"upstream\"}}";
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
+
+    @Test
+    void loggingPolicyMakesServerFailuresVisibleWithoutNoisyClientErrors() {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        Level previousLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/inbox");
+        request.setQueryString("secret=must-not-be-logged");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        try {
+            logger.setLevel(Level.INFO);
+
+            RuntimeException unexpected = new RuntimeException("boom");
+            handler.handleUnexpected(unexpected);
+
+            assertThat(appender.list).hasSize(1);
+            ILoggingEvent serverEvent = appender.list.getFirst();
+            assertThat(serverEvent.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(serverEvent.getFormattedMessage())
+                    .contains("GET /api/v1/inbox", "500", "INTERNAL_ERROR")
+                    .doesNotContain("secret=must-not-be-logged");
+            assertThat(serverEvent.getThrowableProxy()).isNotNull();
+            assertThat(serverEvent.getThrowableProxy().getClassName())
+                    .isEqualTo(RuntimeException.class.getName());
+
+            handler.handleRetrievalUnavailable(
+                    new RetrievalUnavailableException(
+                            RetrievalUnavailableException.Dependency.GRAPH,
+                            new IllegalStateException("backend unavailable")));
+            assertThat(appender.list).hasSize(2);
+            ILoggingEvent unavailableEvent = appender.list.get(1);
+            assertThat(unavailableEvent.getLevel()).isEqualTo(Level.WARN);
+            assertThat(unavailableEvent.getFormattedMessage())
+                    .contains("GET /api/v1/inbox", "503", "RETRIEVAL_UNAVAILABLE");
+            assertThat(unavailableEvent.getThrowableProxy()).isNotNull();
+
+            handler.handleIllegalArgument(new IllegalArgumentException("bad input"));
+            assertThat(appender.list)
+                    .as("4xx stays DEBUG and therefore remains quiet at the default INFO runtime")
+                    .hasSize(2);
+
+            logger.setLevel(Level.DEBUG);
+            handler.handleIllegalArgument(new IllegalArgumentException("bad input"));
+            assertThat(appender.list).hasSize(3);
+            ILoggingEvent clientEvent = appender.list.get(2);
+            assertThat(clientEvent.getLevel()).isEqualTo(Level.DEBUG);
+            assertThat(clientEvent.getFormattedMessage())
+                    .contains("GET /api/v1/inbox", "400", "INVALID_REQUEST");
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+            logger.detachAppender(appender);
+            appender.stop();
+            logger.setLevel(previousLevel);
+        }
+    }
 
     @Test
     void duplicateWorkspaceNeverExposesTheRootPath() {

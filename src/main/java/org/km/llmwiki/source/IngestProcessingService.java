@@ -8,6 +8,8 @@ import org.km.llmwiki.processing.ProcessingJobType;
 import org.km.llmwiki.processing.ProcessingLogRepository;
 import org.km.llmwiki.search.SourceSearchIndexSyncRepository;
 import org.km.llmwiki.search.SourceSearchIndexSyncStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -22,6 +24,7 @@ import java.util.UUID;
 @Service
 public class IngestProcessingService {
 
+    private static final Logger log = LoggerFactory.getLogger(IngestProcessingService.class);
     private static final String STEP = "INGEST";
 
     private final ProcessingJobRepository jobs;
@@ -60,6 +63,8 @@ public class IngestProcessingService {
         try {
             executor.execute(() -> run(launch));
         } catch (RuntimeException rejected) {
+            log.error("INGEST queue rejected jobId={} workspaceId={} documentCount={}",
+                    launch.job().id(), launch.workspaceId(), launch.items().size(), rejected);
             failLaunch(launch, "INGEST_QUEUE_UNAVAILABLE", "文件已上傳，但自動處理佇列目前無法接受工作");
         }
     }
@@ -117,8 +122,12 @@ public class IngestProcessingService {
                     response.errorCode() == null ? "INGEST_PROCESSING_FAILED" : response.errorCode(),
                     response.errorMessage() == null ? "文件自動處理失敗" : response.errorMessage());
         } catch (DocumentExtractionException failure) {
+            log.warn("INGEST extraction failed jobId={} workspaceId={} documentId={} code={}",
+                    launch.job().id(), launch.workspaceId(), item.documentId(), failure.errorCode());
             finish(launch, item, ProcessingJobItemStatus.FAILED, failure.errorCode(), failure.getMessage());
         } catch (RuntimeException failure) {
+            log.error("INGEST unexpected failure jobId={} workspaceId={} documentId={}",
+                    launch.job().id(), launch.workspaceId(), item.documentId(), failure);
             finish(launch, item, ProcessingJobItemStatus.FAILED,
                     "INGEST_PROCESSING_FAILED", "文件自動處理失敗");
         }
