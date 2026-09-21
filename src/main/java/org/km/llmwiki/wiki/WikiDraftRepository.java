@@ -1,6 +1,7 @@
 package org.km.llmwiki.wiki;
 
 import org.jooq.DSLContext;
+import org.jooq.exception.DataAccessException;
 import org.km.llmwiki.ai.LlmProposalAction;
 import org.km.llmwiki.persistence.jooq.generated.tables.records.WikiDraftRecord;
 import org.springframework.stereotype.Repository;
@@ -45,6 +46,26 @@ public class WikiDraftRepository {
             throw new IllegalStateException("Wiki Draft insert did not return a generated id");
         }
         return id.longValue();
+    }
+
+    /**
+     * #601：single-usable-draft storage authority 的唯一衝突判別。所有建立路徑
+     * （auto／manual／regenerate）共用此判別，不得各自發明 dedup 規則。
+     *
+     * <p>只認 V35 partial unique index
+     * ({@code idx_wiki_draft_single_usable_draft}) 的違反訊息
+     * （UNIQUE constraint failed on {@code wiki_draft.workspace_id}）；主鍵等其他
+     * 約束違反一律不視為可用草稿競爭（fail-closed 原樣拋出）。
+     */
+    public static boolean isSingleUsableDraftViolation(DataAccessException failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            String message = current.getMessage();
+            if (message != null && message.contains("UNIQUE constraint failed")
+                    && message.contains("wiki_draft.workspace_id")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Optional<StoredWikiDraft> findById(long workspaceId, long draftId) {

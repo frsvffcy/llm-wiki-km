@@ -66,7 +66,15 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         Path target = workspace.root().resolve("vault/concepts/deterministic-topic.md");
 
         long firstId = createDraft(proposal.id());
-        long secondId = createDraft(proposal.id());
+        // #601 single-usable-draft contract：同一提案重複建立沿用同一可用草稿
+        // （200＋同一 id），不再產生第二筆。
+        String reused = mockMvc.perform(post("/api/v1/wiki-drafts").contentType("application/json")
+                        .content("{\"proposalId\":" + proposal.id() + "}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long secondId = Long.parseLong(json(reused, "/data/id"));
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(count("wiki_draft")).isEqualTo(1);
         String firstPreview = mockMvc.perform(get("/api/v1/wiki-drafts/{id}/preview", firstId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("READY"))

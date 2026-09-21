@@ -71,17 +71,23 @@ class AskProposalIngressIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data.duplicate").value(false));
 
         // The proposal enters the existing lifecycle: REVIEW -> APPROVED (human decision)
-        // -> Draft -> ... Publish. Approval does not auto-publish anything.
-        mockMvc.perform(patch("/api/v1/proposals/{id}/status", firstProposalId())
+        // -> auto-prepared Draft -> ... Publish. Approval does not auto-publish anything.
+        String approved = mockMvc.perform(patch("/api/v1/proposals/{id}/status", firstProposalId())
                         .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.allowedTransitions.length()").value(0));
+                .andExpect(jsonPath("$.data.allowedTransitions.length()").value(0))
+                .andExpect(jsonPath("$.data.autoDraft.draftId").isNumber())
+                .andReturn().getResponse().getContentAsString();
+        long autoDraftId = new com.fasterxml.jackson.databind.ObjectMapper().readTree(approved)
+                .path("data").path("autoDraft").path("draftId").asLong();
 
+        // #601 single-usable-draft：手動 POST 沿用核准時自動準備的草稿（200＋同一 id）。
         mockMvc.perform(post("/api/v1/wiki-drafts")
                         .contentType("application/json")
                         .content("{\"proposalId\":"
                                 + firstProposalId() + "}"))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(autoDraftId))
                 .andExpect(jsonPath("$.data.status").value("READY"))
                 .andExpect(jsonPath("$.data.proposalId").value(firstProposalId()))
                 .andExpect(jsonPath("$.data.sourceChunkIds[0]").value(seededChunkId));

@@ -52,8 +52,20 @@ public class WikiDraftPersistenceService {
         if (request == null || request.proposalId() <= 0) {
             throw new IllegalArgumentException("proposalId must be positive");
         }
+        return createLinked(request.proposalId(), null);
+    }
+
+    /**
+     * 攜帶 regenerate 血緣的建立原語（#601：唯一 INSERT 入口，single-usable 衝突由
+     * 上層 {@link WikiDraftCreationService} 經共用 policy 復原，此處不吞約束違反）。
+     */
+    @Transactional
+    public WikiDraftResponse createLinked(long proposalId, Long regeneratedFromDraftId) {
+        if (proposalId <= 0) {
+            throw new IllegalArgumentException("proposalId must be positive");
+        }
         WorkspaceResponse workspace = activeWorkspace();
-        return response(createReadyDraft(workspace.id(), request.proposalId(), null));
+        return response(createReadyDraft(workspace.id(), proposalId, regeneratedFromDraftId));
     }
 
     @Transactional
@@ -87,18 +99,16 @@ public class WikiDraftPersistenceService {
         return response(require(workspace.id(), draftId));
     }
 
-    @Transactional
-    public WikiDraftResponse regenerate(long draftId) {
-        WorkspaceResponse workspace = activeWorkspace();
-        StoredWikiDraft oldDraft = require(workspace.id(), draftId);
+    /**
+     * #601 regenerate 前置檢查（實際編排已搬移至 {@link WikiDraftCreationService#regenerate}，
+     * 作廢與新建分屬兩個已提交步驟以相容 single-usable index）。
+     */
+    public StoredWikiDraft requireUsableForRegeneration(long workspaceId, long draftId) {
+        StoredWikiDraft oldDraft = require(workspaceId, draftId);
         if (oldDraft.status() == WikiDraftStatus.PUBLISHED) {
             throw new WikiDraftLifecycleException("PUBLISHED Wiki Draft cannot be regenerated");
         }
-        StoredWikiDraft newDraft = createReadyDraft(workspace.id(), oldDraft.proposalId(), oldDraft.id());
-        if (oldDraft.status() == WikiDraftStatus.DRAFT || oldDraft.status() == WikiDraftStatus.READY) {
-            invalidate(workspace.id(), oldDraft, WikiDraftInvalidationReason.SUPERSEDED_BY_REGENERATION);
-        }
-        return response(newDraft);
+        return oldDraft;
     }
 
     private StoredWikiDraft createReadyDraft(long workspaceId, long proposalId, Long regeneratedFromDraftId) {

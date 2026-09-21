@@ -1,9 +1,8 @@
 package org.km.llmwiki.wiki;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 /**
  * #570：核准後自動建草稿的寫入嘗試（獨立交易）。
@@ -17,23 +16,36 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 @Service
 public class ProposalAutoDraftCreator {
 
-    private final WikiDraftPersistenceService draftPersistenceService;
+    private final WikiDraftCreationService draftCreationService;
 
-    public ProposalAutoDraftCreator(WikiDraftPersistenceService draftPersistenceService) {
-        this.draftPersistenceService = draftPersistenceService;
+    public ProposalAutoDraftCreator(WikiDraftCreationService draftCreationService) {
+        this.draftCreationService = draftCreationService;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    private static final Logger log = LoggerFactory.getLogger(ProposalAutoDraftCreator.class);
+
+    /**
+     * 非交易協調器（#601）：实际交易邊界在 {@link WikiDraftCreationService} 內，
+     * 建立鎖總是在第一條 SQL 之前取得——若在此先開交易，等待鎖期間 snapshot 即 stale
+     * （SQLITE_BUSY_SNAPSHOT 不受 busy_timeout 覆蓋）。呼叫前核准轉換已提交，
+     * 因此 REQUIRED 與 REQUIRES_NEW 在此等價。
+     */
     public ProposalAutoDraft create(long proposalId) {
         try {
-            WikiDraftResponse created = draftPersistenceService.create(new CreateWikiDraftRequest(proposalId));
-            return ProposalAutoDraft.created(created.id(), created.status());
+            // #601：與 manual create 共用 atomic create-or-reuse（storage index 為唯一真相）。
+            WikiDraftCreationService.CreatedDraft result = draftCreationService.createOrReuse(proposalId);
+            WikiDraftResponse response = result.response();
+            return result.reused()
+                    ? ProposalAutoDraft.reused(response.id(), response.status())
+                    : ProposalAutoDraft.created(response.id(), response.status());
         } catch (WikiDraftValidationException exception) {
-            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            // 回應維持 operator-safe；完整 root cause 只進 server-side log（redaction 邊界）。
+            // 內層 persistence 交易已由其代理回滾，此處無需標記。
+            log.warn("Auto-draft preparation failed for proposal {}", proposalId, exception);
             return ProposalAutoDraft.failed("AUTO_DRAFT_" + exception.reason().name(),
                     autoDraftMessage(exception.reason()));
         } catch (RuntimeException exception) {
-            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            log.warn("Auto-draft preparation failed for proposal {}", proposalId, exception);
             return ProposalAutoDraft.failed("AUTO_DRAFT_FAILED", "草稿自動準備失敗，請重試或手動建立草稿");
         }
     }
