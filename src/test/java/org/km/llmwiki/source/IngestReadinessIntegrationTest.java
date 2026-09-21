@@ -58,11 +58,11 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
         createWorkspace();
 
         mockMvc.perform(multipart("/api/v1/inbox/files/batch")
-                        .param("autoProcess", "true")
                         .file(new MockMultipartFile("files", "one.txt", "text/plain",
                                 "第一份文件 batch-one".getBytes(StandardCharsets.UTF_8)))
                         .file(new MockMultipartFile("files", "two.txt", "text/plain",
-                                "第二份文件 batch-two".getBytes(StandardCharsets.UTF_8))))
+                                "第二份文件 batch-two".getBytes(StandardCharsets.UTF_8)))
+                        .param("autoProcess", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accepted").value(2))
                 .andExpect(jsonPath("$.data.failed").value(0));
@@ -200,9 +200,9 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
     void unsupportedAutoProcessedDocumentExposesTypedNextActionInsteadOfReady() throws Exception {
         createWorkspace();
         mockMvc.perform(multipart("/api/v1/inbox/files")
-                        .param("autoProcess", "true")
                         .file(new MockMultipartFile("file", "archive.bin", "application/octet-stream",
-                                "not supported".getBytes(StandardCharsets.UTF_8))))
+                                "not supported".getBytes(StandardCharsets.UTF_8)))
+                        .param("autoProcess", "true"))
                 .andExpect(status().isCreated());
 
         awaitIngestProcessingTasks();
@@ -226,9 +226,9 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
 
     private long uploadAuto(String fileName, String body) throws Exception {
         String response = mockMvc.perform(multipart("/api/v1/inbox/files")
-                        .param("autoProcess", "true")
                         .file(new MockMultipartFile("file", fileName, "text/plain",
-                                body.getBytes(StandardCharsets.UTF_8))))
+                                body.getBytes(StandardCharsets.UTF_8)))
+                        .param("autoProcess", "true"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.duplicate").value(false))
                 .andReturn().getResponse().getContentAsString();
