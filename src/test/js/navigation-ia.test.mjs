@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { applyRoute, navGroup, NAV_GROUPS, parseRoute } from "../../main/resources/static/navigation-ui.js";
+import { applyRoute, fetchReviewPendingCount, navGroup, NAV_GROUPS, parseRoute, renderReviewBadge } from "../../main/resources/static/navigation-ui.js";
 
 const STYLES_URL = new URL("../../main/resources/static/styles.css", import.meta.url);
 const INDEX_URL = new URL("../../main/resources/static/index.html", import.meta.url);
@@ -44,32 +44,42 @@ class FakeDocument {
   }
 }
 
-test("IA groups 7 routes without changing hash contract or hiding governance (#495)", async () => {
-  assert.deepEqual([...NAV_GROUPS.core], ["home", "wiki", "inbox", "ask"]);
-  assert.deepEqual([...NAV_GROUPS.govern], ["inspect", "review", "quality"]);
-  assert.equal(navGroup("home"), "core");
-  assert.equal(navGroup("ask"), "core");
-  assert.equal(navGroup("inspect"), "govern");
-  assert.equal(navGroup("review"), "govern");
-  assert.equal(navGroup("quality"), "govern");
+test("IA groups 7 routes task-first without changing hash contract or hiding diagnostics (#571)", async () => {
+  assert.deepEqual([...NAV_GROUPS.basic], ["home", "inbox", "wiki", "ask", "review"]);
+  assert.deepEqual([...NAV_GROUPS.advanced], ["inspect", "quality"]);
+  assert.equal(navGroup("home"), "basic");
+  assert.equal(navGroup("inbox"), "basic");
+  assert.equal(navGroup("ask"), "basic");
+  assert.equal(navGroup("review"), "basic");
+  assert.equal(navGroup("inspect"), "advanced");
+  assert.equal(navGroup("quality"), "advanced");
   assert.equal(navGroup("nonsense"), null);
 
   const html = await readFile(INDEX_URL, "utf8");
   const nav = html.match(/<nav[^>]*class="app-nav"[^>]*>[\s\S]*?<\/nav>/u);
   assert.ok(nav, "app-nav shell must exist");
   const hrefs = [...nav[0].matchAll(/href="#\/([a-z]+)"/gu)].map(m => m[1]);
-  assert.deepEqual(hrefs, ["home", "wiki", "inbox", "ask", "inspect", "review", "quality"],
-    "hash URLs and ordering stay compatible");
+  assert.deepEqual(hrefs, ["home", "inbox", "wiki", "ask", "review", "inspect", "quality"],
+    "hash URLs stay compatible; visual order follows the task flow");
   for (const route of hrefs) {
     assert.match(nav[0], new RegExp(`data-route-link="${route}"`, "u"));
   }
-  // Governance entries stay visible links, diagnostics is in the second group.
-  const governGroup = nav[0].match(/aria-label="驗證與治理"[\s\S]*?(?=<div class="app-nav-group"|<\/nav>)/u);
-  assert.ok(governGroup);
-  assert.match(governGroup[0], /data-route-link="inspect"/u);
-  assert.match(governGroup[0], /data-route-link="review"/u);
-  assert.match(governGroup[0], /data-route-link="quality"/u);
+  // Task-language labels: no implementation terms in primary navigation.
+  for (const [route, label] of [["home", "開始"], ["inbox", "文件"], ["wiki", "知識"],
+      ["ask", "提問"], ["review", "待我審核"]]) {
+    assert.match(nav[0], new RegExp(`data-route-link="${route}">[^<]*${label}`, "u"),
+      `${route} uses task language`);
+  }
+  // Advanced entries stay visible links with deep links intact, grouped second.
+  const advancedGroup = nav[0].match(/aria-label="進階維護"[\s\S]*?(?=<div class="app-nav-group"|<\/nav>)/u);
+  assert.ok(advancedGroup);
+  assert.match(advancedGroup[0], /data-route-link="inspect"/u);
+  assert.match(advancedGroup[0], /data-route-link="quality"/u);
   assert.ok(nav[0].includes('role="group"'), "groups expose screen-reader structure");
+  // Review carries the pending badge anchor without抢占 primary attention by itself.
+  assert.match(nav[0], /id="review-pending-badge"/u);
+  assert.match(nav[0], /<span id="review-pending-badge"[^>]*hidden/u,
+    "the badge starts hidden; only a positive backend count reveals it");
 });
 
 test("active route is aria-current and not hover-only (#495)", async () => {
@@ -109,16 +119,68 @@ test("keyboard focus is discernible and route change moves heading focus (#495)"
   assert.equal(parseRoute("#/nonsense"), "home");
 });
 
-test("route navigation does not touch workspace state or fetch (#495)", async () => {
+test("route navigation never fetches; the pending badge is the single backend touchpoint (#571)", async () => {
   const source = await readFile(NAV_URL, "utf8");
-  assert.doesNotMatch(source, /fetch\s*\(/u, "navigation never fetches");
-  assert.doesNotMatch(source, /\/api\/v1/u, "navigation never calls backend");
-  assert.doesNotMatch(source, /workspace/i, "navigation never reads workspace state");
+  // Routing core stays fetch-free: applyRoute/parseRoute/bootstrapNavigation
+  // only toggle visibility and nav state.
+  // Routing core stays fetch-free: slice each routing function body (up to the
+  // next top-level export) and assert no backend touchpoint inside.
+  for (const marker of ["export function parseRoute", "export function applyRoute",
+      "export function bootstrapNavigation"]) {
+    const start = source.indexOf(marker);
+    assert.ok(start !== -1, `${marker} must exist`);
+    const next = source.indexOf("\nexport ", start + marker.length);
+    const body = next === -1 ? source.slice(start) : source.slice(start, next);
+    assert.doesNotMatch(body, /fetchImpl\s*\(/u, "routing never fetches");
+    assert.doesNotMatch(body, /\/api\/v1/u, "routing never calls backend");
+  }
+  // The badge path touches exactly one read-only count endpoint and only
+  // listens to workspace-changed as a reset trigger (never reads workspace state).
+  const endpoints = [...source.matchAll(/\/api\/v1\/[a-z][a-z0-9/\-_]*/gu)].map(m => m[0]);
+  assert.deepEqual(endpoints, ["/api/v1/proposals"],
+    "the badge reads only the REVIEW count, nothing else");
+  // The badge listens to workspace-changed only as a refresh trigger: no workspace
+  // identity is ever read (no id lookup, no workspace API, no stored state).
+  assert.doesNotMatch(source, /workspaceId|activeWorkspace|\/api\/v1\/workspaces/iu,
+    "badge never reads workspace state");
+  assert.match(source, /workspace-changed/u, "badge refreshes on workspace switches");
   assert.doesNotMatch(source, /localStorage|sessionStorage/u);
   const documentRef = new FakeDocument();
   documentRef.sentinel = "untouched";
   applyRoute(documentRef, "inbox");
   assert.equal(documentRef.sentinel, "untouched");
+});
+
+test("pending badge renders a positive count and fails closed otherwise (#571)", async () => {
+  const okFetch = async url => {
+    assert.match(String(url), /\/api\/v1\/proposals\?status=REVIEW&page=0&size=1/u);
+    return { ok: true, status: 200, json: async () => ({ data: [], page: { totalElements: 3 } }) };
+  };
+  assert.equal(await fetchReviewPendingCount(okFetch), 3);
+
+  const emptyFetch = async () => (
+    { ok: true, status: 200, json: async () => ({ data: [], page: { totalElements: 0 } }) });
+  assert.equal(await fetchReviewPendingCount(emptyFetch), 0);
+
+  const brokenFetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+  await assert.rejects(() => fetchReviewPendingCount(brokenFetch),
+    "failures throw so the caller hides the badge instead of guessing");
+  const malformedFetch = async () => ({ ok: true, status: 200, json: async () => ({ data: [] }) });
+  await assert.rejects(() => fetchReviewPendingCount(malformedFetch));
+
+  const badge = new FakeLink("review");
+  badge.hidden = true;
+  badge.textContent = "";
+  const link = { label: null, setAttribute(name, value) { this.label = value; },
+    removeAttribute() { this.label = null; } };
+  assert.equal(renderReviewBadge({ badge, reviewLink: link }, 3), 3);
+  assert.equal(badge.hidden, false);
+  assert.equal(badge.textContent, "3");
+  assert.equal(link.label, "待我審核，3 件待審");
+  renderReviewBadge({ badge, reviewLink: link }, 0);
+  assert.equal(badge.hidden, true);
+  assert.equal(badge.textContent, "");
+  assert.equal(link.label, null);
 });
 
 test("no framework or third-party navigation dependency (#495)", async () => {

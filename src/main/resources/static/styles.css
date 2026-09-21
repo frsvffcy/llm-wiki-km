@@ -478,9 +478,9 @@ button:disabled {
   gap: var(--space-3);
   margin: var(--space-5) 0 var(--space-1);
 }
-/* #495 IA groups: core knowledge work first, verification/governance second.
+/* #495/#571 IA groups: everyday task flow first, advanced maintenance second.
    Groups are visual + screen-reader structure only; hash URLs and route meanings
-   are unchanged and no governance entry is hidden. */
+   are unchanged and no diagnostics entry is hidden or removed. */
 .app-nav-group {
   display: flex;
   flex-wrap: wrap;
@@ -537,6 +537,21 @@ button:disabled {
   outline-offset: 2px;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+/* #571 pending-review badge: count only, never color-only (weight + shape);
+   hidden attribute stays the authority (see the [hidden] rule). */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 .view[hidden] { display: none; }
 .view > h2 { margin: var(--space-5) 0 var(--space-2); font-size: var(--text-section); letter-spacing: -0.02em; }
