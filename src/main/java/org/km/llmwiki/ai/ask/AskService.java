@@ -117,15 +117,14 @@ public class AskService {
         List<AskCitation> suppliedEvidence = context.blocks().stream()
                 .map(AskCitation::from).toList();
 
+        // 完成所有檢索端轉換後、回傳任何語意結果前再次驗證。即使檢索沒有留下可用證據，
+        // consumption window 內失效的文件也必須 fail closed，避免把無效 scope 誤報為證據不足。
+        requireCurrentDocumentScope(request);
+
         if (evidence.insufficientEvidence() || context.blocks().isEmpty()) {
             return AskResultFactory.insufficient(suppliedEvidence, execution,
                     evidence.diagnostics());
         }
-
-        // Revalidate immediately before provider egress. A document that changed after
-        // retrieval must fail closed rather than turning already-collected evidence into an
-        // answer for a stale, deleted, superseded, or foreign-workspace scope.
-        requireCurrentDocumentScope(request);
 
         AnswerResult generated;
         long answerStarted = System.nanoTime();
