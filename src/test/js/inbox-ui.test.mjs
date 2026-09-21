@@ -346,6 +346,7 @@ test("processing rows schedule an authoritative refresh until backend reports re
   assert.equal(typeof scheduled, "function");
 
   const callback = scheduled;
+  scheduled = null; // real one-shot timers are no longer pending when their callback fires
   await callback();
 
   assert.equal(listCalls, 2);
