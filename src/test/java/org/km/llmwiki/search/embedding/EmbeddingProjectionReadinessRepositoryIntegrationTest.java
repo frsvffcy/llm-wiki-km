@@ -19,6 +19,25 @@ class EmbeddingProjectionReadinessRepositoryIntegrationTest extends IsolatedInte
     @Autowired JdbcClient jdbc;
 
     @Test
+    void fullRebuildCountsBeyondIntegerCacheRangeCanBecomeReady() {
+        long workspace = insertWorkspace();
+        long job = jobs.create(workspace, "embedding-large-ready",
+                ProcessingJobType.EMBEDDING_REBUILD, 202).id();
+        long generation = repository.markQueued(workspace, job, EmbeddingEvidenceKind.SOURCE_CHUNK, 0);
+
+        repository.markCompletedForGeneration(workspace, job, EmbeddingEvidenceKind.SOURCE_CHUNK,
+                generation, 202, 202, 0, "provider", "model", 2, true,
+                "large-corpus-proof");
+
+        assertThat(repository.find(workspace, EmbeddingEvidenceKind.SOURCE_CHUNK).orElseThrow())
+                .satisfies(state -> {
+                    assertThat(state.status()).isEqualTo(EmbeddingProjectionReadinessStatus.READY);
+                    assertThat(state.indexedCount()).isEqualTo(202);
+                    assertThat(state.expectedCount()).isEqualTo(202);
+                });
+    }
+
+    @Test
     void distinguishesInitialBuildPartialReadyAndProviderDrift() {
         long workspace = insertWorkspace();
         long job = jobs.create(workspace, "embedding-readiness", ProcessingJobType.EMBEDDING_REBUILD, 1).id();

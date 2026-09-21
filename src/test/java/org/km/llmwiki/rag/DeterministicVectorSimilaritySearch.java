@@ -34,9 +34,17 @@ final class DeterministicVectorSimilaritySearch implements VectorSimilaritySearc
         String placeholders = "?, ".repeat(query.evidenceKinds().size() - 1) + "?";
         String freshnessPredicate = query.freshOnly()
                 ? " AND generation_status = 'FRESH' AND vector_encoding = 'FLOAT64_LE' " : "";
+        String documentScopePredicate = query.documentId() == null ? ""
+                : " AND evidence_kind = 'SOURCE_CHUNK' "
+                + " AND EXISTS (SELECT 1 FROM source_chunk scoped_chunk "
+                + " WHERE CAST(scoped_chunk.id AS TEXT) = projection.stable_id "
+                + " AND scoped_chunk.document_id = ?) ";
         List<Object> parameters = new ArrayList<>();
         parameters.add(query.workspaceId());
         parameters.addAll(query.evidenceKinds());
+        if (query.documentId() != null) {
+            parameters.add(query.documentId());
+        }
         parameters.add(query.embeddingProvider());
         parameters.add(query.embeddingModel());
         parameters.add(query.dimension());
@@ -51,12 +59,13 @@ final class DeterministicVectorSimilaritySearch implements VectorSimilaritySearc
             scored = db.sql("""
                             SELECT evidence_kind, stable_id, canonical_content_hash, embedding_provider,
                                    embedding_model, dimension, projection_version, vector_search_blob
-                            FROM embedding_projection
-                            WHERE workspace_id = ?
-                              AND evidence_kind IN (%s) %s
+                            FROM embedding_projection projection
+                            WHERE projection.workspace_id = ?
+                              AND projection.evidence_kind IN (%s) %s %s
                               AND embedding_provider = ? AND embedding_model = ? AND dimension = ?
                               AND projection_version = ? AND vector_search_blob IS NOT NULL
-                            """.formatted(placeholders, freshnessPredicate))
+                            """.formatted(placeholders, documentScopePredicate,
+                            freshnessPredicate))
                     .params(parameters.toArray())
                     .query((resultSet, rowNumber) -> new Scored(
                             EmbeddingEvidenceKind.valueOf(resultSet.getString("evidence_kind")),

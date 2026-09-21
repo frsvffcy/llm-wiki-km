@@ -97,12 +97,18 @@ public final class SqliteVectorSimilaritySearch implements VectorSimilaritySearc
         String freshnessPredicate = query.freshOnly()
                 ? "AND generation_status = 'FRESH' AND vector_encoding = 'FLOAT64_LE' "
                 : "";
+        String documentScopePredicate = query.documentId() == null ? ""
+                : "AND evidence_kind = 'SOURCE_CHUNK' "
+                + "AND EXISTS (SELECT 1 FROM source_chunk scoped_chunk "
+                + "WHERE CAST(scoped_chunk.id AS TEXT) = projection.stable_id "
+                + "AND scoped_chunk.document_id = ?) ";
         String sql = "SELECT evidence_kind, stable_id, canonical_content_hash, "
                 + "embedding_provider, embedding_model, dimension, projection_version, "
                 + "vec_distance_cosine(vector_search_blob, ?) AS distance "
-                + "FROM embedding_projection "
-                + "WHERE workspace_id = ? "
-                + "AND evidence_kind IN (" + placeholders + ") "
+                + "FROM embedding_projection projection "
+                + "WHERE projection.workspace_id = ? "
+                + "AND projection.evidence_kind IN (" + placeholders + ") "
+                + documentScopePredicate
                 + "AND embedding_provider = ? AND embedding_model = ? AND dimension = ? "
                 + "AND projection_version = ? " + freshnessPredicate
                 + "AND vector_search_blob IS NOT NULL "
@@ -115,6 +121,9 @@ public final class SqliteVectorSimilaritySearch implements VectorSimilaritySearc
             statement.setLong(parameter++, query.workspaceId());
             for (EmbeddingEvidenceKind kind : query.evidenceKinds()) {
                 statement.setString(parameter++, kind.name());
+            }
+            if (query.documentId() != null) {
+                statement.setLong(parameter++, query.documentId());
             }
             statement.setString(parameter++, query.embeddingProvider());
             statement.setString(parameter++, query.embeddingModel());

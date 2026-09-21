@@ -429,7 +429,7 @@ public class EmbeddingProjectionReadinessRepository {
         Optional<String> latestFullStatus = latestFullStatus(workspaceId, corpus, target);
         boolean proof = generationApplied && targetOperationCompleted
                 && current.getProjectionSnapshotToken() != null && current.getFailedCount() == 0
-                && current.getIndexedCount() == current.getExpectedCount();
+                && current.getIndexedCount().intValue() == current.getExpectedCount().intValue();
         boolean missingTargetOperation = target > 0 && all.stream().noneMatch(r ->
                 r.getGeneration().longValue() == target);
         EmbeddingProjectionReadinessStatus next;

@@ -107,7 +107,8 @@ public class VectorCandidateSearchService {
             // boundary that prevents an invalidated snapshot from starting another KNN/refill.
             ensureProjectionSnapshot(readinessSnapshots);
             int requestSize = Math.min(batchSize, fetchBudget - fetched);
-            VectorSimilarityQuery knn = new VectorSimilarityQuery(activeWorkspace.id(), kinds,
+            VectorSimilarityQuery knn = new VectorSimilarityQuery(activeWorkspace.id(),
+                    query.documentId(), kinds,
                     result.providerMetadata().provider(), result.providerMetadata().model(),
                     queryVector.values().size(), EmbeddingProjectionContract.VERSION,
                     queryVector.values(), requestSize, fetched, true);

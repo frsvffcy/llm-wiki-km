@@ -12,6 +12,7 @@ import java.util.Objects;
  * Callers never provide candidate vectors or table names.
  */
 public record VectorSimilarityQuery(long workspaceId,
+                                    Long documentId,
                                     List<EmbeddingEvidenceKind> evidenceKinds,
                                     String embeddingProvider,
                                     String embeddingModel,
@@ -26,7 +27,8 @@ public record VectorSimilarityQuery(long workspaceId,
     public static final int MAX_OFFSET = 200;
 
     public VectorSimilarityQuery {
-        if (workspaceId <= 0 || evidenceKinds == null || evidenceKinds.isEmpty()
+        if (workspaceId <= 0 || (documentId != null && documentId <= 0)
+                || evidenceKinds == null || evidenceKinds.isEmpty()
                 || evidenceKinds.stream().anyMatch(Objects::isNull)
                 || embeddingProvider == null || embeddingProvider.isBlank()
                 || embeddingModel == null || embeddingModel.isBlank()
