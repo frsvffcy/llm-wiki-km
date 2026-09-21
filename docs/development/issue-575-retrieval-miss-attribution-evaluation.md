@@ -43,24 +43,38 @@ secondary observations，不得靠互斥假設隱藏證據：
   無 collector 的 production retrieve selection／order 與 production defaults 不受影響。
   額外讀取只在 collector 存在時執行，並以相同 typed fail-closed 邊界傳播基礎設施失敗。
 
-## Corpus 與量測
+## Corpus 與量測（#580 指標收斂）
 
 Corpus 包含 exact Latin token、property/code token、單一中文詞、較長中文片語、
 keyword + 自然語言填充詞、multi-token missing term，以及 fresh／`INDEX_PENDING`／stale
 readiness。每個案例同時保留 Direct Search candidates、Ask lexical candidates、final evidence、
 各實際執行 modality 的 outcome／candidates／rejected identities 與 stable reason、candidate
-presence、final evidence presence、recall@8、selection disposition 與 rejection reason。此評測固定走
-`HYBRID_FTS`，因此另外保存完整的 lexical／vector／graph diagnostics snapshot：正式執行的 lexical
+presence、final evidence presence、**`candidateRecall`（Ask lexical 候選是否命中）**、
+**`evidenceRecall`（final evidence 是否收錄）**、selection disposition 與 rejection reason。
+機器可讀報告不再以單一含糊的 `recallAtK` 同時代表兩者；人類可讀表頭為
+`CandRecall`／`EvRecall`／`CandWin`（`directLimit/candidateLimit`）／
+`EvBudget`（`maxItems/maxCharacters/used`），ranking-window 案可直接看出 candidate hit
+與 final evidence miss 的分歧。此評測固定走 `HYBRID_FTS`，因此另外保存完整的
+lexical／vector／graph diagnostics snapshot：正式執行的 lexical
 會顯示 `CONTRIBUTED` 或 `EMPTY`，未執行的 vector／graph 會明確顯示 `DISABLED`。詳細 trace 只保存
 正式流程實際產生的 section，不虛構未執行管道的 candidates。若日後 production strategy 改變，
 JSON 與 Markdown 報告會照實呈現新的 diagnostics 與 modality trace。
 
+每個案例保存實際 resolved window／budget：`directLimit`（corpus K 探測視窗，目前為 `8`）、
+`candidateLimit`（`maxItems * 4` 上限 `200`，預設 `maxItems=8` 時為 `32`，ranking-window 案
+`maxItems=1` 時為 `4`）、`maxItems`、`maxCharacters`，以及 Inspector 回報的
+`usedItems`／`usedCharacters`。報告層級的 `k` 僅為 corpus 版本 K，不再充當逐案視窗宣告；
+`RANKING_WINDOW` 明確定義為「候選存在但被 evidence budget 排除」，不是 top-8 candidate
+recall 失敗。
+
 兩個 deterministic human-like miss（填充詞、missing term）都以正式 production query 為
 baseline；評測另外比較兩種明確不同、只用於量測的 bounded lever：`exact-anchor` 投影到
 `busy_timeout`，`protected-rewrite` 投影到仍保留產品／屬性脈絡的 `SQLite busy_timeout`。
-兩種 lever 都在相同 workspace、authority、mode 與 k/budget 下重新走 Direct Search 與 Ask
-Inspector，並要求目標同時出現在 lexical candidates、final evidence，recall@8 為 `1.0`；baseline
-recall@8 為 `0.0`。評測不啟用 rewrite，也不修改 production default。
+兩種 lever 都在相同 workspace、authority、mode、candidate window 與 evidence budget 下重新走
+Direct Search 與 Ask Inspector（regression 鎖定 `directLimit`／`candidateLimit`／`maxItems`／
+`maxCharacters` before/after 一致），並要求目標同時出現在 lexical candidates、final evidence，
+`candidateRecall` 與 `evidenceRecall` 皆為 `1.0`；baseline 兩者皆為 `0.0`。評測不啟用 rewrite，
+也不修改 production default。
 
 `INDEX_PENDING` 與 stale 案例的 readiness 由實際 Source sync ledger 與 serving consistency gate
 讀取，不由測試標籤假定；同時 hard assert Direct Search、Ask candidate 與 final evidence 都
