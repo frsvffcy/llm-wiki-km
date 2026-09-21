@@ -24,6 +24,26 @@
 - Deployment readiness（`GET /api/v1/system/deployment`）為唯讀 operator-safe 投影
  （`system/`；mode／supportState／backendBind＋bounded booleans；invalid 回 `NOT_READY`）。
 
+### Ask document scope 與 retrieval mode
+
+`POST /api/v1/ask` 未帶 `documentId` 時，既有 `retrievalMode` corpus／strategy 語意完全不變。
+帶入 application-owned 正整數 `documentId` 時，document scope 對 corpus 有最高優先權：只搜尋該份
+`SOURCE` 文件；`retrievalMode` 只選擇該文件內的 retrieval strategy，不得再被解讀成 Wiki corpus。
+
+| public `retrievalMode` | scoped resolved corpus | scoped resolved strategy |
+|---|---|---|
+| `WIKI_ONLY` | `SOURCE` | `LEXICAL` |
+| `SOURCE_ONLY` | `SOURCE` | `LEXICAL` |
+| `HYBRID_FTS` | `SOURCE` | `LEXICAL` |
+| `SEMANTIC_WIKI` | `SOURCE` | `SEMANTIC` |
+| `SEMANTIC_SOURCE` | `SOURCE` | `SEMANTIC` |
+| `HYBRID_VECTOR` | `SOURCE` | `HYBRID` |
+| `HYBRID_GRAPH` | `SOURCE` | `FUSED` |
+
+scoped response 的 `retrievalMetadata` 會回傳 `requestedMode`、`resolvedCorpus`、
+`documentScoped=true` 與既有 `strategy`；未指定文件的 response 不新增這三個欄位。Browser 在 scope
+有效時只顯示「此文件＋策略」語意，清除 scope 或切換 workspace 後恢復原本未限定範圍的選項文案。
+
 ## Current holders（導航級；實際 mapping 以 code／tests 為準）
 
 Workspace／Inbox／Extraction／Chunks／Analysis jobs／Proposals／Wiki drafts／publish／

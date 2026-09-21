@@ -267,6 +267,32 @@ class AskServiceTest {
                         false, false, false));
     }
 
+    @Test
+    void scopedRetrievalFailureRetainsResolvedCorpusAndStrategyDiagnostics() {
+        AskDocumentScopeValidator validator = mock(AskDocumentScopeValidator.class);
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenThrow(new RetrievalUnavailableException(
+                RetrievalUnavailableException.Dependency.SEARCH_INDEX,
+                new IllegalStateException("database unavailable")));
+        AnswerClient provider = mock(AnswerClient.class);
+        AskService service = new AskService(retrieval, projector(), noopRerank(), provider,
+                org.km.llmwiki.ai.query.QueryTransformationService.disabled(), validator);
+
+        AskResult result = service.ask(
+                AskRequest.defaults("question", RetrievalMode.WIKI_ONLY, 900L));
+
+        assertThat(result.status()).isEqualTo(AskStatus.FAILED);
+        assertThat(result.retrievalDiagnostics()).satisfies(diagnostics -> {
+            assertThat(diagnostics.requestedMode()).isEqualTo(RetrievalMode.WIKI_ONLY);
+            assertThat(diagnostics.resolvedCorpus())
+                    .isEqualTo(org.km.llmwiki.search.SearchCorpus.SOURCE);
+            assertThat(diagnostics.documentScoped()).isTrue();
+            assertThat(diagnostics.strategy()).isEqualTo(RetrievalStrategy.LEXICAL);
+        });
+        org.mockito.Mockito.verify(validator).requireCurrent(any());
+        org.mockito.Mockito.verifyNoInteractions(provider);
+    }
+
     @ParameterizedTest
     @EnumSource(value = RetrievalMode.class, names = {"SEMANTIC_WIKI", "SEMANTIC_SOURCE"})
     void semanticVectorUnavailableIsTypedAndRetainsSemanticDiagnostics(RetrievalMode mode) {

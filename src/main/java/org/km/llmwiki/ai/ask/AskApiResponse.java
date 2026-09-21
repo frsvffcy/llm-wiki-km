@@ -222,15 +222,30 @@ public record AskApiResponse(
             boolean vectorUnavailable,
             boolean graphSignalUsed,
             boolean graphDegraded,
-            boolean graphUnavailable
+            boolean graphUnavailable,
+            String requestedMode,
+            String resolvedCorpus,
+            Boolean documentScoped
     ) {
+        public RetrievalMetadata(String strategy, boolean lexicalSignalUsed,
+                                 boolean vectorSignalUsed, boolean degradedFallback,
+                                 boolean vectorUnavailable, boolean graphSignalUsed,
+                                 boolean graphDegraded, boolean graphUnavailable) {
+            this(strategy, lexicalSignalUsed, vectorSignalUsed, degradedFallback,
+                    vectorUnavailable, graphSignalUsed, graphDegraded, graphUnavailable,
+                    null, null, null);
+        }
+
         static RetrievalMetadata from(RetrievalDiagnostics diagnostics) {
             if (diagnostics == null) return null;
             return new RetrievalMetadata(diagnostics.strategy().name(),
                     diagnostics.lexicalSignalUsed(), diagnostics.vectorSignalUsed(),
                     diagnostics.degradedFallback(), diagnostics.vectorUnavailable(),
                     diagnostics.graphSignalUsed(), diagnostics.graphDegraded(),
-                    diagnostics.graphUnavailable());
+                    diagnostics.graphUnavailable(),
+                    diagnostics.requestedMode() == null ? null : diagnostics.requestedMode().name(),
+                    diagnostics.resolvedCorpus() == null ? null : diagnostics.resolvedCorpus().name(),
+                    diagnostics.documentScoped());
         }
     }
 }

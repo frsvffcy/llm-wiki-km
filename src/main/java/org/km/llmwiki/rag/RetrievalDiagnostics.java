@@ -1,5 +1,7 @@
 package org.km.llmwiki.rag;
 
+import org.km.llmwiki.search.SearchCorpus;
+
 /**
  * Explicit signal availability semantics carried with an authoritative retrieval result. A
  * degraded or unavailable signal is a typed diagnostic, never a silent zero result: one
@@ -17,7 +19,10 @@ public record RetrievalDiagnostics(
         boolean graphDegraded,
         boolean graphUnavailable,
         String graphDetail,
-        ModalityOutcome lexicalOutcome
+        ModalityOutcome lexicalOutcome,
+        RetrievalMode requestedMode,
+        SearchCorpus resolvedCorpus,
+        Boolean documentScoped
 ) {
     public RetrievalDiagnostics {
         if (strategy == null) {
@@ -35,6 +40,10 @@ public record RetrievalDiagnostics(
         if (!lexicalSignalUsed && lexicalOutcome != ModalityOutcome.DISABLED) {
             throw new IllegalArgumentException("unused lexical signal must be disabled");
         }
+        if (documentScoped != null && documentScoped != (resolvedCorpus != null)) {
+            throw new IllegalArgumentException(
+                    "scoped diagnostics must include a resolved corpus");
+        }
     }
 
     /** Compatibility view for callers that predate the graph-grounded fused mode. */
@@ -43,7 +52,8 @@ public record RetrievalDiagnostics(
                                 boolean vectorUnavailable, String vectorUnavailableReason) {
         this(strategy, lexicalSignalUsed, vectorSignalUsed, degradedFallback, vectorUnavailable,
                 vectorUnavailableReason, false, false, false, null,
-                lexicalSignalUsed ? ModalityOutcome.CONTRIBUTED : ModalityOutcome.DISABLED);
+                lexicalSignalUsed ? ModalityOutcome.CONTRIBUTED : ModalityOutcome.DISABLED,
+                null, null, null);
     }
 
     /** Compatibility constructor for graph-aware callers predating lexical outcome observation. */
@@ -55,7 +65,8 @@ public record RetrievalDiagnostics(
         this(strategy, lexicalSignalUsed, vectorSignalUsed, degradedFallback, vectorUnavailable,
                 vectorUnavailableReason, graphSignalUsed, graphDegraded, graphUnavailable,
                 graphDetail,
-                lexicalSignalUsed ? ModalityOutcome.CONTRIBUTED : ModalityOutcome.DISABLED);
+                lexicalSignalUsed ? ModalityOutcome.CONTRIBUTED : ModalityOutcome.DISABLED,
+                null, null, null);
     }
 
     public static RetrievalDiagnostics lexical() {
@@ -115,13 +126,32 @@ public record RetrievalDiagnostics(
                 !vectorUnavailable, false, vectorUnavailable, vectorReason,
                 graph == ModalityOutcome.CONTRIBUTED || graph == ModalityOutcome.EMPTY
                         || graphDegraded,
-                graphDegraded, graphUnavailable, graphDetail, fusionDiagnostics.lexical());
+                graphDegraded, graphUnavailable, graphDetail, fusionDiagnostics.lexical(),
+                null, null, null);
     }
 
     /** Adds the channel outcome observed by the production lexical candidate path. */
     public RetrievalDiagnostics withLexicalOutcome(ModalityOutcome outcome) {
         return new RetrievalDiagnostics(strategy, lexicalSignalUsed, vectorSignalUsed,
                 degradedFallback, vectorUnavailable, vectorUnavailableReason, graphSignalUsed,
-                graphDegraded, graphUnavailable, graphDetail, outcome);
+                graphDegraded, graphUnavailable, graphDetail, outcome,
+                requestedMode, resolvedCorpus, documentScoped);
+    }
+
+    /**
+     * Decorates the signal summary with request resolution for the Ask response. Unscoped
+     * diagnostics retain null resolution fields so the existing JSON contract is unchanged.
+     */
+    public RetrievalDiagnostics withRequest(RetrievalRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("retrieval request is required");
+        }
+        if (!request.documentScoped()) {
+            return this;
+        }
+        return new RetrievalDiagnostics(strategy, lexicalSignalUsed, vectorSignalUsed,
+                degradedFallback, vectorUnavailable, vectorUnavailableReason, graphSignalUsed,
+                graphDegraded, graphUnavailable, graphDetail, lexicalOutcome,
+                request.mode(), request.resolvedCorpus(), request.documentScoped());
     }
 }

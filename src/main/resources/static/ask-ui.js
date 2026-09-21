@@ -9,6 +9,19 @@ const RETRIEVAL_MODES = Object.freeze([
   { value: "HYBRID_GRAPH", label: "Wiki 與來源文件（圖譜增強）" }
 ]);
 
+// A document scope owns the corpus. The public mode values remain unchanged for REST
+// compatibility, but the browser deliberately describes only the strategy that still varies
+// inside the selected document; it must never suggest that Wiki content is searched.
+const SCOPED_RETRIEVAL_MODES = Object.freeze([
+  { value: "HYBRID_FTS", label: "此文件（全文策略）" },
+  { value: "WIKI_ONLY", label: "此文件（全文策略）" },
+  { value: "SOURCE_ONLY", label: "此文件（全文策略）" },
+  { value: "SEMANTIC_WIKI", label: "此文件（語意策略）" },
+  { value: "SEMANTIC_SOURCE", label: "此文件（語意策略）" },
+  { value: "HYBRID_VECTOR", label: "此文件（全文＋向量策略）" },
+  { value: "HYBRID_GRAPH", label: "此文件（全文＋向量＋圖譜策略）" }
+]);
+
 const ERROR_MESSAGES = Object.freeze({
   INVALID_REQUEST: ["問題格式不正確", "請輸入問題後再試一次。"],
   ANSWER_REQUEST_REJECTED: ["問題格式不正確", "請確認問題內容後再試一次。"],
@@ -132,6 +145,15 @@ function formatProviderUsageStatus(status) {
     AVAILABLE: "已取得",
     UNAVAILABLE: "未提供"
   }[status] || "—";
+}
+
+function retrievalStrategyLabel(strategy) {
+  return {
+    LEXICAL: "全文策略",
+    SEMANTIC: "語意策略",
+    HYBRID: "全文＋向量策略",
+    FUSED: "全文＋向量＋圖譜策略"
+  }[strategy] || "—";
 }
 
 function egressDestinationLabel(destination) {
@@ -369,6 +391,9 @@ export function renderAskResponse(elements, payload, documentRef = document) {
   if (retrieval && retrieval.degradedFallback === true) {
     metadataParts.push("搜尋提示：語意搜尋暫時不可用，已改用全文搜尋結果");
   }
+  if (retrieval && retrieval.documentScoped === true) {
+    metadataParts.push(`搜尋範圍：指定文件 · ${retrievalStrategyLabel(retrieval.strategy)}`);
+  }
   // Graph signal degradation is a typed diagnostic from the server contract, never a failure:
   // the answer and its citations remain valid on the lexical/vector baseline.
   if (retrieval && retrieval.graphDegraded === true) {
@@ -470,9 +495,26 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
 
   function renderScope(label, available = true) {
     if (!elements.documentScope || !elements.documentScopeLabel) return;
+    setRetrievalModeOptions(available);
     elements.documentScope.hidden = false;
     elements.documentScopeLabel.textContent = available
       ? `目前針對：${label}` : "指定的文件目前無法使用";
+  }
+
+  function setRetrievalModeOptions(scoped) {
+    if (!elements.retrievalMode || typeof elements.retrievalMode.replaceChildren !== "function") {
+      return;
+    }
+    const modes = scoped ? SCOPED_RETRIEVAL_MODES : RETRIEVAL_MODES;
+    const selected = elements.retrievalMode.value;
+    elements.retrievalMode.replaceChildren(...modes.map(mode => {
+      const option = documentRef.createElement("option");
+      option.value = mode.value;
+      option.textContent = mode.label;
+      return option;
+    }));
+    elements.retrievalMode.value = modes.some(mode => mode.value === selected)
+      ? selected : modes[0].value;
   }
 
   function clearScope({ updateHash = true, invalidate = true } = {}) {
@@ -481,6 +523,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     }
     requestedDocumentId = null;
     activeDocumentId = null;
+    setRetrievalModeOptions(false);
     if (elements.documentScope) elements.documentScope.hidden = true;
     if (elements.documentScopeLabel) elements.documentScopeLabel.textContent = "";
     if (updateHash) {
@@ -742,6 +785,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
       elements.citations.replaceChildren();
     });
   }
+  setRetrievalModeOptions(false);
   loadDocumentScope();
   return { submit, proposeFromAnswer, viewRetrievalDiagnostics, openInlinePreview,
     loadDocumentScope, clearScope };
@@ -757,4 +801,4 @@ export function bootstrapAskUi(documentRef = document) {
 
 if (typeof document !== "undefined") bootstrapAskUi();
 
-export { RETRIEVAL_MODES };
+export { RETRIEVAL_MODES, SCOPED_RETRIEVAL_MODES };
