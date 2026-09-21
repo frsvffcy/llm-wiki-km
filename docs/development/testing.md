@@ -2027,3 +2027,16 @@ mvn test -Pfast
 mvn clean verify -Pfull
 git diff --check
 ```
+
+### Retrieval miss 五分類評測（#568／#575）
+
+`rag.RetrievalMissAttributionEvaluationIntegrationTest`（integration tier）以
+`retrieval-miss-attribution-corpus-v1` 驅動真實 FTS、Source readiness gate、Direct Search 與
+Ask-facing Retrieval Inspector，將 miss 唯一歸因為 `INDEX_READINESS`、`QUERY_PROJECTION`、
+`RANKING_WINDOW`、`AUTHORITY_REJECT` 或 `CORPUS_MISMATCH`。它量測 candidate/final evidence
+presence、recall@8、budget disposition 與 stable rejection reason，並以兩個 evaluation-only
+bounded lever（exact anchor、保留產品脈絡的 protected rewrite）重現 deterministic human-like
+miss 的 before/after；production query transform、rerank、fusion、context defaults 都由 executable
+assertions 鎖定。報告寫入
+`target/quality-reports/retrieval-miss-attribution-v1.{json,md}`。完整 contract、gate matrix 與重跑
+方式見 `docs/development/issue-575-retrieval-miss-attribution-evaluation.md`。
