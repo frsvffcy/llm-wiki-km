@@ -353,6 +353,10 @@ export function renderAskResponse(elements, payload, documentRef = document) {
     elements.toProposal.disabled = false;
     elements.toProposalHint.textContent = "";
   }
+  // #570：同一審核工作流的直接 handoff；新回答尚未保存時不顯示。
+  if (elements.toReview) {
+    elements.toReview.hidden = true;
+  }
   elements.answerText.textContent = data.answer;
   const citations = data.citations;
   elements.citationCount.textContent = `${citations.length} 筆`;
@@ -428,6 +432,9 @@ function showError(elements, error) {
   if (elements.toProposalHint) {
     elements.toProposalHint.textContent = "";
   }
+  if (elements.toReview) {
+    elements.toReview.hidden = true;
+  }
 }
 
 function elementsFrom(documentRef) {
@@ -459,6 +466,7 @@ function elementsFrom(documentRef) {
     citationCount: documentRef.getElementById("citation-count"),
     toProposal: documentRef.getElementById("ask-to-proposal"),
     toProposalHint: documentRef.getElementById("ask-to-proposal-hint"),
+    toReview: documentRef.getElementById("ask-to-review"),
     viewRetrieval: documentRef.getElementById("ask-view-retrieval"),
     sourcePreview: documentRef.getElementById("ask-source-preview"),
     sourcePreviewLoading: documentRef.getElementById("ask-source-preview-loading"),
@@ -637,9 +645,11 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     }
   }
 
-  // Explicit Ask -> Proposal hand-off (#374): a separate governed mutation command,
-  // never an Ask side effect. Only a grounded answer can be handed off, with a
-  // double-submit guard and typed failure display.
+  // Explicit Ask -> saved knowledge (#374 task language, #570 handoff): a separate
+  // governed mutation command, never an Ask side effect. Only a grounded answer
+  // can be handed off, with a double-submit guard and typed failure display.
+  // Saving never publishes: review, approval, and the explicit publish gate stay
+  // in the review workspace, linked directly from here.
   async function proposeFromAnswer() {
     if (proposalInFlight || !lastGroundedSubmission) return;
     const data = lastGroundedSubmission.data;
@@ -652,7 +662,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     }));
     proposalInFlight = true;
     elements.toProposal.disabled = true;
-    elements.toProposalHint.textContent = "建立提案中…";
+    elements.toProposalHint.textContent = "保存成知識…";
     try {
       const response = await fetchImpl("/api/v1/ask/proposals", {
         method: "POST",
@@ -672,17 +682,21 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
         elements.toProposal.disabled = false;
         const code = envelope && envelope.error && envelope.error.code;
         elements.toProposalHint.textContent = code === "ASK_CITATION_INVALID"
-          ? "提案建立失敗：引用的證據已失效或不在目前工作區，請重新提問後再試。"
-          : "提案建立失敗，請稍後再試。";
+          ? "保存失敗：引用的證據已失效或不在目前工作區，請重新提問後再試。"
+          : "保存失敗，請稍後再試。";
         return;
       }
       const duplicate = envelope.data && envelope.data.duplicate;
       elements.toProposalHint.textContent = duplicate
-        ? "此結果先前已建立提案，已在審核佇列中。可前往審核工作台繼續。"
-        : "提案已建立並進入審核佇列（REVIEW）。後續仍需人工核准與發布。可前往審核工作台繼續。";
+        ? "此結果先前已保存成知識，可前往審核繼續。"
+        : "已保存成知識並進入審核（不會立即發布）。核准後會自動準備可預覽的草稿，最後由你決定是否發布。";
       elements.toProposal.disabled = true;
+      // Direct handoff into the same review workflow (#570): no route juggling.
+      if (elements.toReview) {
+        elements.toReview.hidden = false;
+      }
     } catch {
-      elements.toProposalHint.textContent = "提案建立失敗，請稍後再試。";
+      elements.toProposalHint.textContent = "保存失敗，請稍後再試。";
     } finally {
       proposalInFlight = false;
     }

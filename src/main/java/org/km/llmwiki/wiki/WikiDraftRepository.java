@@ -54,6 +54,21 @@ public class WikiDraftRepository {
                 .fetchOptional(this::map);
     }
 
+    /**
+     * #570：核准後自動建草稿的 get-or-create 錨點——同一提案最新一筆仍可用的
+     * （DRAFT／READY）草稿；PUBLISHED／INVALIDATED 不重用（published 已是終局，
+     * invalidated 已失最新性，皆以新建取代）。
+     */
+    public Optional<StoredWikiDraft> findLatestUsableByProposalId(long workspaceId, long proposalId) {
+        return dsl.selectFrom(WIKI_DRAFT)
+                .where(WIKI_DRAFT.WORKSPACE_ID.eq((int) workspaceId))
+                .and(WIKI_DRAFT.PROPOSAL_ID.eq((int) proposalId))
+                .and(WIKI_DRAFT.STATUS.in(WikiDraftStatus.DRAFT.name(), WikiDraftStatus.READY.name()))
+                .orderBy(WIKI_DRAFT.ID.desc())
+                .limit(1)
+                .fetchOptional(this::map);
+    }
+
     public void transition(long workspaceId, long draftId, WikiDraftStatus expected, WikiDraftStatus next,
                            WikiDraftInvalidationReason reason) {
         expected.requireTransitionTo(next);
