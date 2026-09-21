@@ -23,6 +23,7 @@ import org.km.llmwiki.wiki.PublishedWikiUnavailableException;
 import org.km.llmwiki.wiki.PublishedWikiValidationException;
 import org.km.llmwiki.wiki.AskCitationInvalidException;
 import org.km.llmwiki.wiki.RepairFindingStaleException;
+import org.km.llmwiki.wiki.ProposalTagsNotEditableException;
 import org.km.llmwiki.wiki.RepairNotEligibleException;
 import org.km.llmwiki.wiki.WikiDraftNotFoundException;
 import org.km.llmwiki.wiki.WikiPageNotFoundException;
@@ -150,6 +151,13 @@ public class GlobalExceptionHandler {
             RepairNotEligibleException exception) {
         return respond(HttpStatus.UNPROCESSABLE_ENTITY, "REPAIR_NOT_ELIGIBLE",
                 "此診斷項目無法修復，僅可檢視", exception);
+    }
+
+    @ExceptionHandler(ProposalTagsNotEditableException.class)
+    public ResponseEntity<ApiError> handleProposalTagsNotEditable(
+            ProposalTagsNotEditableException exception) {
+        return respond(HttpStatus.UNPROCESSABLE_ENTITY, "PROPOSAL_TAGS_NOT_EDITABLE",
+                "此提案的標籤無法手動調整", exception);
     }
 
     @ExceptionHandler(WikiPageNotFoundException.class)

@@ -156,7 +156,8 @@ test("route and workspace switches clear stale transient state (#496)", async ()
 
 test("state rendering uses safe DOM APIs and no invented authority (#496)", async () => {
   const files = ["ask-ui.js", "inbox-ui.js", "wiki-ui.js", "review-ui.js", "quality-ui.js",
-    "retrieval-inspector-ui.js", "source-chunk-inspector-ui.js", "workspace-ui.js", "analysis-ui.js"];
+    "retrieval-inspector-ui.js", "source-chunk-inspector-ui.js", "workspace-ui.js", "analysis-ui.js",
+    "organize-ui.js"];
   for (const name of files) {
     const source = await readFile(new URL(`../../main/resources/static/${name}`, import.meta.url), "utf8");
     // Forbid executable HTML sinks (assignment/call), not doc comments mentioning the name.

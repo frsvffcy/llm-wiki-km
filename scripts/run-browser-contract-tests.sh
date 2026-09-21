@@ -38,6 +38,7 @@ src/test/js/hidden-visibility.test.mjs
 src/test/js/inbox-ui.test.mjs
 src/test/js/navigation-ia.test.mjs
 src/test/js/navigation-ui.test.mjs
+src/test/js/organize-ui.test.mjs
 src/test/js/owner-auth-ui.test.mjs
 src/test/js/quality-ui.test.mjs
 src/test/js/retrieval-inspector-ui.test.mjs
