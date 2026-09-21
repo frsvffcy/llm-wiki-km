@@ -418,8 +418,16 @@ class ReleaseCandidateContractTest {
                 "uploadSingle", "uploadBatch", "rescan", "extract", "remove");
         assertThat(content).contains("#517 stale-state regression");
         assertThat(content).contains("[hidden]");
-        assertThat(content).contains("data-parse-status");
         assertThat(content).contains("LIFECYCLE_FILTER_STATUSES");
+        assertThat(content).contains("PARSE_STATUSES");
+        // #567 updates the packaged truth: lifecycle/parse filters remain
+        // separate while backend-owned usability becomes the primary readiness.
+        assertThat(content).contains("data-usability-status");
+        assertThat(content).contains("READY_TO_USE");
+        assertThat(content).contains("START_USING");
+        assertThat(content).contains("autoProcess=true");
+        assertThat(content).contains("scheduleProcessingRefresh");
+        assertThat(content).contains("#567");
         assertThat(content).contains("empty-state");
         for (String consumer : List.of(
                 "scripts/browser-first-mile-smoke.sh",
