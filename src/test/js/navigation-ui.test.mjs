@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyRoute, bootstrapNavigation, parseRoute } from "../../main/resources/static/navigation-ui.js";
+import {
+  applyRoute,
+  bootstrapNavBadge,
+  bootstrapNavigation,
+  createNavBadgeController,
+  parseRoute
+} from "../../main/resources/static/navigation-ui.js";
 
 class FakeHeading {
   constructor() {
@@ -109,6 +115,111 @@ test("unknown routes fall back to home while keeping the applied route honest", 
   const applied = applyRoute(documentRef, "home");
   assert.equal(applied, "home");
   assert.equal(documentRef.section("home").hidden, false);
+});
+
+class FakeBadge {
+  constructor() {
+    this.hidden = true;
+    this.textContent = "";
+  }
+}
+
+class FakeReviewLink {
+  constructor() {
+    this.label = null;
+  }
+
+  setAttribute(name, value) {
+    if (name === "aria-label") this.label = value;
+  }
+
+  removeAttribute(name) {
+    if (name === "aria-label") this.label = null;
+  }
+}
+
+function badgeDocument() {
+  const badge = new FakeBadge();
+  const reviewLink = new FakeReviewLink();
+  const docListeners = new Map();
+  const viewListeners = new Map();
+  return {
+    badge,
+    reviewLink,
+    docListeners,
+    viewListeners,
+    defaultView: {
+      location: { hash: "" },
+      addEventListener(name, handler) { viewListeners.set(name, handler); }
+    },
+    addEventListener(name, handler) { docListeners.set(name, handler); },
+    querySelector(selector) {
+      if (selector === "#review-pending-badge") return badge;
+      if (selector === '[data-route-link="review"]') return reviewLink;
+      return null;
+    }
+  };
+}
+
+function countEnvelope(totalElements) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ data: [], page: { number: 0, totalElements } })
+  };
+}
+
+test("badge controller refreshes on route change and workspace switch, hiding on failure (#571)", async () => {
+  const documentRef = badgeDocument();
+  let pending = 2;
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    return countEnvelope(pending);
+  };
+  const controller = createNavBadgeController(
+    { badge: documentRef.badge, reviewLink: documentRef.reviewLink }, fetchImpl, documentRef);
+  await controller.refresh();
+  assert.equal(documentRef.badge.hidden, false);
+  assert.equal(documentRef.badge.textContent, "2");
+
+  pending = 0;
+  await controller.refresh();
+  assert.equal(documentRef.badge.hidden, true,
+    "no pending work leaves primary attention alone");
+
+  controller.reset();
+  assert.equal(documentRef.badge.hidden, true);
+  assert.equal(calls.length, 2);
+});
+
+test("badge refresh never rejects: backend failures hide instead of blocking (#571)", async () => {
+  const documentRef = badgeDocument();
+  const failingFetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+  const controller = createNavBadgeController(
+    { badge: documentRef.badge, reviewLink: documentRef.reviewLink }, failingFetch, documentRef);
+  await controller.refresh();
+  assert.equal(documentRef.badge.hidden, true);
+});
+
+test("badge bootstrap wires hashchange and workspace-changed and skips cleanly without the anchor (#571)", async () => {
+  const documentRef = badgeDocument();
+  const fetchImpl = async () => countEnvelope(4);
+  const controller = bootstrapNavBadge(documentRef, fetchImpl);
+  assert.ok(controller);
+  assert.ok(documentRef.viewListeners.has("hashchange"));
+  assert.ok(documentRef.docListeners.has("workspace-changed"));
+  for (let attempt = 0; attempt < 10 && documentRef.badge.hidden; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  assert.equal(documentRef.badge.textContent, "4");
+
+  documentRef.viewListeners.get("hashchange")();
+  documentRef.docListeners.get("workspace-changed")();
+
+  const bare = { defaultView: { location: { hash: "" }, addEventListener() {} },
+    addEventListener() {}, querySelector: () => null };
+  assert.equal(bootstrapNavBadge(bare, fetchImpl), null);
 });
 
 test("bootstrapNavigation applies the initial route without focus and re-applies on hashchange", () => {
