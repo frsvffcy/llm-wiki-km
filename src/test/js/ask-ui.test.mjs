@@ -419,6 +419,30 @@ test("loads an authoritative document scope and submits its application identity
   assert.equal(bodies[0].retrievalMode, "HYBRID_GRAPH");
 });
 
+test("document scope labels describe strategy only and never claim Wiki corpus", async () => {
+  const elements = uiElements();
+  const routed = routedDocument("#/ask?documentId=22");
+  const controller = createAskController(elements, async (url) => {
+    assert.match(String(url), /\/inbox\/documents\/22$/u);
+    return { ok: true, async json() { return { data: {
+      documentId: 22, fileName: "design.pdf", originalFileName: "design.pdf",
+      usability: { status: "READY_TO_USE", searchReady: true }
+    } }; } };
+  }, routed);
+
+  await controller.loadDocumentScope();
+  const scopedLabels = elements.retrievalMode.children.map(option => option.textContent);
+  assert.equal(scopedLabels.length, RETRIEVAL_MODES.length);
+  assert.ok(scopedLabels.every(label => label.includes("此文件")));
+  assert.ok(scopedLabels.every(label => !/Wiki|來源文件/u.test(label)));
+
+  elements.retrievalMode.value = "SEMANTIC_WIKI";
+  elements.documentScopeClear.handlers.get("click")();
+  const unscopedLabels = elements.retrievalMode.children.map(option => option.textContent);
+  assert.deepEqual(unscopedLabels, RETRIEVAL_MODES.map(mode => mode.label));
+  assert.equal(elements.retrievalMode.value, "SEMANTIC_WIKI");
+});
+
 test("clearing document scope restores the original unscoped Ask request", async () => {
   const elements = uiElements();
   const routed = routedDocument("#/ask?documentId=7");
@@ -502,6 +526,8 @@ test("workspace switch clears scope and ignores the previous workspace response"
   await controller.loadDocumentScope();
   assert.equal(elements.documentScope.hidden, true);
   assert.equal(elements.documentScopeLabel.textContent, "");
+  assert.deepEqual(elements.retrievalMode.children.map(option => option.textContent),
+    RETRIEVAL_MODES.map(mode => mode.label));
 });
 
 test("invalid document scope fails closed instead of silently asking the whole knowledge base", async () => {
@@ -525,6 +551,8 @@ test("invalid document scope fails closed instead of silently asking the whole k
   assert.equal(askCalls, 0);
   assert.match(elements.documentScopeLabel.textContent, /無法使用/u);
   assert.match(elements.hint.textContent, /尚未通過可用性確認/u);
+  assert.deepEqual(elements.retrievalMode.children.map(option => option.textContent),
+    RETRIEVAL_MODES.map(mode => mode.label));
 });
 
 test("renders a graph-grounded answer with degradation as a safe notice, not a failure", () => {

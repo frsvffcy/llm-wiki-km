@@ -44,8 +44,33 @@ public record RetrievalRequest(String query, RetrievalMode mode,
         return new RetrievalRequest(query, mode, maxItems, maxCharacters, strategy, documentScope);
     }
 
+    /**
+     * Resolves the public retrieval contract without silently changing its meaning. An
+     * unscoped request keeps the corpus declared by its mode. Once a document scope is present,
+     * the scope is authoritative for corpus selection and every mode searches that one source
+     * document; the mode continues to select only the retrieval strategy.
+     *
+     * <p>The scoped compatibility matrix is therefore:
+     * WIKI_ONLY/SOURCE_ONLY/HYBRID_FTS -> SOURCE + LEXICAL,
+     * SEMANTIC_WIKI/SEMANTIC_SOURCE -> SOURCE + SEMANTIC,
+     * HYBRID_VECTOR -> SOURCE + HYBRID, and HYBRID_GRAPH -> SOURCE + FUSED.
+     */
+    public org.km.llmwiki.search.SearchCorpus resolvedCorpus() {
+        return documentScope == null ? mode.searchCorpus()
+                : org.km.llmwiki.search.SearchCorpus.SOURCE;
+    }
+
+    /** The effective strategy; unlike the corpus, it is never rewritten by document scope. */
+    public RetrievalStrategy resolvedStrategy() {
+        return strategy;
+    }
+
+    public boolean documentScoped() {
+        return documentScope != null;
+    }
+
+    /** Backward-compatible alias used by retrieval implementations. */
     public org.km.llmwiki.search.SearchCorpus corpus() {
-        return documentScope == null
-                ? mode.searchCorpus() : org.km.llmwiki.search.SearchCorpus.SOURCE;
+        return resolvedCorpus();
     }
 }

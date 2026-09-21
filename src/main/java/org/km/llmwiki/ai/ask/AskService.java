@@ -89,12 +89,13 @@ public class AskService {
                             "retrieval dependency is unavailable",
                             Optional.of(exception.dependency())),
                     AskExecutionMetadata.fromDiagnostics(AnswerContextDiagnostics.empty()),
-                    List.of(), retrievalFailureDiagnostics(request, exception));
+                    List.of(), diagnosticsFor(request, retrievalFailureDiagnostics(request, exception)));
         }
 
         QueryTransformationResult transformation = queryTransformationService.apply(
                 request.retrievalRequest(), evidence, retrievalService);
         evidence = transformation.evidence();
+        RetrievalDiagnostics diagnostics = diagnosticsFor(request, evidence.diagnostics());
 
         // Second-stage reranking reorders the already-qualified evidence into an ordered
         // view; the policy can never add, drop, or re-identify evidence (blocking invariants
@@ -124,7 +125,7 @@ public class AskService {
 
         if (evidence.insufficientEvidence() || context.blocks().isEmpty()) {
             return AskResultFactory.insufficient(suppliedEvidence, execution,
-                    evidence.diagnostics());
+                    diagnostics);
         }
 
         AnswerResult generated;
@@ -136,8 +137,9 @@ public class AskService {
             execution = execution.withProviderOutcome(ProviderUsageStatus.UNAVAILABLE, null,
                     elapsedMillis(answerStarted));
             return AskResultFactory.failure(
-                    failureFor(exception), execution, suppliedEvidence, evidence.diagnostics(),
+                    failureFor(exception), execution, suppliedEvidence, diagnostics,
                     null, Optional.empty());
+
         }
 
         long answerLatencyMs = elapsedMillis(answerStarted);
@@ -147,7 +149,7 @@ public class AskService {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                     "answer provider returned no result"), execution, suppliedEvidence,
-                    evidence.diagnostics(), null, Optional.empty());
+                    diagnostics, null, Optional.empty());
         }
 
         Optional<AnswerUsageMetadata> usage = generated.usage();
@@ -162,22 +164,22 @@ public class AskService {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                             "answer provider response exceeded the request output bound"),
-                    execution, suppliedEvidence, evidence.diagnostics(), providerMetadata, usage);
+                    execution, suppliedEvidence, diagnostics, providerMetadata, usage);
         }
 
         try {
             List<AskCitation> citations = mapCitations(context, generated.citedEvidenceIds());
             if (generated.insufficientEvidence()) {
                 return AskResultFactory.insufficient(suppliedEvidence, execution,
-                        evidence.diagnostics(), providerMetadata, usage);
+                        diagnostics, providerMetadata, usage);
             }
             return AskResultFactory.answered(generated, citations, suppliedEvidence, execution,
-                    evidence.diagnostics());
+                    diagnostics);
         } catch (CitationValidationException invalidGeneration) {
             return AskResultFactory.failure(
                     new AskFailure(AskFailureType.PROVIDER_INVALID_RESPONSE,
                             "answer provider response failed citation validation"),
-                    execution, suppliedEvidence, evidence.diagnostics(), providerMetadata, usage);
+                    execution, suppliedEvidence, diagnostics, providerMetadata, usage);
         }
     }
 
@@ -218,6 +220,14 @@ public class AskService {
             case HYBRID -> RetrievalDiagnostics.degradedHybrid(exception.getMessage());
             case FUSED -> RetrievalDiagnostics.fused();
         };
+    }
+
+    private static RetrievalDiagnostics diagnosticsFor(AskRequest request,
+                                                       RetrievalDiagnostics diagnostics) {
+        if (diagnostics == null || request.documentScope() == null) {
+            return diagnostics;
+        }
+        return diagnostics.withRequest(request.retrievalRequest());
     }
 
     private static List<AskCitation> mapCitations(AnswerContext context, List<String> citationIds) {

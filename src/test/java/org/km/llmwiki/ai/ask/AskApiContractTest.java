@@ -16,6 +16,7 @@ import org.km.llmwiki.rag.RerankNoOpReason;
 import org.km.llmwiki.rag.RerankStatus;
 import org.km.llmwiki.rag.RetrievalDiagnostics;
 import org.km.llmwiki.rag.RetrievalMode;
+import org.km.llmwiki.rag.RetrievalRequest;
 
 import java.util.List;
 import java.util.Map;
@@ -59,6 +60,43 @@ class AskApiContractTest {
     }
 
     @Test
+    void scopedModeMatrixKeepsModeStrategyAndMakesSourceCorpusExplicit() {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        for (RetrievalMode mode : RetrievalMode.values()) {
+            var body = mapper.valueToTree(Map.of(
+                    "question", "q", "retrievalMode", mode.name(), "documentId", 42));
+            RetrievalRequest request = AskApiRequest.fromJson(body)
+                    .toApplicationRequest().retrievalRequest();
+
+            assertThat(request.mode()).isEqualTo(mode);
+            assertThat(request.corpus())
+                    .as("resolved corpus for %s", mode)
+                    .isEqualTo(org.km.llmwiki.search.SearchCorpus.SOURCE);
+            assertThat(request.resolvedCorpus()).isEqualTo(
+                    org.km.llmwiki.search.SearchCorpus.SOURCE);
+            assertThat(request.resolvedStrategy()).isEqualTo(mode.strategy());
+            assertThat(request.documentScoped()).isTrue();
+
+            RetrievalDiagnostics diagnostics = switch (mode.strategy()) {
+                case LEXICAL -> RetrievalDiagnostics.lexical();
+                case SEMANTIC -> RetrievalDiagnostics.semantic();
+                case HYBRID -> RetrievalDiagnostics.hybrid();
+                case FUSED -> RetrievalDiagnostics.fused();
+            };
+            AskApiResponse.RetrievalMetadata metadata =
+                    AskApiResponse.RetrievalMetadata.from(diagnostics.withRequest(request));
+            AskApiResponse response = new AskApiResponse(AskStatus.INSUFFICIENT_EVIDENCE,
+                    null, true, List.of(), null, null, metadata);
+            var responseJson = mapper.valueToTree(response).get("retrievalMetadata");
+            assertThat(responseJson.get("requestedMode").asText()).isEqualTo(mode.name());
+            assertThat(responseJson.get("resolvedCorpus").asText()).isEqualTo("SOURCE");
+            assertThat(responseJson.get("documentScoped").asBoolean()).isTrue();
+            assertThat(responseJson.get("strategy").asText())
+                    .isEqualTo(mode.strategy().name());
+        }
+    }
+
+    @Test
     void omittedDocumentScopePreservesTheExistingUnscopedAskContract() {
         var body = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of(
                 "question", "整個知識庫", "retrievalMode", "HYBRID_FTS"));
@@ -69,6 +107,18 @@ class AskApiContractTest {
         assertThat(request.retrievalRequest().documentScope()).isNull();
         assertThat(request.retrievalRequest().corpus())
                 .isEqualTo(org.km.llmwiki.search.SearchCorpus.ALL);
+
+        RetrievalDiagnostics diagnostics = RetrievalDiagnostics.lexical();
+        assertThat(diagnostics.withRequest(request.retrievalRequest())).isSameAs(diagnostics);
+        AskApiResponse.RetrievalMetadata metadata =
+                AskApiResponse.RetrievalMetadata.from(diagnostics);
+        AskApiResponse response = new AskApiResponse(AskStatus.INSUFFICIENT_EVIDENCE,
+                null, true, List.of(), null, null, metadata);
+        var metadataJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                .valueToTree(response).get("retrievalMetadata");
+        assertThat(metadataJson.has("requestedMode")).isFalse();
+        assertThat(metadataJson.has("resolvedCorpus")).isFalse();
+        assertThat(metadataJson.has("documentScoped")).isFalse();
     }
 
     @Test
