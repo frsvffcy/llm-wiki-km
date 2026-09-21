@@ -67,10 +67,13 @@ public class DocumentUsabilityReadinessService {
             return readiness(DocumentUsabilityReadiness.Status.NOT_SEARCHABLE, false,
                     DocumentUsabilityReadiness.NextAction.NONE);
         }
-        if (sync.get().status() == SourceSearchIndexSyncStatus.SYNCED
-                && consistencyGate.isDocumentFresh(workspaceId, document.documentId())) {
-            return readiness(DocumentUsabilityReadiness.Status.READY_TO_USE, true,
-                    DocumentUsabilityReadiness.NextAction.START_USING);
+        if (sync.get().status() == SourceSearchIndexSyncStatus.SYNCED) {
+            if (consistencyGate.isDocumentFresh(workspaceId, document.documentId())) {
+                return readiness(DocumentUsabilityReadiness.Status.READY_TO_USE, true,
+                        DocumentUsabilityReadiness.NextAction.START_USING);
+            }
+            return readiness(DocumentUsabilityReadiness.Status.INDEX_STALE, false,
+                    DocumentUsabilityReadiness.NextAction.RETRY_PROCESSING);
         }
         return readiness(DocumentUsabilityReadiness.Status.INDEX_PENDING, false,
                 DocumentUsabilityReadiness.NextAction.RETRY_PROCESSING);
