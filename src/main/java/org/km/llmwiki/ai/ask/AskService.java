@@ -117,15 +117,15 @@ public class AskService {
         List<AskCitation> suppliedEvidence = context.blocks().stream()
                 .map(AskCitation::from).toList();
 
+        // Revalidate at the consumption boundary after retrieval, transformation, reranking,
+        // and context projection but before any semantic terminal result. A document that
+        // changed during that window must fail closed even when no evidence remains.
+        requireCurrentDocumentScope(request);
+
         if (evidence.insufficientEvidence() || context.blocks().isEmpty()) {
             return AskResultFactory.insufficient(suppliedEvidence, execution,
                     evidence.diagnostics());
         }
-
-        // Revalidate immediately before provider egress. A document that changed after
-        // retrieval must fail closed rather than turning already-collected evidence into an
-        // answer for a stale, deleted, superseded, or foreign-workspace scope.
-        requireCurrentDocumentScope(request);
 
         AnswerResult generated;
         long answerStarted = System.nanoTime();
