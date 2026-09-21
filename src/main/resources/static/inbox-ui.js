@@ -345,9 +345,23 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
   function scheduleProcessingRefresh(rows) {
     const processing = rows.some(row => row && row.usability
       && String(row.usability.status || "").toUpperCase() === "PROCESSING");
-    if (!processing || processingRefreshTimer !== null) return;
+    if (!processing) {
+      if (processingRefreshTimer !== null) {
+        timers.clear(processingRefreshTimer);
+        processingRefreshTimer = null;
+      }
+      return;
+    }
+    if (processingRefreshTimer !== null) return;
     processingRefreshTimer = timers.set(async () => {
       processingRefreshTimer = null;
+      if (inFlight) {
+        // The timer may race with another mutation/filter refresh. Re-arm from
+        // the last authoritative PROCESSING row instead of silently dropping
+        // automatic progress and forcing a manual Browser refresh.
+        scheduleProcessingRefresh(rows);
+        return;
+      }
       await refresh();
     }, 750);
   }
