@@ -44,15 +44,22 @@ public class InboxFileService {
     private final WorkspaceService workspaceService;
     private final DocumentRepository documentRepository;
     private final DocumentRegistrationService registrationService;
+    private final IngestProcessingService ingestProcessingService;
 
     public InboxFileService(WorkspaceService workspaceService, DocumentRepository documentRepository,
-                            DocumentRegistrationService registrationService) {
+                            DocumentRegistrationService registrationService,
+                            IngestProcessingService ingestProcessingService) {
         this.workspaceService = workspaceService;
         this.documentRepository = documentRepository;
         this.registrationService = registrationService;
+        this.ingestProcessingService = ingestProcessingService;
     }
 
     public BatchUploadResponse uploadAll(List<MultipartFile> files) {
+        return uploadAll(files, false);
+    }
+
+    public BatchUploadResponse uploadAll(List<MultipartFile> files, boolean autoProcess) {
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
                 .orElseThrow(NoActiveWorkspaceException::new);
         List<UploadedFileResponse> documents = new ArrayList<>();
@@ -73,18 +80,32 @@ public class InboxFileService {
         }
 
         long duplicates = documents.stream().filter(UploadedFileResponse::duplicate).count();
+        if (autoProcess) {
+            ingestProcessingService.enqueue(workspace.id(), documents.stream()
+                    .filter(document -> !document.duplicate())
+                    .map(UploadedFileResponse::documentId)
+                    .toList());
+        }
         return new BatchUploadResponse(files.size(), documents.size(), (int) duplicates, failures.size(),
                 List.copyOf(documents), List.copyOf(failures));
     }
 
     public UploadedFileResponse upload(MultipartFile file) {
+        return upload(file, false);
+    }
+
+    public UploadedFileResponse upload(MultipartFile file, boolean autoProcess) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("uploaded file must not be empty");
         }
         String fileName = sanitizeFileName(file.getOriginalFilename());
         WorkspaceResponse workspace = workspaceService.findActiveWithoutValidation()
                 .orElseThrow(NoActiveWorkspaceException::new);
-        return uploadIn(workspace, fileName, file);
+        UploadedFileResponse uploaded = uploadIn(workspace, fileName, file);
+        if (autoProcess && !uploaded.duplicate()) {
+            ingestProcessingService.enqueue(workspace.id(), List.of(uploaded.documentId()));
+        }
+        return uploaded;
     }
 
     private UploadedFileResponse uploadIn(WorkspaceResponse workspace, String fileName, MultipartFile file) {
