@@ -323,7 +323,19 @@ public class RetrievalService {
             if (evidence.size() >= limits.maxItems() || usedCharacters >= limits.maxCharacters()) {
                 budgetTruncated = true;
                 if (collector != null) {
-                    collector.budgetExcluded(identity);
+                    // Inspector-only attribution (#579): the budget stop must not hide an
+                    // authority failure behind RANKING_WINDOW. Revalidate the current
+                    // candidate on the same workspace/currentness boundary; production
+                    // (collector == null) performs no extra reads and keeps its selection.
+                    RevalidationOutcome budgetOutcome = authorityRevalidator
+                            .revalidate(candidate, active.id(), sourceDocuments);
+                    if (budgetOutcome.wasRejected()) {
+                        collector.rejected(identity, budgetOutcome.rejectionReason().name());
+                    } else {
+                        collector.budgetExcluded(identity);
+                    }
+                    recordRemainingWithAuthority(ordered, index + 1, identities, active.id(),
+                            sourceDocuments, collector);
                 }
                 break;
             }
@@ -345,7 +357,12 @@ public class RetrievalService {
             if (bounded.text().isBlank()) {
                 budgetTruncated = true;
                 if (collector != null) {
+                    // Current candidate already passed authority revalidation; only the
+                    // character window excludes it. Remaining candidates still need the
+                    // same authority-first attribution as the item-budget stop.
                     collector.budgetExcluded(identity);
+                    recordRemainingWithAuthority(ordered, index + 1, identities, active.id(),
+                            sourceDocuments, collector);
                 }
                 break;
             }
@@ -359,7 +376,8 @@ public class RetrievalService {
             budgetTruncated |= bounded.truncated();
             if (bounded.truncated() || evidence.size() >= limits.maxItems()) {
                 budgetTruncated |= hasFurtherUniqueCandidate(ordered, index + 1, identities);
-                recordRemainingBudgetExclusions(ordered, index + 1, identities, collector);
+                recordRemainingWithAuthority(ordered, index + 1, identities, active.id(),
+                        sourceDocuments, collector);
                 break;
             }
         }
@@ -383,21 +401,44 @@ public class RetrievalService {
     }
 
     /**
-     * The terminal budget stop is observable only in Inspector mode.  Record every remaining
-     * unique candidate so a measured miss can be attributed to the ranking/window boundary;
-     * this does not change selection, ordering, or the production evidence handoff.
+     * Inspector-only attribution after the budget stop (#579).
+     *
+     * <p>Every remaining unique candidate is revalidated on the same workspace/currentness
+     * authority boundary as the pre-budget path. Authority-invalid candidates are recorded as
+     * {@code REJECTED} with their stable reason and must never be reported as
+     * {@code BUDGET_EXCLUDED}; only authority-current candidates that simply missed the
+     * item/character window stay {@code BUDGET_EXCLUDED} (classified downstream as
+     * {@code RANKING_WINDOW}).
+     *
+     * <p>Collecting never influences the production handoff: evidence items, ordering,
+     * character accounting, {@code budgetTruncated} and {@code rejectedCandidateCount} are
+     * unchanged, and the extra reads run only when {@code collector != null}. The
+     * {@code rejected} bundle counter therefore remains the pre-budget authority count;
+     * post-budget {@code REJECTED} traces are Inspector-only diagnosis. Authority
+     * infrastructure failures use the same typed fail-closed boundary as the pre-budget path
+     * and propagate; the no-collector production path performs no extra reads. The walk is
+     * bounded by the resolved {@code candidateLimit} (at most 200 fused-order candidates).
      */
-    private static void recordRemainingBudgetExclusions(List<SearchCandidate> candidates,
-                                                        int fromIndex,
-                                                        Set<String> seen,
-                                                        RetrievalInspectionCollector collector) {
+    private void recordRemainingWithAuthority(List<SearchCandidate> candidates,
+                                              int fromIndex,
+                                              Set<String> seen,
+                                              long workspaceId,
+                                              Map<Long, Optional<SourceSearchAuthorityDocument>> sourceDocuments,
+                                              RetrievalInspectionCollector collector) {
         if (collector == null) {
             return;
         }
         for (int index = fromIndex; index < candidates.size(); index++) {
             SearchCandidate candidate = candidates.get(index);
             String identity = candidate.kind().name() + ":" + candidate.stableId();
-            if (seen.add(identity)) {
+            if (!seen.add(identity)) {
+                continue;
+            }
+            RevalidationOutcome outcome =
+                    authorityRevalidator.revalidate(candidate, workspaceId, sourceDocuments);
+            if (outcome.wasRejected()) {
+                collector.rejected(identity, outcome.rejectionReason().name());
+            } else {
                 collector.budgetExcluded(identity);
             }
         }

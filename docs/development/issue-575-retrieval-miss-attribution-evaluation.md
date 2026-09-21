@@ -27,6 +27,22 @@ tracked contract。
 
 `NONE` 是正向控制，不是 miss 分類。
 
+## Primary 分類與 budget／authority secondary 觀察（#579）
+
+每個 miss 有單一 primary classification（上列五類之一）。若同時觀察到次因，另列
+secondary observations，不得靠互斥假設隱藏證據：
+
+- `RANKING_WINDOW` 的 primary 條件是目標已進入 Ask lexical candidates、authority
+  revalidation 通過，但因 item／character window 未進 final evidence（selection 為
+  `BUDGET_EXCLUDED`）。
+- Budget stop 之後的剩餘候選一律先走相同 workspace／currentness authority 邊界再歸因：
+  authority-invalid 記為 `REJECTED` 加 stable reason（如下游分類為 `AUTHORITY_REJECT`），
+  只有 authority 通過但未進 evidence 才記為 `BUDGET_EXCLUDED`／`RANKING_WINDOW`。
+- 此為 Inspector-only attribution：evidence items、排序、character 記帳、
+  `budgetTruncated` 與 `rejectedCandidateCount`（仍為 pre-budget authority count）皆不變；
+  無 collector 的 production retrieve selection／order 與 production defaults 不受影響。
+  額外讀取只在 collector 存在時執行，並以相同 typed fail-closed 邊界傳播基礎設施失敗。
+
 ## Corpus 與量測
 
 Corpus 包含 exact Latin token、property/code token、單一中文詞、較長中文片語、
