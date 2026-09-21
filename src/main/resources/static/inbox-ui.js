@@ -1,11 +1,11 @@
 /**
  * Inbox Browser surface (#352, #451): a first-mile projection of the existing `/api/v1/inbox`
  * and `/api/v1/documents` contracts — paged/filtered document list with the two typed
- * backend states (`status` document lifecycle + `parseStatus` extraction lifecycle),
- * single/batch upload, rescan, soft delete, the existing extraction trigger, and the
- * bounded extracted-content preview. The UI only projects backend-owned typed state:
- * no derived status machine, no automatic follow-up processing after upload, no new
- * authority. When the current workspace changes, all state is reset and re-fetched.
+ * backend states plus the application-owned usability/readiness projection, single/batch
+ * upload, rescan, soft delete, bounded automatic processing, retry, and extracted-content
+ * preview. Browser upload opts into backend-owned bounded processing; this module never
+ * chains extraction/indexing itself and never derives search readiness from parseStatus.
+ * When the current workspace changes, all state is reset and re-fetched.
  */
 
 const INBOX_ENDPOINT = "/api/v1/inbox";
