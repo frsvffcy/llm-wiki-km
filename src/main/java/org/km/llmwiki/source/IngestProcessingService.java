@@ -6,6 +6,8 @@ import org.km.llmwiki.processing.ProcessingJobItemStatus;
 import org.km.llmwiki.processing.ProcessingJobRepository;
 import org.km.llmwiki.processing.ProcessingJobType;
 import org.km.llmwiki.processing.ProcessingLogRepository;
+import org.km.llmwiki.search.SourceSearchIndexSyncRepository;
+import org.km.llmwiki.search.SourceSearchIndexSyncStatus;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ public class IngestProcessingService {
     private final ProcessingJobItemRepository items;
     private final ProcessingLogRepository logs;
     private final ExtractedContentService extraction;
+    private final SourceSearchIndexSyncRepository syncRepository;
     private final ThreadPoolTaskExecutor executor;
     private final TransactionTemplate tx;
 
@@ -33,12 +36,14 @@ public class IngestProcessingService {
                                    ProcessingJobItemRepository items,
                                    ProcessingLogRepository logs,
                                    ExtractedContentService extraction,
+                                   SourceSearchIndexSyncRepository syncRepository,
                                    @Qualifier("ingestTaskExecutor") ThreadPoolTaskExecutor executor,
                                    TransactionTemplate tx) {
         this.jobs = jobs;
         this.items = items;
         this.logs = logs;
         this.extraction = extraction;
+        this.syncRepository = syncRepository;
         this.executor = executor;
         this.tx = tx;
     }
@@ -87,7 +92,19 @@ public class IngestProcessingService {
                     launch.workspaceId(), item.documentId());
             String parseStatus = response.parseStatus();
             if (DocumentStatus.PROCESSED.name().equals(parseStatus)) {
-                finish(launch, item, ProcessingJobItemStatus.SUCCEEDED, null, "文件已完成抽取與索引同步");
+                var sync = syncRepository.find(launch.workspaceId(), item.documentId());
+                if (sync.isPresent() && sync.get().status() == SourceSearchIndexSyncStatus.SYNCED) {
+                    finish(launch, item, ProcessingJobItemStatus.SUCCEEDED, null,
+                            "文件已完成抽取與搜尋索引同步");
+                    return;
+                }
+                if (sync.isPresent() && sync.get().status() == SourceSearchIndexSyncStatus.INELIGIBLE) {
+                    finish(launch, item, ProcessingJobItemStatus.SKIPPED, "SOURCE_NOT_SEARCHABLE",
+                            "文件已完成抽取，但沒有可加入搜尋索引的內容");
+                    return;
+                }
+                finish(launch, item, ProcessingJobItemStatus.FAILED, "SOURCE_INDEX_PENDING",
+                        "文件已完成抽取，但搜尋索引尚未同步完成");
                 return;
             }
             if (DocumentStatus.NEED_OCR.name().equals(parseStatus)
