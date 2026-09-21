@@ -88,15 +88,26 @@ class GlobalExceptionHandlerTest {
             assertThat(serverEvent.getThrowableProxy().getClassName())
                     .isEqualTo(RuntimeException.class.getName());
 
+            handler.handleRetrievalUnavailable(
+                    new RetrievalUnavailableException(
+                            RetrievalUnavailableException.Dependency.GRAPH,
+                            new IllegalStateException("backend unavailable")));
+            assertThat(appender.list).hasSize(2);
+            ILoggingEvent unavailableEvent = appender.list.get(1);
+            assertThat(unavailableEvent.getLevel()).isEqualTo(Level.WARN);
+            assertThat(unavailableEvent.getFormattedMessage())
+                    .contains("GET /api/v1/inbox", "503", "RETRIEVAL_UNAVAILABLE");
+            assertThat(unavailableEvent.getThrowableProxy()).isNotNull();
+
             handler.handleIllegalArgument(new IllegalArgumentException("bad input"));
             assertThat(appender.list)
                     .as("4xx stays DEBUG and therefore remains quiet at the default INFO runtime")
-                    .hasSize(1);
+                    .hasSize(2);
 
             logger.setLevel(Level.DEBUG);
             handler.handleIllegalArgument(new IllegalArgumentException("bad input"));
-            assertThat(appender.list).hasSize(2);
-            ILoggingEvent clientEvent = appender.list.get(1);
+            assertThat(appender.list).hasSize(3);
+            ILoggingEvent clientEvent = appender.list.get(2);
             assertThat(clientEvent.getLevel()).isEqualTo(Level.DEBUG);
             assertThat(clientEvent.getFormattedMessage())
                     .contains("GET /api/v1/inbox", "400", "INVALID_REQUEST");
