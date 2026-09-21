@@ -354,6 +354,58 @@ test("processing rows schedule an authoritative refresh until backend reports re
   assert.equal(scheduled, null);
 });
 
+test("processing refresh re-arms when its timer races with an in-flight mutation", async () => {
+  const elements = uiElements();
+  let listCalls = 0;
+  let scheduled = null;
+  let releaseUpload;
+  const uploadGate = new Promise(resolve => { releaseUpload = resolve; });
+  const timers = {
+    set(fn) { scheduled = fn; return 1; },
+    clear() { scheduled = null; }
+  };
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/files?autoProcess=true")) {
+      await uploadGate;
+      return jsonResponse(true, 201, {
+        data: { documentId: 1, fileName: "race.pdf", status: "PENDING", duplicate: false }
+      });
+    }
+    listCalls += 1;
+    const usability = listCalls < 3
+      ? { status: "PROCESSING", searchReady: false, nextAction: "WAIT" }
+      : { status: "READY_TO_USE", searchReady: true, nextAction: "START_USING" };
+    return jsonResponse(true, 200, {
+      data: [row({ fileName: "race.pdf", usability,
+        parseStatus: usability.status === "READY_TO_USE" ? "PROCESSED" : null })],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+
+  const controller = createInboxController(elements, fetchImpl, fakeDocument(), timers);
+  await controller.refresh();
+  assert.equal(typeof scheduled, "function");
+
+  elements.fileInput.files = [{ name: "race.pdf" }];
+  const upload = controller.uploadSingle({ preventDefault() {} });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const blockedTimer = scheduled;
+  scheduled = null;
+  await blockedTimer();
+  assert.equal(typeof scheduled, "function",
+    "PROCESSING timer must re-arm instead of being lost while another mutation owns inFlight");
+
+  releaseUpload();
+  await upload;
+
+  const retryTimer = scheduled;
+  scheduled = null;
+  await retryTimer();
+
+  assert.match(flatText(elements.list), /可以開始使用/u);
+});
+
 test("preview renders bounded chunks and reports missing extraction as typed state", async () => {
   const documentRef = fakeDocument();
   const elements = uiElements();
