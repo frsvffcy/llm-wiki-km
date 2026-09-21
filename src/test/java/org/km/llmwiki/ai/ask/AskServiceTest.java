@@ -124,6 +124,46 @@ class AskServiceTest {
     }
 
     @Test
+    void documentScopeIsRevalidatedBeforeRetrievalAndAgainBeforeProviderEgress() {
+        AskDocumentScopeValidator validator = mock(AskDocumentScopeValidator.class);
+        org.mockito.Mockito.doNothing()
+                .doThrow(new AskDocumentScopeException(AskDocumentScopeException.Reason.STALE))
+                .when(validator).requireCurrent(any());
+        RetrievalService retrieval = retrievalReturning(bundle(List.of(
+                source(41L, 900L, "design.pdf", "scoped fact"))));
+        AnswerClient provider = mock(AnswerClient.class);
+        AskService service = new AskService(retrieval, projector(), noopRerank(), provider,
+                org.km.llmwiki.ai.query.QueryTransformationService.disabled(), validator);
+
+        assertThatThrownBy(() -> service.ask(
+                AskRequest.defaults("question", RetrievalMode.HYBRID_FTS, 900L)))
+                .isInstanceOfSatisfying(AskDocumentScopeException.class,
+                        failure -> assertThat(failure.reason())
+                                .isEqualTo(AskDocumentScopeException.Reason.STALE));
+
+        org.mockito.Mockito.verify(validator, org.mockito.Mockito.times(2)).requireCurrent(any());
+        org.mockito.Mockito.verifyNoInteractions(provider);
+    }
+
+    @Test
+    void invalidDocumentScopeFailsBeforeRetrievalOrProviderExecution() {
+        AskDocumentScopeValidator validator = mock(AskDocumentScopeValidator.class);
+        org.mockito.Mockito.doThrow(
+                new AskDocumentScopeException(AskDocumentScopeException.Reason.INVALID))
+                .when(validator).requireCurrent(any());
+        RetrievalService retrieval = mock(RetrievalService.class);
+        AnswerClient provider = mock(AnswerClient.class);
+        AskService service = new AskService(retrieval, projector(), noopRerank(), provider,
+                org.km.llmwiki.ai.query.QueryTransformationService.disabled(), validator);
+
+        assertThatThrownBy(() -> service.ask(
+                AskRequest.defaults("question", RetrievalMode.HYBRID_FTS, 900L)))
+                .isInstanceOf(AskDocumentScopeException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(retrieval, provider);
+    }
+
+    @Test
     void staleEvidenceRejectedByRetrievalCanStillProduceAnAnswerFromValidEvidence() {
         EvidenceBundle bundle = bundle(List.of(
                 wiki("valid", "Valid", "vault/valid.md", "authoritative valid fact")));

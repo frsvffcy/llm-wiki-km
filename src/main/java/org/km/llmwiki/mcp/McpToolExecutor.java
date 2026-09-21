@@ -150,6 +150,8 @@ public class McpToolExecutor {
         body.put("retrievalMode", arguments.string("retrievalMode"));
         AskApiRequest request;
         try {
+            // The MCP contract has no documentId field. Keeping the original adapter path
+            // makes km_ask explicitly unscoped while REST/Browser may opt into #586.
             request = askApplication.parseRequest(McpJsonRpc.valueToTree(body));
         } catch (IllegalArgumentException invalid) {
             return McpToolResult.failure(McpToolError.INVALID_REQUEST, invalid.getMessage());

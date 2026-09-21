@@ -1,6 +1,9 @@
 package org.km.llmwiki.source;
 
 import org.junit.jupiter.api.Test;
+import org.km.llmwiki.ai.ask.AskDocumentScopeException;
+import org.km.llmwiki.ai.ask.AskDocumentScopeValidator;
+import org.km.llmwiki.rag.DocumentRetrievalScope;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
@@ -11,6 +14,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -25,6 +29,9 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     private IngestStartupReconciler startupReconciler;
+
+    @Autowired
+    private AskDocumentScopeValidator documentScopeValidator;
 
     @Test
     void autoProcessedUploadBecomesReadyOnlyAfterFreshSourceIndexExists() throws Exception {
@@ -154,6 +161,47 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void askDocumentScopeRevalidatesReadyStaleDeletedSupersededAndForeignDocuments()
+            throws Exception {
+        createWorkspace();
+        long ready = uploadAuto("ready-scope.txt", "ready scope unique one");
+        awaitIngestProcessingTasks();
+        long stale = uploadAuto("stale-scope.txt", "stale scope unique two");
+        awaitIngestProcessingTasks();
+        long deleted = uploadAuto("deleted-scope.txt", "deleted scope unique three");
+        awaitIngestProcessingTasks();
+        long superseded = uploadAuto("superseded-scope.txt", "superseded scope unique four");
+        awaitIngestProcessingTasks();
+
+        documentScopeValidator.requireCurrent(new DocumentRetrievalScope(ready));
+        mockMvc.perform(get("/api/v1/inbox/documents/{documentId}", ready))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.documentId").value(ready))
+                .andExpect(jsonPath("$.data.fileName").value("ready-scope.txt"))
+                .andExpect(jsonPath("$.data.usability.status").value("READY_TO_USE"))
+                .andExpect(jsonPath("$.data.usability.searchReady").value(true));
+
+        db().sql("""
+                UPDATE source_chunk SET normalized_content = 'drifted', content_hash = :hash
+                 WHERE document_id = :document
+                """).param("hash", sha256("drifted")).param("document", stale).update();
+        db().sql("UPDATE document SET status = 'DELETED' WHERE id = :id")
+                .param("id", deleted).update();
+        db().sql("UPDATE document SET status = 'SUPERSEDED' WHERE id = :id")
+                .param("id", superseded).update();
+
+        assertScopeFailure(stale, AskDocumentScopeException.Reason.STALE);
+        assertScopeFailure(deleted, AskDocumentScopeException.Reason.INVALID);
+        assertScopeFailure(superseded, AskDocumentScopeException.Reason.INVALID);
+
+        createWorkspace();
+        assertScopeFailure(ready, AskDocumentScopeException.Reason.INVALID);
+        mockMvc.perform(get("/api/v1/inbox/documents/{documentId}", ready))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("DOCUMENT_NOT_FOUND"));
+    }
+
+    @Test
     void interruptedIngestFailsClosedAfterRestartAndDoesNotRemainProcessing() throws Exception {
         createWorkspace();
         long documentId = uploadManual("restart.txt", "restart-boundary");
@@ -248,5 +296,12 @@ class IngestReadinessIntegrationTest extends IsolatedIntegrationTest {
                                 {"name": "Ingest Readiness", "rootPath": "%s"}
                                 """.formatted(root)))
                 .andExpect(status().isCreated());
+    }
+
+    private void assertScopeFailure(long documentId, AskDocumentScopeException.Reason reason) {
+        assertThatThrownBy(() -> documentScopeValidator.requireCurrent(
+                new DocumentRetrievalScope(documentId)))
+                .isInstanceOfSatisfying(AskDocumentScopeException.class,
+                        failure -> assertThat(failure.reason()).isEqualTo(reason));
     }
 }

@@ -72,6 +72,7 @@ class FakeDocument {
 test("parseRoute maps hash values to known routes with home as the default", () => {
   assert.equal(parseRoute("#/inbox"), "inbox");
   assert.equal(parseRoute("#/ask"), "ask");
+  assert.equal(parseRoute("#/ask?documentId=42"), "ask");
   assert.equal(parseRoute("#/inspect"), "inspect");
   assert.equal(parseRoute("#/review"), "review");
   assert.equal(parseRoute("#/home"), "home");

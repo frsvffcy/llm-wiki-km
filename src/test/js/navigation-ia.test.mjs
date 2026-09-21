@@ -105,6 +105,7 @@ test("keyboard focus is discernible and route change moves heading focus (#495)"
   applyRoute(documentRef, "wiki", { focus: true });
   assert.equal(documentRef.sections.find(s => s.dataset.route === "wiki").heading.focused, true);
   assert.equal(parseRoute("#/wiki"), "wiki");
+  assert.equal(parseRoute("#/ask?documentId=42"), "ask");
   assert.equal(parseRoute("#/nonsense"), "home");
 });
 

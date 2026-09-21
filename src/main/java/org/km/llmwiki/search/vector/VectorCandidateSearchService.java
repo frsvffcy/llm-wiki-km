@@ -125,6 +125,8 @@ public class VectorCandidateSearchService {
                     throw new IllegalStateException("Vector adapter returned duplicate candidate identity");
                 }
                 authoritySnapshot(match, activeWorkspace, sourceDocuments)
+                        .filter(candidate -> query.documentId() == null
+                                || query.documentId().equals(candidate.documentId()))
                         .map(candidate -> withScore(candidate, match.similarity()))
                         .ifPresent(candidates::add);
             }

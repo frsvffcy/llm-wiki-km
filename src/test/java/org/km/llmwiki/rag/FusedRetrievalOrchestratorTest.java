@@ -422,6 +422,34 @@ class FusedRetrievalOrchestratorTest {
         assertThat(bundle.rejectedCandidateCount()).isEqualTo(1);
     }
 
+    @Test
+    void documentScopeDisablesGraphAndRejectsWikiAndOtherDocumentAtHandoff() {
+        EvidenceItem selected = sourceItem(77L, 9L, 1, "selected", sha256("selected"));
+        EvidenceItem other = sourceItem(88L, 10L, 1, "other", sha256("other"));
+        EvidenceItem wiki = item("wiki-out-of-scope", "wiki");
+        stubFusion(result(List.of(selected, other, wiki), Map.of(
+                selected.stableIdentity(), Set.of(CandidateSignal.LEXICAL),
+                other.stableIdentity(), Set.of(CandidateSignal.VECTOR),
+                wiki.stableIdentity(), Set.of(CandidateSignal.GRAPH)), null));
+        Mockito.when(sourceRepository.findDocument(WORKSPACE_ID, 9L)).thenReturn(Optional.of(
+                sourceDocument(9L, "PROCESSED", chunk(77L, 1, "selected", sha256("selected")))));
+        RetrievalRequest scoped = RetrievalRequest.of("graph question", RetrievalMode.HYBRID_GRAPH,
+                RetrievalStrategy.FUSED, 8, 12_000, new DocumentRetrievalScope(9L));
+
+        EvidenceBundle bundle = orchestrator.retrieveFused(scoped);
+
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(FusedEvidenceRequest.class);
+        Mockito.verify(fusedEvidenceService).fuse(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().documentId()).isEqualTo(9L);
+        assertThat(requestCaptor.getValue().includeGraph()).isFalse();
+        assertThat(bundle.items()).extracting(EvidenceItem::stableIdentity)
+                .containsExactly("SOURCE_CHUNK:77");
+        assertThat(bundle.rejectedCandidateCount()).isEqualTo(2);
+        Mockito.verify(wikiRepository, Mockito.never())
+                .findPublishedByKnowledgeId(anyLong(), anyString());
+        Mockito.verify(sourceRepository, Mockito.never()).findDocument(WORKSPACE_ID, 10L);
+    }
+
     private List<Boolean> mappedGraphFlags(ModalityOutcome graphOutcome) {
         RetrievalDiagnostics diagnostics = RetrievalDiagnostics.fused(diagnostics(
                 ModalityOutcome.CONTRIBUTED, ModalityOutcome.CONTRIBUTED, graphOutcome));

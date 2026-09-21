@@ -43,30 +43,42 @@ public class AskService {
     private final org.km.llmwiki.rag.SecondStageRerankService rerankService;
     private final AnswerClient answerClient;
     private final QueryTransformationService queryTransformationService;
+    private final AskDocumentScopeValidator documentScopeValidator;
 
     public AskService(RetrievalService retrievalService, EvidenceContextProjector contextProjector,
                       org.km.llmwiki.rag.SecondStageRerankService rerankService,
                       AnswerClient answerClient) {
         this(retrievalService, contextProjector, rerankService, answerClient,
-                QueryTransformationService.disabled());
+                QueryTransformationService.disabled(), null);
     }
 
     @Autowired
     public AskService(RetrievalService retrievalService, EvidenceContextProjector contextProjector,
                       org.km.llmwiki.rag.SecondStageRerankService rerankService,
                       AnswerClient answerClient,
-                      QueryTransformationService queryTransformationService) {
+                      QueryTransformationService queryTransformationService,
+                      AskDocumentScopeValidator documentScopeValidator) {
         this.retrievalService = retrievalService;
         this.contextProjector = contextProjector;
         this.rerankService = rerankService;
         this.answerClient = answerClient;
         this.queryTransformationService = queryTransformationService;
+        this.documentScopeValidator = documentScopeValidator;
+    }
+
+    public AskService(RetrievalService retrievalService, EvidenceContextProjector contextProjector,
+                      org.km.llmwiki.rag.SecondStageRerankService rerankService,
+                      AnswerClient answerClient,
+                      QueryTransformationService queryTransformationService) {
+        this(retrievalService, contextProjector, rerankService, answerClient,
+                queryTransformationService, null);
     }
 
     public AskResult ask(AskRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("ask request must not be null");
         }
+        requireCurrentDocumentScope(request);
 
         EvidenceBundle evidence;
         try {
@@ -109,6 +121,11 @@ public class AskService {
             return AskResultFactory.insufficient(suppliedEvidence, execution,
                     evidence.diagnostics());
         }
+
+        // Revalidate immediately before provider egress. A document that changed after
+        // retrieval must fail closed rather than turning already-collected evidence into an
+        // answer for a stale, deleted, superseded, or foreign-workspace scope.
+        requireCurrentDocumentScope(request);
 
         AnswerResult generated;
         long answerStarted = System.nanoTime();
@@ -162,6 +179,16 @@ public class AskService {
                             "answer provider response failed citation validation"),
                     execution, suppliedEvidence, evidence.diagnostics(), providerMetadata, usage);
         }
+    }
+
+    private void requireCurrentDocumentScope(AskRequest request) {
+        if (request.documentScope() == null) {
+            return;
+        }
+        if (documentScopeValidator == null) {
+            throw new IllegalStateException("Document-scoped Ask validation is not configured");
+        }
+        documentScopeValidator.requireCurrent(request.documentScope());
     }
 
     private static long elapsedMillis(long started) {

@@ -181,6 +181,10 @@ test("list render follows backend usability instead of deriving readiness from p
   assert.match(actionText(items[0]), /重新處理/u);
   assert.match(actionText(items[0]), /從收件匣移除/u);
   assert.match(actionText(items[1]), /開始提問/u);
+  const askLink = actionsOf(items[1]).children.find(child => child.className === "wiki-handoff inbox-use");
+  assert.equal(askLink.href, "#/ask?documentId=2");
+  assert.doesNotMatch(askLink.href, /report\.pdf|\/Users\//u,
+    "document scope authority is the application-owned document id, never a path or filename");
   assert.match(actionText(items[1]), /檢視處理內容/u);
   assert.doesNotMatch(actionText(items[1]), /從收件匣移除/u);
   assert.match(actionText(items[2]), /從收件匣移除/u);

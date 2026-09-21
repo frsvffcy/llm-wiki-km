@@ -12,6 +12,8 @@ const RETRIEVAL_MODES = Object.freeze([
 const ERROR_MESSAGES = Object.freeze({
   INVALID_REQUEST: ["問題格式不正確", "請輸入問題後再試一次。"],
   ANSWER_REQUEST_REJECTED: ["問題格式不正確", "請確認問題內容後再試一次。"],
+  ASK_DOCUMENT_SCOPE_INVALID: ["這份文件目前無法提問", "文件已失效、移除或尚未準備完成；請重新選擇文件，或改問整個知識庫。"],
+  ASK_DOCUMENT_SCOPE_STALE: ["這份文件需要重新處理", "文件的搜尋索引已過期；請重新處理文件，或改問整個知識庫。"],
   NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在本機應用程式中建立或開啟目前工作區。"],
   RETRIEVAL_UNAVAILABLE: ["搜尋服務暫時無法使用", "目前無法取得已索引的知識內容，請稍後再試。"],
   RETRIEVAL_VECTOR_UNAVAILABLE: ["語意搜尋暫時無法使用", "目前無法使用語意搜尋能力，請稍後再試或改用全文搜尋。"],
@@ -410,6 +412,9 @@ function elementsFrom(documentRef) {
     retrievalMode: documentRef.getElementById("retrieval-mode"),
     submit: documentRef.getElementById("ask-submit"),
     hint: documentRef.getElementById("form-hint"),
+    documentScope: documentRef.getElementById("ask-document-scope"),
+    documentScopeLabel: documentRef.getElementById("ask-document-scope-label"),
+    documentScopeClear: documentRef.getElementById("ask-document-scope-clear"),
     result: documentRef.getElementById("ask-result"),
     empty: documentRef.getElementById("result-empty"),
     error: documentRef.getElementById("result-error"),
@@ -448,7 +453,79 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   let inFlight = false;
   let proposalInFlight = false;
   let lastGroundedSubmission = null;
+  let requestedDocumentId = null;
+  let activeDocumentId = null;
+  let workspaceEpoch = 0;
   const submitLabel = elements.submit.textContent || "取得回答";
+
+  function routeDocumentId() {
+    const view = documentRef.defaultView;
+    const hash = view && view.location ? String(view.location.hash || "") : "";
+    const query = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const raw = new URLSearchParams(query).get("documentId");
+    if (!raw || !/^[1-9][0-9]*$/.test(raw)) return null;
+    const value = Number(raw);
+    return Number.isSafeInteger(value) ? value : null;
+  }
+
+  function renderScope(label, available = true) {
+    if (!elements.documentScope || !elements.documentScopeLabel) return;
+    elements.documentScope.hidden = false;
+    elements.documentScopeLabel.textContent = available
+      ? `目前針對：${label}` : "指定的文件目前無法使用";
+  }
+
+  function clearScope({ updateHash = true, invalidate = true } = {}) {
+    if (invalidate && (requestedDocumentId !== null || activeDocumentId !== null)) {
+      workspaceEpoch += 1;
+    }
+    requestedDocumentId = null;
+    activeDocumentId = null;
+    if (elements.documentScope) elements.documentScope.hidden = true;
+    if (elements.documentScopeLabel) elements.documentScopeLabel.textContent = "";
+    if (updateHash) {
+      const view = documentRef.defaultView;
+      if (view && view.location && String(view.location.hash || "").startsWith("#/ask")) {
+        view.location.hash = "#/ask";
+      }
+    }
+  }
+
+  async function loadDocumentScope() {
+    const documentId = routeDocumentId();
+    if (documentId === null) {
+      clearScope({ updateHash: false });
+      return;
+    }
+    if (requestedDocumentId !== documentId) {
+      workspaceEpoch += 1;
+    }
+    const epoch = workspaceEpoch;
+    requestedDocumentId = documentId;
+    activeDocumentId = null;
+    renderScope("正在確認文件…");
+    try {
+      const response = await fetchImpl(`/api/v1/inbox/documents/${documentId}`, {
+        headers: { Accept: "application/json" }
+      });
+      const payload = await response.json();
+      if (epoch !== workspaceEpoch || requestedDocumentId !== documentId) return;
+      const row = payload && payload.data;
+      const ready = response.ok && row && row.documentId === documentId
+        && row.usability && row.usability.status === "READY_TO_USE"
+        && row.usability.searchReady === true;
+      if (!ready) {
+        renderScope("", false);
+        return;
+      }
+      activeDocumentId = documentId;
+      renderScope(row.fileName || row.originalFileName || `文件 ${documentId}`);
+    } catch {
+      if (epoch === workspaceEpoch && requestedDocumentId === documentId) {
+        renderScope("", false);
+      }
+    }
+  }
 
   if (elements.aiEgressToggle && elements.aiEgressDetail) {
     elements.aiEgressToggle.addEventListener("click", () => {
@@ -470,20 +547,27 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
       elements.question.focus();
       return;
     }
+    if (requestedDocumentId !== null && activeDocumentId !== requestedDocumentId) {
+      elements.hint.textContent = "指定的文件尚未通過可用性確認，請改問整個知識庫或重新選擇文件。";
+      return;
+    }
 
     inFlight = true;
     elements.hint.textContent = "正在搜尋並整理回答…";
     elements.submit.disabled = true;
     elements.submit.textContent = "處理中…";
     elements.result.setAttribute("aria-busy", "true");
+    const submissionEpoch = workspaceEpoch;
     try {
+      const requestBody = {
+        question: question.trim(),
+        retrievalMode: elements.retrievalMode.value
+      };
+      if (activeDocumentId !== null) requestBody.documentId = activeDocumentId;
       const response = await fetchImpl("/api/v1/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          question: question.trim(),
-          retrievalMode: elements.retrievalMode.value
-        })
+        body: JSON.stringify(requestBody)
       });
       let payload;
       try {
@@ -491,6 +575,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
       } catch {
         payload = {};
       }
+      if (submissionEpoch !== workspaceEpoch) return;
       if (!response.ok || !payload.data) {
         showError(elements, payload.error, documentRef);
       } else {
@@ -630,7 +715,36 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
       elements.sourcePreview.hidden = true;
     });
   }
-  return { submit, proposeFromAnswer, viewRetrievalDiagnostics, openInlinePreview };
+  if (elements.documentScopeClear) {
+    elements.documentScopeClear.addEventListener("click", () => {
+      clearScope();
+      lastGroundedSubmission = null;
+      elements.empty.hidden = false;
+      elements.answer.hidden = true;
+      elements.insufficient.hidden = true;
+      elements.error.hidden = true;
+      elements.citations.replaceChildren();
+    });
+  }
+  const view = documentRef.defaultView;
+  if (view && typeof view.addEventListener === "function") {
+    view.addEventListener("hashchange", loadDocumentScope);
+  }
+  if (typeof documentRef.addEventListener === "function") {
+    documentRef.addEventListener("workspace-changed", () => {
+      workspaceEpoch += 1;
+      clearScope({ invalidate: false });
+      lastGroundedSubmission = null;
+      elements.empty.hidden = false;
+      elements.answer.hidden = true;
+      elements.insufficient.hidden = true;
+      elements.error.hidden = true;
+      elements.citations.replaceChildren();
+    });
+  }
+  loadDocumentScope();
+  return { submit, proposeFromAnswer, viewRetrievalDiagnostics, openInlinePreview,
+    loadDocumentScope, clearScope };
 }
 
 export function bootstrapAskUi(documentRef = document) {
