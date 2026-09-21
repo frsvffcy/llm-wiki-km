@@ -83,6 +83,27 @@ const ERROR_MESSAGES = Object.freeze({
 
 const GENERIC_ERROR = ["治理操作失敗", "發生未預期的問題，請稍後再試。"];
 
+// #570：核准後自動草稿準備失敗的 typed recovery 文案（與後端 ProposalAutoDraft
+// errorCode 同一集合；此處只呈現，不重做轉換決策）。
+const AUTO_DRAFT_ERROR_MESSAGES = Object.freeze({
+  AUTO_DRAFT_FAILED: "草稿自動準備失敗，提案已保持核准；可按「建立草稿」重試，不會重複發布。",
+  AUTO_DRAFT_PROPOSAL_NOT_APPROVED: "提案狀態尚未就緒，請重新整理後再試。",
+  AUTO_DRAFT_UNSUPPORTED_ACTION: "此提案類型不會產生草稿，可直接關閉審核。",
+  AUTO_DRAFT_AMBIGUOUS_CANDIDATE_MAPPING: "系統無法自動決定草稿位置，請按「建立草稿」手動選擇類型。",
+  AUTO_DRAFT_UNSUPPORTED_CANDIDATE_MAPPING: "系統無法自動決定草稿位置，請按「建立草稿」手動選擇類型。",
+  AUTO_DRAFT_INVALID_NORMALIZED_DATA: "提案資料驗證失敗，提案已保持核准；可按「建立草稿」重試或檢查提案內容。",
+  AUTO_DRAFT_INVALID_EVIDENCE: "提案證據驗證失敗，提案已保持核准；可按「建立草稿」重試或檢查提案內容。",
+  AUTO_DRAFT_UNSAFE_TARGET_REFERENCE: "草稿目標驗證失敗，提案已保持核准；可按「建立草稿」重試並檢查目標。",
+  AUTO_DRAFT_PATH_CONTRACT_MISMATCH: "草稿目標驗證失敗，提案已保持核准；可按「建立草稿」重試並檢查目標。"
+});
+
+const AUTO_DRAFT_GENERIC_ERROR = "草稿自動準備失敗，提案已保持核准；可按「建立草稿」重試。";
+
+export function autoDraftErrorMessage(code) {
+  const key = typeof code === "string" ? code.toUpperCase() : "";
+  return AUTO_DRAFT_ERROR_MESSAGES[key] || AUTO_DRAFT_GENERIC_ERROR;
+}
+
 export function proposalStatusLabel(status) {
   const key = typeof status === "string" ? status.toUpperCase() : "";
   return PROPOSAL_STATUS_LABELS[key] || text(status);
@@ -374,12 +395,37 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
         return;
       }
       // 重新讀取權威狀態；核准本身不會自動發布任何內容。
+      const autoDraft = envelope && envelope.data && typeof envelope.data.autoDraft === "object"
+        ? envelope.data.autoDraft : null;
       await selectProposal(proposalId);
       await refreshProposals();
+      // #570：核准後在同一 task flow 內呈現自動準備的草稿（預覽可見，發布仍需明確人工作動）；
+      // 準備失敗時提案保持核准並顯示 typed recovery，不假裝發布。
+      if (text(status).toUpperCase() === "APPROVED") {
+        await presentAutoDraft(autoDraft);
+      }
     } catch {
       showTypedError(undefined);
     } finally {
       inFlight = false;
+    }
+  }
+
+  async function presentAutoDraft(autoDraft) {
+    const draftId = autoDraft && Number.isFinite(Number(autoDraft.draftId))
+      ? Number(autoDraft.draftId) : 0;
+    if (draftId > 0) {
+      elements.draftCreate.hidden = true;
+      elements.draftHint.textContent =
+        "草稿已自動準備完成，可直接預覽內容；發布仍需你明確確認，不會自動發布。";
+      await loadDraft(draftId);
+      await showPreview();
+      return;
+    }
+    if (autoDraft && typeof autoDraft.errorCode === "string" && autoDraft.errorCode) {
+      // Recovery path：草稿改由既有明確建立入口重試（同一按鈕、同一後端契約）。
+      elements.draftCreate.hidden = false;
+      elements.draftHint.textContent = autoDraftErrorMessage(autoDraft.errorCode);
     }
   }
 

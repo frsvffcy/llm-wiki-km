@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  autoDraftErrorMessage,
   createReviewController,
   draftStatusLabel,
   governanceErrorMessage,
@@ -538,6 +539,82 @@ test("workspace switch clears proposal, draft, and publish state", async () => {
   assert.equal(elements.draftPanel.hidden, true);
   assert.equal(elements.publishResult.hidden, true);
   assert.match(calls.at(-1), /page=0&size=20$/u);
+});
+
+test("approve presents the auto-prepared draft preview in the same flow without publishing (#570)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    const target = String(url);
+    calls.push({ url: target, method: options?.method ?? "GET" });
+    if (target.endsWith("/status")) {
+      return jsonResponse(200, proposalDetailPayload({ status: "APPROVED", allowedTransitions: [],
+        autoDraft: { draftId: 55, draftStatus: "READY", reused: false,
+          errorCode: null, errorMessage: null } }));
+    }
+    if (target === "/api/v1/wiki-drafts/55") {
+      return jsonResponse(200, { data: draftRow({ id: 55 }) });
+    }
+    if (target === "/api/v1/wiki-drafts/55/preview") {
+      return jsonResponse(200, { data: {
+        id: 55, proposalId: 12, action: "CREATE", targetPath: "vault/concepts/x.md",
+        status: "READY", publishReady: true, sourceChunkIds: [9], evidence: [],
+        renderedContentHash: "c".repeat(64), markdown: "# auto preview" } });
+    }
+    if (target.includes("/proposals/")) {
+      return jsonResponse(200, proposalDetailPayload({
+        status: "APPROVED", allowedTransitions: [] }));
+    }
+    return jsonResponse(200, { data: [], page: { number: 0, totalPages: 0 } });
+  };
+  const controller = createReviewController(elements, fetchImpl, fakeDocument());
+  await controller.transitionProposal(12, "APPROVED");
+
+  assert.equal(elements.draftCreate.hidden, true,
+    "an auto-prepared draft supersedes the manual create entry");
+  assert.match(elements.draftHint.textContent, /發布仍需你明確確認/u);
+  assert.match(flatText(elements.draftContent), /# auto preview/u,
+    "preview is visible in the same task flow without extra clicks");
+  assert.ok(calls.every(call => !call.url.includes("/publish")),
+    "approval never publishes");
+  assert.ok(!calls.some(call => call.url === "/api/v1/wiki-drafts" && call.method === "POST"),
+    "the auto path never POSTs a manual draft create");
+});
+
+test("approve keeps the proposal approved and offers the manual draft retry on auto-draft failure (#570)", async () => {
+  const elements = uiElements();
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    const target = String(url);
+    calls.push({ url: target, method: options?.method ?? "GET" });
+    if (target.endsWith("/status")) {
+      return jsonResponse(200, proposalDetailPayload({ status: "APPROVED", allowedTransitions: [],
+        autoDraft: { draftId: null, draftStatus: null, reused: false,
+          errorCode: "AUTO_DRAFT_INVALID_NORMALIZED_DATA", errorMessage: "typed" } }));
+    }
+    if (target.includes("/proposals/")) {
+      return jsonResponse(200, proposalDetailPayload({
+        status: "APPROVED", allowedTransitions: [] }));
+    }
+    return jsonResponse(200, { data: [], page: { number: 0, totalPages: 0 } });
+  };
+  const controller = createReviewController(elements, fetchImpl, fakeDocument());
+  await controller.transitionProposal(12, "APPROVED");
+
+  assert.equal(elements.draftCreate.hidden, false,
+    "the explicit create entry stays as the typed recovery path");
+  assert.match(elements.draftHint.textContent, /可按「建立草稿」重試/u);
+  assert.ok(calls.every(call => !call.url.includes("/publish")),
+    "a failed auto-draft never fake-publishes");
+  assert.ok(!calls.some(call => call.url.includes("/wiki-drafts/")),
+    "no draft fetch is invented when preparation failed");
+});
+
+test("auto-draft recovery copy is typed and never leaks backend internals (#570)", () => {
+  assert.match(autoDraftErrorMessage("AUTO_DRAFT_INVALID_NORMALIZED_DATA"), /可按「建立草稿」重試/u);
+  assert.match(autoDraftErrorMessage("AUTO_DRAFT_UNSUPPORTED_ACTION"), /不會產生草稿/u);
+  assert.match(autoDraftErrorMessage("FUTURE_CODE"), /可按「建立草稿」重試/u,
+    "unknown codes fail closed to the generic retry copy");
 });
 
 test("the browser holds no proposal transition state machine copy (#370)", async () => {

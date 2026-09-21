@@ -515,6 +515,15 @@ public final class ProductAcceptanceHarness {
                     "proposal approve HTTP " + approved.status());
             return false;
         }
+        // #570：核准成功必須自動準備對應草稿（get-or-create；失敗為 typed autoDraft，
+        // 絕不自動 publish）。後續 preview／publish 直接使用該草稿。
+        draftId = approved.json(http.mapper()).path("data").path("autoDraft").path("draftId")
+                .asLong(-1);
+        if (draftId <= 0) {
+            report.add("governed-mutation", ProductAcceptanceReport.Verdict.FAIL,
+                    "approve did not prepare a draft: " + truncate(approved.body()));
+            return false;
+        }
         var wiki = http.get("/api/v1/wiki?page=0&size=5");
         if (wiki.status() == 200 && wiki.json(http.mapper()).path("page").path("totalElements")
                 .asInt(0) != 0) {
@@ -526,16 +535,11 @@ public final class ProductAcceptanceHarness {
     }
 
     private boolean draftPublishRead() {
-        var draft = http.postJson("/api/v1/wiki-drafts", "{\"proposalId\":" + proposalId + "}");
-        if (draft.status() != 201 && draft.status() != 200) {
-            report.add("governed-mutation", ProductAcceptanceReport.Verdict.FAIL,
-                    "draft create HTTP " + draft.status() + " " + truncate(draft.body()));
-            return false;
-        }
-        draftId = draft.json(http.mapper()).path("data").path("id").asLong(-1);
+        // #570：使用核准時自動準備的草稿（approveWithoutPublish 已驗證並記錄 draftId）；
+        // 不再手動另建——與 Browser 任務流程一致。
         if (draftId <= 0) {
             report.add("governed-mutation", ProductAcceptanceReport.Verdict.FAIL,
-                    "draft missing id");
+                    "no auto-prepared draft from approve");
             return false;
         }
         if (http.get("/api/v1/wiki-drafts/" + draftId + "/preview").status() != 200

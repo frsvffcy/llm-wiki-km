@@ -18,9 +18,12 @@ import java.util.List;
 public class KnowledgeProposalReviewController {
 
     private final KnowledgeProposalReviewService reviewService;
+    private final ProposalApprovalService approvalService;
 
-    public KnowledgeProposalReviewController(KnowledgeProposalReviewService reviewService) {
+    public KnowledgeProposalReviewController(KnowledgeProposalReviewService reviewService,
+                                             ProposalApprovalService approvalService) {
         this.reviewService = reviewService;
+        this.approvalService = approvalService;
     }
 
     @GetMapping
@@ -37,10 +40,15 @@ public class KnowledgeProposalReviewController {
         return new ApiResponse<>(reviewService.get(proposalId));
     }
 
+    /**
+     * #570：狀態轉換經 ProposalApprovalService 收斂——APPROVE 成功後自動準備對應草稿
+     * （回應攜帶 {@code autoDraft}；失敗時 proposal 仍為 APPROVED＋typed recovery，
+     * 絕不自動 publish）。其餘轉換語意不變。
+     */
     @PatchMapping("/{proposalId}/status")
     public ApiResponse<KnowledgeProposalReviewResponse> updateStatus(
             @PathVariable long proposalId, @RequestBody KnowledgeProposalStatusUpdateRequest request) {
-        return new ApiResponse<>(reviewService.updateStatus(proposalId, request));
+        return new ApiResponse<>(approvalService.transition(proposalId, request));
     }
 
     /**

@@ -49,6 +49,7 @@ function uiElements() {
     aiEgressLabel: new FakeElement(), aiEgressDetail: new FakeElement(),
     aiEgressToggle: new FakeElement(),
     toProposal: new FakeElement(), toProposalHint: new FakeElement(),
+    toReview: new FakeElement(),
     viewRetrieval: new FakeElement(),
     sourcePreview: new FakeElement(), sourcePreviewLoading: new FakeElement(),
     sourcePreviewMeta: new FakeElement(),
@@ -839,7 +840,10 @@ test("the proposal hand-off is explicit, grounded-only, and posts the governed p
   assert.equal(body.citations[1].wikiRevision, 2);
   assert.ok(!JSON.stringify(body).includes('"sourceChunkId":null'),
     "WIKI citations must not carry a null chunk id");
-  assert.match(elements.toProposalHint.textContent, /提案已建立並進入審核佇列/u);
+  assert.match(elements.toProposalHint.textContent, /已保存成知識並進入審核/u);
+  assert.match(elements.toProposalHint.textContent, /不會立即發布/u);
+  assert.equal(elements.toReview.hidden, false,
+    "a saved answer hands directly into the same review workflow (#570)");
 });
 
 test("double-submit is guarded and typed failures surface without success copy", async () => {
@@ -887,6 +891,23 @@ test("double-submit is guarded and typed failures surface without success copy",
     /引用的證據已失效/u, "stale citations surface a typed, actionable failure");
   assert.equal(staleElements.toProposal.disabled, false,
     "a failed hand-off stays retryable");
+  assert.equal(staleElements.toReview.hidden, true,
+    "a failed hand-off offers no review handoff");
+});
+
+test("a duplicated save reuses task copy and still hands into review", async () => {
+  const elements = uiElements();
+  const fetchImpl = async url => {
+    if (String(url) === "/api/v1/ask") return groundedPayload();
+    if (String(url) === "/api/v1/ask/proposals") return proposalEnvelope(true);
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  };
+  const controller = createAskController(elements, fetchImpl, documentRef);
+  elements.question.value = "transformer 的核心架構原則是什麼？";
+  await elements.form.handlers.get("submit")({ preventDefault() {} });
+  await elements.toProposal.handlers.get("click")();
+  assert.match(elements.toProposalHint.textContent, /先前已保存成知識/u);
+  assert.equal(elements.toReview.hidden, false);
 });
 
 test("the retrieval diagnostics hand-off prefills the inspector question and navigates", async () => {
