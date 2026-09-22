@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createBrowserTimers,
   createInboxController,
   DELETABLE_STATUSES,
   extractActionLabel,
@@ -381,6 +382,140 @@ test("processing rows schedule an authoritative refresh until backend reports re
   assert.equal(listCalls, 2);
   assert.match(flatText(elements.list), /可以開始使用/u);
   assert.equal(scheduled, null);
+});
+
+test("預設 Browser timer adapter 以正確 receiver 排程 PROCESSING poll", async () => {
+  const elements = uiElements();
+  let scheduled = null;
+  let setCalls = 0;
+  const receiverSensitiveGlobal = {
+    setTimeout(callback) {
+      assert.equal(this, receiverSensitiveGlobal);
+      setCalls += 1;
+      scheduled = callback;
+      return 91;
+    },
+    clearTimeout(timerId) {
+      assert.equal(this, receiverSensitiveGlobal);
+      assert.equal(timerId, 91);
+      scheduled = null;
+    }
+  };
+  const fetchImpl = async () => jsonResponse(true, 200, {
+    data: [row({ usability: { status: "PROCESSING", searchReady: false, nextAction: "WAIT" } })],
+    page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+  });
+
+  const controller = createInboxController(elements, fetchImpl, fakeDocument(),
+    createBrowserTimers(receiverSensitiveGlobal));
+  await controller.refresh();
+
+  assert.equal(setCalls, 1);
+  assert.equal(typeof scheduled, "function");
+  assert.equal(elements.hint.textContent, "");
+
+  controller.reset();
+  assert.equal(scheduled, null);
+});
+
+test("HTTP 200 後的 timer failure 有安全且可辨識的 Browser 診斷", async () => {
+  const elements = uiElements();
+  const diagnostics = [];
+  const timers = {
+    set() { throw new TypeError("secret document content must not escape"); },
+    clear() {}
+  };
+  const fetchImpl = async () => jsonResponse(true, 200, {
+    data: [row({ usability: { status: "PROCESSING", searchReady: false, nextAction: "WAIT" } })],
+    page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+  });
+  const controller = createInboxController(elements, fetchImpl, fakeDocument(), timers, {
+    error(label, detail) { diagnostics.push({ label, detail }); }
+  });
+
+  await controller.refresh();
+
+  assert.match(elements.hint.textContent, /無法自動更新處理進度/u);
+  assert.match(elements.hint.textContent, /請重新整理以取得最新狀態/u);
+  assert.deepEqual(diagnostics, [{
+    label: "Inbox client failure",
+    detail: { code: "INBOX_LIST_TIMER_FAILED", stage: "TIMER" }
+  }]);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /secret document content/u);
+});
+
+test("list refresh 分別標示 transport、JSON 與 render failure", async () => {
+  const cases = [
+    {
+      stage: "TRANSPORT",
+      expected: /無法連線到應用程式/u,
+      prepare(elements) {
+        return async () => { throw new TypeError("private transport detail"); };
+      }
+    },
+    {
+      stage: "JSON",
+      expected: /服務回應格式不正確/u,
+      prepare(elements) {
+        return async () => ({
+          ok: true,
+          status: 200,
+          json: async () => { throw new SyntaxError("private response fragment"); }
+        });
+      }
+    },
+    {
+      stage: "RENDER",
+      expected: /已取得最新資料，但畫面更新失敗/u,
+      prepare(elements) {
+        elements.list.replaceChildren = () => {
+          throw new TypeError("private document title");
+        };
+        return async () => jsonResponse(true, 200, {
+          data: [row()],
+          page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+        });
+      }
+    }
+  ];
+
+  for (const failureCase of cases) {
+    const elements = uiElements();
+    const diagnostics = [];
+    const controller = createInboxController(elements, failureCase.prepare(elements),
+      fakeDocument(), { set() {}, clear() {} }, {
+        error(label, detail) { diagnostics.push({ label, detail }); }
+      });
+
+    await controller.refresh();
+
+    assert.match(elements.hint.textContent, failureCase.expected);
+    assert.deepEqual(diagnostics, [{
+      label: "Inbox client failure",
+      detail: {
+        code: `INBOX_LIST_${failureCase.stage}_FAILED`,
+        stage: failureCase.stage
+      }
+    }]);
+    assert.doesNotMatch(JSON.stringify(diagnostics), /private/u);
+  }
+});
+
+test("HTTP error 保留 backend typed contract，不誤報為 Browser failure", async () => {
+  const elements = uiElements();
+  const diagnostics = [];
+  const fetchImpl = async () => jsonResponse(false, 404, {
+    error: { code: "NO_ACTIVE_WORKSPACE", message: "server-owned safe message" }
+  });
+  const controller = createInboxController(elements, fetchImpl, fakeDocument(),
+    { set() {}, clear() {} }, {
+      error(label, detail) { diagnostics.push({ label, detail }); }
+    });
+
+  await controller.refresh();
+
+  assert.match(elements.hint.textContent, /尚未開啟知識庫/u);
+  assert.deepEqual(diagnostics, []);
 });
 
 test("processing refresh re-arms when its timer races with an in-flight mutation", async () => {
