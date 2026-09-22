@@ -59,9 +59,9 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
             throws Exception {
         Fixture fixture = fixture("mcp-task-eval");
         writeWiki(fixture, "mcp-alpha", "MCP Alpha",
-                "alpha-marker canonical fact Aurora code 42");
+                "alphamarker canonical fact Aurora code 42");
         SourceFixture source = writeSource(fixture,
-                "beta-marker source-locator-marker Beta color blue");
+                "betamarker sourcelocatormarker Beta color blue");
 
         assertThat(sourceIndexingService.reindexDocument(
                 fixture.workspaceId(), source.documentId()).status())
@@ -74,7 +74,7 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
         McpToolResult wikiSearch = executor.execute(
                 McpCapabilityManifest.TOOL_SEARCH,
                 JSON.createObjectNode()
-                        .put("query", "alpha-marker")
+                        .put("query", "alphamarker")
                         .put("corpus", "WIKI"));
         assertThat(wikiSearch.isError()).isFalse();
         assertThat(searchResults(wikiSearch))
@@ -84,7 +84,7 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
         McpToolResult sourceSearch = executor.execute(
                 McpCapabilityManifest.TOOL_SEARCH,
                 JSON.createObjectNode()
-                        .put("query", "source-locator-marker")
+                        .put("query", "sourcelocatormarker")
                         .put("corpus", "SOURCE"));
         assertThat(sourceSearch.isError()).isFalse();
         assertThat(searchResults(sourceSearch))
@@ -101,14 +101,14 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
         assertThat((SourceLocator) located.payload())
                 .satisfies(locator -> {
                     assertThat(locator.currentness()).isEqualTo(ChunkCurrentness.CURRENT);
-                    assertThat(locator.preview()).contains("source-locator-marker");
+                    assertThat(locator.preview()).contains("sourcelocatormarker");
                     assertThat(locator.documentId()).isEqualTo(source.documentId());
                 });
 
         McpToolResult graphInspect = executor.execute(
                 McpCapabilityManifest.TOOL_RETRIEVAL_INSPECT,
                 JSON.createObjectNode()
-                        .put("question", "alpha-marker")
+                        .put("question", "alphamarker")
                         .put("mode", "HYBRID_GRAPH"));
         assertThat(graphInspect.isError()).isFalse();
         RetrievalInspectionResponse graph = (RetrievalInspectionResponse) graphInspect.payload();
@@ -119,7 +119,7 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
         McpToolResult noEvidence = executor.execute(
                 McpCapabilityManifest.TOOL_RETRIEVAL_INSPECT,
                 JSON.createObjectNode()
-                        .put("question", "omega-absent-marker")
+                        .put("question", "omegaabsentmarker")
                         .put("mode", "WIKI_ONLY"));
         assertThat(noEvidence.isError()).isFalse();
         assertThat(((RetrievalInspectionResponse) noEvidence.payload()).finalEvidence())
@@ -139,7 +139,7 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
     void removingTargetEvidenceMakesTheFormerSearchGoldFailClosed() throws Exception {
         Fixture fixture = fixture("mcp-task-eval-remove");
         SourceFixture source = writeSource(fixture,
-                "beta-marker source-locator-marker Beta color blue");
+                "betamarker sourcelocatormarker Beta color blue");
         assertThat(sourceIndexingService.reindexDocument(
                 fixture.workspaceId(), source.documentId()).status())
                 .isEqualTo(SourceIndexSyncStatus.SYNCED);
@@ -147,7 +147,7 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
         assertThat(searchResults(executor.execute(
                 McpCapabilityManifest.TOOL_SEARCH,
                 JSON.createObjectNode()
-                        .put("query", "source-locator-marker")
+                        .put("query", "sourcelocatormarker")
                         .put("corpus", "SOURCE"))))
                 .isNotEmpty();
 
@@ -158,7 +158,7 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
         McpToolResult afterRemoval = executor.execute(
                 McpCapabilityManifest.TOOL_SEARCH,
                 JSON.createObjectNode()
-                        .put("query", "source-locator-marker")
+                        .put("query", "sourcelocatormarker")
                         .put("corpus", "SOURCE"));
         assertThat(afterRemoval.isError()).isFalse();
         assertThat(searchResults(afterRemoval)).isEmpty();
