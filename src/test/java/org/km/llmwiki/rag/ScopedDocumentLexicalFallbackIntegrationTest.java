@@ -68,6 +68,33 @@ class ScopedDocumentLexicalFallbackIntegrationTest extends IsolatedIntegrationTe
         assertSelectedCandidate("請問知識管理如何運作？", selected);
         assertSelectedEvidence("請問知識管理如何運作？", selected);
 
+        // v2 paraphrase corpus: unseen orderings and filler terms absent from the source.
+        // v1 hard-coded prefix/suffix allowlist could not recover these shapes.
+        String[] paraphrases = {
+                "知識管理到底該如何理解",
+                "關於知識管理，到底該如何理解呢？",
+                "可以分享一些關於知識管理的看法嗎",
+                "這份文件的知識管理是在講什麼東西",
+                "知識管理 unicorn 外星詞到底是什麼樣的概念",
+                "那個控制鎖定等待的 busy_timeout 要去哪裡改",
+                "busy_timeout 這個參數背後的等待機制是什麼",
+                "exactbodytoken 相關的說明在哪裡可以找到"};
+        for (String paraphrase : paraphrases) {
+            assertThat(unscopedSource(paraphrase).items())
+                    .as("paraphrase must stay empty without document scope: %s", paraphrase)
+                    .isEmpty();
+            assertSelectedCandidate(paraphrase, selected);
+            assertSelectedEvidence(paraphrase, selected);
+        }
+
+        // Corpus-mismatch negatives must never be forced into evidence.
+        assertThat(scopedSource("完全無關的自然語句", selected).items()).isEmpty();
+        assertThat(retrieveScoped("完全無關的自然語句", selected).items()).isEmpty();
+        assertThat(scopedSource("外星科技與量子傳送的原理是什麼", selected).items()).isEmpty();
+        assertThat(retrieveScoped("外星科技與量子傳送的原理是什麼", selected).items()).isEmpty();
+        assertThat(scopedSource("alpha unicorn", selected).items()).isEmpty();
+        assertThat(retrieveScoped("alpha unicorn", selected).items()).isEmpty();
+
         assertThat(scopedSource("filenameonlymarker", selected).items()).isEmpty();
         assertThat(retrieveScoped("filenameonlymarker", selected).items()).isEmpty();
 

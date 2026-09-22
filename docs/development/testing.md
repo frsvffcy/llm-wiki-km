@@ -2044,8 +2044,9 @@ assertions 鎖定。報告寫入
 ### Scoped Ask query projection corrective（#605）
 
 `search.ScopedDocumentQueryFallbackPolicyTest`（contract tier）鎖定
-`scoped-document-query-fallback-v1` 的 exact technical-anchor preservation、bounded 問句外殼縮減與
-拒絕任意 broadening。`rag.ScopedDocumentLexicalFallbackIntegrationTest`（integration tier）走真實
+`scoped-document-query-fallback-v2` 的 exact technical-anchor preservation、document-local
+term retention（無 hard-coded prefix/suffix allowlist）、多種真人 paraphrase／filler／語序與
+拒絕任意 broadening／single-bigram 擴張。`rag.ScopedDocumentLexicalFallbackIntegrationTest`（integration tier）走真實
 upload／extraction／chunk／FTS，持有 selected-document candidate/Evidence、CJK、#568
 `QUERY_PROJECTION` shapes、filename-only non-evidence、original-query traceability，以及
 foreign/stale/superseded/deleted fail-closed。Browser 的 zero-hit/provider-insufficient copy 由
