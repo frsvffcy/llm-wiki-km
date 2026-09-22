@@ -130,7 +130,7 @@ class ProductAcceptanceFullCapabilityJourneyIntegrationTest {
         // The stub really served the production transport seam (not a service stub).
         assertThat(STUB.lastAnswerRequestBody()).contains("GROUNDED_ANSWER_PROMPT_V2");
         assertThat(STUB.lastEmbeddingRequestBody()).contains("input");
-        assertThat(STUB.lastAnswerAuthorization()).isEqualTo("Bearer acceptance-local-credential");
+        assertThat(STUB.lastAnswerAuthorization()).isEqualTo("Bearer " + "acceptance-local-credential");
 
         report.writeTo(Path.of("target/release-evidence/acceptance-full-capability"),
                 gitSha(), System.getProperty("java.version"),
