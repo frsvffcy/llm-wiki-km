@@ -401,7 +401,7 @@ test("publish renders the backend typed outcome, including NO_OP on repeat", asy
   const handoff = elements.publishResult.children
     .find(child => child.className === "wiki-handoff");
   assert.ok(handoff, "publish success exposes the next task in the same flow");
-  assert.equal(handoff.textContent, "查看已發布知識");
+  assert.equal(handoff.textContent, "閱讀已發布知識");
   assert.equal(handoff.attr_href, "#/wiki");
 
   mode = "merge";
