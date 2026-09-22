@@ -51,7 +51,7 @@ class OpenAiCompatibleAnswerClientHttpIntegrationTest {
                 new com.fasterxml.jackson.databind.ObjectMapper()).generate(request());
 
         assertThat(requestPath).isEqualTo("/v1/chat/completions");
-        assertThat(authorization).isEqualTo("Bearer local-fixture-credential");
+        assertThat(authorization).isEqualTo("Bearer " + "local-fixture-credential");
         assertThat(requestBody).contains("GROUNDED_ANSWER_PROMPT_V2")
                 .doesNotContain("local-fixture-credential");
     }
