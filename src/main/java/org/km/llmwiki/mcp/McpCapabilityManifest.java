@@ -84,7 +84,7 @@ public final class McpCapabilityManifest {
                         McpFieldContract.optionalEnum("corpus", searchCorpora(), "WIKI"),
                         McpFieldContract.optionalEnum("pageType", wikiPageTypes(), null),
                         McpFieldContract.optionalLong("documentId", 1L, null),
-                        McpFieldContract.optionalInt("page", 0, 1),
+                        McpFieldContract.optionalInt("page", 0, 0),
                         McpFieldContract.optionalInt("size", 1, 200, 20)))));
         tools.put(TOOL_RETRIEVAL_INSPECT, new McpToolDescriptor(
                 TOOL_RETRIEVAL_INSPECT, "檢索觀察",

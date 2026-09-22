@@ -77,7 +77,7 @@ class McpToolInputContractTest {
                 "type", "integer", "minimum", 1L, "maximum", Long.MAX_VALUE));
         assertThat(properties.get("page")).isEqualTo(Map.of(
                 "type", "integer", "minimum", 0L, "maximum", (long) Integer.MAX_VALUE,
-                "default", 1));
+                "default", 0));
         assertThat(properties.get("size")).isEqualTo(Map.of(
                 "type", "integer", "minimum", 1L, "maximum", 200L, "default", 20));
         assertThat(searchSchema.get("required")).isEqualTo(List.of("query"));
@@ -264,7 +264,7 @@ class McpToolInputContractTest {
         assertThat(search.string("corpus")).isEqualTo("WIKI");
         assertThat(search.stringOr("pageType", null)).isEqualTo("CONCEPT");
         assertThat(search.longOrNull("documentId")).isNull();
-        assertThat(search.intValue("page")).isEqualTo(1);
+        assertThat(search.intValue("page")).isZero();
         assertThat(search.intValue("size")).isEqualTo(20);
 
         // Lower/mixed-case aliases are not part of the advertised schema and are rejected;
@@ -380,7 +380,7 @@ class McpToolInputContractTest {
         McpToolResult valid = executor.execute("km_search",
                 parse("{\"query\":\"q\",\"corpus\":\"WIKI\"}"));
         assertThat(valid.isError()).isFalse();
-        verify(searchService).search("q", "WIKI", null, null, 1, 20);
+        verify(searchService).search("q", "WIKI", null, null, 0, 20);
     }
 
     private static void whenSearchReturnsNull(SearchService searchService) {

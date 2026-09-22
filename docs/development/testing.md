@@ -61,6 +61,42 @@ contract suite as the PR Fast job, both through the single classification author
 `scripts/run-browser-contract-tests.sh` (Refs #561). Every `src/test/js/*.test.mjs` Browser
 UI suite must still be run locally whenever its JavaScript surface is touched.
 
+## MCP task-level evaluation（#583）
+
+MCP 的 protocol／schema／REST parity／SDK interop 綠燈，只能證明 adapter contract；
+不能直接證明 tool-using model 看得懂工具說明或能完成 multi-tool composition。
+
+Deterministic owner：
+
+```text
+src/test/resources/mcp-eval/task-corpus-v1.json
+src/test/java/org/km/llmwiki/mcp/McpTaskEvaluationContractTest.java
+src/test/java/org/km/llmwiki/mcp/McpTaskEvaluationFixtureIntegrationTest.java
+```
+
+重跑：
+
+```bash
+mvn test -Dtest=McpTaskEvaluationContractTest -Pfast
+mvn test -Dtest=McpTaskEvaluationFixtureIntegrationTest -Pintegration
+```
+
+這兩個 suite 只驗 repository-owned corpus、scorer negative canary 與真實
+Spring／SQLite／FTS／MCP executor 的 TOOL_CONTRACT substrate。真正的
+DISCOVERABILITY／COMPOSITION 必須依
+`docs/evaluations/2026-09-22-mcp-task-discoverability-evaluation.md`
+執行 opt-in real-model run。
+
+Real-model run：
+
+- 不進 required PR CI；
+- 不要求 CI secret；
+- 不讀 private corpus；
+- 每次必須 stamp model／provider／client／protocol／repo SHA／fixture version；
+- raw provider trace 不進 Git；
+- 無穩定 tool-using client evidence 時只能記 `CONDITIONAL GO`，不得把 deterministic test
+  假裝成 model discoverability PASS。
+
 ## Local verification by change type
 
 The local final gate depends on whether the change can affect product, test, build, or CI
