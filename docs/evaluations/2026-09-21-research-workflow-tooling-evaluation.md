@@ -1,8 +1,8 @@
 # 研究工作流程工具評估
 
-> 分類：`TRACK_FULL`  
-> 評估日期：2026-09-21  
-> 追蹤：Refs #577；唯一 executable follow-up #578 已完成  
+> 分類：`TRACK_FULL`
+> 評估日期：2026-09-21
+> 追蹤：Refs #577；唯一 executable follow-up #578 已完成
 > llm-wiki-km current status at closure：#578 FULL GO / CLOSED
 
 ## 1. 評估問題
