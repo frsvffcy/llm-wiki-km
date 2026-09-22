@@ -86,7 +86,7 @@ test("page type filter covers the backend enum without guessing", () => {
 test("typed errors stay operator-safe", () => {
   assert.equal(wikiErrorMessage({ code: "WIKI_PAGE_NOT_FOUND" }).title, "找不到頁面");
   assert.equal(wikiErrorMessage({ code: "WIKI_PAGE_UNAVAILABLE" }).title, "頁面內容不可用");
-  assert.equal(wikiErrorMessage(undefined).title, "Wiki 讀取失敗");
+  assert.equal(wikiErrorMessage(undefined).title, "知識讀取失敗");
 });
 
 test("list renders typed rows with open actions and honest pager state", () => {
