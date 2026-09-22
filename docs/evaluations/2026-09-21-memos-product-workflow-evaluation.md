@@ -1,10 +1,10 @@
 # Memos 產品工作流程評估
 
-> 分類：`TRACK_FULL`  
-> 評估日期：2026-09-21  
-> 外部儲存庫：`usememos/memos`  
-> 審查版本：`989aad73caef7388a673f7e674487f6fc3103dbe`  
-> 授權：MIT  
+> 分類：`TRACK_FULL`
+> 評估日期：2026-09-21
+> 外部儲存庫：`usememos/memos`
+> 審查版本：`989aad73caef7388a673f7e674487f6fc3103dbe`
+> 授權：MIT
 > 追蹤：Refs #582；唯一新的 executable evaluation follow-up 為 #583
 
 ## 1. 評估問題
