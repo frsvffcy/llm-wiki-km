@@ -207,8 +207,8 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
                 """.formatted(knowledgeId, title, title, body);
         byte[] bytes = markdown.getBytes(StandardCharsets.UTF_8);
         String hash = WikiContentHash.sha256(bytes);
-        String logicalPath = "vault/concepts/" + title.toLowerCase().replace(' ', '-') + ".md";
-        Path target = fixture.root().resolve(logicalPath);
+        String logicalPath = "concepts/" + title.toLowerCase().replace(' ', '-') + ".md";
+        Path target = fixture.root().resolve("vault").resolve(logicalPath);
         Files.createDirectories(target.getParent());
         Files.write(target, bytes);
 
