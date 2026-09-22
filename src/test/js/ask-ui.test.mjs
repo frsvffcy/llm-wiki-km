@@ -184,6 +184,7 @@ test("distinguishes zero retrieval from provider insufficiency using safe diagno
   } }, documentRef);
   assert.equal(zero.insufficientTitle.textContent, "搜尋未找到可用內容");
   assert.match(zero.insufficientMessage.textContent, /正文中的關鍵字/);
+  assert.match(zero.insufficientMessage.textContent, /檔名.*不會作為回答依據/);
 
   const provider = uiElements();
   renderAskResponse(provider, { data: {
@@ -480,7 +481,7 @@ test("loads an authoritative document scope and submits its application identity
 
   await controller.loadDocumentScope();
   assert.equal(elements.documentScope.hidden, false);
-  assert.equal(elements.documentScopeLabel.textContent, "目前針對：規格 A.pdf");
+  assert.equal(elements.documentScopeLabel.textContent, "目前範圍：規格 A.pdf（搜尋文件正文）");
   elements.question.value = "這份文件的限制是什麼？";
   elements.retrievalMode.value = "HYBRID_GRAPH";
   await controller.submit(event());
