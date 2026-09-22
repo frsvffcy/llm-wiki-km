@@ -23,14 +23,18 @@ const TEXT_BASENAMES = new Set([
   ".editorconfig", ".gitattributes", ".gitignore", "Dockerfile", "Makefile", "mvnw"
 ]);
 
-export const SHARED_CREDENTIAL_KEYS = Object.freeze([
+export const RELEASE_SHARED_CREDENTIAL_KEYS = Object.freeze([
   "OPENAI_API_KEY",
   "EMBEDDING_PROVIDER_API_KEY",
   "QUERY_REWRITE_PROVIDER_API_KEY",
   "MCP_ADAPTER_AUTH_TOKEN",
-  "OWNER_PASSWORD",
   "OWNER_PASSWORD_HASH",
   "OWNER_PASSWORD_VERIFIER"
+]);
+
+export const SHARED_CREDENTIAL_KEYS = Object.freeze([
+  ...RELEASE_SHARED_CREDENTIAL_KEYS,
+  "OWNER_PASSWORD"
 ]);
 
 const FORBIDDEN_ROOTS = new Set(["archive", "data", "graph", "logs", "temp", "vault"]);
