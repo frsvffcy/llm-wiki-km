@@ -51,7 +51,8 @@ src/test/js/workspace-ui.test.mjs"
 GOVERNANCE="src/test/js/language-governance.test.mjs
 src/test/js/merge-commit-guard.test.mjs
 src/test/js/merge-settings.test.mjs
-src/test/js/pr-metadata.test.mjs"
+src/test/js/pr-metadata.test.mjs
+src/test/js/repo-public-hygiene.test.mjs"
 
 # Explicit non-required live/manual interop (AC-06): classified so `check`
 # stays exhaustive, never executed as required evidence.
