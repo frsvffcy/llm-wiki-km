@@ -20,7 +20,7 @@ class DiagnosticRedactionTest {
     @Test
     void redactsAbsolutePosixPathsWithinAMessage() {
         String sanitized = DiagnosticRedaction.publicMessage(
-                "rootPath exists and is not a directory: /Users/toddyeh/workspace/secret-project",
+                "rootPath exists and is not a directory: /Users/example/workspace/secret-project",
                 FALLBACK);
         assertThat(sanitized).isEqualTo("rootPath exists and is not a directory: [REDACTED]");
         assertThat(sanitized).doesNotContain("toddyeh", "secret-project");
@@ -168,22 +168,22 @@ class DiagnosticRedactionTest {
 
     @Test
     void boundsLengthAndStaysDeterministic() {
-        String hostile = "rejection for /Users/x/vault with token=abcdef123456 "
+        String hostile = "rejection for /Users/example/vault with token=abcdef123456 "
                 + "x".repeat(500);
         String first = DiagnosticRedaction.publicMessage(hostile, FALLBACK);
         String second = DiagnosticRedaction.publicMessage(hostile, FALLBACK);
         assertThat(first).isEqualTo(second);
         assertThat(first.length()).isLessThanOrEqualTo(DiagnosticRedaction.MAX_LENGTH);
-        assertThat(first).doesNotContain("/Users/x", "abcdef123456");
+        assertThat(first).doesNotContain("/Users/example", "abcdef123456");
     }
 
     @Test
     void isLocaleIndependentForCjkContent() {
         String sanitized = DiagnosticRedaction.publicMessage(
-                "找不到 Source Chunk：42 rootPath /Users/x/y", FALLBACK);
+                "找不到 Source Chunk：42 rootPath /Users/example/y", FALLBACK);
         assertThat(sanitized).isEqualTo("找不到 Source Chunk：42 rootPath [REDACTED]");
         String repeated = DiagnosticRedaction.publicMessage(
-                "找不到 Source Chunk：42 rootPath /Users/x/y", FALLBACK);
+                "找不到 Source Chunk：42 rootPath /Users/example/y", FALLBACK);
         assertThat(repeated).isEqualTo(sanitized);
     }
 
