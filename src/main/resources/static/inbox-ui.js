@@ -113,6 +113,13 @@ const ERROR_MESSAGES = Object.freeze({
 
 const GENERIC_ERROR = ["收件匣操作失敗", "發生未預期的問題，請稍後再試。"];
 
+const CLIENT_FAILURE_MESSAGES = Object.freeze({
+  TRANSPORT: ["無法更新收件匣", "無法連線到應用程式；目前顯示的處理狀態可能已過期，請確認應用程式仍在執行後重新整理。"],
+  JSON: ["無法讀取收件匣回應", "服務回應格式不正確；目前顯示的處理狀態可能已過期，請重新整理。"],
+  RENDER: ["無法更新收件匣畫面", "已取得最新資料，但畫面更新失敗；目前顯示的處理狀態可能已過期，請重新整理。"],
+  TIMER: ["無法自動更新處理進度", "已顯示目前進度，但自動更新未啟動；請重新整理以取得最新狀態。"]
+});
+
 export function statusLabel(status) {
   const key = typeof status === "string" ? status.toUpperCase() : "";
   return STATUS_LABELS[key] || text(status);
@@ -346,8 +353,20 @@ async function readEnvelope(response) {
   }
 }
 
+/**
+ * Browser host method 必須透過所屬 global object 呼叫。若把 Window.setTimeout
+ * 複製到其他物件後當作 method 呼叫，可能因 receiver 不合法而無法排入第一個
+ * PROCESSING poll。
+ */
+export function createBrowserTimers(globalRef = globalThis) {
+  return {
+    set: (callback, delay) => globalRef.setTimeout(callback, delay),
+    clear: timerId => globalRef.clearTimeout(timerId)
+  };
+}
+
 export function createInboxController(elements, fetchImpl = fetch, documentRef = document,
-                                      timers = { set: setTimeout, clear: clearTimeout }) {
+                                      timers = createBrowserTimers(), diagnostics = console) {
   const state = { page: 0, status: "", parseStatus: "", documentId: null, previewPage: 0 };
   let inFlight = false;
   let processingRefreshTimer = null;
@@ -381,6 +400,19 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     elements.hint.textContent = `${title}：${message}`;
   }
 
+  function showClientFailure(stage) {
+    const [title, message] = CLIENT_FAILURE_MESSAGES[stage] || GENERIC_ERROR;
+    elements.hint.textContent = `${title}：${message}`;
+    // 只留下 stable、無內容的證據，用來區分未進入 Spring 的 Browser failure。
+    // 禁止記錄 response body、文件資料、exception message 或 raw exception。
+    if (diagnostics && typeof diagnostics.error === "function") {
+      diagnostics.error("Inbox client failure", {
+        code: `INBOX_LIST_${stage}_FAILED`,
+        stage
+      });
+    }
+  }
+
   function reset() {
     // Workspace isolation: nothing from the previous workspace survives a switch.
     if (processingRefreshTimer !== null) {
@@ -409,30 +441,50 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     // mutation success message set by the caller survives; failure renders the
     // typed list error. Returns true only when the list was re-rendered from
     // backend authority (no optimistic local rows).
+    const params = new URLSearchParams({ page: String(state.page), size: String(PAGE_SIZE) });
+    if (state.status) params.set("status", state.status);
+    if (state.parseStatus) params.set("parseStatus", state.parseStatus);
+
+    let response;
     try {
-      const params = new URLSearchParams({ page: String(state.page), size: String(PAGE_SIZE) });
-      if (state.status) params.set("status", state.status);
-      if (state.parseStatus) params.set("parseStatus", state.parseStatus);
-      const response = await fetchImpl(`${INBOX_ENDPOINT}?${params.toString()}`);
-      const envelope = await readEnvelope(response);
-      if (!response.ok) {
-        showTypedError(envelope && envelope.error ? envelope.error : undefined);
-        return false;
-      }
-      const rows = envelope && Array.isArray(envelope.data) ? envelope.data : [];
-      const pageMeta = envelope && envelope.page ? envelope.page : null;
+      response = await fetchImpl(`${INBOX_ENDPOINT}?${params.toString()}`);
+    } catch {
+      showClientFailure("TRANSPORT");
+      return false;
+    }
+
+    let envelope;
+    try {
+      envelope = await response.json();
+    } catch {
+      showClientFailure("JSON");
+      return false;
+    }
+    if (!response.ok) {
+      showTypedError(envelope && envelope.error ? envelope.error : undefined);
+      return false;
+    }
+
+    const rows = envelope && Array.isArray(envelope.data) ? envelope.data : [];
+    const pageMeta = envelope && envelope.page ? envelope.page : null;
+    try {
       renderInboxList(elements, rows, pageMeta, documentRef, {
         onExtract: extract,
         onPreview: openPreview,
         onOrganize: openOrganize,
         onRemove: remove
       });
-      scheduleProcessingRefresh(rows);
-      return true;
     } catch {
-      showTypedError(undefined);
+      showClientFailure("RENDER");
       return false;
     }
+    try {
+      scheduleProcessingRefresh(rows);
+    } catch {
+      showClientFailure("TIMER");
+      return false;
+    }
+    return true;
   }
 
   async function refresh() {
