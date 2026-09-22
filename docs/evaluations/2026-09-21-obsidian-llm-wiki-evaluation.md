@@ -1,10 +1,10 @@
 # Obsidian LLM Wiki 評估
 
-> 分類：`TRACK_FULL`  
-> 評估日期：2026-09-21  
-> 外部儲存庫：`GD4AI/obsidian-llm-wiki`  
-> 審查版本：`2a4a99b3f6f037d948ebcc173db2a609762f6616`  
-> 授權：Apache-2.0  
+> 分類：`TRACK_FULL`
+> 評估日期：2026-09-21
+> 外部儲存庫：`GD4AI/obsidian-llm-wiki`
+> 審查版本：`2a4a99b3f6f037d948ebcc173db2a609762f6616`
+> 授權：Apache-2.0
 > 追蹤：Refs #581；主要 design lineage #569
 
 ## 1. 評估問題
