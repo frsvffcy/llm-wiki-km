@@ -35,7 +35,7 @@ class McpTaskEvaluationContractTest {
         assertThat(corpus.version()).isEqualTo("mcp-task-corpus-v1");
         assertThat(corpus.fixtureVersion()).isEqualTo("mcp-task-fixture-v1");
         assertThat(corpus.tasks()).hasSizeBetween(10, 15);
-        assertThat(corpus.tasks().stream().map(RawTask::id)).doesNotHaveDuplicates();
+        assertThat(corpus.tasks().stream().map(RawTask::id).toList()).doesNotHaveDuplicates();
 
         long multiTool = corpus.tasks().stream().filter(RawTask::multiTool).count();
         assertThat(multiTool).isGreaterThanOrEqualTo((corpus.tasks().size() + 1L) / 2L);
