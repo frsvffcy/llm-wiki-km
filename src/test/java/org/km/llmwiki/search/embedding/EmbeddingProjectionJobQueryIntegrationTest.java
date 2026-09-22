@@ -231,7 +231,7 @@ class EmbeddingProjectionJobQueryIntegrationTest extends IsolatedIntegrationTest
                 SearchCorpus.WIKI);
         readiness.markQueued(workspace, job.id(), EmbeddingEvidenceKind.WIKI, 1);
         readiness.markFailed(workspace, job.id(), EmbeddingEvidenceKind.WIKI,
-                "RuntimeException: /Users/toddyeh/workspace/secret "
+                "RuntimeException: /Users/example/workspace/secret "
                         + "Authorization: Bearer abc token=abcdef123456 "
                         + "SELECT * FROM t RID #12:0");
 
