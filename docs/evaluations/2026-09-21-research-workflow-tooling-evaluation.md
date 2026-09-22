@@ -1,4 +1,4 @@
-# Research Workflow Tooling Evaluation
+# 研究工作流程工具評估
 
 > 分類：`TRACK_FULL`  
 > 評估日期：2026-09-21  
@@ -15,7 +15,7 @@
 
 ## 2. 外部來源與審查版本
 
-| External source | Audited revision | 本次關注 |
+| 外部來源 | 審查版本 | 本次關注 |
 | --- | --- | --- |
 | `ericluo04/claude-academic-workflow` | `0006b09d06214f4386851850a171b65125929420` | citation verification、source depth、replication safety |
 | `flonat/flonat-research` | `e7007d0b1e465ef96de7338599ca04079e83a972` | audit-before-fix、handoff、postmortem |
@@ -25,7 +25,7 @@
 
 本評估依 Issue #577 所列 primary repository code / workflow evidence 做 reconciliation，不以 README headline 當唯一依據。
 
-## 3. Consolidated decision
+## 3. 綜合判定
 
 ### CURRENTLY COVERED
 
@@ -92,7 +92,7 @@
 - agent summary / vote count 變成 correctness authority；
 - 單次 session / reflection 自動修改 governance。
 
-## 4. Source-by-source reconciliation
+## 4. 逐來源對照
 
 ### 4.1 claude-academic-workflow
 
@@ -174,7 +174,7 @@ Decision：
 - repeated-pain promotion：CURRENTLY COVERED；
 - automatic self-edit：NO-GO。
 
-## 5. What not to copy
+## 5. 不應照搬的項目
 
 不應因外部工具成熟就直接搬入：
 
@@ -187,7 +187,7 @@ Decision：
 
 External evidence 只作 input，current authority 仍由 repo 的 code / tests / ADR / Issue ownership 決定。
 
-## 6. Revisit triggers
+## 6. 重新評估條件
 
 只有下列情況才重新開對應問題：
 
@@ -198,7 +198,7 @@ External evidence 只作 input，current authority 仍由 repo 的 code / tests 
 
 未命中 trigger 就維持 DEFER。
 
-## 7. Completion impact
+## 7. 完成影響
 
 本 evaluation 自身不修改 Java runtime、schema、provider、agent framework 或 application authority。
 
@@ -213,4 +213,4 @@ external research workflow evidence
 → #578 FULL GO
 ```
 
-Decision：**FULL GO as long-term decision evidence**。
+Decision：**FULL GO（作為長期決策證據）**。
