@@ -554,7 +554,7 @@ class AskServiceTest {
 
         AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
                 StubAnswerClient.failing(AnswerFailureType.PROVIDER_SERVER_FAILURE,
-                        "provider payload secret-token /Users/private/prompt"))
+                        "provider payload secret-token /Users/example/prompt"))
                 .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
 
         assertThat(result.status()).isEqualTo(AskStatus.FAILED);
@@ -574,7 +574,7 @@ class AskServiceTest {
                     assertThat(diagnostics.providerTotalTokens()).isNull();
                 });
         assertThat(AskApiResponse.from(result).toString())
-                .doesNotContain("secret-token", "/Users/private/prompt");
+                .doesNotContain("secret-token", "/Users/example/prompt");
     }
 
     @Test
