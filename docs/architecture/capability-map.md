@@ -1,4 +1,4 @@
-# Capability map
+# 能力地圖
 
 > 狀態：`CURRENT`。本文件為 capability → owner 的導航投影，已與 latest `main` 的
 > Java package、public API holder、persistence owner 對帳。
@@ -6,7 +6,7 @@
 > Executable authority：package 以 `src/main/java/org/km/llmwiki/` 為準；API 以 Controllers＋contract tests 為準；
 > schema 以 Flyway 為準。類別與欄位細節以 code／migrations 為準，本文件只給 owner 與邊界。
 
-## Current production package tree（executable authority：latest `main`）
+## 現行 production package tree（可執行權威來源：latest `main`）
 
 ```text
 org.km.llmwiki
@@ -28,30 +28,30 @@ org.km.llmwiki
 > 不得因歷史模組圖建立不存在的 `extraction/`／`review/`／`quality/`／`backup/` package、能力或 endpoint。
 > `extraction` 職責由 `source/` 持有；`review` 由 `ai/`＋`wiki/` 持有；`quality/`／`backup/` 非 production package。
 
-## Capability → owner → public API → persistence → authority
+## 能力 → owner → public API → persistence → 權威來源
 
-| Capability | Package owner | Public API holder（如有） | Persistence owner | Executable authority |
+| 能力 | Package 歸屬 | 公開 API 持有者（如有） | 持久化歸屬 | 可執行權威來源 |
 | --- | --- | --- | --- | --- |
-| Workspace lifecycle／layout | `workspace/` | `WorkspaceController` | `workspace`（Flyway） | Controllers＋tests；Flyway |
+| 工作區 lifecycle／layout | `workspace/` | `WorkspaceController` | `workspace`（Flyway） | Controllers＋tests；Flyway |
 | Inbox 上傳／rescan／soft-delete | `source/` | `InboxController` | `document` | Controllers＋tests；Flyway |
-| Tika extraction／bounded preview | `source/` | `DocumentExtractionController` | `document_extracted_content` | #287；Flyway |
+| Tika extraction／有界預覽 | `source/` | `DocumentExtractionController` | `document_extracted_content` | #287；Flyway |
 | Chunking／locator | `source/` | `SourceChunkController` | `source_chunk`（含 `chunk_policy_version`，V29） | ChunkingPolicy；Flyway |
 | Async job 引擎 | `processing/` | `DocumentAnalysisController`（analysis jobs） | `processing_job`／`processing_job_item`／`processing_log` | Job contract；Flyway |
-| LLM analysis pipeline | `ai/`＋`processing/` | 經 job／proposal 邊界（無獨立 LLM endpoint） | `document_analysis`／`knowledge_candidate*` | Pipeline＋tests；Flyway |
+| LLM 分析流程 | `ai/`＋`processing/` | 經 job／proposal 邊界（無獨立 LLM endpoint） | `document_analysis`／`knowledge_candidate*` | 處理流程＋tests；Flyway |
 | Proposal → Draft → Review → Publish | `wiki/`＋`ai/` | `KnowledgeProposalReviewController`、`WikiDraftController`、`AskProposalIngressController`、`RepairProposalIngressController`、`PublishedWikiController` | `knowledge_proposal*`／`wiki_draft`／`wiki_publish_*`／`knowledge_page`（V30～V33 ingress 含 `source_kind`／dedup） | Controllers＋tests；Flyway V30～V33；ADR 0010／0012 |
-| FTS5／search index | `search/` | `SearchController`、`SearchIndexController` | `search_index_*`／`*_search_index_sync`／`*_rebuild_state` | Controllers＋tests；Flyway V15～V19 |
-| Embedding／vector projection | `search/`＋`config/` | `SearchIndexController`（embedding rebuild／readiness） | `embedding_projection*`（ledger＋generation，V20～V27） | Controllers＋tests；ADR 0003／0004／0006 |
+| FTS5／搜尋索引 | `search/` | `SearchController`、`SearchIndexController` | `search_index_*`／`*_search_index_sync`／`*_rebuild_state` | Controllers＋tests；Flyway V15～V19 |
+| 向量嵌入／vector projection | `search/`＋`config/` | `SearchIndexController`（embedding rebuild／readiness） | `embedding_projection*`（ledger＋generation，V20～V27） | Controllers＋tests；ADR 0003／0004／0006 |
 | CJK lexical projection | `search/`／`rag/` | Ask／search 內（無獨立 endpoint） | FTS projection | ADR 0001 |
 | Hybrid retrieval／fusion／rerank／context projection | `rag/`＋`ai/` | `AskController`（`POST /api/v1/ask` 內 modes＋additive diagnostics） | ephemeral（不持久化完整 prompt／context） | ADR 0005／0013／0014；#310 |
 | Query transformation seam | `ai/`（policy＋service） | 無新 public mode；Inspector additive 欄位 | 無（ephemeral） | #390／#401／#408；預設 `query-transform-disabled-v1` |
-| Graph domain／projection／traversal／admission | `graph/`＋`persistence/`＋`rag/` | `GraphProjectionController`（僅 `readiness`／`rebuild`／`repair`；traversal 無 public REST） | `graph_projection_lifecycle`（V28；SQLite control only；內容在 ArcadeDB derived backend） | ADR 0007～0012；Flyway |
+| Graph domain／projection／traversal／准入 | `graph/`＋`persistence/`＋`rag/` | `GraphProjectionController`（僅 `readiness`／`rebuild`／`repair`；traversal 無 public REST） | `graph_projection_lifecycle`（V28；SQLite control only；內容在 ArcadeDB 衍生後端） | ADR 0007～0012；Flyway |
 | Retrieval Inspector／Source locator | `web/`＋`rag/`＋`source/` | `RetrievalInspectorController`、`SourceChunkController`（locator） | read-only（無新 canonical table） | #292／#293 |
 | Vault Lint／Quality triage／repair | `wiki/` | `VaultLintController`（findings read-only）＋repair ingress | findings 為 report projection（非 persistent canonical）；repair 經 proposal 表 | #379／#383／#384 |
 | Provider egress disclosure | `ai/`＋`system/` | `SystemStatusController`（`ai-provider-egress`） | 無（allowlisted metadata only） | #323；#310 execution 分離 |
 | Owner authentication／session boundary | `web/security/`（application-owned；無 multi-user schema） | `OwnerAuthController`（session＋rotation；local-only 預設關閉） | 無 canonical table（in-memory sessions；credential 為 config-owned verifier） | #417；credential hardening #423 |
-| Deployment profile／readiness | `system/`（validator＋readiness；`deploy/` 為 operator artifact，非 package authority） | `DeploymentReadinessController`（`GET /api/v1/system/deployment` 唯讀投影） | 無 canonical table（宣告式配置；invalid 回 `NOT_READY`） | #418；ingress contract #422 |
+| 部署 profile／readiness | `system/`（validator＋readiness；`deploy/` 為操作人員產物，非 package 權威來源） | `DeploymentReadinessController`（`GET /api/v1/system/deployment` 唯讀投影） | 無 canonical table（宣告式配置；invalid 回 `NOT_READY`） | #418；ingress contract #422 |
 | Text normalization policy | `source/`（versioned policy；與 chunking 正交） | 無獨立 endpoint（extraction 內） | `source_chunk`／`document_extracted_content` 的 `normalization_policy_version`（V34 lineage） | #412；Flyway |
-| MCP read-only adapter | `mcp/` | `McpServerController`（`POST /api/mcp`；另 adapter 非 authority） | 無（委派既有 application boundary） | #327／#330／#331／#334／#335／#340／#341 |
+| MCP 唯讀 adapter | `mcp/` | `McpServerController`（`POST /api/mcp`；另一個 adapter 不是權威來源） | 無（委派既有 application boundary） | #327／#330／#331／#334／#335／#340／#341 |
 | System status／health | `system/` | `SystemStatusController` | `flyway_schema_history`＋readiness 投影 | Controllers＋tests |
 
 ## 明確非 owner 的歷史名詞

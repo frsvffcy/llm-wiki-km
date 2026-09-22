@@ -4,7 +4,7 @@
 > **Flyway 為唯一 executable schema authority**；本文件不複製完整 DDL，不構成第二份 schema truth。
 > Current migration range 由 latest `main` 盤點（見下），不硬編舊 V1～V29。
 
-## Authority
+## 權威來源
 
 - Executable schema truth：`src/main/resources/db/migration/`（SQL）＋`src/main/java/db/migration/`（Java）
   構成的 Flyway migration chain；已發布 migration 不得修改，新 schema 只以新 `V{n}` 交付。

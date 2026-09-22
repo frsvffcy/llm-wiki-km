@@ -1,4 +1,4 @@
-# Architecture learning guide（current）
+# 架構學習指南（目前版本）
 
 > 狀態：`CURRENT`（learning source；對應 latest `main`）。
 > 來源：本 Markdown 為唯一學習來源；不另維護並行的 HTML authority 副本，避免雙軌 drift（Refs #410 challenge case 6）。
@@ -6,10 +6,10 @@
 > ```text
 > Learning Aid
 > ≠ Executable Contract
-> ≠ Architecture Decision Authority
+> ≠ 架構決策權威來源
 > ```
 >
-> Executable authority：schema → Flyway migrations；
+> 可執行權威來源：schema → Flyway migrations；
 > API → latest `main` Controllers＋contract tests；decisions → `docs/adr/`；
 > roadmap → GitHub Issues＋`AGENTS.md`。本指南只解釋、不定義 runtime。
 > 歷史設計見 `../architecture/legacy/`（`HISTORICAL`，不可作 current contract）；
@@ -19,7 +19,7 @@
 
 1. 先把 AI 放到旁邊：Controller、Service、Repository、transaction、migration、filesystem I/O
    都是標準 Spring Boot 工程材料。LLM 是「不可信但有創造力的外部計算者」，不是資料庫。
-2. 每次看到能力名詞，先問三件事：authority 在哪裡、projection 可否重建、失敗時降級為什麼。
+2. 每次看到能力名詞，先問三件事：權威來源在哪裡、投影可否重建、失敗時降級為什麼。
 3. 遇到數字（migration 區間、endpoint、policy version）以 code／Flyway／tests 為準；
    本指南的版本號只為學習錨點，不作 contract。
 4. 歷史文件（`legacy/`）只回答「我們以前怎麼想」；不要把它的 table／endpoint／roadmap 當成現在的系統。
@@ -43,11 +43,11 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
 三道不變式：canonical 不被 projection 反寫；projection 可由 L0／L1＋generation 重建；
 用於答案的 candidate 必須先成為 Evidence。失敗一律走 typed diagnostics，不 silent backfill。
 
-## 2. SQLite＋Flyway＋jOOQ authority
+## 2. SQLite＋Flyway＋jOOQ 權威來源
 
 - 單一 canonical metadata DB（預設 `data/knowledge.db`，可由 `KNOWLEDGE_DB_PATH` 覆寫）；
   每連線 `foreign_keys=ON、journal_mode=WAL、synchronous=NORMAL、busy_timeout>0`（預設 5000）。
-- Flyway 為唯一 schema authority：`src/main/resources/db/migration/`（SQL）＋
+- Flyway 為唯一 schema 權威來源：`src/main/resources/db/migration/`（SQL）＋
   `src/main/java/db/migration/`（Java，至少含 V3）構成連續 chain（以 `main` 目錄為準；
   本指南不硬編固定區間，舊「V1～V17」／「V1～V29」／「V1～V33」引用皆已停用）。
   近期 lineage：chunking policy version、Ask／repair ingress 與 retry、normalization policy
@@ -67,7 +67,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   late worker 只能完成自己擁有的 state）。
 - 相關：ADR 0001、`../architecture/capability-map.md`（`search/` owner）。
 
-## 4. Provider-neutral embedding＋sqlite-vec
+## 4. 服務提供者中立的向量嵌入＋sqlite-vec
 
 - Embedding 經 `EmbeddingClient` interface；vector candidate search 經 `KnowledgeVectorRepository`；
   核心服務不 import provider 實作；native path／loading 留在 SQLite adapter 後方，不暴露給 Browser／REST／Ask。
@@ -78,12 +78,12 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   `SEMANTIC_*` 未就緒 fail closed，`HYBRID_VECTOR` 可標 degraded lexical fallback（typed diagnostics）。
 - 相關：ADR 0003、ADR 0004、ADR 0006。
 
-## 5. ArcadeDB derived Graph projection
+## 5. ArcadeDB 衍生 Graph 投影
 
 - Graph 為 optional／degradable derived modality；ArcadeDB 為 replaceable embedded projection，
   可刪除重建；SQLite 持續是 operational／control plane（workspace-scoped generations、lifecycle／readiness、
   operation ownership、compare-and-set recovery），不得被取代或成為 migration target。
-- SQLite 只持 `graph_projection_lifecycle` control proof；內容在 ArcadeDB derived backend；
+- SQLite 只持 `graph_projection_lifecycle` 控制證明；內容在 ArcadeDB 衍生後端；
   READY 需 SQLite lifecycle＋backend proof＋canonical fingerprint 三方驗證；canonical drift 在 readiness check 持久化降級。
 - 部署基線為 embedded、local-first、single-process；second writer／server／cluster／HA 不支援；
   檔案鎖＋application／session ownership fail closed。
@@ -91,12 +91,12 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   Neo4j、RyuGraph、BigQuery Graph、Spanner Graph 仍為 future adapter candidates（需 adoption gate）。
 - 相關：ADR 0007～0010、`../architecture/schema.md`。
 
-## 6. Bounded Graph Retrieval／GraphRAG
+## 6. 有界 Graph 檢索／GraphRAG
 
 - Traversal 為 provider-neutral bounded outgoing BFS（seeds≤16、depth≤4、per-node≤32、per-hop≤128、
   visited nodes≤512／edges≤1024、candidates≤200）；query 帶 exact expected snapshot；
   generation／version／fingerprint／token／workspace drift 一律 fail closed。
-- Relation profile `graph-projection-v2` 只承認 `CONTAINS`、`LINKS_TO`、`TAGGED_WITH`、`DERIVED_FROM` evidence；
+- 關聯設定檔 `graph-projection-v2` 只承認 `CONTAINS`、`LINKS_TO`、`TAGGED_WITH`、`DERIVED_FROM` 證據；
   普通文字不建 `MENTIONS`，`RELATED_TO` 維持 DEFER；v1→v2 只允許 full rebuild。
 - Graph candidate → Evidence 經 `GraphEvidenceAdmissionService`：admission-time snapshot revalidation＋
   per-candidate workspace／authority／provenance／freshness／eligibility 重驗＋hard admission budget；
@@ -107,7 +107,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   不偽裝成 degradation。
 - 相關：ADR 0011、ADR 0012、`../architecture/system-overview.md`。
 
-## 7. Evidence admission／authority／provenance／freshness／workspace currentness
+## 7. 證據准入／權威來源／來源沿革／新鮮度／工作區目前狀態
 
 - Citation 身份固定為 `WIKI:<knowledgeId>`／`SOURCE_CHUNK:<id>`；locator 不參與 identity／ranking／authority。
 - 所有 modality candidate 成為 Evidence 前須經 workspace scope、authority、provenance、freshness、eligibility 重驗；
@@ -122,7 +122,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   upgrade／rollback 皆需 explicit re-extraction（經既有 FTS／embedding／graph 重建路徑）。
 - Bounded extraction（#287）：input／output／metadata／structure 上限為 typed fail-closed contract，不得退化。
 
-## 8. Hybrid fusion／reranking
+## 8. 混合融合／重新排序
 
 - Fusion 為 identity-level reciprocal rank fusion（canonical identity dedupe；hard budgets；typed per-modality degradation；
   terminal guard 重驗後才離開 fusion boundary）。
@@ -135,7 +135,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   預設 `context-policy-v1-current`（baseline 語意）；`EXTRACTIVE` 需 applicability 判定器＋benchmark＋regression gate。
 - Ask context observability（#310）：typed diagnostics 沿 additive safe DTO；`code points ≠ provider tokens`。
 
-## 9. Grounded Ask＋citation validation
+## 9. 有依據的 Ask＋引用驗證
 
 - Contract 為 `grounded-answer@v2`（answer text＋application-issued citation ids＋insufficient-evidence flag；
   unknown fields 拒收；response 不持久化；單一 production caller）。
@@ -146,7 +146,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   Browser 永不持有。
 - 相關：ADR 0002、`../architecture/api.md`。
 
-## 10. Provider egress transparency
+## 10. 服務提供者資料外傳透明度
 
 - Configuration disclosure（#323）：`ProviderEndpointSecurityPolicy.classify`
  （LOCAL_LOOPBACK／REMOTE_SECURE／REMOTE_INSECURE_OPT_IN／DISABLED／UNAVAILABLE_OR_INVALID）＋
@@ -157,10 +157,10 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
 - Browser indicator 在 Ask 輸入區附近以 safe text 呈現（insecure opt-in 醒目、disabled 不偽裝本機、
   disclosure 不可得時隱藏且不擋 Ask、submit 後 refresh 防 stale）。
 
-## 11. MCP read-only capability
+## 11. MCP 唯讀能力
 
 - `POST /api/mcp` 為 read-only-first、loopback-only MCP Streamable HTTP adapter；
-  current `2026-07-28` stateless＋bounded legacy `2025-06-18`；GET／DELETE 明確 405。
+  目前 `2026-07-28` 為無狀態模式，並有有界的舊版 `2025-06-18`；GET／DELETE 明確回 405。
 - 五個唯讀 tools 經 shared application boundary 委派（Ask 經 `AskApplicationService`；
   Inspector 經 `RetrievalInspectionMapper`＋service）；無第二套 retrieval／ask pipeline；
   無 write tools／remote bind／agent loop。
@@ -169,7 +169,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   genuine 執行失敗為 tool-level `isError`。
 - 相關：`../development/issue-330-mcp-transport-compatibility.md`。
 
-## 12. Retrieval Inspector／Source Locator
+## 12. 檢索檢視器／來源定位器
 
 - Inspector（`GET /api/v1/retrieval/inspect`＋Browser 面板）：同一 production path 的 optional collector 觀察
   （per-modality candidates＋modality-local ordinals、fusion policy version＋fused order、admission＋typed rejection、
@@ -184,7 +184,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
 
 - Lineage：#390 evaluation（`CONDITIONAL GO`；pool 無整體增益，僅 `property-token` wording-mismatch 經 protected rewrite 恢復）→
   #401 production seam（PR #407；versioned registry＋bounded candidate）→ #408 release decision
-  （`CONDITIONAL GO / KEEP DISABLED`；live evidence 缺席，不得啟用）。
+  （`CONDITIONAL GO / KEEP DISABLED`；即時證據缺席，不得啟用）。
 - Current default：`query-transform-disabled-v1`（production default＋rollback target；不呼叫 provider、不增加 retrieval input）。
   Candidate：`query-transform-single-rewrite-v1`（至多一次 rewrite＋一次額外 retrieval；fan-out ≤2；original 恆為 ordinal 1）。
 - Applicability（enabled policy 僅此 shape）：`HYBRID`／`FUSED`＋`cjk-bigram-v1` 後 ≥3 terms 且含受控填充詞＋
@@ -198,7 +198,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
   `../development/issue-401-query-transformation-production-adoption.md`、
   `../development/issue-408-query-transformation-release-decision.md`。
 
-## 14. Proposal → Draft → Human Review → Publish
+## 14. 提案 → 草稿 → 人工審核 → 發布
 - 唯一合法 durable knowledge ingress：Proposal（PENDING／ACCEPTED／REJECTED／EDITED／APPLIED；
   action CREATE／MERGE／LINK_ONLY／IGNORE／REVIEW）→ Draft → Human Review → explicit Publish。
 - Review 工作台按 backend `allowedTransitions` 驅動；核准不自動 publish；publish 為明確人類動作
@@ -238,7 +238,7 @@ L0 Canonical files（archive/ + vault/ + authoritative metadata/content）
 
 - 三態只描述文件時間語意：`CURRENT`（latest `main` 可執行）／`HISTORICAL`（曾有效或早期設計）／
   `PROPOSED`／`CONDITIONAL`（未批准或條件式候選）。L1～L5 只描述 Issue 複雜度，不綁 model／effort。
-- Local 長文件（`.ai_llm_wiki_km/`）為 local-only 非 executable authority；Git 內歷史只以
+- 本機長文件（`.ai_llm_wiki_km/`）僅供本機使用，不是可執行權威來源；Git 內歷史只以
   `architecture/legacy/` 凍結快照與 `evaluations/` dated review 呈現，不把 private 目錄整批納入 Git。
 - Evaluation（`evaluations/README.md`）：`TRACK_FULL`／`LINEAGE_ONLY`／`SNAPSHOT_ONLY`；
   `GO` 不等於自動 adoption；`DEFER` 需 trigger 才重評。

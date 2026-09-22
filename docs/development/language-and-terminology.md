@@ -1,6 +1,6 @@
 # 語言與術語規範
 
-> 狀態：`CURRENT`。本文件是 repository-owned 的人類可讀文字單一規範，適用於目前與未來的 UI、文件、註解、公開訊息與協作內容。它不是 REST、資料庫或其他 executable contract；那些契約仍以程式碼、測試、Flyway、ADR 與 GitHub governance 為準。
+> 狀態：`CURRENT`。本文件是專案持有的人類可讀文字單一規範，適用於目前與未來的 UI、文件、註解、公開訊息與協作內容。它不是 REST、資料庫或其他可執行契約；那些契約仍以程式碼、測試、Flyway、ADR 與 GitHub 治理為準。
 >
 > 維護原則：本文件與 `AGENTS.md` 同步演進；若兩者出現矛盾，以本文件的詳細規則為準，並在同一個變更中修正 `AGENTS.md` 的入口說明。
 
@@ -66,10 +66,31 @@ llm-wiki-km 的預設人類語言是**繁體中文（臺灣用語）**。使用�
 | metadata | 中繼資料 | `metadata` | |
 | provider | 服務提供者 | `provider` | 技術設定可保留 |
 | embedding | 向量嵌入 | `embedding` | 首次說明可寫「向量嵌入（embedding）」 |
-| retrieval | 檢索 | `retrieval` | 不寫「搜尋」描述內部 pipeline |
+| retrieval | 檢索 | `retrieval` | 不寫「搜尋」描述內部處理流程 |
 | grounded answer | 有依據的回答 | `grounded` | UI 不單獨顯示英文 |
 | context | 上下文 | `context` | |
 | system status | 系統狀態 | `status` | |
+| `authority` | 權威來源／權限 | `authority` | 依「事實來源」或「執行權限」語境選用 |
+| `invariant` | 不變條件 | `invariant` | 不寫英文作人類可讀標籤 |
+| `currentness` | 現行性 | `currentness` | 指狀態仍對應目前權威資料 |
+| `freshness` | 新鮮度 | `freshness` | 指資料或投影是否仍在有效時限內 |
+| `scope` | 範圍 | `scope` | |
+| `handoff` | 交接 | `handoff` | |
+| `pipeline` | 處理流程 | `pipeline` | |
+| `fallback` | 備援 | `fallback` | |
+| `admission` | 准入 | `admission` | |
+| `candidate` | 候選項 | `candidate` | |
+| `baseline` | 基準 | `baseline` | |
+| `benchmark` | 基準測試 | `benchmark` | |
+| `gate` | 關卡 | `gate` | `PR Gate` 等穩定治理識別字可保留 |
+| `governance` | 治理 | `governance` | |
+| `audit` | 稽核 | `audit` | |
+| `evidence` | 證據 | `evidence` | |
+| `derived` | 衍生 | `derived` | |
+| `rebuildable` | 可重建 | `rebuildable` | |
+| `fail-closed` | 失敗時關閉／預設拒絕 | `fail-closed` | 依安全或關卡語境選用 |
+| `bounded` | 有界 | `bounded` | 指範圍、資源或重試有明確上限 |
+| `completion audit` | 完成稽核 | `Completion Audit` | 固定記錄名稱可保留，周邊敘述用中文 |
 
 若新詞不在表中，先以中文寫出使用者要做的事，再在本表新增決策；不要在各頁面自行創造同義詞。
 
@@ -89,9 +110,9 @@ llm-wiki-km 的預設人類語言是**繁體中文（臺灣用語）**。使用�
 
 標題、導覽、欄位、按鈕、空狀態、載入中、成功與錯誤預設繁中。狀態 enum／error code 可在中文後以反引號呈現。UI 不顯示內部 class、provider、絕對路徑或 raw exception；只有在使用者需要複製時才顯示 endpoint／command。
 
-### README 與 current 文件
+### README 與 CURRENT 文件
 
-入口、前置需求、安裝、執行、主要工作流程和安全／隱私說明以繁中。程式碼區塊、API path、JSON key、設定鍵、狀態值和正式產品名保持原樣。current 文件新增或被觸碰時順手整理附近的明顯術語漂移；不為了語言一致而改寫歷史技術論證。
+入口、前置需求、安裝、執行、主要工作流程和安全／隱私說明必須以繁中為主。`README.md`、`AGENTS.md`、`docs/README.md`、`docs/guides/**` 與標示 `CURRENT` 的文件都屬強制範圍，不再以「碰到才改」作為主要策略。程式碼區塊、API path、JSON key、設定鍵、狀態值和正式產品名保持原樣；歷史技術論證則依第 7 節排除。
 
 ### 程式註解
 
@@ -109,7 +130,7 @@ Java／JavaScript method name、fixture key、selector、route 與 enum 是 iden
 
 - Issue／PR title、body、review comment 使用繁中；可保留 `[L1]`～`[L5]`、`[Story]`、`[Sprint]`、Issue number 和技術名稱。
 - Commit type 使用 Conventional Commits 的英文 type；冒號後使用繁中，例如 `docs: 新增語言與術語規範`。一次 commit 只表達一個邏輯變更。
-- branch slug、檔名、API path 與 GitHub automation token 依既有 governance 保留英文。
+- branch slug、檔名、API path 與 GitHub automation token 依既有治理規則保留英文。
 - 不翻譯 `Refs #N`、`PR Gate`、`FULL GO` 等治理識別字，但周邊解釋使用中文。
 
 ## 6. 禁用與避免用語
@@ -132,28 +153,29 @@ Java／JavaScript method name、fixture key、selector、route 與 enum 是 iden
 
 「文件」在「文件抽取」等既有 domain 名稱中可保留；一般檔案操作優先寫「檔案」。中國用語掃描是提醒，不應把 API path、引用原文或歷史文件中的固定字串機械替換。
 
-## 7. 文件分層與演進
+## 7. 文件分層與執行範圍
 
-- `README.md`、`docs/README.md`、`docs/guides/` 與被標記為 `CURRENT` 的文件：新增內容直接遵循本規範；修改時整理同段落的明顯漂移。
+- `README.md`、`AGENTS.md`、`docs/README.md`、`docs/guides/**` 與被標記為 `CURRENT` 的文件：現有內容與新增內容都必須通過語言關卡；不得用「既有英文」或「尚未碰觸」規避。
 - `docs/architecture/legacy/`、歷史 release note、`docs/evaluations/` 的外部 review 與已封存 ADR：保留原始語境，只在新增的導言或註解中說明現況，避免篡改證據。
 - 外部供應商原文、錯誤 payload、migration SQL、enum／JSON snapshot：保留原文；若加說明，另以繁中解釋。
-- 只有真正屬於同一邏輯變更的 wording 修正才一起提交；跨大量檔案的清理須另有 bounded scope、測試或審查證據，不做無法回溯的機械翻譯。
+- 外部原文若位於 CURRENT Markdown，必須在引用前加上 `<!-- language-governance: external-quote -->`，例外只涵蓋緊接的引用區塊。
+- 只有真正屬於同一邏輯變更的文字修正才一起提交；跨大量檔案的清理須另有明確範圍、測試或審查證據，不做無法回溯的機械翻譯。
 
 ## 8. 例外與變更流程
 
 1. 新增 UI／文件／public message 前，先查本文件的詞彙表與場景規則。
-2. 若需要保留新英文詞，於 PR 說明理由（identifier、官方名稱、不可合理翻譯或避免歧義），必要時補進詞彙表。
+2. 若需要保留新英文詞，於 PR 說明理由（identifier、官方名稱、不可合理翻譯或避免歧義），並在適用時補進 checker allowlist 與本詞彙表；不得只在單一文件就地豁免。
 3. 若要變更既有標準詞，先在本文件更新決策，再同步受影響的 current surface、測試與 `AGENTS.md` 入口；不要只改單一畫面。
-4. PR 勾選語言治理檢查，執行 `node scripts/check-language-governance.mjs`；檢查腳本是防回歸提醒，不取代人工 review。
-5. 發現歷史文件與 current contract 衝突時，遵循 `AGENTS.md` 的 authority hierarchy；不要以翻譯掩蓋契約差異。
+4. PR 執行 `node scripts/check-language-governance.mjs`；這是 fail-closed 的 CURRENT 人類可讀文字關卡，不取代人工審核。
+5. 發現歷史文件與現行契約衝突時，遵循 `AGENTS.md` 的權威來源順序；不要以翻譯掩蓋契約差異。
 
-## 9. 本輪盤點與剩餘分類
+## 9. 合法的英文殘餘
 
-本輪以 current Browser UI、README 入口與主要操作段落、`AGENTS.md`、`docs/README.md`、PR template，以及 REST 對外 fallback message 為 bounded surface。已知剩餘英文主要分為：
+CURRENT 人類可讀介面中的英文殘餘只限於：
 
 1. API path、class／table／column、enum、JSON key、環境變數、CLI／library／provider 名稱。
-2. 程式註解與測試 identifier；描述文字會在被觸碰時漸進整理。
-3. `README.md` 深層技術契約、ADR、evaluation 與 legacy 歷史證據；維持 touched-when-edited，避免改動可追溯性。
-4. 外部 provider／protocol 原文與可複製的設定值。
+2. 程式註解與測試 identifier；人類可讀描述仍須使用繁中。
+3. 歷史 ADR、evaluation、legacy 與 release 證據；這些範圍不回溯翻譯，以免破壞可追溯性。
+4. 明確標記的外部 provider／protocol 原文與可複製的設定值。
 
-這些殘餘不是治理失敗；它們是本規範明確允許或刻意延後的範圍。未來若需要擴大中文化，應以 current surface、使用者研究或明確 Issue／PR scope 驅動，並同步更新本節盤點。
+這些殘餘是明確例外，不是延後處理 CURRENT 文件的理由。語言關卡偵測長英文自然語句、純英文標題／表格標籤與常見治理詞漂移；例外解析失敗或 CURRENT 文件無法讀取時，關卡必須失敗。
