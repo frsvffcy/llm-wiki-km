@@ -48,7 +48,7 @@ class OpenAiCompatibleEmbeddingClientHttpIntegrationTest {
                 .embed(EmbeddingRequest.single("offline fixture"));
 
         assertThat(requestPath).isEqualTo("/v1/embeddings");
-        assertThat(authorization).isEqualTo("Bearer local-fixture-credential");
+        assertThat(authorization).isEqualTo("Bearer " + "local-fixture-credential");
         assertThat(requestBody).contains("\"model\":\"local-embedding-model\"")
                 .contains("\"input\":[\"offline fixture\"]")
                 .doesNotContain("local-fixture-credential");
