@@ -389,12 +389,12 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
                 INSERT INTO processing_job_item (job_id, document_id, status, error_code, error_message,
                     started_at, finished_at)
                 VALUES (:job, :document, 'FAILED', 'PROVIDER_TIMEOUT',
-                    'Authorization: Bearer analysis-secret path=/Users/private/sql SELECT * FROM secrets',
+                    'Authorization: Bearer analysis-secret path=/Users/example/sql SELECT * FROM secrets',
                     :started, :finished)
                 """).param("job", failed.id()).param("document", documentId)
                 .param("started", STARTED).param("finished", FINISHED).update();
         logs.append(failed.id(), null, documentId, "ANALYZE", "FAILED",
-                "java.lang.IllegalStateException: provider body secret-token path=/Users/private",
+                "java.lang.IllegalStateException: provider body secret-token path=/Users/example",
                 "{\"detail\":\"SELECT * FROM secrets\"}");
         setTerminal(failed.id(), ProcessingJobStatus.FAILED, 1, 0, 1, 0);
 
@@ -405,7 +405,7 @@ class DocumentAnalysisJobIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data.failureSummary")
                         .value("Document analysis provider timed out"))
                 .andExpect(content().string(not(containsString("analysis-secret"))))
-                .andExpect(content().string(not(containsString("/Users/private"))))
+                .andExpect(content().string(not(containsString("/Users/example"))))
                 .andExpect(content().string(not(containsString("SELECT * FROM secrets"))))
                 .andExpect(content().string(not(containsString("IllegalStateException"))));
     }
