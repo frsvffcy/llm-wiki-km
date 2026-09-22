@@ -133,7 +133,7 @@ class GraphProjectionContractTest {
         assertThat(failure).hasMessage("GRAPH_CAPABILITY_UNAVAILABLE");
         assertThat(new NullPointerException()).isNotInstanceOf(GraphProjectionException.class);
         assertThat(new GraphProjectionFailure(GraphProjectionFailureType.BACKEND_FAILURE,
-                "MATCH (node) RETURN node from /Users/private/graph.db").diagnostic())
+                "MATCH (node) RETURN node from /Users/example/graph.db").diagnostic())
                 .isEqualTo("graph projection operation failed");
         assertThat(new GraphProjectionFailure(GraphProjectionFailureType.BACKEND_FAILURE,
                 "record RID #12:0 conflicts with #19:42").diagnostic())
