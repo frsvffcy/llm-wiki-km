@@ -80,12 +80,14 @@ export function renderReviewBadge(elements, count) {
     }
     return 0;
   }
+  const pendingCount = Math.floor(total);
+  const pendingLabel = `${pendingCount} 件待審`;
   elements.badge.hidden = false;
-  elements.badge.textContent = String(Math.floor(total));
+  elements.badge.textContent = pendingLabel;
   if (elements.reviewLink && typeof elements.reviewLink.setAttribute === "function") {
-    elements.reviewLink.setAttribute("aria-label", `待我審核，${Math.floor(total)} 件待審`);
+    elements.reviewLink.setAttribute("aria-label", `待我審核，${pendingLabel}`);
   }
-  return Math.floor(total);
+  return pendingCount;
 }
 
 export function parseRoute(hash) {
