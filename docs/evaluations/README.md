@@ -309,6 +309,7 @@ Evaluation 可以記錄 future candidate，但不得自動把它變成 backlog�
 - 研究工作流程工具：`2026-09-21-research-workflow-tooling-evaluation.md`（Refs #577；public repository safety follow-up #578 已完成）
 - Obsidian LLM Wiki：`2026-09-21-obsidian-llm-wiki-evaluation.md`（Refs #581；knowledge organization design input 已由 #569 吸收）
 - Memos 產品工作流程：`2026-09-21-memos-product-workflow-evaluation.md`（Refs #582；剩餘 MCP task-level benchmark 由 #583 持有）
+- MCP task-level 工具可發現性：`2026-09-22-mcp-task-discoverability-evaluation.md`（Refs #583；deterministic evaluator 與 opt-in real-model evidence 分離）
 - 其餘同目錄文件為 `TRACK_FULL` evaluation；current implementation status 仍須依 lineage / GitHub / ADR / latest code 判讀。
 
 Refs #405、#528。
