@@ -1,6 +1,6 @@
 # Aurora fixture
 
-alpha-marker 是這份 synthetic fixture 的固定檢索標記。
+alphamarker 是這份 synthetic fixture 的固定檢索標記。
 
 Aurora code 的固定值是 42。
 
