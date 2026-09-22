@@ -50,7 +50,7 @@ class DiagnosticRedactionTest {
     @Test
     void redactsApiKeyAssignmentsAndOpenAiStyleKeys() {
         assertThat(DiagnosticRedaction.publicMessage(
-                "api_key=sk-proj-abcdef123456 rejected", FALLBACK))
+                "api_key=" + "sk-" + "proj-abcdef123456 rejected", FALLBACK))
                 .isEqualTo("api_key=[REDACTED] rejected");
         assertThat(DiagnosticRedaction.publicMessage(
                 "call used sk-proj-abcdef123456 rejected", FALLBACK))
