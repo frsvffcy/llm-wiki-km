@@ -2,10 +2,8 @@ package org.km.llmwiki.mcp;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -100,9 +98,7 @@ final class McpTaskEvaluationScorer {
     }
 
     static Metrics summarize(List<Task> tasks, List<Observation> observations) {
-        Map<String, Task> byId = new HashMap<>();
-        tasks.forEach(task -> byId.put(task.id(), task));
-        Map<String, Observation> observedById = new HashMap<>();
+        java.util.Map<String, Observation> observedById = new java.util.HashMap<>();
         observations.forEach(observation -> observedById.put(observation.taskId(), observation));
 
         List<Score> scores = new ArrayList<>();
