@@ -4,12 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.km.llmwiki.web.RetrievalInspectionResponse;
-import org.km.llmwiki.search.FtsSearchIndexRepository;
-import org.km.llmwiki.search.KnowledgeSearchDocument;
+import org.km.llmwiki.rag.RetrievalInspectionResponse;
+import org.km.llmwiki.search.PublishedWikiIndexingService;
 import org.km.llmwiki.search.SearchResult;
-import org.km.llmwiki.search.SourceChunkIndexingService;
-import org.km.llmwiki.search.SourceIndexSyncStatus;
+import org.km.llmwiki.search.WikiIndexSyncStatus;
 import org.km.llmwiki.source.ChunkCurrentness;
 import org.km.llmwiki.source.SourceLocator;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
@@ -20,19 +18,23 @@ import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * #583 的 TOOL_CONTRACT plane：以真實 Spring/SQLite/FTS/MCP executor 證明 synthetic fixture
- * 可以產生 task corpus 所依賴的 observable。這不是模型 discoverability 證據。
+ * #583 的 TOOL_CONTRACT plane：使用真實 upload/extract/index 與 MCP executor 證明
+ * synthetic fixture 可以產生 task corpus 所依賴的 observable。這不是模型 discoverability 證據。
  */
 @Tag("integration")
 class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
@@ -46,26 +48,27 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
     WorkspaceService workspaces;
 
     @Autowired
-    FtsSearchIndexRepository ftsRepository;
-
-    @Autowired
-    SourceChunkIndexingService sourceIndexingService;
+    PublishedWikiIndexingService publishedWikiIndexingService;
 
     @Autowired
     McpToolExecutor executor;
+
+    @Autowired
+    MockMvc mockMvc;
 
     @Test
     void fixtureExposesSearchLocatorGraphNoEvidenceAndProviderDisabledObservables()
             throws Exception {
         Fixture fixture = fixture("mcp-task-eval");
-        writeWiki(fixture, "mcp-alpha", "MCP Alpha",
+        long wikiPageId = writePublishedWiki(fixture, "mcp-alpha", "MCP Alpha",
                 "alphamarker canonical fact Aurora code 42");
-        SourceFixture source = writeSource(fixture,
-                "betamarker sourcelocatormarker Beta color blue");
+        assertThat(publishedWikiIndexingService.reindex(
+                fixture.workspaceId(), wikiPageId).status())
+                .isEqualTo(WikiIndexSyncStatus.SYNCED);
 
-        assertThat(sourceIndexingService.reindexDocument(
-                fixture.workspaceId(), source.documentId()).status())
-                .isEqualTo(SourceIndexSyncStatus.SYNCED);
+        SourceFixture source = uploadAndExtract(
+                "mcp-eval-source.md",
+                "betamarker sourcelocatormarker Beta color blue");
 
         McpToolResult status = executor.execute(
                 McpCapabilityManifest.TOOL_STATUS, JSON.createObjectNode());
@@ -137,12 +140,10 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
 
     @Test
     void removingTargetEvidenceMakesTheFormerSearchGoldFailClosed() throws Exception {
-        Fixture fixture = fixture("mcp-task-eval-remove");
-        SourceFixture source = writeSource(fixture,
+        fixture("mcp-task-eval-remove");
+        SourceFixture source = uploadAndExtract(
+                "mcp-eval-source-remove.md",
                 "betamarker sourcelocatormarker Beta color blue");
-        assertThat(sourceIndexingService.reindexDocument(
-                fixture.workspaceId(), source.documentId()).status())
-                .isEqualTo(SourceIndexSyncStatus.SYNCED);
 
         assertThat(searchResults(executor.execute(
                 McpCapabilityManifest.TOOL_SEARCH,
@@ -190,7 +191,7 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
         return new Fixture(workspaceId, root);
     }
 
-    private void writeWiki(Fixture fixture, String knowledgeId, String title, String body)
+    private long writePublishedWiki(Fixture fixture, String knowledgeId, String title, String body)
             throws Exception {
         String markdown = """
                 ---
@@ -227,54 +228,32 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
                 .param("path", logicalPath)
                 .param("hash", hash)
                 .update(pageKey);
-        ftsRepository.upsertKnowledge(new KnowledgeSearchDocument(
-                fixture.workspaceId(), knowledgeId, title, title.toLowerCase(),
-                body, logicalPath, "CONCEPT", "PUBLISHED", hash));
-        db().sql("""
-                        INSERT INTO knowledge_search_index_sync
-                            (workspace_id, knowledge_page_id, knowledge_id, status, content_hash,
-                             indexed_content_hash, indexed_revision, failure_detail, updated_at)
-                        VALUES (:workspace, :pageId, :knowledgeId, 'SYNCED', :hash, :hash, 1,
-                                NULL, '2026-09-22T00:00:00Z')
-                        """)
-                .param("workspace", fixture.workspaceId())
-                .param("pageId", pageKey.getKey().longValue())
-                .param("knowledgeId", knowledgeId)
-                .param("hash", hash)
-                .update();
+        return pageKey.getKey().longValue();
     }
 
-    private SourceFixture writeSource(Fixture fixture, String normalized) throws Exception {
-        KeyHolder documentKey = new GeneratedKeyHolder();
-        db().sql("""
-                        INSERT INTO document (workspace_id, file_name, source_path, sha256, status,
-                            parse_status, created_at, updated_at)
-                        VALUES (:workspace, 'mcp-eval-source.md', 'archive/mcp-eval-source.md',
-                            :documentHash, 'PENDING', 'PROCESSED',
-                            '2026-09-22T00:00:00Z', '2026-09-22T00:00:00Z')
-                        """)
-                .param("workspace", fixture.workspaceId())
-                .param("documentHash", sha256("mcp-eval-source.md"))
-                .update(documentKey);
-        long documentId = documentKey.getKey().longValue();
+    private SourceFixture uploadAndExtract(String fileName, String content) throws Exception {
+        String response = mockMvc.perform(multipart("/api/v1/inbox/files")
+                        .file(new MockMultipartFile("file", fileName, "text/markdown",
+                                content.getBytes(StandardCharsets.UTF_8))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long documentId = Long.parseLong(
+                response.replaceAll(".*\"documentId\":(\\d+).*", "$1"));
 
-        KeyHolder chunkKey = new GeneratedKeyHolder();
-        db().sql("""
-                        INSERT INTO source_chunk (document_id, chunk_no, page_no, section, heading_path,
-                            content, normalized_content, content_hash, created_at, updated_at)
-                        VALUES (:document, 1, 1, 'MCP evaluation', 'Fixture > MCP evaluation',
-                            :content, :content, :hash,
-                            '2026-09-22T00:00:00Z', '2026-09-22T00:00:00Z')
+        mockMvc.perform(post("/api/v1/documents/{documentId}/extract", documentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.parseStatus").value("PROCESSED"));
+
+        Long chunkId = db().sql("""
+                        SELECT id
+                          FROM source_chunk
+                         WHERE document_id = :document
+                         ORDER BY chunk_no, id
+                         LIMIT 1
                         """)
                 .param("document", documentId)
-                .param("content", normalized)
-                .param("hash", sha256(normalized))
-                .update(chunkKey);
-        return new SourceFixture(documentId, chunkKey.getKey().longValue());
-    }
-
-    private static String sha256(String value) throws Exception {
-        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                .digest(value.getBytes(StandardCharsets.UTF_8)));
+                .query(Long.class)
+                .single();
+        return new SourceFixture(documentId, chunkId);
     }
 }
