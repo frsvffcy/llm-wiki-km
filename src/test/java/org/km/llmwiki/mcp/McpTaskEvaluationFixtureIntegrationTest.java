@@ -5,8 +5,10 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.web.RetrievalInspectionResponse;
+import org.km.llmwiki.search.FtsSearchIndexRepository;
 import org.km.llmwiki.search.PublishedWikiIndexingService;
 import org.km.llmwiki.search.SearchResult;
+import org.km.llmwiki.search.SearchServingConsistencyGate;
 import org.km.llmwiki.search.SourceChunkIndexingService;
 import org.km.llmwiki.search.SourceIndexSyncStatus;
 import org.km.llmwiki.search.WikiIndexSyncStatus;
@@ -53,6 +55,12 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     PublishedWikiIndexingService publishedWikiIndexingService;
+
+    @Autowired
+    FtsSearchIndexRepository ftsRepository;
+
+    @Autowired
+    SearchServingConsistencyGate searchServingConsistencyGate;
 
     @Autowired
     WikiPathContract wikiPathContract;
@@ -264,9 +272,25 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
                 .param("document", documentId)
                 .query(Long.class)
                 .single();
-        assertThat(sourceChunkIndexingService.reindexDocument(
-                workspaces.findActiveWithoutValidation().orElseThrow().id(), documentId).status())
+        long workspaceId = workspaces.findActiveWithoutValidation().orElseThrow().id();
+        assertThat(sourceChunkIndexingService.reindexDocument(workspaceId, documentId).status())
                 .isEqualTo(SourceIndexSyncStatus.SYNCED);
+
+        String projected = db().sql("""
+                        SELECT projected_content
+                          FROM source_fts
+                         WHERE document_id = :document
+                        """)
+                .param("document", documentId)
+                .query(String.class)
+                .single();
+        assertThat(projected).contains("sourcelocatormarker");
+        assertThat(ftsRepository.findMatchedSourceDocumentIds(
+                workspaceId, "sourcelocatormarker", null))
+                .containsExactly(documentId);
+        assertThat(searchServingConsistencyGate.isDocumentFresh(workspaceId, documentId))
+                .isTrue();
+
         return new SourceFixture(documentId, chunkId);
     }
 }
