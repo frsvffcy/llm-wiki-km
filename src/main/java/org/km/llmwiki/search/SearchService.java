@@ -31,12 +31,15 @@ public class SearchService {
     private final WorkspaceService workspaceService;
     private final FtsSearchIndexRepository repository;
     private final SearchServingConsistencyGate consistencyGate;
+    private final ScopedDocumentQueryFallbackPolicy scopedFallbackPolicy;
 
     public SearchService(WorkspaceService workspaceService, FtsSearchIndexRepository repository,
-                         SearchServingConsistencyGate consistencyGate) {
+                         SearchServingConsistencyGate consistencyGate,
+                         ScopedDocumentQueryFallbackPolicy scopedFallbackPolicy) {
         this.workspaceService = workspaceService;
         this.repository = repository;
         this.consistencyGate = consistencyGate;
+        this.scopedFallbackPolicy = scopedFallbackPolicy;
     }
 
     public PageResponse<List<SearchResult>> search(String query, String corpusValue,
@@ -79,15 +82,22 @@ public class SearchService {
         // Validate once before any count query. Repository methods independently enforce the same boundary.
         FtsMatchQuery.literalExpression(normalizedQuery);
 
-        Set<Long> freshSourceDocumentIds = includesSource(query.corpus())
-                ? consistencyGate.freshSourceDocumentIds(workspace.id(), normalizedQuery,
-                query.documentId()) : Set.of();
-
-        long wikiTotal = includesWiki(query.corpus())
-                ? repository.countWikiSearch(workspace.id(), normalizedQuery, query.pageType()) : 0;
-        long sourceTotal = includesSource(query.corpus())
-                ? repository.countSourceSearch(workspace.id(), normalizedQuery, query.documentId(),
-                freshSourceDocumentIds) : 0;
+        String effectiveQuery = normalizedQuery;
+        Set<Long> freshSourceDocumentIds = freshSourceDocumentIds(
+                query, workspace.id(), effectiveQuery);
+        long wikiTotal = countWiki(query, workspace.id(), effectiveQuery);
+        long sourceTotal = countSource(query, workspace.id(), effectiveQuery,
+                freshSourceDocumentIds);
+        if (wikiTotal == 0 && sourceTotal == 0 && isScopedSourceQuery(query)) {
+            var fallback = scopedFallbackPolicy.fallback(normalizedQuery);
+            if (fallback.isPresent()) {
+                effectiveQuery = fallback.get();
+                freshSourceDocumentIds = freshSourceDocumentIds(
+                        query, workspace.id(), effectiveQuery);
+                sourceTotal = countSource(query, workspace.id(), effectiveQuery,
+                        freshSourceDocumentIds);
+            }
+        }
         long total = Math.addExact(wikiTotal, sourceTotal);
         if (total == 0 || offset >= total) {
             return new SearchCandidatePage(List.of(), pageNumber, pageSize, total);
@@ -104,7 +114,7 @@ public class SearchService {
         }
         if (includesSource(query.corpus()) && sourceTotal > 0) {
             addSourceResults(fused, provenance,
-                    repository.searchSource(workspace.id(), normalizedQuery, query.documentId(),
+                    repository.searchSource(workspace.id(), effectiveQuery, query.documentId(),
                             (int) Math.min(sourceTotal, candidateLimit), freshSourceDocumentIds));
         }
 
@@ -114,6 +124,29 @@ public class SearchService {
         List<SearchCandidate> items = fromIndex >= fused.size()
                 ? List.of() : List.copyOf(fused.subList(fromIndex, toIndex));
         return new SearchCandidatePage(items, pageNumber, pageSize, total);
+    }
+
+    private Set<Long> freshSourceDocumentIds(SearchQuery query, long workspaceId,
+                                             String effectiveQuery) {
+        return includesSource(query.corpus())
+                ? consistencyGate.freshSourceDocumentIds(workspaceId, effectiveQuery,
+                query.documentId()) : Set.of();
+    }
+
+    private long countWiki(SearchQuery query, long workspaceId, String effectiveQuery) {
+        return includesWiki(query.corpus())
+                ? repository.countWikiSearch(workspaceId, effectiveQuery, query.pageType()) : 0;
+    }
+
+    private long countSource(SearchQuery query, long workspaceId, String effectiveQuery,
+                             Set<Long> freshSourceDocumentIds) {
+        return includesSource(query.corpus())
+                ? repository.countSourceSearch(workspaceId, effectiveQuery, query.documentId(),
+                freshSourceDocumentIds) : 0;
+    }
+
+    private static boolean isScopedSourceQuery(SearchQuery query) {
+        return query.corpus() == SearchCorpus.SOURCE && query.documentId() != null;
     }
 
     private static void addWikiResults(List<SearchCandidate> results,
