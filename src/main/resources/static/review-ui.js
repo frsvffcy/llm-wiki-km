@@ -290,7 +290,7 @@ export function renderPublishOutcome(elements, envelope, httpStatus, documentRef
   }
   const handoff = documentRef.createElement("a");
   handoff.className = "wiki-handoff";
-  handoff.textContent = "查看已發布知識";
+  handoff.textContent = "閱讀已發布知識";
   handoff.setAttribute("href", "#/wiki");
   elements.publishResult.append(handoff);
   if (httpStatus === 201) {
