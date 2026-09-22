@@ -227,7 +227,7 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
                 BEFORE INSERT ON search_index_identity
                 WHEN NEW.corpus = 'KNOWLEDGE'
                 BEGIN
-                    SELECT RAISE(ABORT, 'path /Users/x/y/vault token=abcdef123456
+                    SELECT RAISE(ABORT, 'path /Users/example/y/vault token=abcdef123456
                         Authorization: Bearer abc.def SELECT * FROM t RID #12:0');
                 END
                 """).update();
@@ -270,9 +270,9 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
                 "legacy raw evidence", "legacy normalized evidence");
         awaitJob(startRebuild("ALL"), "COMPLETED");
 
-        String hostile = "SQLiteException: /Users/toddyeh/workspace/secret "
+        String hostile = "SQLiteException: /Users/example/workspace/secret "
                 + "Authorization: Bearer abc token=abcdef123456 SELECT * FROM t RID #12:0";
-        String pathOnly = "authority mismatch while reading /Users/toddyeh/workspace/secret";
+        String pathOnly = "authority mismatch while reading /Users/example/workspace/secret";
         db().sql("""
                 UPDATE search_index_rebuild_state
                    SET status = 'FAILED', failed_count = 1, failure_detail = :detail
@@ -522,7 +522,7 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
                 INSERT INTO processing_log (job_id, document_id, step, status, message, metadata_json,
                     created_at)
                 VALUES (:job, NULL, 'FTS_REBUILD', 'FAILED',
-                    'java.lang.IllegalStateException: /Users/private SELECT * FROM secrets token=secret',
+                    'java.lang.IllegalStateException: /Users/example SELECT * FROM secrets token=secret',
                     '{"detail":"Authorization: Bearer secret"}', :now)
                 """).param("job", job.id()).param("now", NOW).update();
         setTerminal(job.id(), ProcessingJobStatus.FAILED, 1, 0, 1, 0);
@@ -533,7 +533,7 @@ class FtsRebuildHealthIntegrationTest extends IsolatedIntegrationTest {
                 .andExpect(jsonPath("$.data.failureCode").value("REBUILD_FAILED"))
                 .andExpect(jsonPath("$.data.failureSummary").value("FTS rebuild failed"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
-                        .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("/Users/private"))))
+                        .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("/Users/example"))))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
                         .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("SELECT * FROM secrets"))))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
