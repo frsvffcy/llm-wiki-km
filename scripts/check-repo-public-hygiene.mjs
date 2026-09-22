@@ -67,7 +67,7 @@ const KNOWN_ASSIGNMENT_PATTERNS = SHARED_CREDENTIAL_KEYS.map(function (key) {
   return {
     key,
     pattern: new RegExp(
-      "\\b" + escapeRegex(key) + "\\b\\s*[:=]\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s#;,]+))",
+      "\\b(" + escapeRegex(key) + ")\\b\\s*[:=]\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s#;,]+))",
       "giu"
     )
   };
