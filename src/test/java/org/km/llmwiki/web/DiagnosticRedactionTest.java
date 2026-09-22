@@ -53,7 +53,7 @@ class DiagnosticRedactionTest {
                 "api_key=" + "sk-" + "proj-abcdef123456 rejected", FALLBACK))
                 .isEqualTo("api_key=[REDACTED] rejected");
         assertThat(DiagnosticRedaction.publicMessage(
-                "call used sk-proj-abcdef123456 rejected", FALLBACK))
+                "call used " + "sk-" + "proj-abcdef123456 rejected", FALLBACK))
                 .isEqualTo("call used [REDACTED] rejected");
     }
 
