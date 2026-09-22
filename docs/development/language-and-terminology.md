@@ -35,13 +35,26 @@ llm-wiki-km 的預設人類語言是**繁體中文（臺灣用語）**。使用�
 
 不要為了保留英文而把句子寫成中英混雜的標籤；不要翻譯識別字、API path、JSON key、enum value、檔名或可複製的 command。
 
+### CURRENT 操作名稱與技術名稱
+
+CURRENT 使用者操作文件應以畫面實際顯示名稱為準。底層技術名稱可在 API、架構、程式碼或相容性說明中保留，但不得反過來當成主要導覽名稱：
+
+```text
+inbox/、/api/v1/inbox  → 技術／固定目錄；畫面入口寫「文件」
+Wiki、#/wiki           → 技術／domain route；畫面入口寫「知識」
+review                 → 技術／流程概念；畫面入口寫「待我審核」
+```
+
+因此，快速入門或 README 若是在指示「使用者要點哪裡」，不得要求讀者自行把「收件匣」翻譯成「文件」、把「Wiki」翻譯成「知識」、或把「審核」翻譯成「待我審核」。描述底層目錄、API、domain identifier 或一般審核動作時，技術詞仍可保留。
+
 ## 3. 標準詞彙表
 
 | 技術／英文 | 使用者可見中文 | API／程式碼中的保留形式 | 備註 |
 | --- | --- | --- | --- |
 | workspace | 工作區 | `workspace` | 不寫「工作空間」 |
 | knowledge base／knowledge root | 知識庫／知識根目錄 | `knowledgeBase`／`rootPath` | 依語境選用 |
-| inbox | 收件匣 | `inbox` | 固定目錄名保留 |
+| inbox／document intake | 文件（CURRENT 主導覽）／收件匣（技術說明） | `inbox` | `inbox/` 固定目錄名保留；一般操作指引使用「文件」 |
+| Wiki／published knowledge | 知識（CURRENT 主導覽） | `Wiki`／`#/wiki` | 架構、domain identifier 可保留 Wiki；一般操作指引使用「知識」 |
 | vault | 知識庫內容區 | `vault` | 固定目錄名保留 |
 | source document | 來源文件 | `SOURCE_DOCUMENT` | 不寫「原始檔案」作為狀態 |
 | chunk | 來源片段 | `chunk`／`SOURCE_CHUNK` | |
@@ -49,7 +62,7 @@ llm-wiki-km 的預設人類語言是**繁體中文（臺灣用語）**。使用�
 | proposal | 提案 | `Proposal`／`proposal` | UI 首次可寫「提案」；identifier 保留 |
 | draft | 草稿 | `Draft`／`draft` | |
 | publish | 發布 | `publish` | 臺灣用語；不用「發佈」混用 |
-| review | 審核 | `review` | 人工審核；不用「審查」作 UI 主詞 |
+| review | 待我審核（CURRENT 主導覽）／審核（動作） | `review` | 導覽入口使用「待我審核」；描述人工動作時可寫「審核」，不用「審查」 |
 | canonical | 權威內容／權威狀態 | `canonical` | 只有技術說明需要時保留英文 |
 | soft delete | 軟刪除 | `soft delete` | UI 寫「移除」或「標記為已刪除」 |
 | backend／frontend | 後端／瀏覽器介面 | `backend`／`frontend` | UI 不顯示「Backend」 |
