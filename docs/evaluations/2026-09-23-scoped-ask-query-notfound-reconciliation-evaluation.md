@@ -1,8 +1,8 @@
 # Scoped Ask「問這份文件」查無答案專家審查收斂評估
 
-> 分類：`TRACK_FULL`  
-> 評估日期：2026-09-23  
-> Current baseline：`f5b5597d98b56f7d36239d61209e5a15a42525dd`  
+> 分類：`TRACK_FULL`
+> 評估日期：2026-09-23
+> Current baseline：`f5b5597d98b56f7d36239d61209e5a15a42525dd`
 > 追蹤：Refs #616；唯一新的 executable follow-up 為 #617
 
 ## 1. 評估問題
