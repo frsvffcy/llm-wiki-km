@@ -1,12 +1,12 @@
 import { inspectSourceChunk } from "./source-chunk-inspector-ui.js";
 const RETRIEVAL_MODES = Object.freeze([
-  { value: "HYBRID_FTS", label: "Wiki 與來源文件（全文搜尋）" },
-  { value: "WIKI_ONLY", label: "僅 Wiki" },
+  { value: "HYBRID_FTS", label: "知識與來源文件（全文搜尋）" },
+  { value: "WIKI_ONLY", label: "僅知識" },
   { value: "SOURCE_ONLY", label: "僅來源文件" },
-  { value: "SEMANTIC_WIKI", label: "Wiki 語意搜尋" },
+  { value: "SEMANTIC_WIKI", label: "知識語意搜尋" },
   { value: "SEMANTIC_SOURCE", label: "來源文件語意搜尋" },
-  { value: "HYBRID_VECTOR", label: "Wiki 與來源文件（語意混合）" },
-  { value: "HYBRID_GRAPH", label: "Wiki 與來源文件（圖譜增強）" }
+  { value: "HYBRID_VECTOR", label: "知識與來源文件（語意混合）" },
+  { value: "HYBRID_GRAPH", label: "知識與來源文件（圖譜增強）" }
 ]);
 
 // A document scope owns the corpus. The public mode values remain unchanged for REST
@@ -62,7 +62,7 @@ function detail(label, value) {
 function provenanceTitle(provenance) {
   if (!provenance) return "未命名來源";
   return provenance.type === "WIKI"
-    ? text(provenance.title) || "Wiki 頁面"
+    ? text(provenance.title) || "知識頁面"
     : text(provenance.documentName) || "來源文件";
 }
 

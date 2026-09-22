@@ -26,7 +26,7 @@
     <header class="page-header">
       <p class="eyebrow">本機知識庫</p>
       <h1>向知識庫提問</h1>
-      <p class="intro">從已索引的 Wiki 與來源文件取得有依據的回答；第一次使用請先在工作區建立知識庫並放入文件。</p>
+      <p class="intro">從已索引的知識與來源文件取得有依據的回答；第一次使用請先在工作區建立知識庫並放入文件。</p>
     </header>
 
     <section id="owner-auth-panel" class="panel owner-auth-panel" aria-labelledby="owner-auth-heading">
@@ -150,13 +150,13 @@
       </section>
     </section>
 
-    <section id="view-wiki" data-route="wiki" class="view" aria-label="Wiki" hidden>
-      <h2 data-view-heading tabindex="-1">Wiki</h2>
+    <section id="view-wiki" data-route="wiki" class="view" aria-label="知識" hidden>
+      <h2 data-view-heading tabindex="-1">知識</h2>
 
       <section class="panel" aria-labelledby="wiki-list-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">已發布 Wiki</p>
+            <p class="eyebrow">已發布知識</p>
             <h3 id="wiki-list-heading">已發布知識</h3>
           </div>
         </div>
@@ -180,7 +180,7 @@
         </form>
         <p id="wiki-hint" class="form-hint" role="status" aria-live="polite"></p>
         <p id="wiki-empty" class="empty-state" hidden>
-          目前沒有已發布的 Wiki 頁面。透過收件匣與審核工作台發布後即可在此閱讀。
+          目前沒有已發布的知識內容。透過文件與待我審核流程發布後即可在此閱讀。
         </p>
         <ul id="wiki-list" class="wiki-list"></ul>
         <div class="inbox-pager">
@@ -351,13 +351,13 @@
             <div class="field-group">
               <label for="retrieval-mode">搜尋範圍</label>
               <select id="retrieval-mode" name="retrievalMode">
-                <option value="HYBRID_FTS">Wiki 與來源文件（全文搜尋）</option>
-                <option value="WIKI_ONLY">僅 Wiki</option>
+                <option value="HYBRID_FTS">知識與來源文件（全文搜尋）</option>
+                <option value="WIKI_ONLY">僅知識</option>
                 <option value="SOURCE_ONLY">僅來源文件</option>
-                <option value="SEMANTIC_WIKI">Wiki 語意搜尋</option>
+                <option value="SEMANTIC_WIKI">知識語意搜尋</option>
                 <option value="SEMANTIC_SOURCE">來源文件語意搜尋</option>
-                <option value="HYBRID_VECTOR">Wiki 與來源文件（語意混合）</option>
-                <option value="HYBRID_GRAPH">Wiki 與來源文件（圖譜增強）</option>
+                <option value="HYBRID_VECTOR">知識與來源文件（語意混合）</option>
+                <option value="HYBRID_GRAPH">知識與來源文件（圖譜增強）</option>
               </select>
             </div>
             <button id="ask-submit" type="submit">取得回答</button>
@@ -513,13 +513,13 @@
             <div class="field-group">
               <label for="inspector-mode">檢索模式</label>
               <select id="inspector-mode" name="retrievalMode">
-                <option value="HYBRID_FTS">Wiki 與來源文件（全文搜尋）</option>
-                <option value="WIKI_ONLY">僅 Wiki</option>
+                <option value="HYBRID_FTS">知識與來源文件（全文搜尋）</option>
+                <option value="WIKI_ONLY">僅知識</option>
                 <option value="SOURCE_ONLY">僅來源文件</option>
-                <option value="SEMANTIC_WIKI">Wiki 語意搜尋</option>
+                <option value="SEMANTIC_WIKI">知識語意搜尋</option>
                 <option value="SEMANTIC_SOURCE">來源文件語意搜尋</option>
-                <option value="HYBRID_VECTOR">Wiki 與來源文件（語意混合）</option>
-                <option value="HYBRID_GRAPH">Wiki 與來源文件（圖譜增強）</option>
+                <option value="HYBRID_VECTOR">知識與來源文件（語意混合）</option>
+                <option value="HYBRID_GRAPH">知識與來源文件（圖譜增強）</option>
               </select>
             </div>
             <button id="inspector-submit" type="submit">檢視檢索過程</button>
@@ -636,11 +636,11 @@
       <section class="panel" aria-labelledby="draft-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Wiki 草稿</p>
+            <p class="eyebrow">知識草稿</p>
             <h3 id="draft-heading">草稿生命週期</h3>
           </div>
           <button id="draft-create" type="button" class="draft-create" hidden>
-            由已核准的提案建立 Wiki 草稿
+            由已核准的提案建立知識草稿
           </button>
         </div>
         <section id="draft-panel" aria-label="草稿狀態與操作" hidden>
@@ -725,7 +725,7 @@
         </div>
         <p id="triage-refusal" class="triage-refusal" hidden></p>
         <div class="triage-handoffs">
-          <a class="wiki-handoff" href="#/wiki">前往 Wiki 閱讀</a>
+          <a class="wiki-handoff" href="#/wiki">前往知識閱讀</a>
           <a class="wiki-handoff" href="#/review">前往審核</a>
         </div>
         <p class="panel-description">

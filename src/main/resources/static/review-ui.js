@@ -53,15 +53,15 @@ const INVALIDATION_LABELS = Object.freeze({
 });
 
 const PUBLISH_OUTCOME_LABELS = Object.freeze({
-  "PUBLISHED|CREATED": "已發布：新建 wiki 頁面",
-  "PUBLISHED|MERGED": "已發布：合併至既有頁面",
+  "PUBLISHED|CREATED": "已發布：建立新知識頁面",
+  "PUBLISHED|MERGED": "已發布：更新既有知識頁面",
   "NO_OP|NO_OP": "無操作：此草稿先前已成功發布"
 });
 
 const ERROR_MESSAGES = Object.freeze({
   NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "請先在工作區建立或選擇工作區。"],
   KNOWLEDGE_PROPOSAL_NOT_FOUND: ["找不到提案", "指定的提案不存在或已隨文件移除，請重新整理清單。"],
-  WIKI_DRAFT_NOT_FOUND: ["找不到 Wiki 草稿", "指定的草稿不存在，請重新從提案建立。"],
+  WIKI_DRAFT_NOT_FOUND: ["找不到知識草稿", "指定的草稿不存在，請重新從提案建立。"],
   WIKI_DRAFT_LIFECYCLE_CONFLICT: ["草稿生命週期衝突", "此操作與草稿目前狀態不符，請重新整理後再試。"],
   WIKI_DRAFT_TARGET_CREATE_TARGET_EXISTS: ["目標頁已存在", "建立新頁的目標檔案已存在，請改用合併流程或重新整理草稿。"],
   WIKI_DRAFT_TARGET_TARGET_FILE_MISSING: ["目標頁不存在", "合併的目標檔案已消失，請重新產生草稿。"],
@@ -288,6 +288,11 @@ export function renderPublishOutcome(elements, envelope, httpStatus, documentRef
     appendTextElement(documentRef, elements.publishResult, "p", "publish-meta",
       `knowledgeId：${text(data.knowledgeId)} · 目標：${text(data.targetPath)} · 版本 ${text(data.revision)}`);
   }
+  const handoff = documentRef.createElement("a");
+  handoff.className = "wiki-handoff";
+  handoff.textContent = "閱讀已發布知識";
+  handoff.setAttribute("href", "#/wiki");
+  elements.publishResult.append(handoff);
   if (httpStatus === 201) {
     line.className = "publish-outcome publish-outcome--created";
   }

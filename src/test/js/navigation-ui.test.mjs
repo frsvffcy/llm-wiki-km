@@ -181,7 +181,7 @@ test("badge controller refreshes on route change and workspace switch, hiding on
     { badge: documentRef.badge, reviewLink: documentRef.reviewLink }, fetchImpl, documentRef);
   await controller.refresh();
   assert.equal(documentRef.badge.hidden, false);
-  assert.equal(documentRef.badge.textContent, "2");
+  assert.equal(documentRef.badge.textContent, "2 件待審");
 
   pending = 0;
   await controller.refresh();
@@ -212,7 +212,7 @@ test("badge bootstrap wires hashchange and workspace-changed and skips cleanly w
   for (let attempt = 0; attempt < 10 && documentRef.badge.hidden; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 0));
   }
-  assert.equal(documentRef.badge.textContent, "4");
+  assert.equal(documentRef.badge.textContent, "4 件待審");
 
   documentRef.viewListeners.get("hashchange")();
   documentRef.docListeners.get("workspace-changed")();

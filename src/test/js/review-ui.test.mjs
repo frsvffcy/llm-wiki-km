@@ -139,7 +139,7 @@ test("proposal statuses and labels cover the backend enum without drift", () => 
 });
 
 test("typed publish outcome and governance errors are operator-safe", () => {
-  assert.equal(publishOutcomeLabel("PUBLISHED", "CREATED"), "已發布：新建 wiki 頁面");
+  assert.equal(publishOutcomeLabel("PUBLISHED", "CREATED"), "已發布：建立新知識頁面");
   assert.equal(publishOutcomeLabel("NO_OP", "NO_OP"), "無操作：此草稿先前已成功發布");
   assert.match(publishOutcomeLabel("WEIRD", "X"), /WEIRD/u);
   assert.equal(governanceErrorMessage({ code: "WIKI_PUBLISH_OPTIMISTIC_LOCK_CONFLICT" }).title,
@@ -396,20 +396,25 @@ test("publish renders the backend typed outcome, including NO_OP on repeat", asy
 
   await controller.publishDraft();
   let text = flatText(elements.publishResult);
-  assert.match(text, /已發布：新建 wiki 頁面/u);
+  assert.match(text, /已發布：建立新知識頁面/u);
   assert.match(text, /knowledgeId：WIKI:x/u);
+  const handoff = elements.publishResult.children
+    .find(child => child.className === "wiki-handoff");
+  assert.ok(handoff, "publish success exposes the next task in the same flow");
+  assert.equal(handoff.textContent, "閱讀已發布知識");
+  assert.equal(handoff.attr_href, "#/wiki");
 
   mode = "merge";
   await controller.publishDraft();
-  assert.match(flatText(elements.publishResult), /已發布：合併至既有頁面/u);
+  assert.match(flatText(elements.publishResult), /已發布：更新既有知識頁面/u);
 
   mode = "conflict";
   await controller.publishDraft();
   assert.match(elements.draftHint.textContent, /內容已被他人更新/u);
-  assert.equal(flatText(elements.publishResult).includes("已發布：合併至既有頁面"), false,
+  assert.equal(flatText(elements.publishResult).includes("已發布：更新既有知識頁面"), false,
     "a failed publish must not keep showing the previous success (challenge 4)");
   assert.ok(elements.publishResult.hidden === false || flatText(elements.publishResult).length === 0
-    ? flatText(elements.publishResult).includes("已發布：合併至既有頁面") === false : true);
+    ? flatText(elements.publishResult).includes("已發布：更新既有知識頁面") === false : true);
 });
 
 test("double-submit guard prevents a second concurrent publish request", async () => {
@@ -508,7 +513,7 @@ test("preview typed failure surfaces the backend error instead of success (#490)
   const controller = createReviewController(elements, fetchImpl, fakeDocument());
   await controller.loadDraft(21);
   await controller.showPreview();
-  assert.match(elements.draftHint.textContent, /找不到 Wiki 草稿/u,
+  assert.match(elements.draftHint.textContent, /找不到知識草稿/u,
     "preview failure must stay a visible typed error, never a fake success");
 });
 
