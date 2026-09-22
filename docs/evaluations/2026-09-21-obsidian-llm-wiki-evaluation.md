@@ -1,4 +1,4 @@
-# Obsidian LLM Wiki Evaluation
+# Obsidian LLM Wiki 評估
 
 > 分類：`TRACK_FULL`  
 > 評估日期：2026-09-21  
@@ -15,7 +15,7 @@
 
 > controlled tags、candidate gate、graph cascade、provenance、lint / repair、per-task LLM policy 等 pattern，哪些能補強 current design，哪些已被現有 authority 覆蓋，哪些只能保留為 future benchmark hypothesis？
 
-## 2. Primary code evidence
+## 2. 第一手程式碼證據
 
 本次 external code audit 至少涵蓋：
 
@@ -188,7 +188,7 @@ real engine path
 
 Decision：**CURRENTLY COVERED / reinforcement**。
 
-## 10. What not to copy
+## 10. 不應照搬的項目
 
 不採用：
 
@@ -202,7 +202,7 @@ Decision：**CURRENTLY COVERED / reinforcement**。
 - Browser 持有 provider secret；
 - second ingestion history / queue authority。
 
-## 11. Revisit map
+## 11. 重新評估對照
 
 ### CURRENTLY COVERED / ADOPTED INPUT
 
@@ -224,10 +224,10 @@ Decision：**CURRENTLY COVERED / reinforcement**。
 - direct Smart Fix；
 - provider-specific policy 變全域 contract。
 
-## 12. Completion impact
+## 12. 完成影響
 
 本 evaluation 不新增 runtime、schema、API 或 CI implementation。
 
 最重要的 design input 已由 #569 吸收並完成；其餘全部有明確 trigger gate，不形成隱藏 backlog。
 
-Decision：**FULL GO as long-term decision evidence**。
+Decision：**FULL GO（作為長期決策證據）**。
