@@ -7,6 +7,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.km.llmwiki.web.RetrievalInspectionResponse;
 import org.km.llmwiki.search.PublishedWikiIndexingService;
 import org.km.llmwiki.search.SearchResult;
+import org.km.llmwiki.search.SourceChunkIndexingService;
+import org.km.llmwiki.search.SourceIndexSyncStatus;
 import org.km.llmwiki.search.WikiIndexSyncStatus;
 import org.km.llmwiki.source.ChunkCurrentness;
 import org.km.llmwiki.source.SourceLocator;
@@ -49,6 +51,9 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     PublishedWikiIndexingService publishedWikiIndexingService;
+
+    @Autowired
+    SourceChunkIndexingService sourceChunkIndexingService;
 
     @Autowired
     McpToolExecutor executor;
@@ -254,6 +259,9 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
                 .param("document", documentId)
                 .query(Long.class)
                 .single();
+        assertThat(sourceChunkIndexingService.reindexDocument(
+                workspaces.findActiveWithoutValidation().orElseThrow().id(), documentId).status())
+                .isEqualTo(SourceIndexSyncStatus.SYNCED);
         return new SourceFixture(documentId, chunkId);
     }
 }
