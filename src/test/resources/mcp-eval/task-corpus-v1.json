@@ -1,0 +1,126 @@
+{
+  "version": "mcp-task-corpus-v1",
+  "fixtureVersion": "mcp-task-fixture-v1",
+  "tasks": [
+    {
+      "id": "MCP-01",
+      "primaryPlane": "DISCOVERABILITY",
+      "question": "先告訴我目前系統與作用中工作區是否可用，不要搜尋內容。",
+      "expectedObservable": "STATUS_REPORTED",
+      "requiredToolSequence": ["km_status"],
+      "acceptableTools": ["km_status"],
+      "forbiddenTools": ["km_search", "km_retrieval_inspect", "km_source_locator", "km_ask"],
+      "multiTool": false
+    },
+    {
+      "id": "MCP-02",
+      "primaryPlane": "DISCOVERABILITY",
+      "question": "在目前知識庫找出包含 alpha-marker 的來源內容，不需要生成回答。",
+      "expectedObservable": "SEARCH_HIT",
+      "requiredToolSequence": ["km_search"],
+      "acceptableTools": ["km_search"],
+      "forbiddenTools": ["km_retrieval_inspect", "km_source_locator", "km_ask"],
+      "multiTool": false
+    },
+    {
+      "id": "MCP-03",
+      "primaryPlane": "COMPOSITION",
+      "question": "找出 source-locator-marker 位於哪份來源文件，並提供權威片段預覽。",
+      "expectedObservable": "SOURCE_LOCATED",
+      "requiredToolSequence": ["km_search", "km_source_locator"],
+      "acceptableTools": ["km_search", "km_source_locator"],
+      "forbiddenTools": ["km_ask"],
+      "multiTool": true
+    },
+    {
+      "id": "MCP-04",
+      "primaryPlane": "DISCOVERABILITY",
+      "question": "檢查 alpha-marker 的檢索流程，說明 Graph 是否有貢獻；若沒有，要說明它是未就緒、停用或不可用。",
+      "expectedObservable": "GRAPH_DEGRADED_EXPLAINED",
+      "requiredToolSequence": ["km_retrieval_inspect"],
+      "acceptableTools": ["km_retrieval_inspect"],
+      "forbiddenTools": ["km_ask"],
+      "multiTool": false
+    },
+    {
+      "id": "MCP-05",
+      "primaryPlane": "COMPOSITION",
+      "question": "先搜尋 beta-marker，再定位支持這個結果的來源片段，不要直接猜來源。",
+      "expectedObservable": "SOURCE_LOCATED",
+      "requiredToolSequence": ["km_search", "km_source_locator"],
+      "acceptableTools": ["km_search", "km_source_locator"],
+      "forbiddenTools": ["km_ask"],
+      "multiTool": true
+    },
+    {
+      "id": "MCP-06",
+      "primaryPlane": "COMPOSITION",
+      "question": "omega-absent-marker 找不到時，請分辨是真的沒有證據，還是檢索服務不可用；不要把服務失敗說成沒有內容。",
+      "expectedObservable": "NO_EVIDENCE",
+      "requiredToolSequence": ["km_retrieval_inspect", "km_search"],
+      "acceptableTools": ["km_retrieval_inspect", "km_search"],
+      "forbiddenTools": ["km_ask"],
+      "multiTool": true
+    },
+    {
+      "id": "MCP-07",
+      "primaryPlane": "DISCOVERABILITY",
+      "question": "根據目前來源回答 Aurora code 是多少，必須使用有依據的回答流程。",
+      "expectedObservable": "GROUNDED_ANSWER",
+      "requiredToolSequence": ["km_ask"],
+      "acceptableTools": ["km_ask"],
+      "forbiddenTools": [],
+      "multiTool": false
+    },
+    {
+      "id": "MCP-08",
+      "primaryPlane": "DISCOVERABILITY",
+      "question": "回答服務未設定時，請嘗試 grounded Ask，並正確告訴我這是 provider 設定問題，不要說成沒有證據。",
+      "expectedObservable": "PROVIDER_CONFIGURATION_UNAVAILABLE",
+      "requiredToolSequence": ["km_ask"],
+      "acceptableTools": ["km_ask"],
+      "forbiddenTools": [],
+      "multiTool": false
+    },
+    {
+      "id": "MCP-09",
+      "primaryPlane": "DISCOVERABILITY",
+      "question": "只確認目前是否有作用中工作區；不要搜尋、檢查檢索或呼叫回答服務。",
+      "expectedObservable": "STATUS_REPORTED",
+      "requiredToolSequence": ["km_status"],
+      "acceptableTools": ["km_status"],
+      "forbiddenTools": ["km_search", "km_retrieval_inspect", "km_source_locator", "km_ask"],
+      "multiTool": false
+    },
+    {
+      "id": "MCP-10",
+      "primaryPlane": "COMPOSITION",
+      "question": "先確認作用中工作區，再在同一工作區搜尋 alpha-marker；不得把其他工作區結果混進來。",
+      "expectedObservable": "ACTIVE_WORKSPACE_SCOPED",
+      "requiredToolSequence": ["km_status", "km_search"],
+      "acceptableTools": ["km_status", "km_search"],
+      "forbiddenTools": ["km_ask"],
+      "multiTool": true
+    },
+    {
+      "id": "MCP-11",
+      "primaryPlane": "COMPOSITION",
+      "question": "先檢查 beta-marker 的檢索診斷，再搜尋實際候選，說明結果是否來自可用的檢索管線。",
+      "expectedObservable": "SEARCH_HIT",
+      "requiredToolSequence": ["km_retrieval_inspect", "km_search"],
+      "acceptableTools": ["km_retrieval_inspect", "km_search"],
+      "forbiddenTools": ["km_ask"],
+      "multiTool": true
+    },
+    {
+      "id": "MCP-12",
+      "primaryPlane": "COMPOSITION",
+      "question": "檢查 source-locator-marker 的檢索證據，再定位其中的來源片段，最後只回報權威來源資訊。",
+      "expectedObservable": "SOURCE_LOCATED",
+      "requiredToolSequence": ["km_retrieval_inspect", "km_source_locator"],
+      "acceptableTools": ["km_retrieval_inspect", "km_source_locator", "km_search"],
+      "forbiddenTools": ["km_ask"],
+      "multiTool": true
+    }
+  ]
+}
