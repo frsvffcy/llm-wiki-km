@@ -23,7 +23,7 @@ class DiagnosticRedactionTest {
                 "rootPath exists and is not a directory: /Users/example/workspace/secret-project",
                 FALLBACK);
         assertThat(sanitized).isEqualTo("rootPath exists and is not a directory: [REDACTED]");
-        assertThat(sanitized).doesNotContain("toddyeh", "secret-project");
+        assertThat(sanitized).doesNotContain("/Users/example", "secret-project");
     }
 
     @Test
