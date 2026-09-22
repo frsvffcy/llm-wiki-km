@@ -100,7 +100,7 @@ test("safe placeholders and environment references remain allowed", () => {
 
 test("credential shapes, private-key blocks, assignments and home paths are categorized", () => {
   const assigned = ["OPENAI_API_KEY", "=", fakeOpenAiToken()].join("");
-  const hardcoded = ["password", "=", "AbCd1234!EfGh5678@IjKl9012"].join("");
+  const hardcoded = ["password", "=", "\"", "AbCd1234!EfGh5678@IjKl9012", "\""].join("");
   const text = [
     fakeOpenAiToken(),
     fakeGithubToken(),
