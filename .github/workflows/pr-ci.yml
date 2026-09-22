@@ -20,12 +20,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Node.js 22 LTS
         uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Run Browser contract governance tests (Refs #561)
         run: sh scripts/run-browser-contract-tests.sh governance
+      - name: 掃描 Git 公開內容安全
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node scripts/check-repo-public-hygiene.mjs --mode tracked
+          node scripts/check-repo-public-hygiene.mjs --mode changed --base "$BASE_SHA" --head "$HEAD_SHA"
       - name: 執行語言治理檢查
         run: node scripts/check-language-governance.mjs
       - name: Validate PR base, title and Issue linkage
