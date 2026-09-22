@@ -15,13 +15,15 @@
 
 ## 2. 外部來源與審查版本
 
-| 外部來源 | 審查版本 | 本次關注 |
-| --- | --- | --- |
-| `ericluo04/claude-academic-workflow` | `0006b09d06214f4386851850a171b65125929420` | citation verification、source depth、replication safety |
-| `flonat/flonat-research` | `e7007d0b1e465ef96de7338599ca04079e83a972` | audit-before-fix、handoff、postmortem |
-| `gallantlab/literature-review-toolkit` | `ced70c09b57124aa9d9c2c054ae5739c906c3d5c` | NOT-FOUND vs ERROR、canonical output、verification |
-| `debug-zhuweijian/ai-research-toolkit` | `66eb46f1feee7098859aed7563e0ffa3ab1c6050` | handoff packet、public/private boundary、sensitive-data scan |
-| `foundry-works/foundry-research` | `16249598774c2d284ba7725f112326c055b29c0d` | capabilities、claim evidence、reflect / improve discipline |
+| 外部來源 | 審查版本 | 授權邊界 | 本次關注 |
+| --- | --- | --- | --- |
+| `ericluo04/claude-academic-workflow` | `0006b09d06214f4386851850a171b65125929420` | GitHub metadata：`NOASSERTION`；不假設可複製程式碼 | citation verification、source depth、replication safety |
+| `flonat/flonat-research` | `e7007d0b1e465ef96de7338599ca04079e83a972` | MIT | audit-before-fix、handoff、postmortem |
+| `gallantlab/literature-review-toolkit` | `ced70c09b57124aa9d9c2c054ae5739c906c3d5c` | MIT | NOT-FOUND vs ERROR、canonical output、verification |
+| `debug-zhuweijian/ai-research-toolkit` | `66eb46f1feee7098859aed7563e0ffa3ab1c6050` | MIT | handoff packet、public/private boundary、sensitive-data scan |
+| `foundry-works/foundry-research` | `16249598774c2d284ba7725f112326c055b29c0d` | MIT | capabilities、claim evidence、reflect / improve discipline |
+
+授權資料取自 GitHub repository metadata。對 `NOASSERTION` 的來源只保留方法與行為層級的評估證據，不複製其程式碼、模板或其他可能受授權限制的內容。
 
 本評估依 Issue #577 所列 primary repository code / workflow evidence 做 reconciliation，不以 README headline 當唯一依據。
 
