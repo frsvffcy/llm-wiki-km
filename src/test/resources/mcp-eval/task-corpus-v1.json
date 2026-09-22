@@ -15,7 +15,7 @@
     {
       "id": "MCP-02",
       "primaryPlane": "DISCOVERABILITY",
-      "question": "在目前知識庫找出包含 alpha-marker 的來源內容，不需要生成回答。",
+      "question": "在目前知識庫找出包含 alphamarker 的來源內容，不需要生成回答。",
       "expectedObservable": "SEARCH_HIT",
       "requiredToolSequence": ["km_search"],
       "acceptableTools": ["km_search"],
@@ -25,7 +25,7 @@
     {
       "id": "MCP-03",
       "primaryPlane": "COMPOSITION",
-      "question": "找出 source-locator-marker 位於哪份來源文件，並提供權威片段預覽。",
+      "question": "找出 sourcelocatormarker 位於哪份來源文件，並提供權威片段預覽。",
       "expectedObservable": "SOURCE_LOCATED",
       "requiredToolSequence": ["km_search", "km_source_locator"],
       "acceptableTools": ["km_search", "km_source_locator"],
@@ -35,7 +35,7 @@
     {
       "id": "MCP-04",
       "primaryPlane": "DISCOVERABILITY",
-      "question": "檢查 alpha-marker 的檢索流程，說明 Graph 是否有貢獻；若沒有，要說明它是未就緒、停用或不可用。",
+      "question": "檢查 alphamarker 的檢索流程，說明 Graph 是否有貢獻；若沒有，要說明它是未就緒、停用或不可用。",
       "expectedObservable": "GRAPH_DEGRADED_EXPLAINED",
       "requiredToolSequence": ["km_retrieval_inspect"],
       "acceptableTools": ["km_retrieval_inspect"],
@@ -45,7 +45,7 @@
     {
       "id": "MCP-05",
       "primaryPlane": "COMPOSITION",
-      "question": "先搜尋 beta-marker，再定位支持這個結果的來源片段，不要直接猜來源。",
+      "question": "先搜尋 betamarker，再定位支持這個結果的來源片段，不要直接猜來源。",
       "expectedObservable": "SOURCE_LOCATED",
       "requiredToolSequence": ["km_search", "km_source_locator"],
       "acceptableTools": ["km_search", "km_source_locator"],
@@ -55,7 +55,7 @@
     {
       "id": "MCP-06",
       "primaryPlane": "COMPOSITION",
-      "question": "omega-absent-marker 找不到時，請分辨是真的沒有證據，還是檢索服務不可用；不要把服務失敗說成沒有內容。",
+      "question": "omegaabsentmarker 找不到時，請分辨是真的沒有證據，還是檢索服務不可用；不要把服務失敗說成沒有內容。",
       "expectedObservable": "NO_EVIDENCE",
       "requiredToolSequence": ["km_retrieval_inspect", "km_search"],
       "acceptableTools": ["km_retrieval_inspect", "km_search"],
@@ -95,7 +95,7 @@
     {
       "id": "MCP-10",
       "primaryPlane": "COMPOSITION",
-      "question": "先確認作用中工作區，再在同一工作區搜尋 alpha-marker；不得把其他工作區結果混進來。",
+      "question": "先確認作用中工作區，再在同一工作區搜尋 alphamarker；不得把其他工作區結果混進來。",
       "expectedObservable": "ACTIVE_WORKSPACE_SCOPED",
       "requiredToolSequence": ["km_status", "km_search"],
       "acceptableTools": ["km_status", "km_search"],
@@ -105,7 +105,7 @@
     {
       "id": "MCP-11",
       "primaryPlane": "COMPOSITION",
-      "question": "先檢查 beta-marker 的檢索診斷，再搜尋實際候選，說明結果是否來自可用的檢索管線。",
+      "question": "先檢查 betamarker 的檢索診斷，再搜尋實際候選，說明結果是否來自可用的檢索管線。",
       "expectedObservable": "SEARCH_HIT",
       "requiredToolSequence": ["km_retrieval_inspect", "km_search"],
       "acceptableTools": ["km_retrieval_inspect", "km_search"],
@@ -115,7 +115,7 @@
     {
       "id": "MCP-12",
       "primaryPlane": "COMPOSITION",
-      "question": "檢查 source-locator-marker 的檢索證據，再定位其中的來源片段，最後只回報權威來源資訊。",
+      "question": "檢查 sourcelocatormarker 的檢索證據，再定位其中的來源片段，最後只回報權威來源資訊。",
       "expectedObservable": "SOURCE_LOCATED",
       "requiredToolSequence": ["km_retrieval_inspect", "km_source_locator"],
       "acceptableTools": ["km_retrieval_inspect", "km_source_locator", "km_search"],
