@@ -429,7 +429,7 @@ function renderInsufficientState(elements, executionMetadata) {
       && diagnostics.providerUsageStatus === "NOT_ATTEMPTED") {
     elements.insufficientTitle.textContent = "搜尋未找到可用內容";
     elements.insufficientMessage.textContent =
-      "沒有找到可納入回答的已索引內容。請改用正文中的關鍵字，或確認這份資料已完成整理與索引。";
+      "沒有找到可納入回答的已索引正文內容。檔名只用來確認目前選定的文件，不會作為回答依據；請改用正文中的關鍵字，或確認這份資料已完成整理與索引。";
     return;
   }
   const providerAttempted = diagnostics
@@ -542,7 +542,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     setRetrievalModeOptions(available);
     elements.documentScope.hidden = false;
     elements.documentScopeLabel.textContent = available
-      ? `目前針對：${label}` : "指定的文件目前無法使用";
+      ? `目前範圍：${label}（搜尋文件正文）` : "指定的文件目前無法使用";
   }
 
   function setRetrievalModeOptions(scoped) {
