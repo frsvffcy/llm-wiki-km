@@ -51,8 +51,10 @@ class McpTaskEvaluationContractTest {
             assertThat(raw.requiredToolSequence()).isNotEmpty();
             assertThat(raw.acceptableTools())
                     .containsAll(raw.requiredToolSequence());
-            assertThat(raw.acceptableTools())
-                    .doesNotContainAnyElementsOf(raw.forbiddenTools());
+            if (!raw.forbiddenTools().isEmpty()) {
+                assertThat(raw.acceptableTools())
+                        .doesNotContainAnyElementsOf(raw.forbiddenTools());
+            }
 
             for (String tool : raw.requiredToolSequence()) {
                 assertThat(McpCapabilityManifest.isKnown(tool))
