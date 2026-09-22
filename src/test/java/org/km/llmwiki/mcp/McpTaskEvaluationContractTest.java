@@ -93,6 +93,26 @@ class McpTaskEvaluationContractTest {
     }
 
     @Test
+    void searchDefaultPageMatchesRestFirstPageContract() {
+        McpToolInputContract contract =
+                McpCapabilityManifest.contractFor(McpCapabilityManifest.TOOL_SEARCH);
+
+        McpValidatedArguments validated = contract.validate(
+                JSON.createObjectNode().put("query", "alphamarker"));
+        assertThat(validated.intValue("page")).isZero();
+        assertThat(validated.intValue("size")).isEqualTo(20);
+
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> properties =
+                (java.util.Map<String, Object>) contract.jsonSchema().get("properties");
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> page =
+                (java.util.Map<String, Object>) properties.get("page");
+        assertThat(page.get("minimum")).isEqualTo(0L);
+        assertThat(page.get("default")).isEqualTo(0);
+    }
+
+    @Test
     void canonicalTracesProducePerfectDeterministicMetrics() throws Exception {
         Corpus corpus = corpus();
         List<McpTaskEvaluationScorer.Task> tasks = corpus.tasks().stream()
