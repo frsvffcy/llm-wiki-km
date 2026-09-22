@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -32,14 +33,17 @@ public class SearchService {
     private final FtsSearchIndexRepository repository;
     private final SearchServingConsistencyGate consistencyGate;
     private final ScopedDocumentQueryFallbackPolicy scopedFallbackPolicy;
+    private final SourceSearchAuthorityRepository authorityRepository;
 
     public SearchService(WorkspaceService workspaceService, FtsSearchIndexRepository repository,
                          SearchServingConsistencyGate consistencyGate,
-                         ScopedDocumentQueryFallbackPolicy scopedFallbackPolicy) {
+                         ScopedDocumentQueryFallbackPolicy scopedFallbackPolicy,
+                         SourceSearchAuthorityRepository authorityRepository) {
         this.workspaceService = workspaceService;
         this.repository = repository;
         this.consistencyGate = consistencyGate;
         this.scopedFallbackPolicy = scopedFallbackPolicy;
+        this.authorityRepository = authorityRepository;
     }
 
     public PageResponse<List<SearchResult>> search(String query, String corpusValue,
@@ -89,7 +93,9 @@ public class SearchService {
         long sourceTotal = countSource(query, workspace.id(), effectiveQuery,
                 freshSourceDocumentIds);
         if (wikiTotal == 0 && sourceTotal == 0 && isScopedSourceQuery(query)) {
-            var fallback = scopedFallbackPolicy.fallback(normalizedQuery);
+            Set<String> documentVocabulary =
+                    scopedDocumentVocabulary(workspace.id(), query.documentId());
+            var fallback = scopedFallbackPolicy.fallback(normalizedQuery, documentVocabulary);
             if (fallback.isPresent()) {
                 effectiveQuery = fallback.get();
                 freshSourceDocumentIds = freshSourceDocumentIds(
@@ -147,6 +153,35 @@ public class SearchService {
 
     private static boolean isScopedSourceQuery(SearchQuery query) {
         return query.corpus() == SearchCorpus.SOURCE && query.documentId() != null;
+    }
+
+    /**
+     * Document-local vocabulary for the scoped fallback: projected terms from the scoped
+     * document's eligible canonical chunks. Workspace-scoped, eligibility-filtered, and
+     * fail-closed to empty so stale/ineligible/foreign documents never guide a fallback.
+     */
+    private Set<String> scopedDocumentVocabulary(long workspaceId, Long documentId) {
+        if (documentId == null) {
+            return Set.of();
+        }
+        try {
+            var authority = authorityRepository.findDocument(workspaceId, documentId);
+            if (authority.isEmpty()
+                    || !SourceSearchEligibilityPolicy.documentEligible(authority.get())) {
+                return Set.of();
+            }
+            Set<String> vocabulary = new HashSet<>();
+            for (var chunk : authority.get().chunks()) {
+                if (!SourceSearchEligibilityPolicy.chunkEligible(chunk)
+                        || chunk.normalizedContent() == null) {
+                    continue;
+                }
+                vocabulary.addAll(CjkBigramProjector.tokens(chunk.normalizedContent()));
+            }
+            return Set.copyOf(vocabulary);
+        } catch (RuntimeException lookupFailure) {
+            return Set.of();
+        }
     }
 
     private static void addWikiResults(List<SearchCandidate> results,
