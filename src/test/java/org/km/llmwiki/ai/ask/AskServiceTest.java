@@ -124,6 +124,29 @@ class AskServiceTest {
     }
 
     @Test
+    void providerInsufficientRetainsSafeEvidenceCountsAndAttemptedStatus() {
+        EvidenceBundle bundle = bundle(List.of(
+                wiki("one", "One", "vault/one.md", "relevant fact")));
+        AnswerUsageMetadata usage = new AnswerUsageMetadata(12, 3, 15);
+        AnswerClient provider = request -> new AnswerResult("證據仍不足", List.of(), true,
+                METADATA, Optional.of(usage));
+
+        AskResult result = new AskService(retrievalReturning(bundle), projector(), noopRerank(),
+                provider).ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
+
+        assertThat(result.status()).isEqualTo(AskStatus.INSUFFICIENT_EVIDENCE);
+        assertThat(result.suppliedEvidence()).hasSize(1);
+        assertThat(result.executionMetadata().contextDiagnostics()).satisfies(diagnostics -> {
+            assertThat(diagnostics.retrievedEvidenceCount()).isEqualTo(1);
+            assertThat(diagnostics.admittedEvidenceCount()).isEqualTo(1);
+            assertThat(diagnostics.answerContextBlockCount()).isEqualTo(1);
+            assertThat(diagnostics.providerUsageStatus()).isEqualTo(ProviderUsageStatus.AVAILABLE);
+        });
+        assertThat(AskApiResponse.from(result).toString())
+                .doesNotContain("relevant fact", "vault/one.md");
+    }
+
+    @Test
     void documentScopeIsRevalidatedBeforeRetrievalAndAgainBeforeProviderEgress() {
         AskDocumentScopeValidator validator = mock(AskDocumentScopeValidator.class);
         org.mockito.Mockito.doNothing()

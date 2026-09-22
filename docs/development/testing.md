@@ -2040,3 +2040,15 @@ miss 的 before/after；production query transform、rerank、fusion、context d
 assertions 鎖定。報告寫入
 `target/quality-reports/retrieval-miss-attribution-v1.{json,md}`。完整 contract、gate matrix 與重跑
 方式見 `docs/development/issue-575-retrieval-miss-attribution-evaluation.md`。
+
+### Scoped Ask query projection corrective（#605）
+
+`search.ScopedDocumentQueryFallbackPolicyTest`（contract tier）鎖定
+`scoped-document-query-fallback-v1` 的 exact technical-anchor preservation、bounded 問句外殼縮減與
+拒絕任意 broadening。`rag.ScopedDocumentLexicalFallbackIntegrationTest`（integration tier）走真實
+upload／extraction／chunk／FTS，持有 selected-document candidate/Evidence、CJK、#568
+`QUERY_PROJECTION` shapes、filename-only non-evidence、original-query traceability，以及
+foreign/stale/superseded/deleted fail-closed。Browser 的 zero-hit/provider-insufficient copy 由
+`src/test/js/ask-ui.test.mjs` 持有；backend safe counts/status 由 `ai.ask.AskServiceTest` 持有。
+完整決策、候選比較與 criterion evidence 見
+`docs/development/issue-605-scoped-ask-query-projection.md`。

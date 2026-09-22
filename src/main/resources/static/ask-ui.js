@@ -335,6 +335,7 @@ export function renderAskResponse(elements, payload, documentRef = document) {
   elements.metadata.replaceChildren();
 
   if (data.status === "INSUFFICIENT_EVIDENCE" || data.insufficientEvidence === true) {
+    renderInsufficientState(elements, data.executionMetadata);
     elements.insufficient.hidden = false;
     renderContextDiagnostics(elements, data.executionMetadata, documentRef);
     return;
@@ -412,6 +413,39 @@ export function renderAskResponse(elements, payload, documentRef = document) {
   }
 }
 
+function renderInsufficientState(elements, executionMetadata) {
+  if (!elements.insufficientTitle || !elements.insufficientMessage) return;
+  const diagnostics = executionMetadata && typeof executionMetadata === "object"
+    && executionMetadata.contextDiagnostics
+    && typeof executionMetadata.contextDiagnostics === "object"
+    ? executionMetadata.contextDiagnostics : null;
+  const retrieved = diagnostics && diagnostics.retrievedEvidenceCount;
+  const admitted = diagnostics && diagnostics.admittedEvidenceCount;
+  const blocks = diagnostics && diagnostics.answerContextBlockCount;
+  const safeCounts = [retrieved, admitted, blocks]
+    .every(value => Number.isInteger(value) && value >= 0);
+
+  if (safeCounts && retrieved === 0 && admitted === 0 && blocks === 0
+      && diagnostics.providerUsageStatus === "NOT_ATTEMPTED") {
+    elements.insufficientTitle.textContent = "搜尋未找到可用內容";
+    elements.insufficientMessage.textContent =
+      "沒有找到可納入回答的已索引內容。請改用正文中的關鍵字，或確認這份資料已完成整理與索引。";
+    return;
+  }
+  const providerAttempted = diagnostics
+    && (diagnostics.providerUsageStatus === "AVAILABLE"
+      || diagnostics.providerUsageStatus === "UNAVAILABLE");
+  if (safeCounts && retrieved > 0 && admitted > 0 && blocks > 0 && providerAttempted) {
+    elements.insufficientTitle.textContent = "相關內容不足以形成回答";
+    elements.insufficientMessage.textContent =
+      "已找到相關內容，但仍不足以形成可引用的回答。請縮小問題範圍，或補充更明確的問題細節。";
+    return;
+  }
+  elements.insufficientTitle.textContent = "目前沒有足夠證據";
+  elements.insufficientMessage.textContent =
+    "這次無法形成可引用的回答。可以改用更具體的問題，或確認資料已完成索引。";
+}
+
 function showError(elements, error) {
   const copy = errorMessage(error);
   elements.empty.hidden = true;
@@ -453,6 +487,8 @@ function elementsFrom(documentRef) {
     errorTitle: documentRef.getElementById("error-title"),
     errorMessage: documentRef.getElementById("error-message"),
     insufficient: documentRef.getElementById("result-insufficient"),
+    insufficientTitle: documentRef.getElementById("insufficient-title"),
+    insufficientMessage: documentRef.getElementById("insufficient-message"),
     answer: documentRef.getElementById("result-answer"),
     answerText: documentRef.getElementById("answer-text"),
     metadata: documentRef.getElementById("provider-metadata"),

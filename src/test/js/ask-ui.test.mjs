@@ -43,6 +43,7 @@ function uiElements() {
     documentScopeClear: new FakeElement(),
     empty: new FakeElement(), error: new FakeElement(), errorTitle: new FakeElement(),
     errorMessage: new FakeElement(), insufficient: new FakeElement(), answer: new FakeElement(),
+    insufficientTitle: new FakeElement(), insufficientMessage: new FakeElement(),
     answerText: new FakeElement(), metadata: new FakeElement(), citations: new FakeElement(),
     citationCount: new FakeElement(), contextDiagnostics: new FakeElement(),
     contextDiagnosticsList: new FakeElement(), aiEgress: new FakeElement(),
@@ -168,6 +169,75 @@ test("renders insufficient evidence separately from an answer", () => {
   assert.equal(elements.answer.hidden, true);
   assert.equal(elements.citations.children.length, 0);
   assert.equal(elements.metadata.hidden, true);
+  assert.equal(elements.insufficientTitle.textContent, "目前沒有足夠證據");
+  assert.match(elements.insufficientMessage.textContent, /無法形成可引用的回答/);
+});
+
+test("distinguishes zero retrieval from provider insufficiency using safe diagnostics", () => {
+  const zero = uiElements();
+  renderAskResponse(zero, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true,
+    executionMetadata: { contextDiagnostics: {
+      retrievedEvidenceCount: 0, admittedEvidenceCount: 0, answerContextBlockCount: 0,
+      providerUsageStatus: "NOT_ATTEMPTED"
+    } }
+  } }, documentRef);
+  assert.equal(zero.insufficientTitle.textContent, "搜尋未找到可用內容");
+  assert.match(zero.insufficientMessage.textContent, /正文中的關鍵字/);
+
+  const provider = uiElements();
+  renderAskResponse(provider, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true,
+    executionMetadata: { contextDiagnostics: {
+      retrievedEvidenceCount: 2, admittedEvidenceCount: 2, answerContextBlockCount: 1,
+      providerUsageStatus: "AVAILABLE", rawProviderResponse: "secret"
+    } }
+  } }, documentRef);
+  assert.equal(provider.insufficientTitle.textContent, "相關內容不足以形成回答");
+  assert.match(provider.insufficientMessage.textContent, /已找到相關內容/);
+  assert.doesNotMatch(provider.insufficientMessage.textContent, /secret/);
+
+  const providerWithoutUsageCounters = uiElements();
+  renderAskResponse(providerWithoutUsageCounters, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true,
+    executionMetadata: { contextDiagnostics: {
+      retrievedEvidenceCount: 1, admittedEvidenceCount: 1, answerContextBlockCount: 1,
+      providerUsageStatus: "UNAVAILABLE"
+    } }
+  } }, documentRef);
+  assert.equal(providerWithoutUsageCounters.insufficientTitle.textContent,
+    "相關內容不足以形成回答");
+
+  const notAttempted = uiElements();
+  renderAskResponse(notAttempted, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true,
+    executionMetadata: { contextDiagnostics: {
+      retrievedEvidenceCount: 1, admittedEvidenceCount: 1, answerContextBlockCount: 1,
+      providerUsageStatus: "NOT_ATTEMPTED"
+    } }
+  } }, documentRef);
+  assert.equal(notAttempted.insufficientTitle.textContent, "目前沒有足夠證據");
+
+  const impossibleZeroWithProvider = uiElements();
+  renderAskResponse(impossibleZeroWithProvider, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true,
+    executionMetadata: { contextDiagnostics: {
+      retrievedEvidenceCount: 0, admittedEvidenceCount: 0, answerContextBlockCount: 0,
+      providerUsageStatus: "AVAILABLE"
+    } }
+  } }, documentRef);
+  assert.equal(impossibleZeroWithProvider.insufficientTitle.textContent,
+    "目前沒有足夠證據");
+
+  const inconsistent = uiElements();
+  renderAskResponse(inconsistent, { data: {
+    status: "INSUFFICIENT_EVIDENCE", insufficientEvidence: true,
+    executionMetadata: { contextDiagnostics: {
+      retrievedEvidenceCount: 0, admittedEvidenceCount: 0, answerContextBlockCount: 1,
+      providerUsageStatus: "AVAILABLE"
+    } }
+  } }, documentRef);
+  assert.equal(inconsistent.insufficientTitle.textContent, "目前沒有足夠證據");
 });
 
 test("renders bounded context diagnostics including provider usage", () => {
