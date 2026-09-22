@@ -128,7 +128,7 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
         McpToolResult ask = executor.execute(
                 McpCapabilityManifest.TOOL_ASK,
                 JSON.createObjectNode()
-                        .put("question", "What is the Aurora code?")
+                        .put("question", "Aurora code")
                         .put("retrievalMode", "WIKI_ONLY"));
         assertThat(ask.isError()).isTrue();
         assertThat(ask.errorCode())
