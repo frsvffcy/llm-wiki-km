@@ -1,4 +1,4 @@
-# Use cases（current／supported）
+# 使用案例（現行／支援）
 
 > 狀態：`CURRENT`。只收錄 current product capabilities／supported flows。
 > Historical／unimplemented use cases 不混入本目錄；future candidate 另行標示 `CONDITIONAL`／`PROPOSED`
@@ -35,7 +35,7 @@
 - Wiki 消費：read-only list／read（PUBLISHED-only、content hash 驗證）。
 - Vault Lint findings 唯讀 triage（list／filter／detail＋hand-off links；零 mutation）與 governed repair ingress（`POST /api/v1/repair/proposals`，mutation 當下重驗 eligibility；走既有全流程）。
 
-### Graph（optional／degradable derived modality）
+### Graph（可選／可降級的衍生模式）
 
 - Graph projection readiness 查詢與 explicit rebuild／repair（經 canonical assembler＋SQLite lifecycle；`clear` 刻意不 public）。
 - Bounded Graph Retrieval／GraphRAG 經 admission 進入 Evidence；backend unavailable 維持 baseline。
@@ -50,7 +50,7 @@
 - Mode 2 public HTTPS：`CANDIDATE`（contract 明確，不升格）；direct raw Internet bind：REJECT。
 - Application auth 只做 admission；domain／publish／repair／Evidence authority 不變；MCP 維持 loopback read-only。
 
-### MCP（read-only adapter）
+### MCP（唯讀 adapter）
 
 - Loopback-only MCP Streamable HTTP adapter（`POST /api/mcp`）；五個唯讀 tools 經 shared application boundary 委派；無 write tools／remote bind／agent loop。
 
@@ -61,10 +61,10 @@
 - BigQuery／Spanner cloud adapter critical path、Phase 3E／3F 線性路線——早期 Historical roadmap proposal，未執行。
 - `v1.8 Graph UI`、Agent／MCP write、claim ledger、metadata filtering 等——未批准 future candidate，需 evidence gate＋另開 Issue。
 
-## Future candidate 規則
+## 未來候選項規則
 
 Evaluation 或 review 提及的 future candidate，不得因本文件存在而自動升格為 roadmap。
 Adoption 需另開 Issue 並回答 pain evidence、current 不足、authority／egress／migration／rollback 邊界、
-provider-free alternative、regression gate（見 `evaluations/README.md`）。
+不依賴 provider 的替代方案、回歸關卡（見 `evaluations/README.md`）。
 
 Refs #410、#424。相關：#306、#373、#374、#375、#379、#381、#383、#384、#393、#408、#417、#418、#422、#423。

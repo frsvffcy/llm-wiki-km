@@ -2,7 +2,7 @@
 
 以本機為優先的個人知識庫，使用 Java 21 與 Spring Boot 建置。你可以在隔離的工作區匯入來源文件、閱讀已發布的 Wiki、提出有依據的問題，並透過「提案 → 草稿 → 人工審核 → 發布」流程整理成持久知識。
 
-第一次使用產品，請先閱讀 [5–10 分鐘快速入門](docs/guides/getting-started-zh-TW.md)；想新增或修改 UI、文件、錯誤訊息與協作文字，請遵循[語言與術語規範](docs/development/language-and-terminology.md)。
+第一次使用產品，請先閱讀 [5–10 分鐘快速入門](docs/guides/getting-started-zh-TW.md)；想新增或修改 UI、文件、錯誤訊息與協作文字，請遵循[語言與術語規範](docs/development/language-and-terminology.md)。架構細節與各能力的權威來源集中在[現行架構索引](docs/architecture/README.md)。
 
 ## 前置需求
 
@@ -19,501 +19,54 @@
 整合測試             mvn test -Pintegration
 CI 建置完整性        mvn clean verify -Pbuild-integrity
 本機完整 canary      mvn clean verify -Pfull
+語言治理             node scripts/check-language-governance.mjs
 ```
 
-若只要確認套件可以建置，可執行下列 smoke check；這不是最終 PR gate。完整的開發者測試分層請參閱
-[測試與驗證指南](docs/development/testing.md)。
-
-```bash
-mvn clean package
-```
-
-以 `main` 為目標的 Pull Request 會執行六個 evidence job（PR Metadata、Fast、Integration、production
-ArcadeDB Graph adapter、Build Integrity、sqlite-vec smoke），再由整合的 `PR Gate` job 檢查合併安全性。
-乾淨的完整回歸是 Maven-only 的 post-merge、nightly 與手動 canary；Browser JavaScript 回歸由 PR Fast
-job 負責，不包含在 `mvn clean verify -Pfull`。詳細流程請參閱
-[測試與驗證指南](docs/development/testing.md)。
+以 `main` 為目標的 Pull Request 會執行 PR metadata、快速測試、整合測試、ArcadeDB Graph adapter、建置完整性與 sqlite-vec smoke 六組工作，再由 `PR Gate` 判斷是否可合併。完整分層、責任歸屬與本機指令請參閱[測試與驗證指南](docs/development/testing.md)。
 
 ## 啟動
 
 ```bash
+mvn clean package
 java -jar target/llm-wiki-km-0.2.1.jar
 ```
 
 應用程式預設只監聽 `127.0.0.1:8765`。啟動後以瀏覽器開啟 <http://127.0.0.1:8765/>；瀏覽器只呼叫本機 REST API，不直接接觸 SQLite、工作區檔案或服務提供者金鑰。
 
-### 本機排錯日誌
-
-預設啟動模式以終端機作為主要診斷輸出，不需要開全域 DEBUG：
-
-- HTTP 500 會輸出 `ERROR` + stack trace。
-- 其他 5xx 會輸出 `WARN` + stack trace。
-- 一般 4xx validation / not-found 維持 DEBUG，避免正常操作淹沒終端機。
-- 非預期的背景 ingest failure 會輸出 job/workspace/document ID 與 stack trace；不主動把檔名、文件內容或 request query/body 寫成 log 欄位。
-
-若要在一次真人測試期間保留 log 檔，可明確 opt-in：
-
-```bash
-mkdir -p logs
-java -jar target/llm-wiki-km-0.2.1.jar --logging.file.name=logs/llm-wiki-km.log
-```
-
-不建議把 file logging 當預設常駐設定，因為 stack trace 可能包含本機路徑或第三方 exception detail。分享 log 前仍應先檢查是否含私人路徑、credential 或文件內容。
-
-建議的第一個操作順序如下：
+建議的第一次操作順序：
 
 1. 在「工作區」建立或開啟知識庫。
 2. 到「收件匣」上傳一份文件，等待抽取與索引完成。
 3. 到「Wiki」閱讀已發布內容，或在「提問」取得附引用來源的回答。
 4. 若要保存回答，將它轉為提案，前往「審核」建立草稿、檢視差異，再由人工發布。
 
-Ask 的回答是暫時結果，不會自行寫入 `vault/`、`archive/` 或權威知識狀態。若啟用遠端服務，送出的資料範圍由後端設定與畫面上的 provider egress 提示決定；請在啟用前確認服務提供者、傳輸方式與資料類型。
+提問的回答是暫時結果，不會自行寫入 `vault/`、`archive/` 或權威知識狀態。若啟用遠端服務，送出的資料範圍由後端設定與畫面上的服務提供者傳輸提示決定；啟用前應確認服務提供者、傳輸方式與資料類型。
 
-Supported deployment modes: `LOCAL_ONLY` (current baseline) and `PRIVATE_INGRESS`
-(remote over a private network / VPN / overlay through bounded host-local
-forwarding to the loopback backend, with the owner session enabled and a
-validated canonical browser origin: the owner Host/Origin allowlists, the
-forwarder scope, and the cookie transport are cross-validated against
-`DEPLOYMENT_BROWSER_ORIGIN`, and a profile without that alignment reports
-`NOT_READY` instead of `SUPPORTED`). Public
-HTTPS reverse proxy stays a candidate and raw Internet bind stays unsupported.
-The current profile is reported at `GET /api/v1/system/deployment`; packaging,
-backup/restore, and the operator runbook live in
-[docs/development/issue-418-remote-deployment-operations.md](docs/development/issue-418-remote-deployment-operations.md)
-and [deploy/](deploy/README.md).
+## 部署與安全邊界
 
-## Current architecture
-
-Phase 1 currently includes SQLite FTS5, FTS-backed Retrieval, Evidence Assembly, the
-provider-neutral Answer contract, grounded prompt/response validation, the first production
-provider adapter, stateless Ask orchestration, the Ask REST API, and the Browser Ask UI. The Ask
-input area shows an application-owned provider egress indicator (local / remote secure / remote
-insecure explicit opt-in / disabled-unavailable) with a data-category disclosure via
-`GET /api/v1/system/ai-provider-egress`; it never exposes credentials or raw endpoints, and the
-execution-level fact of whether a provider was actually called stays separate from the
-configuration-level disclosure. Ask and
-Answer are an ephemeral MVP: each request is independent and cannot directly write to `vault/`,
-`archive/`, or canonical knowledge state. Any future “Save Answer to Knowledge” action must return
-to the Proposal → Draft → Human Review → Publish workflow. Sprint 7 now exposes the provider-neutral
-semantic and lexical/vector hybrid retrieval surface through additive Ask modes. `HYBRID_FTS` remains
-the Wiki + Source FTS5 corpus; `SEMANTIC_WIKI`, `SEMANTIC_SOURCE`, and `HYBRID_VECTOR` select the
-semantic strategies defined by the retrieval contract. `HYBRID_VECTOR` may report a safe degraded
-lexical fallback when vector search is unavailable, while `SEMANTIC_*` fails closed with a typed
-unavailable response. `HYBRID_GRAPH` composes the lexical, vector, and graph channels through
-application-owned deterministic fusion with a last-mile Ask handoff currentness guard; a degraded
-graph projection is reported as typed response diagnostics without degrading the lexical + vector
-baseline, and the Browser Ask UI offers the mode as “Wiki 與來源文件（圖譜增強）”. These modes describe
-available retrieval contracts, not semantic corpus
-readiness: semantic serving additionally requires backend capability configuration, a `READY`
-embedding projection for the requested workspace and corpus, and query-time metadata, freshness,
-and authority validation. SQLite remains the operational/control plane for the relational schema,
-SQLite FTS5, readiness, and authority/provenance enforcement; it is not being migrated or
-replaced. Phase 3A is complete: it provides the provider-neutral Knowledge Graph domain/projection
-contract, including immutable Graph Entity, Relation, Provenance, stable identity, workspace scope,
-bounded metadata, deterministic rebuild input, projection snapshot/version, and typed projection
-failures. Phase 3B is also complete: the embedded multi-model feasibility spike in #240 is recorded
-as a `CONDITIONAL GO` in [ADR 0008](docs/adr/0008-arcadedb-embedded-projection-feasibility-spike.md).
-The Phase 3 production-adoption gate in #244 then promoted ArcadeDB Engine 26.9.1 into a safe-default
-disabled production Graph projection adapter and received a lifecycle-only `GO` in
-[ADR 0009](docs/adr/0009-arcadedb-production-projection-adoption.md). SQLite remains the authoritative
-control plane for workspace-scoped monotonic generations, lifecycle/readiness, operation ownership,
-and compare-and-set recovery. ArcadeDB stores only application-owned snapshot proof and disposable,
-rebuildable Graph projection data. Missing, stale, incompatible, locked, or unreadable backend state
-fails closed and cannot remain `READY`. Phase 3C #252 adds a provider-neutral bounded outgoing
-Graph traversal read contract with deterministic candidates, non-bypassable hard caps, and
-query-time lifecycle/backend/canonical snapshot validation. Issue #253 advances the canonical
-profile to `graph-projection-v2`, admitting deterministic `LINKS_TO`, `TAGGED_WITH`, and
-`DERIVED_FROM` evidence while requiring a full versioned rebuild and mixed-version fail-closed
-serving. Issue #260 adds the Graph candidate → canonical evidence admission boundary: traversal
-results are revalidated against the projection snapshot at admission time (closing the
-consumption window), and every candidate is revalidated against workspace, provenance, relation
-profile, freshness, and canonical Wiki/Source authority before it becomes an `EvidenceItem` under
-a hard admission budget. Issue #262 adds the application-owned deterministic fusion of the
-lexical, vector, and graph channels: identity-level reciprocal rank fusion with no raw
-cross-scale score addition, canonical identity dedupe across modalities, hard global and
-per-modality budgets, typed per-modality degradation, and a terminal publication guard that
-revalidates every selected item before results leave the fusion boundary. Issue #264 connects
-that fusion to Ask through the additive public mode `HYBRID_GRAPH` served by the application-owned
-`FusedRetrievalOrchestrator`: a last-mile Ask handoff guard re-checks the graph projection
-snapshot and every item's canonical authority in a fresh consumption window before the
-`EvidenceBundle` leaves the retrieval boundary, drops are never silently backfilled, a degraded
-graph signal stays typed diagnostics that do not drag down the lexical + vector baseline, and
-infrastructure failures stay typed instead of becoming insufficient evidence. Issue #265
-productizes the mode for Ask REST and the Browser Ask UI: the controller and the UI stay
-adapter-only (mode selection/validation, DTO mapping, error mapping, safe diagnostics
-presentation, and citation rendering), the mode selector describes the capability as a
-graph-enhanced retrieval mode without exposing backend implementation, and a degraded graph
-signal renders as a safe notice while the answer and citations remain valid. Graph failures at
-every optional-graph boundary follow one shared failure normalization policy: operational
-backend/control-plane faults degrade the graph modality with typed diagnostics while the
-lexical + vector baseline continues, integrity/correctness violations fail closed with a typed
-retrieval failure instead of being disguised as degradation, and no silent backfill occurs
-after a drop. The Graph projection also has a provider-neutral operational REST surface
-(`/api/v1/graph/projection/readiness`, `/rebuild`, `/repair`): readiness is a status query,
-rebuild and repair are explicit operator actions that always go through the canonical assembler
-and the SQLite-authoritative lifecycle, the status projection never exposes fingerprints,
-tokens, or backend identities, and the destructive `clear` operation is intentionally not
-public. Every diagnostic that crosses a persistence or REST boundary is an operator-safe
-projection under one shared application-owned redaction policy (`DiagnosticRedaction`):
-public REST errors carry stable codes with allowlisted or sanitized messages (HTTP statuses
-and codes stay typed), persisted failure details carry a stable reason plus a sanitized
-summary with no exception class names, cause chains, paths, secrets, SQL fragments, or
-backend identities, and the full root cause chain stays server-side in the application log.
-FTS rebuild admission is an atomic contract: a duplicate admission for the same workspace
-with an overlapping physical corpus (`ALL` overlaps both `WIKI` and `SOURCE`; `WIKI` and
-`SOURCE` may run concurrently) is a typed conflict (`FTS_REBUILD_IN_PROGRESS`, HTTP 409),
-the job insert and the ownership claim run inside one SQLite write transaction so a rejected
-admission never leaves an orphan job or a stolen owner, and a late worker completion can
-only complete the state it owns. Document ingestion is structure-preserving and versioned:
-parsers return typed structural blocks (application-owned gapless ordinals, a minimal
-`HEADING`/`PARAGRAPH`/`TABLE`/`FIGURE`/`CAPTION` kind set, heading levels, page numbers, and
-optional nullable bounding boxes) plus parser provenance, so the chunking policy never
-reverse-engineers structure from flat text. The active chunking policy is selected by
-`app.source.chunking.policy-version` (the default `chunk-policy-v1-current` stays
-byte-equivalent to the previous flat-text chunker; the structure-aware
-`chunk-policy-v2-heading-anchor` keeps a heading bound to its first paragraph and emits
-tables/figures/captions as standalone atomic chunks), every persisted chunk is stamped with
-that version (`source_chunk.chunk_policy_version`), and a policy switch requires re-extraction
-to rebuild chunks along the existing FTS sync and embedding paths. Parsed structure and
-chunks remain derived, rebuildable projections and never become citation authority. A
-read-only Retrieval Inspector (`GET /api/v1/retrieval/inspect` and a Browser panel) lets you
-see exactly one retrieval execution through the production path itself — per-modality
-candidates with modality-local ordinals, the active fusion policy version and fused order,
-canonical authority admission with typed rejection codes (lexical/vector
-`AuthorityRejectionReason`; graph reusing the graph evidence/projection taxonomies), typed
-modality degradation, and the final evidence order, which is identical to the Ask handoff
-because it is the same execution observed by an optional collector. Every source citation in
-an answer is navigable: clicking it opens a read-only Source Chunk inspector backed by an
-application-owned locator (`GET /api/v1/source-chunks/{id}/locator`) that resolves the chunk
-against the active workspace and the same canonical eligibility contract retrieval revalidates
-against. Locators carry safe navigation metadata (document, chunk number, page, section,
-heading path) plus a bounded authoritative preview only while the chunk still matches
-canonical authority — a chunk that drifted after the answer is shown as explicitly
-not-current with a typed reason and no content, and re-extracted, unknown, or cross-workspace
-chunk ids all share the same safe not-found semantics. Citation identity never changes; the
-locator never participates in identity, ranking, or authority, never exposes filesystem
-paths, vendor ids, or raw parser metadata, renders source text safely as text only, never
-mutates canonical state, and is forward-compatible with future structural block ids or
-bounding regions from layout-aware parsers. The inspector never calls
-an answer provider, never mutates canonical state, exposes no raw backend scores, RIDs,
-tokens, fingerprints, or exception details, offers no ranking sliders, and adds no eighth
-ranking semantics beyond the existing seven public modes. A deterministic offline quality gate
-(`GraphRetrievalQualityGateTest`, golden corpus `graph-retrieval-golden-v1`) drives the
-production-equivalent pipeline over real FTS, real readiness/authority boundaries, and a real
-ArcadeDB projection, gates identity-level recall@8/MRR/safety floors across
-`HYBRID_FTS`/`HYBRID_VECTOR`/`HYBRID_GRAPH`, and proves the graph channel adds graph-only
-discovery while stale, foreign, and `MENTIONS`-only material stays un-retrievable in every
-mode. A second versioned generalization corpus
-(`GraphRetrievalEvaluationCorpusV2`, `graph-retrieval-evaluation-v2`) extends the same
-production-equivalent gate to every admitted relation path — `LINKS_TO` 1-hop with a
-cross-modality duplicate, 2-hop through an intermediate hub, multi-target discovery,
-`DERIVED_FROM`→`CONTAINS` to a `SOURCE_CHUNK` citation authority (the intermediate
-`SOURCE_DOCUMENT` node is rejected as non-citation authority), a `MENTIONS` plain-text NO-GO
-negative, and a dead-end `TAGGED_WITH` node — and runs the calibrated production policy
-against the baseline policy with per-class diagnostics and a GO/NO-GO decision recorded in
-`target/quality-reports/`. The fused ordering itself is a versioned, bounded ranking policy calibrated offline
-against the golden corpus plus an isolated holdout set, leave-one-query-out folds, and a
-sensitivity neighborhood (the selected `fusion-rrf-v2-graph-damped` policy improves fused MRR
-from 0.833 to 1.000 on the golden corpus without touching the non-fused modes). It still does
-not add a Graph traversal REST endpoint, graph visualization, inferred relations, or GraphRAG.
-ArcadeDB is not a SQLite replacement or migration target, canonical knowledge store, or domain
-authority. Neo4j, RyuGraph, BigQuery Graph, and Spanner Graph remain future adapter candidates
-subject to adoption gates. Graph candidates reach `EvidenceBundle` only through
-`GraphEvidenceAdmissionService`, which revalidates the traversal snapshot at admission time and
-enforces workspace-scoped authority, provenance, freshness, and eligibility revalidation per
-candidate before producing canonical evidence identity
-(`WIKI:<knowledgeId>` / `SOURCE_CHUNK:<sourceChunkId>`). If a graph backend is unavailable, the
-lexical + vector baseline remains in effect; a vector/backend outage continues to use the existing
-typed degraded lexical fallback semantics. No
-backend is canonical, browser-accessible, or the domain contract; vendor APIs, record models,
-Cypher, GQL, SQL-PGQ, and DTOs remain behind adapters. See
-[ADR 0007](docs/adr/0007-provider-neutral-knowledge-graph-and-graph-retrieval.md).
-
-Graph projection remains opt-in and its path is trusted application configuration, not request
-input:
-
-```text
-GRAPH_PROJECTION_ENABLED=false
-GRAPH_PROJECTION_PROVIDER=arcadedb
-GRAPH_PROJECTION_PATH=data/graph
-```
-
-The supported deployment baseline is embedded, local-first, and single-process. A second writer or
-process-like open fails closed through application/session ownership and ArcadeDB file locking;
-multi-process concurrent writes, a Graph server, cluster, and HA are not supported. The derived
-database may be deleted and rebuilt from authoritative input, so backing it up is optional and is
-never a canonical correctness dependency.
-
-The capability decision, platform matrix, fallback semantics, and dependencies for #183–#185 are
-recorded in [ADR 0003](docs/adr/0003-vector-capability-and-sqlite-vec-feasibility.md). Native
-extension path/loading details stay behind the SQLite adapter and are not exposed to Browser,
-REST, or Ask. The pinned JDBC smoke can be run with Java 21 after extracting the official
-sqlite-vec v0.1.9 loadable artifact:
+目前支援 `LOCAL_ONLY` 與 `PRIVATE_INGRESS`。後者只允許經私人網路、VPN 或 overlay 將流量轉送到 loopback 後端，並要求 owner session、`Host`／`Origin` allowlist、轉送範圍、cookie transport 與 `DEPLOYMENT_BROWSER_ORIGIN` 一致；不一致時回報 `NOT_READY`。不支援直接綁定公開網際網路。
 
 ```bash
-JAVA_HOME="$(/usr/libexec/java_home -v 21)" PATH="$JAVA_HOME/bin:$PATH" \
-  scripts/sqlite-vec-jdbc-smoke.sh /absolute/path/to/vec0.dylib
+curl http://127.0.0.1:8765/api/v1/system/deployment
+curl http://127.0.0.1:8765/api/v1/system/ai-provider-egress
 ```
 
-The grounded model contract is `grounded-answer@v2`. Model output contains only answer text,
-application-issued citation ids, and the insufficient-evidence flag; provider/model identity is
-created by the provider adapter from the HTTP envelope or configured model. Optional usage is read
-only from the provider transport envelope. Unknown structured fields, including legacy model
-`metadata` or `usage`, are rejected. This internal v1-to-v2 change has no runtime v1 compatibility
-parser because responses are not persisted and there is one production caller. The decision and
-boundary are recorded in [ADR 0002](docs/adr/0002-grounded-answer-contract-v2.md).
+封裝、備份還原與操作說明見[遠端部署操作記錄](docs/development/issue-418-remote-deployment-operations.md)與 [deploy/](deploy/README.md)。瀏覽器不持有 provider key；公開錯誤不應包含絕對路徑、SQL、token、raw exception 或 provider payload。
 
-## Ask UI
+## 現行架構摘要
 
-Start the application with the command above, then open
-`http://127.0.0.1:8765/` in a browser. Enter a question, choose a retrieval mode (including
-semantic Wiki/source, `HYBRID_VECTOR`, or the graph-enhanced `HYBRID_GRAPH`), and submit it.
-`HYBRID_FTS` is explicitly full-text
-search. Each submission is an independent request; the browser does
-not keep question or answer history. Answers show the returned citation provenance only—no
-local files or provider endpoints are opened by the UI. When the graph signal is degraded or
-temporarily unavailable, the answer and its citations stay valid and the UI shows a safe
-degradation notice instead of a failure.
+- SQLite 是關聯式資料、FTS5、就緒狀態與權威來源驗證的操作／控制平面；Flyway 是 schema 演進的唯一來源。
+- `archive/` 與 `vault/` 保存不可重建的知識資產；向量嵌入與圖譜是可重建的衍生投影。
+- `HYBRID_FTS` 使用 Wiki 與來源文件 FTS；`SEMANTIC_WIKI`、`SEMANTIC_SOURCE`、`HYBRID_VECTOR` 與 `HYBRID_GRAPH` 提供額外檢索模式。
+- 純語意模式在投影未就緒時預設拒絕；混合模式可用具型別的診斷安全降級，但不得把過期或跨工作區資料當成證據。
+- 所有候選項成為可引用證據前，都必須重新驗證工作區、來源、現行性與資格。
+- Ask、REST 與 MCP 共用 application service；adapter 之間不互相呼叫，也不建立第二套檢索流程。
 
-## Graph projection 操作
+完整的能力地圖、API、schema、系統總覽與使用案例見 [docs/architecture/README.md](docs/architecture/README.md)。已發布 ADR 保留決策歷史，不由 README 重複定義。
 
-Browser UI 也提供 active workspace 的 Graph projection readiness 面板，以及明確的
-`Rebuild`／`Repair` 操作。操作只呼叫既有本機 REST API，不上傳 entities／relations，也不在
-Browser 重實作 lifecycle、currentness 或 generation policy。作業進行中 controls 會鎖定，完成後
-會重新讀取 readiness；typed failure、malformed response 與 network failure 會以安全文字呈現，
-不外洩 backend identity、path、RID、token 或 raw exception。`clear`、`reset`、`delete` 與
-backend console 不屬於 Browser public surface。
+## 工作區 API
 
-The answer provider is disabled by default. For a production answer provider, configure the
-backend with environment variables such as the following placeholder values before startup:
-
-```text
-ANSWER_PROVIDER_ENABLED=true
-ANSWER_PROVIDER=openai-compatible
-ANSWER_PROVIDER_BASE_URL=https://provider.example/v1
-ANSWER_PROVIDER_ALLOW_INSECURE_TRANSPORT=false
-ANSWER_PROVIDER_MODEL=<model-name>
-OPENAI_API_KEY=<provider-secret>
-```
-
-When the provider is not configured, Ask displays a safe `尚未設定回答服務` error. Provider
-credentials are backend configuration only and are never entered into or sent from the browser.
-Provider base URLs should use HTTPS. For local development, plain HTTP is allowed by default only
-for the exact loopback hosts `localhost`, `127.0.0.0/8`, and `[::1]`; a hostname such as
-`localhost.evil.example` is not loopback. A non-loopback `http://` URL is rejected before any
-request is sent. It requires the explicit backend opt-in
-`ANSWER_PROVIDER_ALLOW_INSECURE_TRANSPORT=true`, which exposes the provider credential and request
-content to the network and should not be enabled for production.
-
-## Semantic projection operations
-
-Semantic retrieval is backed by a rebuildable embedding projection. A successful Wiki publish and
-eligible Source extraction/index update enqueue an asynchronous `EMBEDDING_REBUILD` processing job;
-the Browser request never waits for provider calls. Immediately before incremental enqueue, the
-affected corpus is persisted as `STALE`, so a transaction-create, durable-enqueue, or dispatch
-failure cannot leave a false `READY` state. The canonical mutation is never rolled back; the
-readiness row's bounded diagnostic tells an operator that rebuild/repair is pending. Canonical
-Markdown, archive/vault metadata, and normalized Source content remain the authority. Projection
-rows can therefore be deleted and rebuilt without changing canonical data.
-
-There are three separate operational checks:
-
-1. **Capability** — the backend embedding provider and, for vector candidate search, the configured
-   vector capability must be available. These settings are not accepted from Browser requests.
-2. **Projection** — the active workspace has independent `WIKI` and `SOURCE` readiness rows. A
-   rebuild is queued and processed asynchronously; only `READY` is a semantic serving state.
-3. **Query** — the request's provider/model/dimension and projection contract must match, and each
-   candidate is revalidated against current workspace-scoped authority and freshness before it can
-   become evidence.
-
-Configure the embedding/vector boundary only on the backend (never in Browser requests):
-
-```text
-EMBEDDING_PROVIDER_ENABLED=false
-EMBEDDING_PROVIDER=openai-compatible
-EMBEDDING_PROVIDER_BASE_URL=https://provider.example/v1
-EMBEDDING_PROVIDER_ALLOW_INSECURE_TRANSPORT=false
-EMBEDDING_PROVIDER_MODEL=<model-name>
-EMBEDDING_PROVIDER_API_KEY=<provider-secret>
-EMBEDDING_PROVIDER_DIMENSION=1536
-VECTOR_CAPABILITY_ENABLED=false
-VECTOR_EXTENSION_PATH=/absolute/path/to/vec0.dylib
-```
-
-Embedding provider URLs follow the same backend transport policy as the Answer provider: HTTPS is
-the normal deployment setting, exact loopback HTTP is the local-development exception, and remote
-plain HTTP requires the explicit `EMBEDDING_PROVIDER_ALLOW_INSECURE_TRANSPORT=true` opt-in. The
-opt-in is disabled by default and should be treated as a security risk because embedding inputs
-and the provider credential would cross the network without TLS.
-
-For an existing workspace, start an asynchronous initial/full rebuild for `ALL`, `WIKI`, or `SOURCE`,
-then inspect the active workspace's per-corpus state:
-
-```bash
-curl -X POST 'http://127.0.0.1:8765/api/v1/search/index/embedding/rebuild?corpus=ALL'
-curl 'http://127.0.0.1:8765/api/v1/search/index/embedding/readiness'
-# Use the returned jobId to track the operation itself:
-curl 'http://127.0.0.1:8765/api/v1/search/index/embedding/rebuild/<jobId>'
-```
-
-The rebuild job endpoint is an **operation-tracking** contract: it reports the workspace-scoped
-`EMBEDDING_REBUILD` Processing Job lifecycle, counters, timestamps, immutable operation corpus, and sanitized failure
-diagnostics. It returns the existing Processing Job status enum (`QUEUED`, `RUNNING`, `COMPLETED`,
-`FAILED`, `CANCELLED`, or `PAUSED`); a `COMPLETED` job with failed items additionally reports
-`failureCode: PARTIAL_FAILURE` without changing the persisted enum status. Unknown, cross-workspace,
-and unrelated job IDs all return the same `404 PROCESSING_JOB_NOT_FOUND` response.
-
-Example response shape:
-
-```json
-{
-  "data": {
-    "jobId": "<jobId>",
-    "jobType": "EMBEDDING_REBUILD",
-    "corpus": "ALL",
-    "status": "COMPLETED",
-    "totalCount": 1,
-    "processedCount": 1,
-    "successCount": 1,
-    "failedCount": 0,
-    "skippedCount": 0,
-    "createdAt": "2026-09-03T00:00:00Z",
-    "startedAt": "2026-09-03T00:00:01Z",
-    "completedAt": "2026-09-03T00:00:20Z",
-    "failureCode": null,
-    "failureSummary": null
-  }
-}
-```
-
-Failure fields contain only stable safe codes and summaries; raw logs, stack traces, provider
-responses, credentials, vectors, native extension paths, SQL, and internal exception names are not
-returned. Readiness is persisted per workspace and corpus, and the readiness endpoint reports
-the existing evidence-kind keys `WIKI` and `SOURCE_CHUNK`. It is a **semantic serving-readiness** contract, not an operation
-lifecycle query: `NOT_BUILT`/`QUEUED`/`REBUILDING` mean that a projection is not available yet; `PARTIAL`,
-`FAILED`, and `STALE` are explicit degraded states requiring a rebuild. Only `READY` permits the
-corresponding semantic signal. A `READY` projection with zero semantic candidates is a legitimate
-no-match. `SEMANTIC_WIKI` and `SEMANTIC_SOURCE` fail closed with typed projection-readiness
-semantics when not ready; `HYBRID_VECTOR` may use lexical fallback, but its response diagnostics
-mark that fallback as degraded. Provider/model/dimension or projection contract changes mark
-existing readiness `STALE` before another rebuild.
-
-Embedding readiness is generation-aware. Each workspace/corpus has a monotonically increasing
-`target_generation`, an `applied_generation`, and a durable operation ledger containing one
-immutable row per processing job/corpus generation (`INCREMENTAL` or `FULL`). Projection rows carry
-their producing `projection_generation`; the persisted `projection_snapshot_token` is a deterministic
-SHA-256 boundary over the authoritative stable IDs, content hashes, projection identity, and row
-generations. `READY` is granted only when the target operation is complete, no effective operation
-is queued/running/failed, `applied_generation == target_generation`, and a complete set-based
-authority/projection proof exists. The legacy `incremental_prior_ready` column is retained for
-schema compatibility but is no longer the completeness authority.
-
-The generation state remains non-ready during `STALE`/`QUEUED`/`REBUILDING`:
-
-| Before incremental operation | Operation result | Final readiness |
-| --- | --- | --- |
-| `READY` | all projection attempts and cleanup succeed for the current generation | `READY` |
-| `NOT_BUILT`, `PARTIAL`, `FAILED`, or `STALE` | one or more projection attempts succeed without a true failure | remains non-ready (`PARTIAL`) |
-| any state | provider, authority, or dispatch failure | `PARTIAL`/`FAILED`, fail closed |
-| any state | canonical commit succeeds but durable enqueue cannot be established | `STALE`, repair required |
-
-An older completion or failure cannot overwrite a newer target. A historical failure below a later
-complete proof is ignored for current serving readiness; a failure at the newest effective
-generation remains fail-closed. Full rebuilds supersede all earlier generations at their persisted
-boundary, while later incrementals are evaluated after that full generation. This makes full versus
-incremental overlap deterministic across restart and executor scheduling. A provider/model/
-dimension/projection-version mismatch, mixed-generation identity, missing row, extra row, or legacy
-generation-zero row invalidates the proof and requires a full rebuild. Empty full rebuilds use the
-same generation and snapshot-token contract with an empty authoritative set, so an empty corpus can
-be `READY` without inventing row metadata.
-
-The incremental job counters distinguish `attempted`, `fresh/success`, `failed`, `removed`, and
-`skipped` internally. Normal orphan, deleted, superseded, or ineligible projection cleanup is
-`removed`, not `failed`; the existing Processing Job API exposes cleanup through its compatible
-`skippedCount` contract. The completed job total is `attempted + removed + skipped`, processed is
-the same total, and true `failedCount` is bounded by attempted/expected work. A successful
-incremental operation recomputes readiness counts from current workspace authority and projection
-rows, rather than presenting a one-item operation count as the corpus total.
-
-If the process stops during a rebuild, startup recovery marks every linked queued/running operation
-and processing job `FAILED`, then recomputes the current generation. An interrupted older operation
-therefore cannot damage a newer completed proof, while an interrupted current generation remains
-fail-closed; rerun the rebuild endpoint to recover. The endpoint returns a job acceptance response
-and is safe to call from local administration scripts. `target_generation` and
-`projection_snapshot_token` are stable snapshot-boundary inputs for later query-time revalidation;
-query-side TOCTOU handling remains outside this lifecycle issue.
-
-Processing Job metadata is immutable operation history: a rebuild captures its corpus (`WIKI`,
-`SOURCE`, or `ALL`) when the job row is created. The job response reads that captured metadata, so
-later rebuilds or incremental work may replace the readiness row's current `processing_job_id`
-without changing an older job response. The readiness table remains current serving state only; it
-is not a historical operation index.
-
-The metadata is a bounded, canonical `embedding-rebuild-operation-v1` JSON value containing only
-the allow-listed `schema` and `corpus` fields. Existing `EMBEDDING_REBUILD` rows created before
-this metadata was introduced, or rows with missing/invalid metadata, return no `corpus` field
-(`null`/unknown in the domain contract). The application never guesses a legacy corpus from
-current readiness state.
-
-## Processing Job 狀態查詢
-
-所有 processing job status endpoint 共用 `QUEUED`、`RUNNING`、`COMPLETED`、`FAILED`、
-`CANCELLED` 與 `PAUSED` 狀態。`COMPLETED` 只代表 runner 已完成該 operation，不代表每個
-item 都成功；`totalCount`、`processedCount`、`successCount`、`failedCount` 與
-`skippedCount` 才是 partial semantics 的 authority。當 persisted status 為 `COMPLETED` 且
-`failedCount > 0` 時，response 會保留 `status: "COMPLETED"`，並以
-`failureCode: "PARTIAL_FAILURE"` 表示部分 item 失敗。
-
-Analysis 與 FTS rebuild 都提供唯讀的 operation tracking endpoint：
-
-```bash
-# Document analysis
-curl 'http://127.0.0.1:8765/api/v1/analysis/jobs/<jobId>'
-
-# FTS rebuild
-curl 'http://127.0.0.1:8765/api/v1/search/index/rebuild/<jobId>'
-```
-
-兩者只查詢 active workspace 內且符合預期 job type 的 processing job。unknown、cross-workspace
-或 wrong-type job id 一律回傳相同的安全 `404 PROCESSING_JOB_NOT_FOUND`，不洩漏 job 是否存在
-或其所屬 workspace。`failureCode` 與 `failureSummary` 只使用穩定、allow-listed 的安全投影；
-raw exception、stack trace、path、SQL、credentials 與 provider/backend detail 只留在
-server-side log。status query 不會 retry、repair、rebuild 或修改任何 canonical／projection
-state。
-
-呼叫端不得只看 `status: "COMPLETED"` 就視為成功：必須同時檢查 `failedCount`／`failureCode`。
-`COMPLETED + failedCount > 0` 一律為 `failureCode: "PARTIAL_FAILURE"` 的部分完成；`FAILED` 的
-analysis job 會回傳 typed prompt 失敗碼（`PROMPT_TEMPLATE_NOT_FOUND`／`PROMPT_TEMPLATE_INVALID`／
-`PROMPT_VARIABLE_MISSING`／`ANALYSIS_SETTING_INVALID`）與可操作的安全摘要，item-level 失敗以
-最新失敗碼投影（persisted `processing_job_item`／`document_analysis` 同為 typed code）。
-
-Operation status 與 `/api/v1/search/index/health` 職責不同：job status 描述單一 operation 的
-生命週期、counters、immutable operation metadata 與 failure projection；health 描述 active
-workspace／corpus 目前是否可供 FTS serving，以及 missing、stale、orphan 等 projection
-問題。不要以 health row 反推歷史 job 的 corpus 或 operation 結果。
-
-## SQLite
-
-The application uses a **single canonical metadata database** (Global DB model). It stores local data in `data/knowledge.db` by default. Override the location with `KNOWLEDGE_DB_PATH` and the lock timeout with `SQLITE_BUSY_TIMEOUT_MS` (default: `5000`; must be greater than zero). Every connection enables foreign keys, WAL journal mode, the configured positive busy timeout, and `synchronous=NORMAL`.
-
-Workspace roots are portable document/vault containers; the metadata DB is application-level and independent of any workspace root. To co-locate the DB with a knowledge root, start the app with e.g. `KNOWLEDGE_DB_PATH=/path/to/root/data/knowledge.db`.
-
-## Database migrations
-
-Schema is managed with Flyway. Migrations live in `src/main/resources/db/migration/` and run automatically on startup against an empty database; already-applied migrations are never re-executed. Applied history is tracked in the `flyway_schema_history` table. A failed migration aborts application startup (the app never reaches READY state). Migration V24 adds the nullable generic `processing_job.operation_metadata_json` column; it does not backfill historical jobs because current readiness is not reliable historical evidence.
-
-## Persistence conventions
-
-- Production runtime database access uses jOOQ `DSLContext` behind repository boundaries. Do not add `JdbcClient.sql(...)`, `JdbcTemplate`, or other inline production SQL.
-- Flyway is the sole authority for schema creation and evolution. Published SQL and Java migrations are immutable; add a new migration for every schema change.
-- If jOOQ plain SQL is unavoidable, pass values as bind parameters. Never concatenate untrusted input into SQL.
-- Generated jOOQ `Tables` and `Records` stay inside the persistence layer and must not become core domain or REST API contracts.
-- Direct JDBC remains acceptable inside Flyway migrations and test infrastructure where it does not create an alternative production persistence path.
-- Generated jOOQ sources are build output and are not committed. Maven creates a temporary SQLite database, applies every SQL and Java Flyway migration, and regenerates the sources automatically during `generate-sources`; `mvn clean package` therefore requires no IDE action, existing `target/`, or private database.
-
-## Workspace API
-
-Register a Knowledge Root and create its local directory layout (`inbox/ archive/ vault/ data/ config/ logs/ temp/`):
+建立知識根目錄與 `inbox/ archive/ vault/ data/ config/ logs/ temp/` 版面：
 
 ```bash
 curl -X POST http://127.0.0.1:8765/api/v1/workspaces \
@@ -521,101 +74,82 @@ curl -X POST http://127.0.0.1:8765/api/v1/workspaces \
   -d '{"name": "Personal Knowledge", "rootPath": "/Users/me/personal-knowledge"}'
 ```
 
-Returns `201 Created`. The root path must be absolute and must not be the filesystem root or an existing file; existing directories are reused without touching their contents. Registering the same root twice returns `409 Conflict`. The new workspace becomes the single `ACTIVE` workspace (any previous one is deactivated automatically); at most one workspace is ACTIVE at any time, and startup repairs the invariant if it was ever violated.
+成功時回傳 `201 Created`。`rootPath` 必須是絕對路徑，不得是檔案系統根目錄或既有檔案；重複註冊同一路徑回傳 `409 Conflict`。新工作區會成為唯一的 `ACTIVE` 工作區。
 
-建立 workspace 時會一併以版本化預設樣板 provision `config/prompts/document-analysis.md`
-（`<!-- prompt-version: v1 -->`，含 `{{document.metadata}}` 與 `{{evidence}}`）；已存在的使用者
-prompt 永遠不會被靜默覆寫。明確的 repair 也會在 prompt 缺席時補上預設樣板（deterministic recovery），
-不會修改既有 prompt 內容，也不會寫入任何 provider secret。
-
-## Opening an existing workspace
-
-應用程式每次啟動時會載入 active workspace 並驗證 directory layout，不會建立或刪除任何檔案。
-`GET /api/v1/workspaces/current` 與開啟 workspace 的 `PUT` 具有相同的唯讀 layout 語意：缺少的
-rebuildable directories 會回報為 invalid，且 `layout.repairedDirectories` 維持空白。啟動時仍會在
-SQLite 修復 single-active workspace invariant；filesystem layout repair 則是獨立的明確操作。
-其他 endpoint 如下：
+常用操作：
 
 ```bash
-curl http://127.0.0.1:8765/api/v1/workspaces              # list all workspaces
-curl http://127.0.0.1:8765/api/v1/workspaces/current      # active workspace + layout validation report
-curl http://127.0.0.1:8765/api/v1/workspaces/1            # single workspace
+curl http://127.0.0.1:8765/api/v1/workspaces
+curl http://127.0.0.1:8765/api/v1/workspaces/current
+curl http://127.0.0.1:8765/api/v1/workspaces/1
 curl -X PUT http://127.0.0.1:8765/api/v1/workspaces/current \
   -H "Content-Type: application/json" \
-  -d '{"workspaceId": 2}'                                 # switch the active workspace
-curl -X POST http://127.0.0.1:8765/api/v1/workspaces/current/repair # 修復 active workspace layout
-curl -X POST http://127.0.0.1:8765/api/v1/workspaces/1/repair       # 修復已註冊的 workspace 1
+  -d '{"workspaceId": 2}'
+curl -X POST http://127.0.0.1:8765/api/v1/workspaces/current/repair
 ```
 
-Repair 是明確的 mutation，只能作用於 active workspace，或依 database ID 選取的 registered
-workspace；endpoint 不接受 arbitrary root path。它只會在既有 root 下建立缺少的 rebuildable child
-directories（`inbox/ archive/ vault/ data/ config/ logs/ temp/`），不會建立 missing root，也不會
-修改 canonical `archive/` 或 `vault/` 的內容。Repair 同時會在
-`config/prompts/document-analysis.md` 缺席時補上版本化預設 prompt；已存在的 prompt 不會被覆寫。
+開啟工作區只驗證版面，不會建立或刪除檔案。`repair` 是明確修改，只補上缺少的可重建子目錄與預設 `config/prompts/document-analysis.md`；不建立缺少的根目錄、不修改 `archive/` 或 `vault/`，也不覆寫既有 prompt。
 
-`GET /api/v1/system/status` reports overall state: `READY` (workspace loaded and root valid), `DEGRADED` (workspace registered but root directory missing), `NOT_INITIALIZED` (no workspace registered), or `ERROR` (database unavailable).
+## 收件匣與文件可用性
 
-## Document Analysis readiness 與 prompt 契約（#448）
-
-`GET /api/v1/system/status` 的 `READY` 只代表 workspace filesystem ready，不代表文件分析先決條件
-已就緒。文件分析是 optional capability：prompt 缺失或設定無效不會把整體應用標成不可啟動，但
-`GET /api/v1/analysis/readiness` 會明確區分 `workspaceReady`、`promptStatus`
-（`READY`／`MISSING`／`INVALID`）、`settingsValid` 與 `provider`／`model`／`maximumEvidenceChunks`，
-並以 `analysisReady` 總結 feature 是否可執行。Browser Home 的「文件分析狀態」面板即為此 endpoint
-的唯讀投影（safe text，不修改任何資料；workspace 切換會清空並重讀）。
-
-```bash
-curl http://127.0.0.1:8765/api/v1/analysis/readiness
-```
-
-`config/prompts/document-analysis.md` 必須包含 `{{document.metadata}}` 與 `{{evidence}}`；
-可選首行 `<!-- prompt-version: ... -->` 為人工版本，否則以內容 SHA-256 作為穩定版本與
-`document-analysis@<version>` 識別。未知變數、空白樣板、缺必要變數會以 typed code
-（`PROMPT_TEMPLATE_NOT_FOUND`／`PROMPT_TEMPLATE_INVALID`／`PROMPT_VARIABLE_MISSING`／
-`ANALYSIS_SETTING_INVALID`）持久化與回傳，不再被壓平成單一 `PROMPT_CONFIGURATION_FAILED`
-（該 umbrella 僅保留為防禦性 fallback）。公開訊息只含穩定 code 與 allow-listed 摘要，不含
-absolute path、secret 或 provider raw payload；`PROMPT_TEMPLATE_NOT_FOUND` 的 next action 為
-「執行 workspace repair 或還原 `config/prompts/document-analysis.md` 後重試」。
-
-設定邊界：Ask／Answer 走 `app.ai.answer.*` 與 `AnswerClient`（OpenAI-compatible adapter），
-文件分析走 `setting` 表的 allow-listed `llm.provider`／`llm.model`／
-`analysis.maximum_evidence_chunks` 與 `LlmClient`（未另配置時 production default 為
-`stub`／`offline` 離線 provider）。`app.ai.answer.*` 不會自動配置文件分析 provider；
-空 `setting` 表會正常 fallback 為 `stub`／`offline`／`50`，不需要手動 INSERT 才能完成初次分析，
-也不得以直接修改 SQLite 作為正常使用流程。
-
-## Inbox upload
-
-Upload a single document into the active workspace's `inbox/`:
-
-```bash
-curl -X POST http://127.0.0.1:8765/api/v1/inbox/files \
-  -F "file=@/path/to/document.pdf"
-```
-
-Returns `201 Created` with `documentId`, `fileName`, `status: PENDING`, and `duplicate`. The file is stored under the workspace `inbox/`, its SHA-256 is computed while streaming, and the `document` record is only kept when the file lands successfully. Path-traversal filenames are stripped to their final component; name collisions get a `-1`, `-2`, … suffix instead of overwriting. Every ingested document stores its original source filename (preserved across collision renames) plus a normalized lowercase `extension`.
-
-Browser 上傳會使用 `autoProcess=true`，由後端的 bounded single-worker ingest queue 自動執行文字抽取與 Source FTS 同步；Browser 不會自行串接 extraction/indexing，也不會用 `parseStatus` 猜測文件是否可搜尋。既有 REST 呼叫若未帶 `autoProcess`，仍維持原本只上傳、不自動處理的相容行為；需要相同行為的 API client 可明確指定：
+上傳單一來源文件：
 
 ```bash
 curl -X POST 'http://127.0.0.1:8765/api/v1/inbox/files?autoProcess=true' \
   -F "file=@/path/to/document.pdf"
 ```
 
-List the current inbox with pagination, lifecycle/extraction filters and sorting:
+Browser 使用 `autoProcess=true`，由後端單一 worker 的有界 queue 執行抽取與 Source FTS 同步。API 呼叫未帶 `autoProcess` 時只上傳、不自動處理，以維持相容性。檔名會移除 path traversal，碰到同名檔案會加上 `-1`、`-2` 等後綴，不會覆寫。
 
 ```bash
 curl "http://127.0.0.1:8765/api/v1/inbox?page=0&size=50&status=PENDING&extension=pdf&sort=createdAt,desc"
 curl "http://127.0.0.1:8765/api/v1/inbox?page=0&size=50&parseStatus=PROCESSED"
 ```
 
-Returns `{ "data": [...], "page": { number, size, totalElements, totalPages } }`. Sortable fields: `fileName`, `fileSize`, `status`, `createdAt` (default: `createdAt,desc`; max page size 200).
+`status` 是文件生命週期；`parseStatus` 是抽取生命週期。回應中的 `usability.status` 只有在 Source FTS 為 `SYNCED` 且通過同一套現行性證明時才會是 `READY_TO_USE`。`INDEX_PENDING` 與 `INDEX_STALE` 預設拒絕搜尋，Browser 不會只靠 `parseStatus` 猜測可用性。
 
-Each row keeps the two existing typed states: `status` is the document lifecycle (`PENDING`/`DUPLICATE` in the inbox projection; `DELETED`/`SUPERSEDED`/`ARCHIVED` are excluded) and `parseStatus` is the extraction lifecycle (`null` = never extracted, `PROCESSED`/`FAILED`/`UNSUPPORTED`/`NEED_OCR`). It additionally returns application-owned `usability` with `status`, `searchReady`, and `nextAction`. `READY_TO_USE` is emitted only when Source FTS is `SYNCED` and passes the same canonical freshness proof used by serving; `INDEX_PENDING` / `INDEX_STALE` remain fail-closed and are never shown as searchable. Browser uses this projection as its readiness authority.
+## 文件分析
 
-`status=` filters only `document.status` and `parseStatus=` filters only `document.parse_status`; extraction success keeps `status: PENDING` and sets `parseStatus: PROCESSED`, so a successful extract remains soft-deletable under the lifecycle contract. Re-running extraction on a `PROCESSED` row replaces its extracted bytes/chunks lineage atomically.
+整體 `READY` 只表示工作區檔案系統就緒；文件分析另有專屬檢查：
 
-## System status
+```bash
+curl http://127.0.0.1:8765/api/v1/analysis/readiness
+```
+
+`config/prompts/document-analysis.md` 必須包含 `{{document.metadata}}` 與 `{{evidence}}`。回應會區分 `workspaceReady`、`promptStatus`、`settingsValid`、`provider`、`model`、`maximumEvidenceChunks` 與總結性的 `analysisReady`。prompt 缺失或設定無效不會阻止應用程式啟動，但分析操作會以穩定錯誤碼失敗。
+
+Ask／Answer 使用 `app.ai.answer.*` 與 `AnswerClient`；文件分析使用 `setting` 表的 `llm.provider`、`llm.model`、`analysis.maximum_evidence_chunks` 與 `LlmClient`。未配置時以 `stub`／`offline`／`50` 運作，不應直接修改 SQLite 當作正常設定流程。
+
+## 提問、檢索與引用
+
+Browser 提供整個知識庫與單一文件範圍的提問。單一文件範圍會把 `documentId` 傳到後端，並在檢索與最後交接時維持相同限制。查詢投影會保留精確關鍵詞，避免自然語言填充詞讓所有候選項消失。
+
+回答必須通過引用驗證；引用身分只接受 `WIKI:<knowledgeId>` 或 `SOURCE_CHUNK:<id>`。若搜尋為零筆，畫面顯示未找到相關內容；若已找到內容但不足以形成可引用回答，則顯示不同提示。
+
+## 投影操作
+
+FTS、向量嵌入與 Graph 都有 workspace-scoped 的重建／修復工作與狀態查詢。工作狀態描述單次操作的生命週期；health endpoint 描述目前 corpus 是否可供服務，兩者不得互相推導。
+
+```bash
+curl http://127.0.0.1:8765/api/v1/search/index/health
+curl http://127.0.0.1:8765/api/v1/semantic/health
+curl http://127.0.0.1:8765/api/v1/graph/health
+```
+
+呼叫端不可只看 `status: "COMPLETED"`；必須同時檢查 `failedCount` 與 `failureCode`。`COMPLETED` 且 `failedCount > 0` 代表 `PARTIAL_FAILURE`。狀態查詢不會自動 retry、repair、rebuild 或修改權威資料／投影。
+
+## SQLite 與持久化
+
+應用程式使用單一 metadata database，預設位於 `data/knowledge.db`。可用 `KNOWLEDGE_DB_PATH` 改路徑，以 `SQLITE_BUSY_TIMEOUT_MS` 調整 lock timeout；後者預設 `5000` 且必須大於零。每個連線都啟用 foreign keys、WAL、正值 busy timeout 與 `synchronous=NORMAL`。
+
+- Flyway 是 schema 建立與演進的唯一來源；已發布 migration 不可修改。
+- Production database access 經 repository boundary 內的 jOOQ `DSLContext`；不要新增 inline production SQL。
+- 必須使用 plain SQL 時採 bind parameters，不得串接不受信任輸入。
+- 生成的 jOOQ `Tables`／`Records` 只留在 persistence layer，不成為 domain 或 REST 契約。
+- Direct JDBC 只用於 Flyway migration 與不會建立替代 production path 的測試基礎設施。
+- jOOQ 生成碼屬 build output，不提交至 Git；Maven 會在 `generate-sources` 自動重建。
+
+## 系統狀態
 
 ```bash
 curl http://127.0.0.1:8765/api/v1/system/status
@@ -630,20 +164,25 @@ curl http://127.0.0.1:8765/api/v1/system/status
 }
 ```
 
-### Canonical Graph ingress（#246）
+`READY` 表示工作區已載入且根目錄有效；`DEGRADED` 表示已註冊但根目錄缺失；`NOT_INITIALIZED` 表示尚未註冊工作區；`ERROR` 表示資料庫不可用。
 
-新增 `GraphProjectionIngressService` 作為 application 維護入口，提供 workspace-scoped rebuild、repair 與 readiness。Profile v1 僅投影 WIKI_PAGE、SOURCE_DOCUMENT、SOURCE_CHUNK 及直接 ownership 的 CONTAINS；repair 每次重新讀取 canonical input。READY 必須通過 SQLite lifecycle、backend proof 與目前 canonical fingerprint 三方驗證，canonical drift 會在 readiness check 持久化降級；重啟亦重新驗證。Graph disabled／unavailable 不阻擋 canonical 寫入。
+## 本機排錯日誌
 
-此入口不新增 REST、Graph Retrieval 或 Ask mode。數量／bytes 上限、source archive 可選驗證、publication ledger 與 SQLite writer reservation 的交易邊界，以及外部檔案編輯的時間點限制，見 [ADR 0010](docs/adr/0010-canonical-graph-ingress-currentness.md)。後續 retrieval 必須另行實作 query-time authority revalidation。
+預設以終端機作為診斷輸出：HTTP 500 使用 `ERROR`，其他 5xx 使用 `WARN`，一般 validation／not-found 4xx 維持 `DEBUG`。非預期背景 ingest failure 會記錄 job／workspace／document ID，但不主動把檔名、內容或 request body 寫成欄位。
 
-### Canonical Graph relation profile v2（#253）
+需要保留單次測試記錄時可明確啟用：
 
-`graph-projection-v2` 保留 `SOURCE_DOCUMENT --CONTAINS--> SOURCE_CHUNK`，並從 PUBLISHED Wiki 的 canonical structured evidence 建立 `WIKI_PAGE --LINKS_TO--> WIKI_PAGE`、`WIKI_PAGE --TAGGED_WITH--> TAG` 與 `WIKI_PAGE --DERIVED_FROM--> SOURCE_DOCUMENT`。Wikilink target 必須是同 workspace、目前 PUBLISHED 且 normalized title 唯一的 Wiki；tag 使用 NFC／trim／lowercase 後的 `tag:<normalized-tag>` identity；document reference 必須指向同 workspace、PROCESSED 且 eligible 的 document。普通文字不建立 `MENTIONS`，`RELATED_TO` 維持 DEFER，enum 存在不代表獲准投影。
+```bash
+mkdir -p logs
+java -jar target/llm-wiki-km-0.2.1.jar --logging.file.name=logs/llm-wiki-km.log
+```
 
-v1 升 v2 只允許 full rebuild：reservation 使用較新 generation 並清除舊 applied proof，lifecycle CAS 同時持有 version／generation／owner，ArcadeDB publication 後移除所有較舊 generation rows。舊 process 的 late callback、restart 時僅有 v1 proof，或任何 mixed-version snapshot 都 fail closed。完整 relation inventory、provenance/currentness/eligibility contract 與 hard bounds 見 [ADR 0012](docs/adr/0012-deterministic-canonical-graph-relation-profile.md)。本 Story 不接 `EvidenceBundle`、Ask、REST/UI、fusion、semantic similarity、LLM relation 或 GraphRAG。
+不建議把 file logging 設為常駐預設。分享記錄前應先檢查私人路徑、credential 與文件內容。
 
-### Bounded Graph Retrieval（#252）
+## 延伸文件
 
-`GraphTraversalService` 透過獨立的 provider-neutral read session 執行 directed outgoing BFS。Query 必須帶 exact expected snapshot；service 依序驗證 SQLite／canonical readiness、ArcadeDB proof、bounded traversal、第二次 backend proof，關閉 session 後再做最終 SQLite／canonical currentness check。任何 generation、projection version、fingerprint、token 或 workspace drift 都 fail closed，不回傳先前 materialize 的 topology。
-
-Caller bounds 不得超過 16 seeds、depth 4、per-node 32、per-hop 128、visited nodes 512、visited edges 1,024 與 candidates 200。Candidate 與 path 排序由 application stable identity 決定，不依賴 ArcadeDB RID、record order、vendor query language 或 raw score；觸及界限會回傳 typed truncation diagnostics。詳見 [ADR 0011](docs/adr/0011-bounded-graph-retrieval-snapshot-currentness.md)。本 Story 不包含 `EvidenceBundle`、Ask、REST/UI、fusion、GraphRAG 或 inferred relations；candidate 尚未取得 citation authority。
+- [文件索引](docs/README.md)
+- [架構學習指南](docs/guides/architecture-learning-guide.md)
+- [語言與術語規範](docs/development/language-and-terminology.md)
+- [測試與驗證指南](docs/development/testing.md)
+- [能力地圖](docs/architecture/capability-map.md)

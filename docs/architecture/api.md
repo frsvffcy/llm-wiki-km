@@ -12,25 +12,25 @@
   （`web.ApiError`），由 `@RestControllerAdvice` 統一轉換；Controller 保持精簡。
 - 日期 ISO-8601 UTC；分頁 `page`／`size` 最大 200。
 - 批次以 `processing_job` 為中心（非同步＋`processing_log`），HTTP 回 `202 Accepted`；per-jobId status query，
-  無 list endpoint（UI 不自造 job authority）。
+  無清單端點（UI 不自造工作權威來源）。
 - Graph public API 只允許 explicit `graph/projection/{readiness,rebuild,repair}`；Ask 維持 read-only，
   不得自動 rebuild／repair；traversal 為 internal application boundary，無 public REST endpoint。
 - Inspector（`/api/v1/retrieval/inspect`）與 locator（`/api/v1/source-chunks/{chunkId}/locator`）為
   read-only observation／navigation；citation identity（`WIKI:<knowledgeId>`／`SOURCE_CHUNK:<id>`）不變。
-- MCP（`POST /api/mcp`）為 read-only-first、loopback-only adapter；另一個 adapter，不是新 authority。
+- MCP（`POST /api/mcp`）為唯讀優先、僅限 loopback 的 adapter；另一個 adapter，不是新的權威來源。
 - Owner session（`POST`／`GET`／`DELETE /api/v1/owner/session`＋`/rotation`）為 single-user
   admission boundary（`web/security/`；local-only 預設關閉；cookie／Bearer 雙 credential 同一
   server-side authority；contract 細節以 controller＋tests 為準）。
 - Deployment readiness（`GET /api/v1/system/deployment`）為唯讀 operator-safe 投影
- （`system/`；mode／supportState／backendBind＋bounded booleans；invalid 回 `NOT_READY`）。
+ （`system/`；mode／supportState／backendBind＋有界布林值；無效設定回 `NOT_READY`）。
 
-### Ask document scope 與 retrieval mode
+### Ask 文件範圍與檢索模式
 
 `POST /api/v1/ask` 未帶 `documentId` 時，既有 `retrievalMode` corpus／strategy 語意完全不變。
-帶入 application-owned 正整數 `documentId` 時，document scope 對 corpus 有最高優先權：只搜尋該份
+帶入應用程式持有的正整數 `documentId` 時，文件範圍對 corpus 有最高優先權：只搜尋該份
 `SOURCE` 文件；`retrievalMode` 只選擇該文件內的 retrieval strategy，不得再被解讀成 Wiki corpus。
 
-| public `retrievalMode` | scoped resolved corpus | scoped resolved strategy |
+| 公開 `retrievalMode` | 限定後的 corpus | 限定後的策略 |
 |---|---|---|
 | `WIKI_ONLY` | `SOURCE` | `LEXICAL` |
 | `SOURCE_ONLY` | `SOURCE` | `LEXICAL` |
@@ -40,9 +40,9 @@
 | `HYBRID_VECTOR` | `SOURCE` | `HYBRID` |
 | `HYBRID_GRAPH` | `SOURCE` | `FUSED` |
 
-scoped response 的 `retrievalMetadata` 會回傳 `requestedMode`、`resolvedCorpus`、
-`documentScoped=true` 與既有 `strategy`；未指定文件的 response 不新增這三個欄位。Browser 在 scope
-有效時只顯示「此文件＋策略」語意，清除 scope 或切換 workspace 後恢復原本未限定範圍的選項文案。
+限定範圍的 response，其 `retrievalMetadata` 會回傳 `requestedMode`、`resolvedCorpus`、
+`documentScoped=true` 與既有 `strategy`；未指定文件的 response 不新增這三個欄位。Browser 在範圍
+有效時只顯示「此文件＋策略」語意，清除範圍或切換 workspace 後恢復原本未限定範圍的選項文案。
 
 ## Current holders（導航級；實際 mapping 以 code／tests 為準）
 
@@ -81,7 +81,7 @@ GET /api/v1/jobs/{id}（早期規劃名；actual 為 per-type per-jobId query）
 ```
 
 Actual Graph contract 僅 `graph/projection/{readiness,rebuild,repair}`；`v1.5 Ask` 已交付為 Browser Ask UI，
-`v1.8 Graph UI` 未實作（Future Candidate）。版本命名對照與完整 historical inventory 見
+`v1.8 Graph UI` 未實作（未來候選項）。版本命名對照與完整歷史清單見
 `legacy/13-rest-api-v0.1.md` §150（含 Current／Historical 三態標記），但該 legacy 文件本身為 non-authoritative。
 
 Refs #410、#424。相關：#282、#292、#293、#306、#327／#330 系、#373、#374、#375、#379、#381、#417、#418、#422、#423。

@@ -14,7 +14,7 @@
 - `api.md`——current API surface、typed errors、authority boundaries（實際 URI 以 controllers／tests 為準）。
 - `legacy/`——`HISTORICAL`／non-authoritative 凍結快照；不可作 current contract。
 
-## Authority hierarchy（重申）
+## 權威來源順序（重申）
 
 ```text
 Schema authority        → Flyway migrations

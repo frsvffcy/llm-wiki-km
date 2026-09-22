@@ -1,17 +1,19 @@
 # AGENTS.md - 專案 AI 代理開發規範
 
-> 本專案為 **Local-first Personal Knowledge Manager**（Local Personal Wiki + Hybrid RAG + Knowledge Graph System）。
-> 本文件是 **stable operational map**：always-needed invariants + minimum executable workflow。
-> 深層細節以 progressive disclosure 取得（§6「Where to look」）；歷史決策保留在 ADR／PR／Issue，不常駐本文件。
+> 本專案為**本機優先的個人知識管理系統**（Local Personal Wiki + Hybrid RAG + Knowledge Graph System）。
+> 本文件是**穩定操作導覽**：只保留必要的不變條件與最低可執行流程。
+> 深層細節以漸進揭露方式取得（§7「詳細資訊索引」）；歷史決策保留在 ADR／PR／Issue，不常駐本文件。
 
 ## 0. 語言與溝通規範
 
-* Repository 的人類可讀文字以繁體中文（臺灣用語）為預設；完整詞彙、格式、場景與演進規則以 [`docs/development/language-and-terminology.md`](docs/development/language-and-terminology.md) 為單一規範來源。既有英文內容採 touched-when-edited 漸進整理，不做危險的大規模機械翻譯。
-* UI、README／current docs、公開 API `error.message`、程式註解中的意圖說明、測試描述，以及 Issue／PR／review comment／進度回報都遵循該文件；identifier、API path、class/table/column、JSON key、enum／status／error code、CLI／library／provider 名稱依規範保留英文。
+* 專案的人類可讀文字以繁體中文（臺灣用語）為預設；完整詞彙、格式、場景與執行範圍以 [`docs/development/language-and-terminology.md`](docs/development/language-and-terminology.md) 為單一規範來源。
+* `README.md`、`AGENTS.md`、`docs/README.md`、`docs/guides/**`、標示 `CURRENT` 的文件、UI、公開 API `error.message`、程式註解中的意圖說明、測試描述，以及 Issue／PR／review comment／進度回報都必須以繁中為主；CURRENT 文件不得再以 touched-when-edited 作為主要策略。
+* 可保留 class、method、package、table、column、enum、status／error code、JSON key、API path、CLI command、env var、library、framework、product、protocol、standard、branch 與 Conventional Commit type。周邊人類說明仍須使用繁中，新的英文技術詞須依術語規範登錄 allowlist。
+* `docs/architecture/legacy/**`、`docs/evaluations/**`、既有歷史 ADR／證據與明確標記的外部引用原文不回溯翻譯；不得用歷史排除範圍規避 CURRENT 關卡。
 * Commit：Conventional Commits type（`feat`/`fix`/`test`/`chore`/`refactor`/`docs`/`perf`）保留英文，冒號後說明使用繁體中文；一個 commit 只含一個邏輯變更。
 * Branch：英文小寫 slug（`feature|fix|test|cleanup/<issue>-<描述>`）；技術識別字（identifier、API path、class/table/column、CLI/library 名稱）保留英文。
 
-## 0.1 Complexity taxonomy 與 verification governance
+## 0.1 複雜度分級與驗證治理
 
 `L1`～`L5` 永遠只定義任務本身的難度、複雜度、風險與 reasoning burden；**不代表 model 等級，也不得永久綁定供應商、model 或 effort**。Issue title 只用 `[L1]`～`[L5]`；不得把 model/effort 寫入 complexity prefix，也不得建立 `[L5+]`。
 
@@ -21,16 +23,16 @@
 | L2 | 一般 implementation（少量跨 class feature、API 調整、一般 refactor） |
 | L3 | 跨模組 correctness（integration、CI、persistence、multi-class contract） |
 | L4 | 高複雜度 architecture／correctness（SQLite race、transaction、concurrency、lifecycle、migration、multi-surface） |
-| L5 | 系統級推理與審查（Sprint/Phase readiness、architecture invariant、全 repository audit） |
+| L5 | 系統級推理與審查（Sprint／Phase 就緒狀態、架構不變條件、全專案稽核） |
 
 Verification rigor 是 repository governance，不是 model/API 參數：
 
 | Mode | 最低要求 |
 | --- | --- |
 | self-check | 對自己的輸出做局部一致性檢查 |
-| review | 對照 acceptance criteria、repository evidence、tests、architecture invariants 與 CI 成果，必須提出具體 finding 或明確說明查核過的 evidence |
-| challenge | adversarial falsification：主動找 counterexample、race、authority violation、stale-state path、invalid assumption、failure-mode gap |
-| independent challenge | 不把 primary 結論當 evidence，從 repository evidence、tests、CI、architecture invariant 重建判斷；優先不同 reviewer/model + fresh context；無法 model-independent 時必須執行 fresh adversarial second pass **並明確揭露限制** |
+| 審查 | 對照驗收條件、專案證據、測試、架構不變條件與 CI 成果，必須提出具體發現或明確說明查核過的證據 |
+| 挑戰 | 對抗式證偽：主動尋找反例、競態、權威來源違規、過時狀態路徑、無效假設與失敗模式缺口 |
+| 獨立挑戰 | 不把主要結論當證據，從專案證據、測試、CI 與架構不變條件重建判斷；優先使用不同審查者／模型與全新上下文；無法做到模型獨立時，必須重新執行一次全新的對抗式審查，並明確揭露限制 |
 
 Baseline：L1 self-check；L2 self-review；L3 explicit correctness review；L4 強烈建議 independent review/challenge；L5 **強制** independent challenge + repository evidence + executable tests + CI evidence + architecture invariant verification。
 
@@ -38,21 +40,21 @@ Criterion ↔ Evidence 詳細寫法見 `docs/development/criterion-evidence-trac
 
 Task-shape routing、reviewer routing、escalation、reasoning effort 與 calibration 的完整 policy 在 `docs/development/model-routing.md`（human dispatcher/orchestrator guidance；僅在執行環境實際提供 routing capability 時才是 executable）。Executor 無 model-switch 能力時不得假裝已動態路由；須依當前工具/runner 能力執行並揭露限制。L4 review 與 L5 execution 的完整要求見該文件 §5～§6。
 
-## 0.2 Action risk / autonomy gate（#360）
+## 0.2 動作風險與自主權關卡（#360）
 
-L1～L5 只描述任務複雜度與 verification rigor（§0.1），**不得**用來證明某 agent/tool action 可自動放行。執行自主權由獨立的 **Action Risk** 軸決定（A0～A2；完整 factors、current capability mapping 與 challenge scenarios 見 `docs/development/action-risk-autonomy.md`）：
+L1～L5 只描述任務複雜度與驗證嚴謹度（§0.1），**不得**用來證明某代理／工具動作可自動放行。執行自主權由獨立的**動作風險**軸決定（A0～A2；完整因素、目前能力對照與挑戰情境見 `docs/development/action-risk-autonomy.md`）：
 
 | Level | 定義（摘要） | Autonomy |
 | --- | --- | --- |
-| A0 — OBSERVE | 無 mutation；read-only／ephemeral。**read-only ≠ no-egress**：bounded、configured、有 disclosure 的 provider egress（如 Ask）屬此層並須獨立標記 | HOTL——可自主執行，人類經輸出監督 |
-| A1 — REVERSIBLE | tracked／rebuildable／non-canonical bounded mutation：feature branch/commit/push/PR、PR merge（PR Gate 全綠後）、Issue metadata、derived projection rebuild/repair（須記錄 operational impact）、draft/proposal 建立（不含 apply/publish） | HOTL＋evidence/review——可執行，須留可稽核 evidence |
-| A2 — GATED (HITL) | canonical publish/apply、destructive/irreversible delete、default-branch direct mutation、permission/credential/secret/provider endpoint 變更、第三方可見 external write、非預期 cost、未來 MCP write／agent write surface | 執行前 **explicit human authorization**（逐次、針對該具體動作）；由既有專屬強 gate 涵蓋者（Proposal → Human Review → Publish）視為已滿足，不得削弱亦不得重複簽核 |
+| A0 — 觀察 | 無修改；唯讀／暫時性。**唯讀不等於無資料外傳**：有界、已設定且有揭露的服務提供者資料外傳（如 Ask）屬此層並須獨立標記 | HOTL——可自主執行，人類經輸出監督 |
+| A1 — 可逆 | 已追蹤／可重建／非權威內容的有界修改：功能分支、commit、push、PR、PR 合併（PR 關卡全綠後）、Issue 中繼資料、衍生投影重建／修復（須記錄操作影響）、草稿／提案建立（不含套用／發布） | HOTL＋證據／審查——可執行，須留下可稽核證據 |
+| A2 — 需人為關卡 | 權威內容發布／套用、破壞性或不可逆刪除、直接修改預設分支、權限／憑證／祕密／服務端點變更、第三方可見的外部寫入、非預期成本、未來 MCP 寫入／代理寫入介面 | 執行前須有**明確人類授權**（逐次、針對該具體動作）；由既有專屬強關卡涵蓋者（Proposal → Human Review → Publish）視為已滿足，不得削弱亦不得重複簽核 |
 
-Invariants：多因素命中取最高 level；rollback 需特權者不得標 A1；blast radius 跨 workspace/repository/canonical 至少 A2；§4 安全紅線永遠優先（紅線動作是未經授權不可執行，不是「A2 待批准」）；「使用者要求完成 Issue」≠ 對 incidental high-impact side effects 的 blanket authorization；**工具能力 ≠ 授權**（§3 preflight）；action-risk 不得綁 model/effort、不得寫入 Issue title prefix（Issue 仍只用 `[L1]`～`[L5]`）。
+不變條件：多因素命中取最高層級；回復需特權者不得標 A1；影響範圍跨工作區、專案或權威內容時至少為 A2；§4 安全紅線永遠優先（紅線動作是未經授權不可執行，不是「A2 待批准」）；「使用者要求完成 Issue」不等於概括授權附帶的高影響副作用；**工具能力不等於授權**（§3 前置檢查）；動作風險不得綁定模型／投入程度，也不得寫入 Issue 標題前綴（Issue 仍只用 `[L1]`～`[L5]`）。
 
-## 1. Repository invariants（不可退讓）
+## 1. 專案不變條件（不可退讓）
 
-### 1.1 技術棧與 persistence
+### 1.1 技術棧與持久化
 
 * Java 21（canonical）、Spring Boot 3.5.x（MVC 單體 JAR）、HTML/CSS/Vanilla JS（靜態資源，不引入前端框架）、Apache Tika、Jackson、CommonMark/flexmark、Maven 3.9+（單一 `pom.xml`）、原生 CSS。
 * SQLite（Xerial）+ Flyway（**已發布 migration 不得修改**；新 schema 只能新 migration `V{n}__{description}.sql`，放 `src/main/resources/db/migration/`）+ SQLite FTS5 + jOOQ（build-time codegen，`-Pfull` 自動重新生成；僅生成 Tables/Records，禁 DAO/POJO）。
@@ -130,7 +132,7 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 * Provider/model metadata 的 authority 是 adapter/transport/configured model；model-generated metadata 一律不可信。
 * **Diagnostic exposure boundary（#282）**：跨 persistence/REST boundary 的 diagnostic 必須是 operator-safe projection（stable code + allowlisted/sanitized message；HTTP status 與 code 由 typed exception 決定）。Exception class/cause chain/stack/本機 path/secret/SQL fragment/RID/token/provider raw response 一律不得進 response 或 persisted public field；redaction 用共用的 `web.DiagnosticRedaction`（deterministic、bounded、locale-independent）；完整 root cause 只進 server-side log。已建立的 typed failure mapping（Ask/Graph/Retrieval）不得被 sanitization 抹掉。
 
-### 1.5 Current capability boundary（短摘要；authority 在 ADR/runtime tests/testing.md）
+### 1.5 目前能力邊界（短摘要；權威來源在 ADR、執行期測試與 `testing.md`）
 
 * **Phase 1/2 baseline 已交付**：FTS + semantic/vector retrieval、Evidence assembly、grounded/citation-validated stateless Ask、provider-neutral Answer contract、Browser Ask UI。
 * **Browser first-mile（#352／#567）**：vanilla-JS hash-navigation 多視圖骨架（Home／Inbox／Ask／Inspect／Review／Quality），Home/Inbox 為既有 Workspace／Inbox／Extraction/Search application boundary 的 UI projection——workspace 建立/切換（切換後清空並重新取得 workspace-scoped state）、單檔/批次上傳（部分失敗如實呈現）、rescan、soft-delete、bounded extracted-content preview。Browser upload 以 additive `autoProcess=true` 請 backend 排入單 worker、有界 queue 的 `INGEST` job；Browser 不自行串接 extraction/indexing，也不從 `parseStatus` 猜 search readiness。Inbox 的 `usability` 由 backend 合成 active INGEST item + extraction authority + Source FTS sync/freshness；只有 `READY_TO_USE` 可宣稱可搜尋，`INDEX_PENDING`／`INDEX_STALE` fail closed。既有未帶 `autoProcess` 的 REST upload 維持相容的 upload-only 行為；無新增 canonical authority、CSP 不放寬。
@@ -158,7 +160,7 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 * Historical installed-state upgrade matrix（#322）：representative populated-state boundaries（V18 pre-CJK projection／V24 pre-embedding generation ledger／V27 pre-Graph lifecycle／V28 pre-ChunkingPolicy backfill）以真實 Flyway migration chain 升級並驗證 canonical data preservation、workspace isolation、derived projections 不 fake-current/READY（FTS recreate 的 rebuild 訊號、embedding legacy READY 無 invented generation history、graph lifecycle 不發明 READY、chunk policy backfill 無 silent 混用）、repeated migrate idempotent、application open/read smoke + health 不誤報；fixture 為 reviewable synthetic raw-SQL setup（非 binary snapshot），Flyway 仍是唯一 executable schema authority。
 * current invariants 以 published ADR、Flyway、runtime contracts、canonical testing ownership 為 authority；**禁止越級原則**：Phase gate 只限制尚未核准的 Vector/Embedding/semantic rerank/Graph/GraphRAG/特定 graph backend 技術，不得阻擋既有 FTS-backed Retrieval、Evidence Assembly 或其必要修正，也不得因架構願景新增不存在的 milestone。
 
-## 2. 核心執行指令（minimum gates）
+## 2. 核心執行指令（最低關卡）
 
 * **完整 regression 預設**：`mvn test`（不是 fast）。
 * **Coding feedback**：`mvn test -Pfast`（unit + contract；非 final gate）；單一 failed test 先重跑該 class/affected suite。
@@ -170,7 +172,7 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 
 ## 3. Git / GitHub 工作流程
 
-* `main` 是唯一正式整合分支。交付路徑固定：Issue → latest main → dedicated branch → implementation → verification → commit → push → PR targeting main → PR Gate → merge → verify fix on main → Completion Code Review Gate → close Issue。**Issue/PR 完成必須以 fix exists on latest main + CI evidence 為準**，不以 Closed/Merged metadata 判定。
+* `main` 是唯一正式整合分支。交付路徑固定：Issue → 最新 `main` → 專用分支 → 實作 → 驗證 → commit → push → 以 `main` 為目標的 PR → PR Gate → 合併 → 在 `main` 驗證修正 → 完成程式碼審查關卡 → 關閉 Issue。**Issue／PR 完成必須以修正已存在最新 `main` 且有 CI 證據為準**，不以 Closed／Merged 中繼資料判定。
 * **Completion Code Review Gate（#336）**：Completion report／PR body／test count／CI 綠燈都是 evidence，不是 implementation completeness 的 authority。有 production／executable 變更的 Issue，在進下一個 Sprint／Story 前必須 review latest `main` 的 actual code 並給出 `FULL GO / CONDITIONAL GO / NO-GO`。
   - 範圍：含 production Java/JS、schema/migration、security boundary、transport/protocol adapter、persistence/filesystem、retrieval/ranking/RAG/Graph、concurrency/currentness、public API/contract、CI-test governance executable change 者完整執行；純 docs/wording 且無 executable behavior 變更者可輕量執行（仍須確認文件未冒充 executable authority）。
    - 步驟：latest main presence → actual diff → core production code → test implementation（不只接受 test count；檢查 tests 是否鎖錯 contract）→ AC ↔ Code ↔ Test reconciliation（blocking AC 須能回答 AC → implementation location → executable test/evidence，缺一不可判 FULL GO；L3＋逐 AC evidence row 寫法見 `docs/development/criterion-evidence-traceability.md` §3）→ negative/challenge paths（malformed、fail-closed、stale/currentness、cross-workspace、security/secret、fallback、race、rollback/versioning、external interop）→ architecture residual（duplicate pipeline、adapter-to-adapter coupling、authority drift、DB/FS/provider bypass、declared-but-unused config、hidden mutable/shared state、過廣 fallback/catch）→ external protocol 對照 current official authority（self-authored tests 不得單獨證明 conformance，適用時用 official conformance/SDK interop evidence）→ CI evidence（supporting，不是替代品）。
@@ -200,28 +202,28 @@ public JobCreatedResponse processAll(ProcessAllRequest request) {
 * 變更符合已同意 scope 與 AC；不違反 §1 invariants；**Local Knowledge System documentation impact check（#306）**：修改 public API、persistent schema、major architecture contract 或 Phase/roadmap 語意時，檢查 `.ai_llm_wiki_km/`（local-only，Current/Historical/Proposed 三態）是否需要對齊，並在 PR body 如實記錄；不得假裝 PR 包含不存在的 local-only diff，也不得把 private 文件納入 Git。REST／schema 變更的 executable authority 是 runtime contracts／Flyway／ADR／tests；local 12/13 文件是 documentation projection 對照物（13 §150 current inventory），不得反向定義 runtime。
 * Bug fix 必須附 regression test；transaction/filesystem/concurrency 問題必須有 failure-path test；新 persistent table 同步 reset/cleanup guard。
 * Issue/PR body 列出實際執行的 commands 與結果；不得只寫「tests passed」。
-* 完成狀態回報：僅當 requirements + tests + PR merged into main + fix verified on main + Completion Code Review Gate decision（`FULL GO`，或 `CONDITIONAL GO` 且 residual／follow-up 已依 ownership 規則處置）+ Issue explicit completed 全部成立才回報 `DONE`；`MERGED_PENDING_AUDIT`（已 merge 未 audit）不得回報 DONE；僅在 branch/PR 上回報 `IMPLEMENTED / READY FOR MERGE`；merge 至非 main 回報 `NOT INTEGRATED`。
+* 完成狀態回報：僅當需求、測試、PR 已合併至 `main`、修正已在 `main` 驗證、完成程式碼審查關卡已有結論（`FULL GO`，或 `CONDITIONAL GO` 且剩餘事項／後續 Issue 已依歸屬規則處置），且 Issue 已明確完成時，才可回報 `DONE`；`MERGED_PENDING_AUDIT`（已合併、未稽核）不得回報 `DONE`；僅在分支／PR 上時回報 `IMPLEMENTED / READY FOR MERGE`；合併至非 `main` 時回報 `NOT INTEGRATED`。
 * Sprint Exit：P0/blocker 必須真正存在於 `main`；進入下一 Sprint／Story 前，scope 內 implementation Issues 的 Completion Code Review Gate 須為 `FULL GO`（`CONDITIONAL GO` 須已登記 residual 與 follow-up Issue）；結論 🟢 GO / 🟡 CONDITIONAL GO（有已登記的 Medium/Low 待辦）/ 🔴 NO-GO。
 * docs/AGENTS-only 且無 production/test/build/CI behavior 變更時，可依 docs-only scope 驗證並跳過 full tests，PR body 如實記錄理由；影響上述行為的變更不可套用此例外。
 
-## 6. Output / log policy
+## 6. 輸出與記錄政策
 
 * Bound tool/log output：verbose build/test log 導向 git-ignored artifact（如 `target/` 下的 `.log`/report 檔——執行前確認實際 path 已被 git-ignored），不得傾倒整份 log 進對話 context。
 * 對話只回報 command、exit/result、failure summary 與 artifact path；需要細節時再局部讀取 artifact。
 
-## 7. Where to look（navigation map）
+## 7. 詳細資訊索引
 
-| Need | Canonical source |
+| 需求 | 權威來源 |
 | --- | --- |
-| Architecture decisions / capability contracts | `docs/adr/` + current runtime contracts（controllers、application services） |
+| 架構決策／能力契約 | `docs/adr/` + 現行執行期契約（controllers、application services） |
 | Test tiers、CI ownership、canonical suite map 與 capability contract 細節 | `docs/development/testing.md` |
-| Model / executor routing（task-shape、escalation、calibration） | `docs/development/model-routing.md` |
-| Action risk / autonomy（HITL/HOTL 邊界、capability mapping） | `docs/development/action-risk-autonomy.md` |
-| Criterion ↔ Evidence（AC IDs、evidence row、artifact-first verifier、post-condition、bounded retry） | `docs/development/criterion-evidence-traceability.md` |
-| Git/CI hosting governance、visibility 變更 | `docs/development/github-delivery-governance.md` |
-| Schema execution truth | Flyway migrations（`src/main/resources/db/migration/`） |
-| REST execution truth | `@RestController` classes（多數位於各 domain package，非全部在 `web/`）+ API contract/integration tests（13 §150 current inventory 為 local 對照） |
-| Local long-form design（Current/Historical/Proposed） | `.ai_llm_wiki_km/documents/Local Knowledge System/`（local-only、非 executable authority） |
-| Usage/user journeys | `README.md`（production capability 描述） |
+| 模型／執行者路由（task-shape、escalation、calibration） | `docs/development/model-routing.md` |
+| 動作風險／自主權（HITL/HOTL 邊界、capability mapping） | `docs/development/action-risk-autonomy.md` |
+| 驗收條件 ↔ 證據（AC IDs、證據列、artifact-first verifier、post-condition、有界重試） | `docs/development/criterion-evidence-traceability.md` |
+| Git／CI 託管治理、可見性變更 | `docs/development/github-delivery-governance.md` |
+| Schema 執行事實 | Flyway migrations（`src/main/resources/db/migration/`） |
+| REST 執行事實 | `@RestController` classes（多數位於各 domain package，非全部在 `web/`）+ API contract/integration tests（13 §150 current inventory 為 local 對照） |
+| 本機長篇設計（Current／Historical／Proposed） | `.ai_llm_wiki_km/documents/Local Knowledge System/`（僅限本機、非可執行權威來源） |
+| 使用方式／使用者旅程 | `README.md`（production capability 描述） |
 
 歷史文字與已發布契約衝突時，遵循目前可驗證的契約（ADR/Flyway/runtime contracts/tests），不得以早期設計恢復不存在的 production capability。
