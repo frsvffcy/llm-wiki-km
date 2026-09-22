@@ -1,4 +1,4 @@
-# Memos Product Workflow Evaluation
+# Memos 產品工作流程評估
 
 > 分類：`TRACK_FULL`  
 > 評估日期：2026-09-21  
@@ -13,7 +13,7 @@
 
 > capture-first、derived tags、saved views、relations、portable export、MCP 與 task-level eval 等成熟 pattern，哪些能改善 current Product UX / governance，哪些已被現有 authority 覆蓋，哪些沒有 trigger 不該做？
 
-## 2. Primary evidence
+## 2. 第一手證據
 
 本次 evaluation 實際對照 external primary code / ADR，包括：
 
@@ -230,7 +230,7 @@ Current closure evidence：
 
 因此這些原則不是 future backlog，已經是 completed lineage。
 
-## 12. What not to copy
+## 12. 不應照搬的項目
 
 不採用：
 
@@ -244,7 +244,7 @@ Current closure evidence：
 - voice transcription roadmap；
 - Go / React / storage stack migration。
 
-## 13. Decision map
+## 13. 判定對照
 
 ### CURRENTLY COVERED / ADOPTED
 
@@ -268,10 +268,10 @@ Current closure evidence：
 - voice transcription；
 - social/multi-user expansion。
 
-## 14. Completion impact
+## 14. 完成影響
 
 本 evaluation 不新增 runtime、schema、API 或 production CI behavior。
 
 唯一新的 executable follow-up 是 #583；其他 product UX findings 已由 #566 系列完成。
 
-Decision：**FULL GO as long-term decision evidence；#583 retains the remaining benchmark ownership**。
+Decision：**FULL GO（作為長期決策證據）；剩餘 benchmark ownership 由 #583 持有**。
