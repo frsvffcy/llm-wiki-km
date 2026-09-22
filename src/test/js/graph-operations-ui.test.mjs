@@ -259,7 +259,7 @@ test("prevents concurrent rebuild submits while the operation and follow-up refr
 test("repair failure gives typed feedback and does not leave controls disabled", async () => {
   const elements = uiElements();
   const controller = createGraphOperationsController(elements, async () => response(
-    { error: { code: "GRAPH_PROJECTION_CORRUPT", message: "raw stack /Users/secret" } },
+    { error: { code: "GRAPH_PROJECTION_CORRUPT", message: "raw stack /Users/example" } },
     { ok: false, status: 500 }
   ));
 

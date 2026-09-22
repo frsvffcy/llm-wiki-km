@@ -2053,3 +2053,9 @@ foreign/stale/superseded/deleted fail-closed。Browser 的 zero-hit/provider-ins
 `src/test/js/ask-ui.test.mjs` 持有；backend safe counts/status 由 `ai.ask.AskServiceTest` 持有。
 完整決策、候選比較與 criterion evidence 見
 `docs/development/issue-605-scoped-ask-query-projection.md`。
+
+## Git 公開內容安全關卡（#578）
+
+PR Metadata 除既有 PR metadata／語言治理外，還必須執行 repository public-content hygiene gate。CI 同時跑 tracked tree 與 PR changed-file 模式；任一 finding 或 scanner 執行失敗都不得視為通過。
+
+本機 commit 前可用 staged 模式先檢查。掃描類別、placeholder allowlist、privacy-safe log 與 release-bundle hygiene 分工，統一記錄於 `docs/development/repository-public-hygiene.md`。

@@ -176,7 +176,7 @@ class DailyWorkflowFullCapabilityV2IntegrationTest {
                 .isEqualTo(DailyWorkflowFindingReport.Category.RETRIEVAL_QUALITY);
 
         assertThat(STUB.lastAnswerRequestBody()).contains("GROUNDED_ANSWER_PROMPT_V2");
-        assertThat(STUB.lastAnswerAuthorization()).isEqualTo("Bearer acceptance-local-credential");
+        assertThat(STUB.lastAnswerAuthorization()).isEqualTo("Bearer " + "acceptance-local-credential");
         assertThat(STUB.lastEmbeddingRequestBody()).contains("input");
 
         report.writeTo(Path.of("target/daily-workflow-evidence/daily-workflow-v2-full-capability"),

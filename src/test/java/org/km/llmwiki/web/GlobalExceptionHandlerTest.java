@@ -54,7 +54,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GlobalExceptionHandlerTest {
 
     private static final String HOSTILE =
-            "root /Users/toddyeh/workspace/secret token=abcdef123456 "
+            "root /Users/example/workspace/secret token=abcdef123456 "
                     + "Authorization: Bearer abc.def SELECT * FROM knowledge_page RID #12:0 "
                     + "{\"error\":{\"message\":\"upstream\"}}";
 
@@ -122,7 +122,7 @@ class GlobalExceptionHandlerTest {
     @Test
     void duplicateWorkspaceNeverExposesTheRootPath() {
         DuplicateWorkspaceException exception = new DuplicateWorkspaceException(
-                "/Users/toddyeh/workspace/secret-project", 7L);
+                "/Users/example/workspace/secret-project", 7L);
         ResponseEntity<ApiError> response = handler.handleDuplicateWorkspace(exception);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(code(response)).isEqualTo("WORKSPACE_ALREADY_EXISTS");

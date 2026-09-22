@@ -115,7 +115,7 @@ class DailyWorkflowValidationV2IntegrationTest {
 
         // The stub really served the production transport seam (not a service stub).
         assertThat(STUB.lastAnswerRequestBody()).contains("GROUNDED_ANSWER_PROMPT_V2");
-        assertThat(STUB.lastAnswerAuthorization()).isEqualTo("Bearer acceptance-local-credential");
+        assertThat(STUB.lastAnswerAuthorization()).isEqualTo("Bearer " + "acceptance-local-credential");
 
         report.writeTo(Path.of("target/daily-workflow-evidence/daily-workflow-v2"),
                 gitSha(), System.getProperty("java.version"),

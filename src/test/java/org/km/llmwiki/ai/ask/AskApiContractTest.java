@@ -135,7 +135,7 @@ class AskApiContractTest {
         AskCitation citation = new AskCitation("E1", org.km.llmwiki.rag.EvidenceKind.WIKI,
                 "WIKI:secret", "hash-secret",
                 new org.km.llmwiki.ai.answer.AnswerContextProvenance.Wiki(
-                        "Security", "/Users/private/vault/security.md", 3));
+                        "Security", "/Users/example/vault/security.md", 3));
         AskResult result = new AskResult(AskStatus.ANSWERED,
                 java.util.Optional.of("safe answer"), java.util.List.of(citation),
                 java.util.List.of(citation), java.util.Optional.empty(), java.util.Optional.empty(),

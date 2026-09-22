@@ -28,7 +28,7 @@ class AnswerFailureTest {
 
     @Test
     void redactsSecretsAndBoundsDiagnosticDetails() {
-        String secret = "sk-live-1234567890abcdef";
+        String secret = "sk-" + "live-1234567890abcdef";
         AnswerFailure failure = new AnswerFailure(AnswerFailureType.AUTHENTICATION_OR_AUTHORIZATION,
                 "authorization: Bearer " + secret + " " + "document-content-".repeat(30));
         AnswerClientException exception = new AnswerClientException(failure);

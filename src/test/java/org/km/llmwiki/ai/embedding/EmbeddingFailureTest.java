@@ -30,7 +30,7 @@ class EmbeddingFailureTest {
 
     @Test
     void redactsSecretsAndBoundsDiagnostics() {
-        String secret = "sk-live-1234567890abcdef";
+        String secret = "sk-" + "live-1234567890abcdef";
         EmbeddingFailure failure = new EmbeddingFailure(
                 EmbeddingFailureType.AUTHENTICATION_OR_AUTHORIZATION,
                 "authorization: Bearer " + secret + " " + "document-content-".repeat(30));

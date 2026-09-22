@@ -305,7 +305,7 @@ test("ignores malformed or stale context diagnostics safely", () => {
 test("diagnostics use text nodes and reject secret-like free-form values", async () => {
   const elements = uiElements();
   const diagnostics = contextDiagnostics();
-  diagnostics.contextPolicyVersion = "/Users/private/prompt-secret";
+  diagnostics.contextPolicyVersion = "/Users/example/prompt-secret";
   diagnostics.projectionFailureType = "RID:secret-token";
   renderAskResponse(elements, { data: {
     status: "ANSWERED", answer: "safe",
