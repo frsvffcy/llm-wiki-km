@@ -15,6 +15,8 @@ import org.km.llmwiki.source.SourceLocator;
 import org.km.llmwiki.testsupport.IsolatedIntegrationTest;
 import org.km.llmwiki.web.PageResponse;
 import org.km.llmwiki.wiki.WikiContentHash;
+import org.km.llmwiki.wiki.WikiPageType;
+import org.km.llmwiki.wiki.WikiPathContract;
 import org.km.llmwiki.workspace.CreateWorkspaceRequest;
 import org.km.llmwiki.workspace.WorkspaceService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +53,9 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
 
     @Autowired
     PublishedWikiIndexingService publishedWikiIndexingService;
+
+    @Autowired
+    WikiPathContract wikiPathContract;
 
     @Autowired
     SourceChunkIndexingService sourceChunkIndexingService;
@@ -212,8 +217,8 @@ class McpTaskEvaluationFixtureIntegrationTest extends IsolatedIntegrationTest {
                 """.formatted(knowledgeId, title, title, body);
         byte[] bytes = markdown.getBytes(StandardCharsets.UTF_8);
         String hash = WikiContentHash.sha256(bytes);
-        String logicalPath = "concepts/" + title.toLowerCase().replace(' ', '-') + ".md";
-        Path target = fixture.root().resolve("vault").resolve(logicalPath);
+        String logicalPath = wikiPathContract.resolveLogicalPath(WikiPageType.CONCEPT, title);
+        Path target = fixture.root().resolve(logicalPath);
         Files.createDirectories(target.getParent());
         Files.write(target, bytes);
 
