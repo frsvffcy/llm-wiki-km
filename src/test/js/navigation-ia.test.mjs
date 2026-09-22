@@ -79,7 +79,11 @@ test("IA groups 7 routes task-first without changing hash contract or hiding dia
   // Review carries the pending badge anchor without抢占 primary attention by itself.
   assert.match(nav[0], /id="review-pending-badge"/u);
   assert.match(nav[0], /<span id="review-pending-badge"[^>]*hidden/u,
-    "the badge starts hidden; only a positive backend count reveals it");
+    "the pending indicator starts hidden; only a positive backend count reveals it");
+  assert.match(html, /id="view-wiki"[^>]*aria-label="知識"/u);
+  assert.match(html, /<h2 data-view-heading tabindex="-1">知識<\/h2>/u);
+  assert.doesNotMatch(html, /已發布 Wiki|前往 Wiki 閱讀/u,
+    "current user-facing knowledge surfaces do not require translating Wiki into 知識");
 });
 
 test("active route is aria-current and not hover-only (#495)", async () => {
@@ -175,7 +179,7 @@ test("pending badge renders a positive count and fails closed otherwise (#571)",
     removeAttribute() { this.label = null; } };
   assert.equal(renderReviewBadge({ badge, reviewLink: link }, 3), 3);
   assert.equal(badge.hidden, false);
-  assert.equal(badge.textContent, "3");
+  assert.equal(badge.textContent, "3 件待審");
   assert.equal(link.label, "待我審核，3 件待審");
   renderReviewBadge({ badge, reviewLink: link }, 0);
   assert.equal(badge.hidden, true);
