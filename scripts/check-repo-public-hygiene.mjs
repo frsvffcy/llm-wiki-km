@@ -55,13 +55,13 @@ const CREDENTIAL_SHAPE_PATTERNS = Object.freeze([
   /\bBearer[ \t]+[A-Za-z0-9][A-Za-z0-9._~+/-]{19,}={0,2}\b/u
 ]);
 
-const MAC_HOME_PATTERN = /\/Users\/([^/\s"'\x60<>]+)(?:\/[^\s"'\x60<>]*)?/gu;
-const LINUX_HOME_PATTERN = /\/home\/([^/\s"'\x60<>]+)(?:\/[^\s"'\x60<>]*)?/gu;
-const WINDOWS_HOME_PATTERN = /\b[A-Za-z]:\\Users\\([^\\\s"'\x60<>]+)(?:\\[^\s"'\x60<>]*)?/gu;
-const SAFE_HOME_NAMES = new Set(["demo", "example", "runner", "user", "you"]);
+const MAC_HOME_PATTERN = /\/Users\/([A-Za-z0-9._-]+)(?:\/[^\s"'\x60<>]*)?/gu;
+const LINUX_HOME_PATTERN = /\/home\/([A-Za-z0-9._-]+)(?:\/[^\s"'\x60<>]*)?/gu;
+const WINDOWS_HOME_PATTERN = /\b[A-Za-z]:\\Users\\([A-Za-z0-9._-]+)(?:\\[^\s"'\x60<>]*)?/gu;
+const SAFE_HOME_NAMES = new Set(["...", "demo", "example", "me", "runner", "user", "xxx", "you"]);
 
 const GENERIC_SECRET_ASSIGNMENT =
-  /\b(password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|bearer[_-]?token)\b\s*[:=]\s*(?:"([^"]*)"|'([^']*)'|([^\s#;,]+))/giu;
+  /\b(password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|bearer[_-]?token)\b\s*[:=]\s*(?:"([^"]*)"|'([^']*)')/giu;
 
 function escapeRegex(value) {
   return value.replace(new RegExp("[.*+?^$(){}|\\[\\]\\\\]", "gu"), "\\$&");
