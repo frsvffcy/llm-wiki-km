@@ -134,14 +134,14 @@ class DailyWorkflowCorpusV2ContractTest {
         DailyWorkflowFindingReport report = new DailyWorkflowFindingReport();
         report.add("demo", "daily-guide.md",
                 DailyWorkflowFindingReport.Category.OPERABILITY, false, true,
-                "Authorization: Bearer sk-secret-value api-key=sk-other /Users/someone/vault/a.md",
-                "observed /home/other/archive/b.md /tmp/c.md",
+                "Authorization: Bearer sk-secret-value api-key=sk-other /Users/example/vault/a.md",
+                "observed /home/example/archive/b.md /tmp/c.md",
                 "surface", "authority", "metrics", "trigger");
         var finding = report.findings().get(0);
         assertThat(finding.expected())
-                .doesNotContain("sk-secret-value", "sk-other", "/Users/someone");
+                .doesNotContain("sk-secret-value", "sk-other", "/Users/example");
         assertThat(finding.observed())
-                .doesNotContain("/home/other", "/tmp/c.md");
+                .doesNotContain("/home/example", "/tmp/c.md");
         assertThat(finding.expected().length()).isLessThanOrEqualTo(500);
     }
 
