@@ -32,7 +32,7 @@ const ERROR_MESSAGES = Object.freeze({
   INVALID_REQUEST: ["要求不正確", "請確認篩選條件後再試一次。"]
 });
 
-const GENERIC_ERROR = ["Wiki 讀取失敗", "發生未預期的問題，請稍後再試。"];
+const GENERIC_ERROR = ["知識讀取失敗", "發生未預期的問題，請稍後再試。"];
 
 export function pageTypeLabel(pageType) {
   const key = typeof pageType === "string" ? pageType.toUpperCase() : "";
