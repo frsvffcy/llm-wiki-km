@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   analyzeHumanReadableMarkdown,
+  analyzeOnboardingNavigationCopy,
   collectCurrentHumanReadableSurfaces,
   runLanguageGovernance,
 } from "../../../scripts/check-language-governance.mjs";
@@ -127,6 +128,37 @@ test("實際 README、AGENTS 與 CURRENT 文件內容由語言 gate 檢查", asy
   assert.ok(result.surfaces.includes("README.md"));
   assert.ok(result.surfaces.includes("AGENTS.md"));
   assert.ok(result.surfaces.includes("docs/architecture/api.md"));
+});
+
+test("CURRENT onboarding 只接受現行導覽名稱，技術名稱不受影響", () => {
+  const current = [
+    "到「文件」上傳內容。",
+    "到「知識」閱讀已發布內容。",
+    "到「待我審核」處理兩件待審工作。",
+    "技術上仍保留 inbox/、#/wiki 與 review identifier。",
+  ].join("\n");
+  assert.deepEqual(analyzeOnboardingNavigationCopy("README.md", current), []);
+
+  const legacy = [
+    "到「收件匣」上傳。",
+    "再到「Wiki」閱讀。",
+    "最後進「審核」處理。",
+  ].join("\n");
+  const findings = analyzeOnboardingNavigationCopy(
+    "docs/guides/getting-started-zh-TW.md",
+    legacy,
+  );
+  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「收件匣」")));
+  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「Wiki」")));
+  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「審核」")));
+
+  assert.deepEqual(
+    analyzeOnboardingNavigationCopy(
+      "docs/development/architecture.md",
+      "架構文件可描述 Wiki、inbox/ 與 review contract。",
+    ),
+    [],
+  );
 });
 
 test("未登錄英文自然句、純英文標題與表格標籤會 fail closed", () => {

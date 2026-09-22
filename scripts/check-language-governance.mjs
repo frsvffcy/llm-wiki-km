@@ -50,6 +50,13 @@ const GOVERNANCE_DRIFT = new Map([
   ["rebuildable", "可重建"], ["bounded", "有界"],
 ]);
 
+const ONBOARDING_NAVIGATION_SURFACES = new Set([
+  "README.md",
+  "docs/guides/getting-started-zh-TW.md",
+]);
+const CURRENT_ONBOARDING_LABELS = ["「文件」", "「知識」", "「待我審核」"];
+const LEGACY_ONBOARDING_LABELS = ["「收件匣」", "「Wiki」", "「審核」"];
+
 const currentUiFiles = [
   "src/main/resources/static/index.html", "src/main/resources/static/graph-operations-ui.js",
   "src/main/resources/static/quality-ui.js", "src/main/resources/static/retrieval-inspector-ui.js",
@@ -177,6 +184,18 @@ function requireText(failures, path, source, expected) {
   if (!source.includes(expected)) failures.push(`${path}: 找不到必要入口「${expected}」`);
 }
 
+export function analyzeOnboardingNavigationCopy(relativePath, source) {
+  if (!ONBOARDING_NAVIGATION_SURFACES.has(relativePath)) return [];
+  const findings = [];
+  for (const label of CURRENT_ONBOARDING_LABELS) {
+    if (!source.includes(label)) findings.push(`缺少現行操作入口 ${label}`);
+  }
+  for (const label of LEGACY_ONBOARDING_LABELS) {
+    if (source.includes(label)) findings.push(`仍以舊導覽名稱 ${label} 指示操作`);
+  }
+  return findings;
+}
+
 export async function runLanguageGovernance(root) {
   const failures = [];
   let surfaces;
@@ -195,6 +214,12 @@ export async function runLanguageGovernance(root) {
   requireText(failures, "docs/README.md", sources.get("docs/README.md") || "", "guides/getting-started-zh-TW.md");
   requireText(failures, "docs/README.md", sources.get("docs/README.md") || "", "development/language-and-terminology.md");
   requireText(failures, "AGENTS.md", sources.get("AGENTS.md") || "", "docs/development/language-and-terminology.md");
+  for (const path of ONBOARDING_NAVIGATION_SURFACES) {
+    const source = sources.get(path) || "";
+    for (const finding of analyzeOnboardingNavigationCopy(path, source)) {
+      failures.push(`${path}: ${finding}`);
+    }
+  }
   for (const path of currentUiFiles) {
     let source;
     try { source = await readFile(resolve(root, path), "utf8"); }
