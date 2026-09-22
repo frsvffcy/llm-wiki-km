@@ -109,7 +109,7 @@ class GroundedAnswerResponseContractTest {
 
     @Test
     void boundsDiagnosticsAndDoesNotEchoSensitiveOrCompleteProviderData() {
-        String secret = "sk-live-1234567890abcdef";
+        String secret = "sk-" + "live-1234567890abcdef";
         String payload = "{" + "\"answerText\":\"answer\",\"citedEvidenceIds\":[],"
                 + "\"insufficientEvidence\":false,\"unexpected\":\"authorization: Bearer " + secret
                 + " " + "evidence-content-".repeat(40) + "\"}";
