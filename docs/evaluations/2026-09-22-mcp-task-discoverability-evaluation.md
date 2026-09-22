@@ -58,15 +58,15 @@ src/test/resources/mcp-eval/fixture/beta.md
 
 固定 synthetic facts：
 
-- `alpha-marker`
+- `alphamarker`
 - `Aurora code = 42`
-- `beta-marker`
-- `source-locator-marker`
+- `betamarker`
+- `sourcelocatormarker`
 - `Beta color = blue`
 
 不存在的控制詞：
 
-- `omega-absent-marker`
+- `omegaabsentmarker`
 
 Fixture 不含真實 user corpus、真實檔名、絕對路徑、provider payload 或 credential。
 
@@ -157,11 +157,11 @@ Negative canaries 至少涵蓋：
 `McpTaskEvaluationFixtureIntegrationTest` 使用 real Spring / SQLite / FTS / application MCP executor，驗：
 
 - `km_status` 可回 bounded status；
-- Wiki search 可找到 `alpha-marker`；
-- Source search 可找到 `source-locator-marker` 並回 chunk id；
+- Wiki search 可找到 `alphamarker`；
+- Source search 可找到 `sourcelocatormarker` 並回 chunk id；
 - locator 回 CURRENT + authoritative preview；
 - `HYBRID_GRAPH` 在 graph 未就緒時回 typed degraded observation，而非假裝健康；
-- `omega-absent-marker` 回 empty evidence，而非 infrastructure error；
+- `omegaabsentmarker` 回 empty evidence，而非 infrastructure error；
 - provider disabled 時 `km_ask` 回 `PROVIDER_CONFIGURATION_UNAVAILABLE`；
 - target evidence 被移除後 search / locator fail closed。
 
