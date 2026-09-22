@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.km.llmwiki.rag.RetrievalInspectionResponse;
+import org.km.llmwiki.web.RetrievalInspectionResponse;
 import org.km.llmwiki.search.FtsSearchIndexRepository;
 import org.km.llmwiki.search.KnowledgeSearchDocument;
 import org.km.llmwiki.search.SearchResult;
