@@ -538,7 +538,7 @@ button:disabled {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-/* #571 pending-review badge: count only, never color-only (weight + shape);
+/* #571 pending-review indicator: human-readable count, never color-only (weight + shape);
    hidden attribute stays the authority (see the [hidden] rule). */
 .nav-badge {
   display: inline-flex;
