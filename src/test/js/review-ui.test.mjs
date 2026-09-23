@@ -25,16 +25,19 @@ class FakeElement {
     this.textContent = "";
     this.className = "";
     this.handlers = new Map();
+    this.focusCount = 0;
+    this.isConnected = true;
   }
 
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
   addEventListener(name, handler) { this.handlers.set(name, handler); }
   setAttribute(name, value) { this[`attr_${name}`] = value; }
+  focus() { this.focusCount += 1; }
 }
 
 function uiElements() {
-  return {
+  const elements = {
     proposalFilterForm: new FakeElement("form"),
     statusFilter: new FakeElement("select"),
     proposalList: new FakeElement("ul"),
@@ -44,6 +47,7 @@ function uiElements() {
     proposalPrevPage: new FakeElement("button"),
     proposalNextPage: new FakeElement("button"),
     proposalDetail: new FakeElement("section"),
+    proposalDetailHeading: new FakeElement("h3"),
     proposalDetailTitle: new FakeElement("h4"),
     proposalDetailMeta: new FakeElement("p"),
     proposalDetailSummary: new FakeElement("p"),
@@ -65,6 +69,8 @@ function uiElements() {
     draftContent: new FakeElement("div"),
     publishResult: new FakeElement("p")
   };
+  elements.proposalDetail.hidden = true;
+  return elements;
 }
 
 function fakeDocument() {
@@ -186,6 +192,33 @@ test("detail renders evidence as text and hides host paths from the browser", as
   const buttons = elements.proposalActions.children.map(child => child.textContent);
   assert.deepEqual(buttons, ["核准", "拒絕"],
     "mutation buttons are derived from the response's allowedTransitions");
+});
+
+test("提案詳情載入成功後聚焦標題，關閉時返回觸發按鈕", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  const controller = createReviewController(elements,
+    async () => jsonResponse(200, proposalDetailPayload()), fakeDocument());
+
+  await controller.selectProposal(12, opener);
+  assert.equal(elements.proposalDetailHeading.focusCount, 1);
+  assert.equal(elements.proposalDetail.hidden, false);
+
+  elements.proposalDetailClose.handlers.get("click")();
+  assert.equal(elements.proposalDetail.hidden, true);
+  assert.equal(opener.focusCount, 1);
+});
+
+test("提案詳情載入失敗時不將焦點移入未完成內容", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  const controller = createReviewController(elements,
+    async () => jsonResponse(200, { data: { id: 99 } }), fakeDocument());
+
+  await controller.selectProposal(12, opener);
+  assert.equal(elements.proposalDetailHeading.focusCount, 0);
+  assert.equal(elements.proposalDetail.hidden, true);
+  assert.equal(opener.focusCount, 0);
 });
 
 test("proposal transition patches the existing contract and never auto-publishes", async () => {

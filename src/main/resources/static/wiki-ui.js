@@ -1,3 +1,6 @@
+import { createDynamicPanelFocus } from "./dynamic-panel-focus.js";
+import { isPublishedWikiPage } from "./wiki-page-contract.js";
+
 /**
  * Published Wiki workspace (#373): a read-only Browser consumption surface over the
  * existing `/api/v1/wiki` authority projection — paged/type-filtered list, one-page
@@ -84,7 +87,8 @@ export function renderWikiList(elements, rows, pageMeta, documentRef = document,
       open.type = "button";
       open.className = "wiki-open";
       open.textContent = "閱讀";
-      open.addEventListener("click", () => actions.onOpen(data.knowledgeId));
+      open.addEventListener("click", event =>
+        actions.onOpen(data.knowledgeId, event && event.currentTarget));
       item.append(open);
     }
     elements.wikiList.append(item);
@@ -114,7 +118,13 @@ async function readEnvelope(response) {
 
 export function createWikiController(elements, fetchImpl = fetch, documentRef = document) {
   const state = { page: 0, pageType: "", knowledgeId: null };
+  const panelFocus = createDynamicPanelFocus({
+    panel: elements.wikiReadPanel,
+    heading: elements.wikiReadHeading,
+    documentRef
+  });
   let inFlight = false;
+  let readRequest = 0;
 
   function showTypedError(error) {
     const { title, message } = wikiErrorMessage(error);
@@ -122,6 +132,8 @@ export function createWikiController(elements, fetchImpl = fetch, documentRef = 
   }
 
   function reset() {
+    readRequest += 1;
+    panelFocus.dismiss();
     state.page = 0;
     state.pageType = "";
     state.knowledgeId = null;
@@ -137,24 +149,43 @@ export function createWikiController(elements, fetchImpl = fetch, documentRef = 
     if (state.pageType) params.set("pageType", state.pageType);
     const response = await fetchImpl(`${WIKI_ENDPOINT}?${params.toString()}`);
     const envelope = await readEnvelope(response);
-    if (!response.ok) {
+    const rows = envelope && envelope.data;
+    const pageMeta = envelope && envelope.page;
+    if (!response.ok || !Array.isArray(rows)
+        || !pageMeta || typeof pageMeta !== "object" || Array.isArray(pageMeta)) {
       showTypedError(envelope && envelope.error ? envelope.error : undefined);
       return;
     }
-    renderWikiList(elements, envelope && envelope.data, envelope && envelope.page,
+    renderWikiList(elements, rows, pageMeta,
       documentRef, { onOpen: openPage });
   }
 
-  async function openPage(knowledgeId) {
-    state.knowledgeId = knowledgeId;
+  async function openPage(knowledgeId, opener = null) {
+    const context = panelFocus.begin(opener);
+    const request = ++readRequest;
+    state.knowledgeId = null;
+    elements.wikiReadPanel.hidden = true;
     elements.wikiHint.textContent = "";
-    const response = await fetchImpl(`${WIKI_ENDPOINT}/${encodeURIComponent(knowledgeId)}`);
+    let response;
+    try {
+      response = await fetchImpl(`${WIKI_ENDPOINT}/${encodeURIComponent(knowledgeId)}`);
+    } catch {
+      if (request === readRequest && panelFocus.isCurrent(context)) showTypedError(undefined);
+      return;
+    }
     const envelope = await readEnvelope(response);
+    if (request !== readRequest || !panelFocus.isCurrent(context)) return;
     if (!response.ok) {
       showTypedError(envelope && envelope.error ? envelope.error : undefined);
       return;
     }
+    if (!isPublishedWikiPage(envelope && envelope.data, knowledgeId)) {
+      showTypedError(undefined);
+      return;
+    }
     renderWikiPage(elements, envelope.data, documentRef);
+    state.knowledgeId = knowledgeId;
+    panelFocus.focusPanel(context);
   }
 
   async function applyFilter(event) {
@@ -175,8 +206,10 @@ export function createWikiController(elements, fetchImpl = fetch, documentRef = 
   }
 
   function closePage() {
+    readRequest += 1;
     elements.wikiReadPanel.hidden = true;
     state.knowledgeId = null;
+    panelFocus.close();
   }
 
   elements.wikiFilterForm.addEventListener("submit", applyFilter);
@@ -204,6 +237,7 @@ function elementsFrom(documentRef) {
     wikiPrevPage: byId("wiki-prev-page"),
     wikiNextPage: byId("wiki-next-page"),
     wikiReadPanel: byId("wiki-read-panel"),
+    wikiReadHeading: byId("wiki-read-heading"),
     wikiReadMeta: byId("wiki-read-meta"),
     wikiReadBody: byId("wiki-read-body"),
     wikiReadClose: byId("wiki-read-close")

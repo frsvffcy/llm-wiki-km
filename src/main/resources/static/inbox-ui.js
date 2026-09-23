@@ -1,3 +1,5 @@
+import { createDynamicPanelFocus } from "./dynamic-panel-focus.js";
+
 /**
  * Inbox Browser surface (#352, #451): a first-mile projection of the existing `/api/v1/inbox`
  * and `/api/v1/documents` contracts — paged/filtered document list with the two typed
@@ -267,7 +269,8 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
       preview.type = "button";
       preview.className = "inbox-preview";
       preview.textContent = "檢視處理內容";
-      preview.addEventListener("click", () => actions.onPreview(data.documentId));
+      preview.addEventListener("click", event =>
+        actions.onPreview(data.documentId, event && event.currentTarget));
       actionRow.append(preview);
     }
     // #569：已抽取文件提供整理入口；實際面板由 organize-ui 經 open-organize 事件開啟，
@@ -277,7 +280,8 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
       organize.type = "button";
       organize.className = "inbox-organize";
       organize.textContent = "整理與標籤";
-      organize.addEventListener("click", () => actions.onOrganize(data.documentId));
+      organize.addEventListener("click", event =>
+        actions.onOrganize(data.documentId, event && event.currentTarget));
       actionRow.append(organize);
     }
     if (typeof actions.onRemove === "function" && isDeletable(data.status)) {
@@ -371,8 +375,15 @@ export function createBrowserTimers(globalRef = globalThis) {
 export function createInboxController(elements, fetchImpl = fetch, documentRef = document,
                                       timers = createBrowserTimers(), diagnostics = console) {
   const state = { page: 0, status: "", parseStatus: "", documentId: null, previewPage: 0 };
+  const panelFocus = createDynamicPanelFocus({
+    panel: elements.previewPanel,
+    heading: elements.previewHeading,
+    documentRef
+  });
   let inFlight = false;
   let processingRefreshTimer = null;
+  let previewRequest = 0;
+  let previewContext = null;
 
   function scheduleProcessingRefresh(rows) {
     const processing = rows.some(row => row && row.usability
@@ -422,6 +433,9 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
       timers.clear(processingRefreshTimer);
       processingRefreshTimer = null;
     }
+    previewRequest += 1;
+    previewContext = null;
+    panelFocus.dismiss();
     state.page = 0;
     state.status = "";
     state.parseStatus = "";
@@ -473,7 +487,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     try {
       renderInboxList(elements, rows, pageMeta, documentRef, {
         onExtract: extract,
-        onPreview: openPreview,
+        onPreview: (documentId, opener) => openPreview(documentId, 0, opener),
         onOrganize: openOrganize,
         onRemove: remove
       });
@@ -616,7 +630,23 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     }
   }
 
-  async function openPreview(documentId, page = 0) {
+  function validPreview(data, documentId) {
+    return data !== null && typeof data === "object" && !Array.isArray(data)
+      && String(data.documentId) === String(documentId)
+      && Number.isInteger(data.chunkCount) && data.chunkCount >= 0
+      && Array.isArray(data.chunks)
+      && data.chunks.every(chunk => chunk !== null && typeof chunk === "object"
+        && Number.isInteger(chunk.chunkIndex) && chunk.chunkIndex >= 0
+        && typeof chunk.content === "string")
+      && data.page !== null && typeof data.page === "object"
+      && Number.isInteger(data.page.number) && data.page.number >= 0
+      && Number.isInteger(data.page.size) && data.page.size > 0
+      && Number.isInteger(data.page.totalElements) && data.page.totalElements >= 0
+      && Number.isInteger(data.page.totalPages) && data.page.totalPages >= 0;
+  }
+
+  async function loadPreview(documentId, page, context, request, focusOnSuccess) {
+    const current = () => request === previewRequest && panelFocus.isCurrent(context);
     state.documentId = documentId;
     state.previewPage = page;
     elements.hint.textContent = "";
@@ -625,17 +655,28 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
       const response = await fetchImpl(
         `${DOCUMENTS_ENDPOINT_BASE}/${documentId}/extracted-content?${params.toString()}`);
       const envelope = await readEnvelope(response);
-      if (!response.ok) {
+      if (!current()) return;
+      if (!response.ok || !envelope || !validPreview(envelope.data, documentId)) {
         const error = envelope && envelope.error ? envelope.error : undefined;
         const code = error && typeof error.code === "string" ? error.code : "";
-        elements.hint.textContent = EXTRACTION_ERROR_MESSAGES[code]
-          || inboxErrorMessage(error).message;
+        elements.hint.textContent = response.ok
+          ? GENERIC_ERROR[1]
+          : EXTRACTION_ERROR_MESSAGES[code] || inboxErrorMessage(error).message;
         return;
       }
       renderPreview(elements, envelope.data, documentRef);
+      if (focusOnSuccess) panelFocus.focusPanel(context);
     } catch {
-      showTypedError(undefined);
+      if (current()) showTypedError(undefined);
     }
+  }
+
+  async function openPreview(documentId, page = 0, opener = null) {
+    const context = panelFocus.begin(opener);
+    previewContext = context;
+    const request = ++previewRequest;
+    elements.previewPanel.hidden = true;
+    await loadPreview(documentId, page, context, request, true);
   }
 
   async function remove(documentId) {
@@ -679,24 +720,36 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
   }
 
   async function previewNext() {
-    await openPreview(state.documentId, state.previewPage + 1);
+    await changePreviewPage(state.previewPage + 1);
   }
 
   async function previewPrev() {
-    await openPreview(state.documentId, Math.max(0, state.previewPage - 1));
+    await changePreviewPage(Math.max(0, state.previewPage - 1));
+  }
+
+  async function changePreviewPage(page) {
+    if (state.documentId === null || !previewContext
+        || !panelFocus.isCurrent(previewContext)) return;
+    const request = ++previewRequest;
+    await loadPreview(state.documentId, page, previewContext, request, false);
   }
 
   function closePreview() {
+    previewRequest += 1;
     elements.previewPanel.hidden = true;
     state.documentId = null;
+    previewContext = null;
+    panelFocus.close();
   }
 
-  function openOrganize(documentId) {
+  function openOrganize(documentId, opener = null) {
     // #569：跨模組 handoff 經 DOM 事件（organize-ui 監聽開啟；workspace-ui 的
     // workspace-changed 即為既有前例）。inbox 不持有 organize 面板狀態。
     if (documentRef && typeof documentRef.dispatchEvent === "function"
         && typeof CustomEvent === "function") {
-      documentRef.dispatchEvent(new CustomEvent("open-organize", { detail: { documentId } }));
+      documentRef.dispatchEvent(new CustomEvent("open-organize", {
+        detail: { documentId, opener }
+      }));
     }
   }
 
@@ -716,7 +769,7 @@ export function createInboxController(elements, fetchImpl = fetch, documentRef =
     });
   }
   return {
-    refresh, reset, uploadSingle, uploadBatch, rescan, extract, openPreview, remove,
+    refresh, reset, uploadSingle, uploadBatch, rescan, extract, openPreview, closePreview, remove,
     applyFilter, nextPage, prevPage
   };
 }
@@ -741,6 +794,7 @@ function elementsFrom(documentRef) {
     batchResult: byId("inbox-batch-result"),
     rescanResult: byId("inbox-rescan-result"),
     previewPanel: byId("inbox-preview-panel"),
+    previewHeading: byId("inbox-preview-heading"),
     previewMeta: byId("inbox-preview-meta"),
     previewChunks: byId("inbox-preview-chunks"),
     previewPageInfo: byId("inbox-preview-page-info"),
