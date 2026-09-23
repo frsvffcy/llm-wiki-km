@@ -9,6 +9,20 @@ async function css() {
   return readFile(STYLES_URL, "utf8");
 }
 
+test("真人驗收表單共用間距，列表操作共用樣式 (#626)", async () => {
+  const [source, html] = await Promise.all([css(), readFile(INDEX_URL, "utf8")]);
+  for (const id of ["workspace-create-form", "wiki-filter-form", "inbox-upload-form",
+    "inbox-batch-form", "inbox-filter-form", "proposal-filter-form", "triage-filter-form"]) {
+    assert.match(html, new RegExp(`<form id="${id}" class="control-stack"`, "u"));
+  }
+  assert.match(html, /<div class="control-stack">\s*<div class="field-group">\s*<label for="organize-proposal-select">/u);
+  assert.match(source, /\.control-stack\s*\{[^}]*flex-direction:\s*column;[^}]*gap:\s*var\(--space-stack\)/u);
+  assert.match(source, /\.control-stack > \.field-group > label\s*\{[^}]*margin-bottom:\s*var\(--space-control\)/u);
+  assert.match(source, /#inbox-upload-form \+ #inbox-batch-form\s*\{[^}]*margin-top:\s*var\(--space-section\)/u);
+  assert.match(source, /\.inbox-item-meta\s*\{[^}]*flex-wrap:\s*wrap/u);
+  assert.match(source, /\.list-action,\s*\.inbox-actions \.list-action\s*\{/u);
+});
+
 test("semantic token layer exists with purpose-named roles (#494)", async () => {
   const source = await css();
   for (const token of [

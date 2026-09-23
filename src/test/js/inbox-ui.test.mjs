@@ -182,8 +182,13 @@ test("list render follows backend usability instead of deriving readiness from p
   assert.match(actionText(items[0]), /重新處理/u);
   assert.match(actionText(items[0]), /從收件匣移除/u);
   assert.match(actionText(items[1]), /開始提問/u);
-  const askLink = actionsOf(items[1]).children.find(child => child.className === "wiki-handoff inbox-use");
+  const askLink = actionsOf(items[1]).children.find(child => child.className === "wiki-handoff inbox-use list-action");
   assert.equal(askLink.href, "#/ask?documentId=2");
+  for (const [item, status] of [[items[0], "NOT_PROCESSED"], [items[1], "READY_TO_USE"], [items[2], "DUPLICATE"]]) {
+    const metadata = item.children.find(child => child.className === "inbox-item-meta");
+    assert.match(metadata.children[0].textContent, /建立於/u);
+    assert.equal(metadata.children[1]["attr_data-usability-status"], status);
+  }
   assert.doesNotMatch(askLink.href, /report\.pdf|\/Users\//u,
     "document scope authority is the application-owned document id, never a path or filename");
   assert.match(actionText(items[1]), /檢視處理內容/u);

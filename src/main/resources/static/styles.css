@@ -222,6 +222,15 @@ button:focus-visible {
 
 .ask-document-scope[hidden] { display: none; }
 .field-group { width: min(280px, 100%); }
+.control-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-stack);
+}
+.control-stack > .field-group { width: min(280px, 100%); }
+.control-stack > .field-group > label { margin-bottom: var(--space-control); }
+#inbox-upload-form + #inbox-batch-form { margin-top: var(--space-section); }
 /* #494 base button contracts: primary is the default button; secondary/danger are
    explicit modifier classes. All state motion is bounded via motion tokens. */
 button {
@@ -641,6 +650,8 @@ button:disabled {
 .inbox-file-name { font-weight: 600; margin-bottom: 2px; }
 .inbox-item-meta,
 .inbox-item-error { font-size: var(--text-small); color: var(--foreground-muted); margin-bottom: 4px; }
+.inbox-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.inbox-item-meta-text { overflow-wrap: anywhere; }
 .inbox-usability-detail {
   margin: 6px 0 4px;
   color: var(--foreground-muted);
@@ -798,6 +809,22 @@ button:disabled {
 }
 .wiki-list .wiki-open:hover,
 .inbox-actions .wiki-handoff:hover { border-color: var(--primary); color: var(--primary-hover); }
+.list-action,
+.inbox-actions .list-action {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-compact);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: var(--text-small);
+  text-decoration: none;
+  cursor: pointer;
+}
+.list-action:hover,
+.inbox-actions .list-action:hover { border-color: var(--primary); background: var(--surface); color: var(--primary-hover); }
+.list-action:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .wiki-read-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 4px; }
 .wiki-read-meta { margin-bottom: 8px; }
 .wiki-read-meta p { margin-bottom: 2px; }

@@ -146,6 +146,9 @@ test("list renders backend order with badges and counts", async () => {
   await controller.refresh();
 
   assert.equal(elements.triageList.children.length, 2);
+  const open = elements.triageList.children[0].children.find(child => child.className === "list-action");
+  assert.equal(open.textContent, "檢視內容與定位");
+  assert.equal(open.getAttribute("data-finding-index"), "0");
   const body = flatText(elements.triageList);
   assert.match(body, /內部連結失效/);
   assert.match(body, /孤立頁面/);

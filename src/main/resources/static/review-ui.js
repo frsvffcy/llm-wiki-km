@@ -176,7 +176,7 @@ export function renderProposalList(elements, rows, pageMeta, documentRef = docum
     if (typeof actions.onSelect === "function") {
       const open = documentRef.createElement("button");
       open.type = "button";
-      open.className = "proposal-open";
+      open.className = "proposal-open list-action";
       open.textContent = "檢視並審核";
       open.addEventListener("click", () => actions.onSelect(data.id));
       item.append(open);
