@@ -32,6 +32,7 @@ REQUIRED="src/test/js/analysis-ui.test.mjs
 src/test/js/ask-ui.test.mjs
 src/test/js/browser-suite-manifest.test.mjs
 src/test/js/cross-surface-states.test.mjs
+src/test/js/dark-brass-visual-contract.test.mjs
 src/test/js/design-system-foundation.test.mjs
 src/test/js/graph-operations-ui.test.mjs
 src/test/js/hidden-visibility.test.mjs

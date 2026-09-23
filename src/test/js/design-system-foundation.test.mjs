@@ -31,9 +31,12 @@ test("semantic token layer exists with purpose-named roles (#494)", async () => 
   ]) {
     assert.match(source, new RegExp(`${token}\\s*:`, "u"), `${token} must be defined`);
   }
-  // Current teal accent stays the primary implementation; no Karrot orange adoption.
+  // 視覺更新保留語意角色，改用專案自有的深色／黃銅色票。
   assert.match(source, /--primary\s*:\s*var\(--accent\)/u);
-  assert.match(source, /--accent\s*:\s*#0f766e/u);
+  assert.match(source, /color-scheme:\s*dark/u);
+  assert.match(source, /--accent\s*:\s*#d5a956/u);
+  assert.match(source, /--canvas\s*:\s*#171614/u);
+  assert.match(source, /--surface\s*:\s*var\(--panel\)/u);
   assert.doesNotMatch(source, /#ff6f0f/i, "must not adopt Karrot orange as primary");
 });
 
