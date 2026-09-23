@@ -9,6 +9,13 @@ async function css() {
   return readFile(STYLES_URL, "utf8");
 }
 
+function mediaRules(source, maxWidth) {
+  const block = source.match(new RegExp(
+    `@media\\s*\\(max-width:\\s*${maxWidth}px\\)\\s*\\{([^]*?)\\n\\}`, "u"));
+  assert.ok(block, `${maxWidth}px breakpoint must define responsive rules`);
+  return block[1];
+}
+
 test("真人驗收表單共用間距，列表操作共用樣式 (#626)", async () => {
   const [source, html] = await Promise.all([css(), readFile(INDEX_URL, "utf8")]);
   for (const id of ["workspace-create-form", "wiki-filter-form", "inbox-upload-form",
@@ -63,6 +70,60 @@ test("主要產品列表共用卡片式邊界且不升格診斷清單 (#630)", a
   assert.match(source, /\.organize-list:not\(:empty\)\s*\{[^}]*margin-bottom:\s*var\(--space-4\)/u);
   assert.doesNotMatch(shared[0], /citation-item|inspector/u,
     "citations and inspector diagnostics must stay visually subordinate");
+});
+
+test("窄螢幕操作容器依序堆疊並保留觸控尺寸 (#632)", async () => {
+  const [source, html] = await Promise.all([css(), readFile(INDEX_URL, "utf8")]);
+
+  // 桌面版保留既有橫向 flex 排列；窄螢幕才套用下方覆寫。
+  assert.match(source,
+    /\.section-heading,\s*\.answer-heading,\s*\.citation-heading,\s*\.form-row\s*\{[^}]*display:\s*flex;[^}]*justify-content:\s*space-between/u);
+  assert.match(source,
+    /\.ask-document-scope\s*\{[^}]*display:\s*flex;[^}]*justify-content:\s*space-between/u);
+  assert.match(source, /\.inbox-pager\s*\{[^}]*display:\s*flex;/u);
+  assert.match(source,
+    /\.workspace-list-item\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap/u);
+  assert.match(source, /\.graph-actions\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap/u);
+  assert.match(source, /\.inbox-actions\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap/u);
+
+  const mobile = mediaRules(source, 600);
+  assert.match(mobile,
+    /\.section-heading,\s*\.answer-heading,\s*\.citation-heading\s*\{[^}]*flex-direction:\s*column/u);
+  assert.match(mobile, /\.section-heading\s*\{[^}]*align-items:\s*stretch/u);
+  assert.match(mobile,
+    /\.answer-heading,\s*\.citation-heading\s*\{[^}]*align-items:\s*flex-start/u);
+  assert.match(mobile,
+    /\.workspace-list-item\s*\{[^}]*align-items:\s*stretch;[^}]*flex-direction:\s*column/u);
+  assert.match(mobile,
+    /\.workspace-list-meta\s*\{[^}]*overflow-wrap:\s*anywhere/u);
+  assert.match(mobile,
+    /\.ask-document-scope,\s*\.inbox-pager\s*\{[^}]*align-items:\s*stretch;[^}]*flex-direction:\s*column/u);
+  assert.match(mobile,
+    /\.ask-document-scope\s*\{[^}]*min-width:\s*0;[^}]*overflow-wrap:\s*anywhere/u);
+  assert.match(mobile, /\.inbox-page-info\s*\{[^}]*text-align:\s*center/u);
+  assert.match(mobile,
+    /\.inbox-actions\s*\{[^}]*align-items:\s*flex-start;[^}]*flex-direction:\s*column/u);
+  assert.match(mobile,
+    /\.form-row\s*\{[^}]*align-items:\s*stretch;[^}]*flex-direction:\s*column/u);
+  assert.match(mobile,
+    /\.graph-actions\s*\{[^}]*align-items:\s*stretch;[^}]*flex-direction:\s*column/u);
+  assert.match(mobile, /button\s*\{[^}]*width:\s*100%;[^}]*min-height:\s*44px/u,
+    "窄螢幕按鈕維持全寬，並至少有 44px 高度");
+
+  const pagerControls = [...html.matchAll(/<div class="inbox-pager">([\s\S]*?)<\/div>/gu)]
+    .map(([, markup]) => [...markup.matchAll(/<(?:button|span)\b[^>]*\bid="([^"]+)"/gu)]
+      .map(([, id]) => id));
+  assert.deepEqual(pagerControls, [
+    ["wiki-prev-page", "wiki-page-info", "wiki-next-page"],
+    ["inbox-prev-page", "inbox-page-info", "inbox-next-page"],
+    ["inbox-preview-prev", "inbox-preview-page-info", "inbox-preview-next"],
+    ["proposal-prev-page", "proposal-page-info", "proposal-next-page"]
+  ], "Wiki, Inbox, Preview, and Review pagers must preserve previous/info/next order");
+
+  const compact = mediaRules(source, 420);
+  assert.match(compact,
+    /\.section-heading,\s*\.answer-heading,\s*\.citation-heading,\s*\.ask-document-scope,\s*\.inbox-pager\s*\{[^}]*gap:\s*var\(--space-2\)/u);
+  assert.match(compact, /\.ask-document-scope\s*\{[^}]*padding-inline:\s*var\(--space-3\)/u);
 });
 
 test("semantic token layer exists with purpose-named roles (#494)", async () => {
