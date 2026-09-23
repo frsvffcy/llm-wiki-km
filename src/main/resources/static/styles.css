@@ -812,19 +812,30 @@ button:disabled {
 .list-action,
 .inbox-actions .list-action {
   display: inline-flex;
+  box-sizing: border-box;
   align-items: center;
+  justify-content: center;
+  width: auto;
+  max-width: 100%;
   padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-compact);
   background: var(--surface);
   color: var(--foreground);
   font-size: var(--text-small);
+  font-weight: 600;
+  line-height: inherit;
   text-decoration: none;
   cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
 }
 .list-action:hover,
 .inbox-actions .list-action:hover { border-color: var(--primary); background: var(--surface); color: var(--primary-hover); }
 .list-action:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.list-action:active,
+.inbox-actions .list-action:active { background: var(--surface-muted); border-color: var(--primary); color: var(--primary-pressed); }
 .wiki-read-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 4px; }
 .wiki-read-meta { margin-bottom: 8px; }
 .wiki-read-meta p { margin-bottom: 2px; }

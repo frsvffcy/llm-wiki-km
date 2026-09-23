@@ -23,6 +23,26 @@ test("真人驗收表單共用間距，列表操作共用樣式 (#626)", async (
   assert.match(source, /\.list-action,\s*\.inbox-actions \.list-action\s*\{/u);
 });
 
+test("list-action 在連結與按鈕間維持同一視覺契約 (#628)", async () => {
+  const source = await css();
+  const action = source.match(/\.list-action,\s*\.inbox-actions \.list-action\s*\{([^}]*)\}/u);
+  assert.ok(action, "shared list-action rule must own element-neutral styling");
+  for (const declaration of [
+    /box-sizing:\s*border-box/u,
+    /display:\s*inline-flex/u,
+    /width:\s*auto/u,
+    /font-weight:\s*600/u,
+    /transition:/u
+  ]) assert.match(action[1], declaration);
+  assert.match(source, /\.list-action:hover,\s*\.inbox-actions \.list-action:hover\s*\{[^}]*border-color:\s*var\(--primary\)/u);
+  assert.match(source, /\.list-action:focus-visible\s*\{[^}]*outline:\s*3px solid var\(--focus-ring\)/u);
+  assert.match(source, /\.list-action:active,\s*\.inbox-actions \.list-action:active\s*\{[^}]*background:\s*var\(--surface-muted\)/u);
+  const narrow = source.match(/@media \(max-width: 600px\)\s*\{([^]*?)\n\}/u);
+  assert.ok(narrow, "narrow viewport rules must exist");
+  assert.match(narrow[1], /button\s*\{\s*width:\s*100%/u, "global button width regression remains represented");
+  assert.match(action[1], /width:\s*auto/u, "shared contract overrides global button width at desktop");
+});
+
 test("semantic token layer exists with purpose-named roles (#494)", async () => {
   const source = await css();
   for (const token of [
