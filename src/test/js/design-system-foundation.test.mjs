@@ -43,6 +43,28 @@ test("list-action 在連結與按鈕間維持同一視覺契約 (#628)", async (
   assert.match(action[1], /width:\s*auto/u, "shared contract overrides global button width at desktop");
 });
 
+test("主要產品列表共用卡片式邊界且不升格診斷清單 (#630)", async () => {
+  const source = await css();
+  const shared = source.match(
+    /\.workspace-list-item,\s*\.inbox-item,\s*\.wiki-item,\s*\.proposal-item,\s*\.organize-item,\s*\.triage-item\s*\{([^}]*)\}/u);
+  assert.ok(shared, "daily product list items must share one visual surface contract");
+  for (const declaration of [
+    /padding:\s*var\(--space-3\)/u,
+    /border:\s*1px solid var\(--border\)/u,
+    /border-radius:\s*var\(--radius-compact\)/u,
+    /margin-bottom:\s*var\(--space-3\)/u,
+    /min-width:\s*0/u
+  ]) assert.match(shared[1], declaration);
+  for (const legacy of ["workspace-list-item", "inbox-item", "wiki-item", "proposal-item"]) {
+    const rule = source.match(new RegExp(`\\.${legacy}\\s*\\{([^}]*)\\}`, "u"));
+    if (rule) assert.doesNotMatch(rule[1], /border-bottom:/u,
+      `${legacy} must not keep the old bottom-divider contract`);
+  }
+  assert.match(source, /\.organize-list:not\(:empty\)\s*\{[^}]*margin-bottom:\s*var\(--space-4\)/u);
+  assert.doesNotMatch(shared[0], /citation-item|inspector/u,
+    "citations and inspector diagnostics must stay visually subordinate");
+});
+
 test("semantic token layer exists with purpose-named roles (#494)", async () => {
   const source = await css();
   for (const token of [
