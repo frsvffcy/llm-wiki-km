@@ -225,15 +225,18 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
     const statusKey = typeof data.status === "string" ? data.status.toUpperCase() : "";
     const parseKey = typeof data.parseStatus === "string" ? data.parseStatus.toUpperCase() : "";
     appendTextElement(documentRef, item, "p", "inbox-file-name", text(data.fileName));
-    appendTextElement(documentRef, item, "p", "inbox-item-meta",
+    const metadata = documentRef.createElement("p");
+    metadata.className = "inbox-item-meta";
+    appendTextElement(documentRef, metadata, "span", "inbox-item-meta-text",
       `${text(data.extension)} · ${formatFileSize(data.fileSize)} · 建立於 ${text(data.createdAt)}`);
     const usability = data.usability && typeof data.usability === "object" ? data.usability : {};
     const usabilityKey = typeof usability.status === "string"
       ? usability.status.toUpperCase() : "";
-    const usabilityBadge = appendTextElement(documentRef, item, "span",
+    const usabilityBadge = appendTextElement(documentRef, metadata, "span",
       `status-badge status-badge--usability-${usabilityKey.toLowerCase() || "unknown"}`,
       usabilityLabel(usability));
     usabilityBadge.setAttribute("data-usability-status", usabilityKey);
+    item.append(metadata);
     appendTextElement(documentRef, item, "p", "inbox-usability-detail",
       usabilityDetail(usability));
     if (data.errorCode) {
@@ -246,7 +249,7 @@ export function renderInboxList(elements, rows, pageMeta, documentRef = document
       ? usability.nextAction.toUpperCase() : "";
     if (nextAction === "START_USING") {
       const use = documentRef.createElement("a");
-      use.className = "wiki-handoff inbox-use";
+      use.className = "wiki-handoff inbox-use list-action";
       use.href = `#/ask?documentId=${encodeURIComponent(String(data.documentId))}`;
       use.textContent = "開始提問";
       actionRow.append(use);

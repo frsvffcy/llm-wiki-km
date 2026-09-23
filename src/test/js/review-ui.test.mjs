@@ -158,6 +158,8 @@ test("proposal list renders typed badges, meta, and pager honestly", () => {
   assert.match(text, /建立新頁 · 信心 0\.87/u);
   assert.equal(elements.proposalPrevPage.disabled, true);
   assert.equal(elements.proposalNextPage.disabled, true);
+  const open = elements.proposalList.children[0].children.find(child => child.className === "proposal-open list-action");
+  assert.equal(open.textContent, "檢視並審核");
 });
 
 test("detail renders evidence as text and hides host paths from the browser", async () => {

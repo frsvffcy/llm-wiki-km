@@ -129,7 +129,7 @@
             <h3 id="workspace-create-heading">建立工作區</h3>
           </div>
         </div>
-        <form id="workspace-create-form" novalidate>
+        <form id="workspace-create-form" class="control-stack" novalidate>
           <div class="field-group">
             <label for="workspace-name">名稱</label>
             <input id="workspace-name" name="name" type="text" maxlength="200"
@@ -169,7 +169,7 @@
             <h3 id="wiki-list-heading">已發布知識</h3>
           </div>
         </div>
-        <form id="wiki-filter-form" novalidate>
+        <form id="wiki-filter-form" class="control-stack" novalidate>
           <div class="field-group">
             <label for="wiki-type-filter">類型篩選</label>
             <select id="wiki-type-filter" name="pageType">
@@ -232,14 +232,14 @@
           </button>
         </div>
         <p id="inbox-rescan-result" class="form-hint" role="status" aria-live="polite" hidden></p>
-        <form id="inbox-upload-form" novalidate>
+        <form id="inbox-upload-form" class="control-stack" novalidate>
           <div class="field-group">
             <label for="inbox-file-input">單檔上傳</label>
             <input id="inbox-file-input" name="file" type="file" required>
           </div>
           <button id="inbox-upload-submit" type="submit">上傳</button>
         </form>
-        <form id="inbox-batch-form" novalidate>
+        <form id="inbox-batch-form" class="control-stack" novalidate>
           <div class="field-group">
             <label for="inbox-batch-input">批次上傳（可多選）</label>
             <input id="inbox-batch-input" name="files" type="file" multiple required>
@@ -256,7 +256,7 @@
             <h3 id="inbox-list-heading">文件與處理狀態</h3>
           </div>
         </div>
-        <form id="inbox-filter-form" novalidate>
+        <form id="inbox-filter-form" class="control-stack" novalidate>
           <div class="field-group">
             <label for="inbox-status-filter">文件狀態篩選</label>
             <select id="inbox-status-filter" name="status">
@@ -304,15 +304,17 @@
         <p id="organize-freshness" class="form-hint" role="status" aria-live="polite"></p>
         <p id="organize-empty" class="empty-state" hidden>目前沒有可顯示的整理建議。</p>
         <ul id="organize-list" class="organize-list"></ul>
-        <div class="field-group">
-          <label for="organize-proposal-select">要調整標籤的提案</label>
-          <select id="organize-proposal-select"></select>
+        <div class="control-stack">
+          <div class="field-group">
+            <label for="organize-proposal-select">要調整標籤的提案</label>
+            <select id="organize-proposal-select"></select>
+          </div>
+          <div class="field-group">
+            <label for="organize-tag-input">標籤（以逗號或空白分隔；清空則移除全部標籤）</label>
+            <input id="organize-tag-input" name="tags" type="text" autocomplete="off">
+          </div>
+          <button id="organize-save" type="button">更新標籤</button>
         </div>
-        <div class="field-group">
-          <label for="organize-tag-input">標籤（以逗號或空白分隔；清空則移除全部標籤）</label>
-          <input id="organize-tag-input" name="tags" type="text" autocomplete="off">
-        </div>
-        <button id="organize-save" type="button">更新標籤</button>
         <p id="organize-result" class="form-hint" role="status" aria-live="polite" hidden></p>
       </section>
 
@@ -594,7 +596,7 @@
             <h3 id="proposal-list-heading">提案審核清單</h3>
           </div>
         </div>
-        <form id="proposal-filter-form" novalidate>
+        <form id="proposal-filter-form" class="control-stack" novalidate>
           <div class="field-group">
             <label for="proposal-status-filter">狀態篩選</label>
             <select id="proposal-status-filter" name="status">
@@ -687,7 +689,7 @@
           唯讀健康診斷：清單來自後端 Vault Lint 的當下掃描，不會修改 vault、
           建立提案，也不判斷修復方式；每次開啟與重新整理都會重讀權威資料。
         </p>
-        <form id="triage-filter-form" novalidate>
+        <form id="triage-filter-form" class="control-stack" novalidate>
           <div class="field-group">
             <label for="triage-category-filter">類別篩選</label>
             <select id="triage-category-filter" name="category">

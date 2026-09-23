@@ -113,7 +113,7 @@ export function renderFindingList(documentRef, listElement, findings) {
     appendTextElement(documentRef, item, "p", "triage-item-detail", text(finding.detail));
     const open = documentRef.createElement("button");
     open.type = "button";
-    open.className = "secondary-button";
+    open.className = "list-action";
     open.textContent = "檢視內容與定位";
     open.setAttribute("data-finding-index", String(index));
     item.append(badgeRow, open);
