@@ -1,54 +1,53 @@
 :root {
-  color-scheme: light;
-  /* Legacy palette (compatibility aliases; do not remove in #494). */
-  --ink: #1f2933;
-  --muted: #66727f;
-  --line: #dce3e8;
-  --paper: #fbfcfc;
-  --panel: #ffffff;
-  --accent: #0f766e;
-  --accent-dark: #115e59;
-  --accent-soft: #e7f5f2;
-  --warning: #9a6700;
-  --warning-soft: #fff6db;
-  --danger: #b42318;
-  --danger-soft: #fff0ee;
+  color-scheme: dark;
+  /* 保留既有選擇器使用的相容別名；色彩由語意角色管理。 */
+  --ink: #f2ece1;
+  --muted: #b8b0a4;
+  --line: #49443c;
+  --paper: #1d1b18;
+  --panel: #24211d;
+  --accent: #d5a956;
+  --accent-dark: #e4be74;
+  --accent-soft: #393020;
+  --warning: #ecc77b;
+  --warning-soft: #372c1b;
+  --danger: #f2a39a;
+  --danger-soft: #3a2423;
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  /* #494 Design System Foundation: repository-owned semantic roles.
-     Purpose-named; the current teal accent stays the primary implementation.
-     No Karrot orange adoption; no external brand palette. */
+  /* 專案自有的深色／黃銅色語意角色，不依賴外部字型或 CSS。 */
   --foreground: var(--ink);
   --foreground-muted: var(--muted);
-  --canvas: #f1f4f3;
+  --canvas: #171614;
   --background: var(--paper);
   --surface: var(--panel);
-  --surface-muted: #eef1f2;
-  --surface-warm: #faf9f5;
-  --surface-warm-hover: #edeae2;
+  --surface-muted: #302c26;
+  --surface-warm: #2b2721;
+  --surface-warm-hover: #3a3328;
   --border: var(--line);
   --hairline: var(--line);
-  --border-strong: #cbd5da;
+  --border-strong: #756c5e;
   --primary: var(--accent);
   --primary-hover: var(--accent-dark);
-  --primary-pressed: #0c4f4a;
+  --primary-pressed: #c79843;
   --primary-soft: var(--accent-soft);
-  --primary-soft-hover: #d4eee9;
+  --primary-soft-hover: #4a3922;
   --critical: var(--danger);
   --critical-soft: var(--danger-soft);
-  --critical-border: #f1c7c2;
-  --critical-hover: #8f1d14;
-  --critical-pressed: #7a1811;
-  --warning-border: #f2dd9e;
-  --warning-deep: #8a4b08;
-  --positive: var(--accent-dark);
-  --positive-soft: var(--accent-soft);
-  --informative: var(--accent);
-  --informative-soft: var(--accent-soft);
-  --notice-strong: #b3541e;
-  --notice-soft: #fdf3ec;
-  --on-primary: #ffffff;
-  --focus-ring: rgba(15, 118, 110, 0.22);
+  --critical-border: #925b55;
+  --critical-hover: #ffb9af;
+  --critical-pressed: #da8c83;
+  --warning-border: #77613b;
+  --warning-deep: #f2d49a;
+  --positive: #95d8b6;
+  --positive-soft: #24372c;
+  --informative: #a6cde3;
+  --informative-soft: #263844;
+  --notice-strong: #e8b27e;
+  --notice-soft: #392a21;
+  --on-primary: #171614;
+  --on-critical: #171614;
+  --focus-ring: rgba(213, 169, 86, 0.45);
   --focus-ring-solid: var(--accent);
 
   /* #494 spacing: 4px-based shared scale. */
@@ -114,6 +113,30 @@ body {
   font-family: var(--font-system);
 }
 
+.site-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--border);
+  background: var(--canvas);
+}
+.site-topbar-inner {
+  display: flex;
+  width: min(1120px, calc(100% - var(--space-8)));
+  min-height: var(--space-16);
+  margin: auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.site-brand { display: inline-flex; align-items: center; gap: var(--space-3); color: var(--foreground); text-decoration: none; }
+.site-brand:hover { text-decoration: underline; text-underline-offset: 4px; }
+.site-brand-mark { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--primary); border-radius: var(--radius-control); color: var(--primary); background: var(--primary-soft); }
+.site-brand strong, .site-brand small { display: block; line-height: 1.2; }
+.site-brand small { margin-top: var(--space-1); color: var(--foreground-muted); font-size: var(--text-caption); }
+.site-topbar-caption { color: var(--foreground-muted); font-size: var(--text-small); }
+[data-view-heading] { scroll-margin-top: calc(var(--space-16) + var(--space-4)); }
+
 .app-shell {
   width: min(920px, calc(100% - var(--space-8)));
   margin: 0 auto;
@@ -142,7 +165,7 @@ h3 { margin-bottom: 0; font-size: 0.9rem; }
   border: 1px solid var(--border);
   border-radius: var(--radius-large);
   background: var(--surface);
-  box-shadow: 0 10px 30px rgba(40, 59, 60, 0.05);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
 }
 
 .section-heading, .answer-heading, .citation-heading, .form-row {
@@ -265,7 +288,7 @@ button:disabled {
 .secondary-button:active { background: var(--primary-soft-hover); color: var(--primary-pressed); }
 .secondary-button:disabled { background: var(--surface-muted); color: var(--foreground-muted); border-color: var(--border); cursor: not-allowed; opacity: 1; }
 /* #494 danger action contract: only critical/destructive actions use this hierarchy. */
-.danger-button { color: var(--on-primary); background: var(--critical); border: 1px solid var(--critical); }
+.danger-button { color: var(--on-critical); background: var(--critical); border: 1px solid var(--critical); }
 .danger-button:hover { background: var(--critical-hover); border-color: var(--critical-hover); }
 .danger-button:active { background: var(--critical-pressed); border-color: var(--critical-pressed); }
 .danger-button:disabled { background: var(--surface-muted); color: var(--foreground-muted); border-color: var(--border); cursor: not-allowed; opacity: 1; }
@@ -328,8 +351,19 @@ button:disabled {
 .citation-title { margin: 0 0 6px; font-weight: 750; }
 .citation-meta { margin: 0; color: var(--foreground-muted); font-size: 0.84rem; line-height: 1.55; }
 
+/* 設計稿的提問與引用層級只映射到實際結果狀態，不放入靜態回答。 */
+.ask-panel { border-color: var(--border-strong); background: var(--surface); }
+.ask-panel textarea { min-height: 150px; background: var(--background); }
+.ask-panel .form-row { padding-top: var(--space-4); border-top: 1px solid var(--border); }
+#ask-result { border-top: 2px solid var(--primary); }
+.answer-text { border-left-color: var(--primary); background: var(--background); }
+.citation-item { align-items: start; background: var(--surface-muted); }
+.citation-number { color: var(--primary-hover); background: var(--primary-soft); }
+.citation-kind { color: var(--primary-hover); }
+
 @media (max-width: 600px) {
   .app-shell { padding-top: 32px; }
+  .site-topbar-caption { display: none; }
   .form-row { align-items: stretch; flex-direction: column; }
   .field-group { width: 100%; }
   button { width: 100%; }
@@ -438,10 +472,7 @@ button:disabled {
   text-align: left;
   transition: background-color var(--motion-fast) var(--ease-standard);
 }
-/* #485: the toggle sits on a light container, so it must not inherit the global
-   `button { color: #fff; }` white text or the global `button:hover` dark
-   background. Its own normal/hover/focus states keep dark-on-light text so the
-   headline stays readable collapsed, hovered, focused, and expanded. */
+/* #485：揭露切換鈕使用獨立的中性狀態，展開、收合、懸停與聚焦時均維持可讀。 */
 .ai-egress-toggle:hover {
   background: var(--surface-warm-hover);
   color: var(--foreground);
@@ -475,8 +506,13 @@ button:disabled {
 .app-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
-  margin: var(--space-5) 0 var(--space-1);
+  gap: var(--space-4);
+  margin: var(--space-5) 0 var(--space-6);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-large);
+  background: var(--surface);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
 }
 /* #495/#571 IA groups: everyday task flow first, advanced maintenance second.
    Groups are visual + screen-reader structure only; hash URLs and route meanings
@@ -506,8 +542,8 @@ button:disabled {
   min-height: 36px;
   padding: 7px 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--surface);
+  border-radius: var(--radius-control);
+  background: var(--background);
   color: var(--foreground);
   font-size: 0.9rem;
   text-decoration: none;
