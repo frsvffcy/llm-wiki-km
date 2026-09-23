@@ -3,7 +3,7 @@
 > 分類：`TRACK_FULL`
 > 評估日期：2026-09-23
 > Current baseline：`f5b5597d98b56f7d36239d61209e5a15a42525dd`
-> 追蹤：Refs #616；唯一新的 executable follow-up 為 #617
+> 追蹤：Refs #616；#617 已完成 / CLOSED；目前無剩餘 executable follow-up
 
 ## 1. 評估問題
 
@@ -128,9 +128,9 @@ Current Browser 仍顯示：
 
 這是原真人症狀中唯一仍具有 current UX 價值、且不需要改 retrieval authority 的 residual。
 
-Decision：**ADOPT AS UX CLARIFICATION → #617**。
+Decision（原評估時）：**ADOPT AS UX CLARIFICATION → #617**。
 
-#617 只改 Browser wording / contract test，不把 filename 提升為 canonical evidence。
+Post-follow-up status：#617 已由 PR #619 完成並 CLOSED / FULL GO；Browser wording / contract test 已落地，filename 仍未被提升為 canonical evidence。
 
 ## 5. DEFER / TRIGGER-GATED
 
@@ -270,7 +270,7 @@ Decision：**NO-GO**。
 | document/vector scope correctness | CURRENTLY COVERED | #590/#591 |
 | scoped mode labels / corpus strategy | CURRENTLY COVERED | #592 |
 | packaged provider-backed human AC | CURRENTLY COVERED | #605 FULL GO |
-| filename/title scope-vs-evidence confusion | ADOPT | #617 |
+| filename/title scope-vs-evidence confusion | ADOPTED / COMPLETED | #617 CLOSED（PR #619） |
 | single Han query | DEFER | repeated human/query-shape trigger |
 | cross-chunk phrase | DEFER / EXISTING TRIGGER | #531 |
 | embedding readiness UX | DEFER | packaged semantic-mode failure trigger |
@@ -283,10 +283,9 @@ Decision：**NO-GO**。
 
 本 evaluation 不修改 Java runtime、schema、retrieval default、query-transform default、projection policy或 application authority。
 
-唯一新的 executable follow-up：
+Follow-up closure status：
 
-- #617：以小範圍 Browser wording + JS contract test明確區分「選定文件」與「可搜尋正文 evidence」。
+- #617 已由 PR #619 以小範圍 Browser wording + JS contract test完成「選定文件」與「可搜尋正文 evidence」的區分，並已 CLOSED / FULL GO。
+- 目前沒有剩餘 executable follow-up；其餘 finding 已完成、已有 trigger owner，或因缺少 current trigger而維持 DEFER。
 
-其餘 finding 已完成、已有 owner，或因缺少 current trigger而維持 DEFER。
-
-Decision：**FULL GO 作為 current reconciliation evidence；execution ownership 僅 #617**。
+Decision：**FULL GO 作為 current reconciliation evidence；目前無剩餘 execution owner**。
