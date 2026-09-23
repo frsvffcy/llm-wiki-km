@@ -25,17 +25,21 @@ class FakeElement {
     this.textContent = "";
     this.className = "";
     this.handlers = new Map();
+    this.focusCount = 0;
+    this.isConnected = true;
   }
 
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
   addEventListener(name, handler) { this.handlers.set(name, handler); }
   setAttribute(name, value) { this[`attr_${name}`] = value; }
+  focus() { this.focusCount += 1; }
 }
 
 function uiElements() {
-  return {
+  const elements = {
     panel: new FakeElement("section"),
+    heading: new FakeElement("h3"),
     close: new FakeElement("button"),
     freshness: new FakeElement("p"),
     empty: new FakeElement("p"),
@@ -45,6 +49,8 @@ function uiElements() {
     save: new FakeElement("button"),
     result: new FakeElement("p")
   };
+  elements.heading.hidden = false;
+  return elements;
 }
 
 function fakeDocument(byId = {}) {
@@ -256,6 +262,7 @@ test("open-organize event opens the document and workspace switch resets", async
   const elements = uiElements();
   const byId = {
     "organize-panel": elements.panel,
+    "organize-heading": elements.heading,
     "organize-close": elements.close,
     "organize-freshness": elements.freshness,
     "organize-empty": elements.empty,
@@ -291,6 +298,42 @@ test("open-organize event opens the document and workspace switch resets", async
   assert.equal(elements.panel.hidden, true);
   assert.equal(elements.list.children.length, 0);
   delete globalThis.fetch;
+});
+
+test("整理面板載入成功後聚焦標題，關閉時返回觸發按鈕", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  opener.hidden = false;
+  const fetchImpl = async url => String(url).startsWith("/api/v1/organization/")
+    ? jsonResponse(200, suggestionsPayload()) : jsonResponse(200, proposalsPayload());
+  const controller = createOrganizeController(elements, fetchImpl, fakeDocument());
+
+  await controller.open(7, opener);
+  assert.equal(elements.heading.focusCount, 1);
+  assert.equal(elements.panel.hidden, false);
+
+  controller.close();
+  assert.equal(elements.panel.hidden, true);
+  assert.equal(opener.focusCount, 1);
+});
+
+test("整理面板載入失敗時不將焦點移入未完成內容", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  opener.hidden = false;
+  const fetchImpl = async url => String(url).startsWith("/api/v1/organization/")
+    ? jsonResponse(503, { error: { code: "UNAVAILABLE" } })
+    : jsonResponse(200, proposalsPayload());
+  const controller = createOrganizeController(elements, fetchImpl, fakeDocument());
+
+  await controller.open(7, opener);
+  assert.equal(elements.heading.focusCount, 0);
+  assert.equal(elements.panel.hidden, false);
+  assert.equal(elements.result.hidden, false);
+  assert.equal(opener.focusCount, 0);
+
+  controller.close();
+  assert.equal(opener.focusCount, 1);
 });
 
 test("the module never injects markup via innerHTML", async () => {

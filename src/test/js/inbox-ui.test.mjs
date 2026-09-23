@@ -30,6 +30,8 @@ class FakeElement {
     this.className = "";
     this.files = [];
     this.handlers = new Map();
+    this.focusCount = 0;
+    this.isConnected = true;
   }
 
   append(...nodes) {
@@ -47,10 +49,12 @@ class FakeElement {
   setAttribute(name, value) {
     this[`attr_${name}`] = value;
   }
+
+  focus() { this.focusCount += 1; }
 }
 
 function uiElements() {
-  return {
+  const elements = {
     filterForm: new FakeElement("form"),
     statusFilter: new FakeElement("select"),
     parseStatusFilter: new FakeElement("select"),
@@ -68,6 +72,7 @@ function uiElements() {
     batchResult: new FakeElement("div"),
     rescanResult: new FakeElement("p"),
     previewPanel: new FakeElement("section"),
+    previewHeading: new FakeElement("h3"),
     previewMeta: new FakeElement("p"),
     previewChunks: new FakeElement("ul"),
     previewPageInfo: new FakeElement("span"),
@@ -75,6 +80,8 @@ function uiElements() {
     previewNext: new FakeElement("button"),
     previewClose: new FakeElement("button")
   };
+  elements.previewPanel.hidden = true;
+  return elements;
 }
 
 function fakeDocument() {
@@ -610,6 +617,41 @@ test("preview renders bounded chunks and reports missing extraction as typed sta
   mode = "missing";
   await controller.openPreview(2);
   assert.match(elements.hint.textContent, /尚未有抽取內容，請先執行抽取/u);
+});
+
+test("預覽成功後將焦點移至標題，關閉時返回觸發按鈕", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  const fetchImpl = async () => jsonResponse(true, 200, {
+    data: {
+      documentId: 1, parseStatus: "PROCESSED", chunkCount: 1,
+      chunks: [{ chunkIndex: 0, content: "body" }],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    }
+  });
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+
+  await controller.openPreview(1, 0, opener);
+  assert.equal(elements.previewHeading.focusCount, 1);
+  assert.equal(elements.previewPanel.hidden, false);
+
+  controller.closePreview();
+  assert.equal(elements.previewPanel.hidden, true);
+  assert.equal(opener.focusCount, 1);
+});
+
+test("預覽失敗時不將焦點移入未完成內容", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  const fetchImpl = async () => jsonResponse(false, 422, {
+    error: { code: "EXTRACTED_CONTENT_NOT_FOUND" }
+  });
+  const controller = createInboxController(elements, fetchImpl, fakeDocument());
+
+  await controller.openPreview(1, 0, opener);
+  assert.equal(elements.previewHeading.focusCount, 0);
+  assert.equal(elements.previewPanel.hidden, true);
+  assert.equal(opener.focusCount, 0);
 });
 
 test("remove uses the soft-delete contract and typed failure for processed documents", async () => {

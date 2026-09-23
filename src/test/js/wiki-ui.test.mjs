@@ -21,16 +21,19 @@ class FakeElement {
     this.textContent = "";
     this.className = "";
     this.handlers = new Map();
+    this.focusCount = 0;
+    this.isConnected = true;
   }
 
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
   addEventListener(name, handler) { this.handlers.set(name, handler); }
   setAttribute(name, value) { this[`attr_${name}`] = value; }
+  focus() { this.focusCount += 1; }
 }
 
 function uiElements() {
-  return {
+  const elements = {
     wikiFilterForm: new FakeElement("form"),
     typeFilter: new FakeElement("select"),
     wikiList: new FakeElement("ul"),
@@ -40,10 +43,13 @@ function uiElements() {
     wikiPrevPage: new FakeElement("button"),
     wikiNextPage: new FakeElement("button"),
     wikiReadPanel: new FakeElement("section"),
+    wikiReadHeading: new FakeElement("h3"),
     wikiReadMeta: new FakeElement("div"),
     wikiReadBody: new FakeElement("pre"),
     wikiReadClose: new FakeElement("button")
   };
+  elements.wikiReadPanel.hidden = true;
+  return elements;
 }
 
 function fakeDocument() {
@@ -143,6 +149,66 @@ test("read renders the canonical markdown as inert text with metadata hand-offs"
   assert.equal(elements.wikiReadBody.textContent,
     "# Transformer Architecture\n\n<script>alert(1)</script>",
     "markdown is inert text, never injected markup");
+});
+
+test("閱讀成功後將焦點移至標題，關閉時返回觸發按鈕", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  const fetchImpl = async () => jsonResponse(200, {
+    data: pageRow({ markdown: "body" })
+  });
+  const controller = createWikiController(elements, fetchImpl, fakeDocument());
+
+  await controller.openPage("wiki-arch", opener);
+  assert.equal(elements.wikiReadHeading.focusCount, 1);
+  assert.equal(elements.wikiReadPanel.hidden, false);
+
+  controller.closePage();
+  assert.equal(opener.focusCount, 1);
+  assert.equal(elements.wikiReadPanel.hidden, true);
+});
+
+test("Wiki 讀取失敗時不將焦點移入面板", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  const fetchImpl = async () => jsonResponse(404, {
+    error: { code: "WIKI_PAGE_NOT_FOUND" }
+  });
+  const controller = createWikiController(elements, fetchImpl, fakeDocument());
+
+  await controller.openPage("wiki-missing", opener);
+  assert.equal(elements.wikiReadHeading.focusCount, 0);
+  assert.equal(opener.focusCount, 0);
+  assert.equal(elements.wikiReadPanel.hidden, true);
+  assert.match(elements.wikiHint.textContent, /找不到頁面/u);
+});
+
+test("Wiki 回應不完整時不聚焦未完成面板", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  const fetchImpl = async () => jsonResponse(200, { data: pageRow({ markdown: undefined }) });
+  const controller = createWikiController(elements, fetchImpl, fakeDocument());
+
+  await controller.openPage("wiki-arch", opener);
+  assert.equal(elements.wikiReadHeading.focusCount, 0);
+  assert.equal(elements.wikiReadPanel.hidden, true);
+  assert.equal(opener.focusCount, 0);
+  assert.match(elements.wikiHint.textContent, /知識讀取失敗/u);
+});
+
+test("Wiki 頁面 revision 必須是已發布版本", async () => {
+  const elements = uiElements();
+  const opener = new FakeElement("button");
+  const fetchImpl = async () => jsonResponse(200, {
+    data: pageRow({ revision: 0, markdown: "body" })
+  });
+  const controller = createWikiController(elements, fetchImpl, fakeDocument());
+
+  await controller.openPage("wiki-arch", opener);
+  assert.equal(elements.wikiReadHeading.focusCount, 0);
+  assert.equal(elements.wikiReadPanel.hidden, true);
+  assert.equal(opener.focusCount, 0);
+  assert.match(elements.wikiHint.textContent, /知識讀取失敗/u);
 });
 
 test("unknown page and unavailable content surface distinct typed failures", async () => {

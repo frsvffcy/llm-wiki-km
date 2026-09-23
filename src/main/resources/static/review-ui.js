@@ -1,3 +1,5 @@
+import { createDynamicPanelFocus } from "./dynamic-panel-focus.js";
+
 /**
  * 治理工作台（#353）：既有提案審核與 Wiki 草稿生命週期契約的瀏覽器投影，涵蓋
  * 提案清單／詳細資料／狀態決策、草稿建立／預覽／差異／重新產生／標記失效，以及
@@ -178,7 +180,8 @@ export function renderProposalList(elements, rows, pageMeta, documentRef = docum
       open.type = "button";
       open.className = "proposal-open list-action";
       open.textContent = "檢視並審核";
-      open.addEventListener("click", () => actions.onSelect(data.id));
+      open.addEventListener("click", event =>
+        actions.onSelect(data.id, event && event.currentTarget));
       item.append(open);
     }
     elements.proposalList.append(item);
@@ -309,7 +312,14 @@ async function readEnvelope(response) {
 
 export function createReviewController(elements, fetchImpl = fetch, documentRef = document) {
   const state = { page: 0, status: "", proposalId: null, draftId: null };
+  const panelFocus = createDynamicPanelFocus({
+    panel: elements.proposalDetail,
+    heading: elements.proposalDetailHeading,
+    documentRef
+  });
   let inFlight = false;
+  let detailRequest = 0;
+  let detailFocusContext = null;
 
   function showTypedError(error, hint = elements.reviewHint) {
     const { title, message } = governanceErrorMessage(error);
@@ -318,6 +328,9 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
 
   function reset() {
     // 工作區隔離：切換工作區後，不保留提案、草稿或發布狀態。
+    detailRequest += 1;
+    detailFocusContext = null;
+    panelFocus.dismiss();
     state.page = 0;
     state.status = "";
     state.proposalId = null;
@@ -363,23 +376,56 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
     await refreshProposals();
   }
 
-  async function selectProposal(proposalId) {
-    state.proposalId = proposalId;
-    elements.reviewHint.textContent = "";
-    const response = await fetchImpl(`${PROPOSALS_ENDPOINT}/${proposalId}`);
-    const envelope = await readEnvelope(response);
-    if (!response.ok) {
-      showTypedError(envelope && envelope.error ? envelope.error : undefined);
-      return;
+  async function loadProposalDetail(proposalId, context, request, focusOnSuccess) {
+    let response;
+    try {
+      response = await fetchImpl(`${PROPOSALS_ENDPOINT}/${proposalId}`);
+    } catch {
+      if (request === detailRequest && panelFocus.isCurrent(context)) showTypedError(undefined);
+      return false;
     }
-    renderProposalDetail(elements, envelope.data, documentRef, {
+    const envelope = await readEnvelope(response);
+    if (request !== detailRequest || !panelFocus.isCurrent(context)) return false;
+    const detail = envelope && envelope.data;
+    if (!response.ok || !detail || typeof detail !== "object" || Array.isArray(detail)
+        || String(detail.id) !== String(proposalId)) {
+      showTypedError(envelope && envelope.error ? envelope.error : undefined);
+      return false;
+    }
+    renderProposalDetail(elements, detail, documentRef, {
       onTransition: transitionProposal
     });
     // APPROVED 提案是草稿生命週期的入口。
-    elements.draftCreate.hidden = text(envelope.data.status).toUpperCase() !== "APPROVED";
-    if (text(envelope.data.status).toUpperCase() !== "APPROVED") {
+    elements.draftCreate.hidden = text(detail.status).toUpperCase() !== "APPROVED";
+    if (text(detail.status).toUpperCase() !== "APPROVED") {
       elements.draftPanel.hidden = true;
     }
+    if (focusOnSuccess) panelFocus.focusPanel(context);
+    return true;
+  }
+
+  async function selectProposal(proposalId, opener = null) {
+    const context = panelFocus.begin(opener);
+    detailFocusContext = context;
+    const request = ++detailRequest;
+    state.proposalId = proposalId;
+    elements.proposalDetail.hidden = true;
+    elements.draftPanel.hidden = true;
+    elements.reviewHint.textContent = "";
+    return loadProposalDetail(proposalId, context, request, true);
+  }
+
+  async function reloadProposal(proposalId) {
+    const context = detailFocusContext;
+    const request = ++detailRequest;
+    return loadProposalDetail(proposalId, context, request, false);
+  }
+
+  function closeProposalDetail() {
+    detailRequest += 1;
+    detailFocusContext = null;
+    elements.proposalDetail.hidden = true;
+    panelFocus.close();
   }
 
   async function transitionProposal(proposalId, status) {
@@ -395,14 +441,14 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
       if (!response.ok) {
         // 型別化的過時／無效轉換失敗會重新讀取權威提案狀態與能力，
         // 讓過時按鈕立即消失（#370）；重新讀取後再顯示失敗，確保提示仍可見。
-        await selectProposal(proposalId);
+        await reloadProposal(proposalId);
         showTypedError(envelope && envelope.error ? envelope.error : undefined);
         return;
       }
       // 重新讀取權威狀態；核准本身不會自動發布任何內容。
       const autoDraft = envelope && envelope.data && typeof envelope.data.autoDraft === "object"
         ? envelope.data.autoDraft : null;
-      await selectProposal(proposalId);
+      await reloadProposal(proposalId);
       await refreshProposals();
       // #570：核准後在同一 task flow 內呈現自動準備的草稿（預覽可見，發布仍需明確人工作動）；
       // 準備失敗時提案保持核准並顯示 typed recovery，不假裝發布。
@@ -573,7 +619,7 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
   elements.proposalPrevPage.addEventListener("click", prevPage);
   elements.proposalNextPage.addEventListener("click", nextPage);
   elements.proposalDetailClose.addEventListener("click", () => {
-    elements.proposalDetail.hidden = true;
+    closeProposalDetail();
   });
   elements.draftCreate.addEventListener("click", createDraft);
   elements.draftPreview.addEventListener("click", showPreview);
@@ -606,6 +652,7 @@ function elementsFrom(documentRef) {
     proposalPrevPage: byId("proposal-prev-page"),
     proposalNextPage: byId("proposal-next-page"),
     proposalDetail: byId("proposal-detail"),
+    proposalDetailHeading: byId("proposal-detail-heading"),
     proposalDetailTitle: byId("proposal-detail-title"),
     proposalDetailMeta: byId("proposal-detail-meta"),
     proposalDetailSummary: byId("proposal-detail-summary"),

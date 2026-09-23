@@ -1,3 +1,6 @@
+import { createDynamicPanelFocus } from "./dynamic-panel-focus.js";
+import { isPublishedWikiPage } from "./wiki-page-contract.js";
+
 /**
  * Vault Lint 分類檢視的瀏覽器投影（#383）。呈現由後端負責的唯讀診斷報告
  *（清單／篩選／詳細資料、權威頁面預覽與導覽連結）。本檔案不是 lint、連結解析、
@@ -146,7 +149,13 @@ async function readEnvelope(response) {
 
 export function createQualityController(elements, fetchImpl = fetch, documentRef = document) {
   const state = { category: "", severity: "", findings: [], checkedPageCount: 0, fetchedAt: "", selectedIndex: -1 };
+  const panelFocus = createDynamicPanelFocus({
+    panel: elements.triageDetail,
+    heading: elements.triageDetailHeading,
+    documentRef
+  });
   let repairInFlight = false;
+  let detailRequest = 0;
 
   function showTypedError(error, hint = elements.triageHint) {
     const { title, message } = triageErrorMessage(error);
@@ -180,6 +189,8 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
 
   function reset() {
     // 工作區隔離：切換工作區後不保留診斷項目、詳細資料或篩選狀態。
+    detailRequest += 1;
+    panelFocus.dismiss();
     state.category = "";
     state.severity = "";
     state.findings = [];
@@ -204,6 +215,8 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
   }
 
   async function refresh() {
+    detailRequest += 1;
+    panelFocus.dismiss();
     elements.triageHint.textContent = "";
     let response;
     try {
@@ -227,11 +240,14 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
     state.checkedPageCount = Number.isInteger(data.checkedPageCount) ? data.checkedPageCount : 0;
     state.fetchedAt = new Date().toISOString();
     state.selectedIndex = -1;
+    panelFocus.dismiss();
     elements.triageDetail.hidden = true;
     renderList();
   }
 
   function applyFilter() {
+    detailRequest += 1;
+    panelFocus.dismiss();
     state.category = text(elements.categoryFilter.value).toUpperCase();
     state.severity = text(elements.severityFilter.value).toUpperCase();
     state.selectedIndex = -1;
@@ -239,11 +255,13 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
     renderList();
   }
 
-  async function selectFinding(index) {
+  async function selectFinding(index, opener = null) {
     const visible = visibleFindings();
     const entry = visible[index];
     if (!entry) return;
     const finding = entryFinding(entry);
+    const context = panelFocus.begin(opener);
+    const request = ++detailRequest;
     state.selectedIndex = index;
     renderFindingDetail(documentRef, elements, finding);
     renderRepairCapability(entry);
@@ -254,21 +272,25 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
     try {
       response = await fetchImpl(`${WIKI_ENDPOINT}/${encodeURIComponent(text(finding.knowledgeId))}`);
     } catch {
-      elements.triagePageHint.textContent = "讀取權威內容失敗，請稍後再試。";
+      if (request === detailRequest && panelFocus.isCurrent(context)) {
+        elements.triagePageHint.textContent = "讀取權威內容失敗，請稍後再試。";
+      }
       return;
     }
     const envelope = await readEnvelope(response);
+    if (request !== detailRequest || !panelFocus.isCurrent(context)) return;
     if (!response.ok) {
       const { title, message } = triageErrorMessage(envelope && envelope.error);
       elements.triagePageHint.textContent = `${title}：${message}`;
       return;
     }
     const page = envelope && envelope.data ? envelope.data : null;
-    if (!page || typeof page.title === "undefined") {
+    if (!isPublishedWikiPage(page, finding.knowledgeId)) {
       elements.triagePageHint.textContent = "讀取權威內容失敗，請稍後再試。";
       return;
     }
     renderPagePreview(documentRef, elements.triagePage, page);
+    panelFocus.focusPanel(context);
   }
 
   function renderRepairCapability(entry) {
@@ -328,8 +350,10 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
   }
 
   function closeDetail() {
+    detailRequest += 1;
     state.selectedIndex = -1;
     elements.triageDetail.hidden = true;
+    panelFocus.close();
   }
 
   if (elements.triageList) {
@@ -338,7 +362,9 @@ export function createQualityController(elements, fetchImpl = fetch, documentRef
       const raw = target && typeof target.getAttribute === "function"
         ? target.getAttribute("data-finding-index") : null;
       if (raw === null || raw === "") return;
-      selectFinding(Number(raw));
+      const opener = target && typeof target.closest === "function"
+        ? target.closest("[data-finding-index]") : target;
+      return selectFinding(Number(raw), opener);
     });
   }
   if (elements.triageFilterForm) {
@@ -377,6 +403,7 @@ function elementsFrom(documentRef) {
     triageEmpty: byId("triage-empty"),
     triageList: byId("triage-list"),
     triageDetail: byId("triage-detail"),
+    triageDetailHeading: byId("triage-detail-heading"),
     triageDetailTitle: byId("triage-detail-title"),
     triageDetailMeta: byId("triage-detail-meta"),
     triageDetailExplanation: byId("triage-detail-explanation"),

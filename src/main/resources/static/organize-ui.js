@@ -1,3 +1,5 @@
+import { createDynamicPanelFocus } from "./dynamic-panel-focus.js";
+
 /**
  * Post-upload organize surface (#569): task-language projection of the backend
  * tag-suggestion contract plus the single human-controlled tag mutation point.
@@ -85,7 +87,10 @@ export async function fetchTagSuggestions(fetchImpl, documentId) {
   const response = await fetchImpl(
     `${TAG_SUGGESTIONS_ENDPOINT}?documentId=${encodeURIComponent(String(documentId))}`);
   const payload = await readPayload(response);
-  if (!response.ok || !payload || typeof payload.data !== "object" || payload.data === null) {
+  if (!response.ok || !payload || typeof payload.data !== "object" || payload.data === null
+      || Array.isArray(payload.data)
+      || String(payload.data.documentId) !== String(documentId)
+      || !Array.isArray(payload.data.suggestions)) {
     throwForPayload(response, payload);
   }
   return payload.data;
@@ -181,8 +186,16 @@ function renderProposalOptions(elements, proposals, documentRef) {
 export function createOrganizeController(elements, fetchImpl = fetch, documentRef = document) {
   let currentDocumentId = null;
   let pending = false;
+  let requestSequence = 0;
+  const panelFocus = createDynamicPanelFocus({
+    panel: elements.panel,
+    heading: elements.heading,
+    documentRef
+  });
 
   function reset() {
+    requestSequence += 1;
+    panelFocus.dismiss();
     currentDocumentId = null;
     pending = false;
     elements.panel.hidden = true;
@@ -202,48 +215,59 @@ export function createOrganizeController(elements, fetchImpl = fetch, documentRe
     elements.result.hidden = false;
   }
 
-  async function refresh() {
+  async function refresh(focusContext = null) {
     if (currentDocumentId === null || pending) {
-      return;
+      return false;
     }
     pending = true;
+    const documentId = currentDocumentId;
+    const request = ++requestSequence;
     elements.save.disabled = true;
     try {
       const [payload, proposals] = await Promise.all([
-        fetchTagSuggestions(fetchImpl, currentDocumentId),
-        fetchReviewProposals(fetchImpl, currentDocumentId)
+        fetchTagSuggestions(fetchImpl, documentId),
+        fetchReviewProposals(fetchImpl, documentId)
       ]);
-      // A workspace switch or close during fetch must not paint a foreign document.
-      if (currentDocumentId === null) {
-        return;
+      if (request !== requestSequence || currentDocumentId !== documentId) {
+        return false;
       }
+      if (focusContext && !panelFocus.isCurrent(focusContext)) return false;
       renderOrganizePanel(elements, payload, proposals, documentRef);
       elements.result.hidden = true;
+      if (focusContext) panelFocus.focusPanel(focusContext);
+      return true;
     } catch (error) {
-      showError(error);
+      if (request === requestSequence && currentDocumentId === documentId) showError(error);
+      return false;
     } finally {
-      pending = false;
-      if (currentDocumentId !== null && elements.proposalSelect.children.length > 1) {
-        elements.save.disabled = false;
+      if (request === requestSequence) {
+        pending = false;
+        if (currentDocumentId !== null && elements.proposalSelect.children.length > 1) {
+          elements.save.disabled = false;
+        }
       }
     }
   }
 
-  async function open(documentId) {
+  async function open(documentId, opener = null) {
+    requestSequence += 1;
+    pending = false;
     currentDocumentId = Number(documentId);
     if (!Number.isFinite(currentDocumentId) || currentDocumentId <= 0) {
       reset();
       return;
     }
+    const context = panelFocus.begin(opener);
     elements.panel.hidden = false;
     elements.freshness.textContent = "正在載入整理建議…";
     elements.list.replaceChildren();
     elements.empty.hidden = true;
     elements.result.hidden = true;
-    await refresh();
+    await refresh(context);
   }
 
   function close() {
+    panelFocus.close();
     reset();
   }
 
@@ -288,6 +312,7 @@ function elementsFrom(documentRef) {
   const byId = id => documentRef.getElementById(id);
   return {
     panel: byId("organize-panel"),
+    heading: byId("organize-heading"),
     close: byId("organize-close"),
     freshness: byId("organize-freshness"),
     empty: byId("organize-empty"),
@@ -307,7 +332,8 @@ export function bootstrapOrganizeUi(documentRef = document) {
     // inbox 的整理入口經此事件開啟（handoff，不共享狀態）；工作區切換清空。
     documentRef.addEventListener("open-organize", event => {
       const documentId = event && event.detail ? event.detail.documentId : null;
-      controller.open(documentId);
+      const opener = event && event.detail ? event.detail.opener : null;
+      controller.open(documentId, opener);
     });
     documentRef.addEventListener("workspace-changed", () => controller.reset());
   }

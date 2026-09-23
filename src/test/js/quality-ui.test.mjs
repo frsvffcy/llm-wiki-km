@@ -23,6 +23,8 @@ class FakeElement {
     this.textContent = "";
     this.className = "";
     this.handlers = new Map();
+    this.focusCount = 0;
+    this.isConnected = true;
   }
 
   append(...nodes) { this.children.push(...nodes); }
@@ -30,10 +32,13 @@ class FakeElement {
   addEventListener(name, handler) { this.handlers.set(name, handler); }
   setAttribute(name, value) { this[`attr_${name}`] = value; }
   getAttribute(name) { return this[`attr_${name}`] ?? null; }
+  closest(selector) { return selector === "[data-finding-index]" && this.getAttribute("data-finding-index") !== null
+    ? this : null; }
+  focus() { this.focusCount += 1; }
 }
 
 function uiElements() {
-  return {
+  const elements = {
     triageFilterForm: new FakeElement("form"),
     categoryFilter: new FakeElement("select"),
     severityFilter: new FakeElement("select"),
@@ -43,6 +48,7 @@ function uiElements() {
     triageEmpty: new FakeElement("p"),
     triageList: new FakeElement("ul"),
     triageDetail: new FakeElement("section"),
+    triageDetailHeading: new FakeElement("h3"),
     triageDetailTitle: new FakeElement("h4"),
     triageDetailMeta: new FakeElement("p"),
     triageDetailExplanation: new FakeElement("p"),
@@ -54,6 +60,8 @@ function uiElements() {
     triageRepairHint: new FakeElement("p"),
     triageRefusal: new FakeElement("p")
   };
+  elements.triageDetail.hidden = true;
+  return elements;
 }
 
 function fakeDocument() {
@@ -102,10 +110,14 @@ function lintPayload(findings, checkedPageCount = 3) {
 function pagePayload(overrides = {}) {
   return {
     data: {
+      id: 4,
       knowledgeId: "wiki-hub",
       title: "Hub Page",
       pageType: "CONCEPT",
       revision: 4,
+      contentHash: "a".repeat(64),
+      updatedAt: "2026-09-13T00:00:00Z",
+      markdown: "# Hub Page",
       ...overrides
     }
   };
@@ -206,6 +218,20 @@ test("detail renders finding, authoritative preview, and stale handling", async 
   assert.equal(elements.triageDetail.hidden, true);
 });
 
+test("診斷詳情載入成功後聚焦標題，關閉時返回觸發按鈕", async () => {
+  const { elements, controller } = controllerWithLint([triageEntry()]);
+  const opener = new FakeElement("button");
+  await controller.refresh();
+  await controller.selectFinding(0, opener);
+
+  assert.equal(elements.triageDetailHeading.focusCount, 1);
+  assert.equal(elements.triageDetail.hidden, false);
+
+  controller.closeDetail();
+  assert.equal(elements.triageDetail.hidden, true);
+  assert.equal(opener.focusCount, 1);
+});
+
 test("stale page never fabricates content", async () => {
   const elements = uiElements();
   const fetchImpl = async (url) => {
@@ -220,6 +246,7 @@ test("stale page never fabricates content", async () => {
 
   assert.match(elements.triagePageHint.textContent, /已不存在/);
   assert.equal(flatText(elements.triagePage), "");
+  assert.equal(elements.triageDetailHeading.focusCount, 0);
 });
 
 test("missing workspace surfaces the typed hint without throwing", async () => {
