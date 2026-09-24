@@ -17,6 +17,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Release-candidate contract guard (Refs #430).
@@ -126,27 +127,70 @@ class ReleaseCandidateContractTest {
         return publishedVersions.stream().max(Comparator.naturalOrder()).orElseThrow();
     }
 
+    private static void assertCurrentVersionAboveLatestPublished(
+            String projectVersion, ReleaseVersion latestPublished) {
+        assertThat(ReleaseVersion.parse(projectVersion))
+                .as("main 開發版識別必須高於最新已發布版本 %s", latestPublished)
+                .isGreaterThan(latestPublished);
+    }
+
+    private static String mavenVersion(ReleaseVersion version) {
+        return "%d.%d.%d".formatted(version.major(), version.minor(), version.patch());
+    }
+
+    private static ReleaseVersion immediatelyPreceding(ReleaseVersion version) {
+        if (version.patch() > 0) {
+            return new ReleaseVersion(version.major(), version.minor(), version.patch() - 1);
+        }
+        if (version.minor() > 0) {
+            return new ReleaseVersion(version.major(), version.minor() - 1, Integer.MAX_VALUE);
+        }
+        if (version.major() > 0) {
+            return new ReleaseVersion(version.major() - 1, Integer.MAX_VALUE, Integer.MAX_VALUE);
+        }
+        return null;
+    }
+
     @Test
     void reproducibleTimestampIsPinnedInPom() throws Exception {
         String pom = read(POM);
         assertThat(pom).contains("<project.build.outputTimestamp>2026-09-15T00:00:00Z</project.build.outputTimestamp>");
-        // #554 §C: the timestamp stays pinned across the 0.2.1 rebaseline; it is
-        // only a reproducibility input and must never become dynamic build-time
-        // data or a second version identity.
-        // #636：目前 main 的開發版識別須超越不可變的已發布 v0.2.1。
-        assertThat(directProjectVersion()).isEqualTo("0.2.2");
+        // #554 §C: the timestamp is only a reproducibility input and must never
+        // become dynamic build-time data or a second version identity.
         assertThat(pom).contains("<java.version>21</java.version>");
     }
 
     @Test
     void mutableMainVersionMustAdvanceBeyondLatestPublishedRelease() throws Exception {
-        String projectVersion = directProjectVersion();
-        ReleaseVersion latestPublished = latestPublishedReleaseVersion();
+        assertCurrentVersionAboveLatestPublished(
+                directProjectVersion(), latestPublishedReleaseVersion());
+    }
 
-        assertThat(projectVersion).isEqualTo("0.2.2");
-        assertThat(ReleaseVersion.parse(projectVersion))
-                .as("main 開發版識別必須高於最新已發布版本 %s", latestPublished)
-                .isGreaterThan(latestPublished);
+    @Test
+    void malformedMavenProjectVersionsFailClosed() {
+        for (String malformed : List.of("", "1.2", "1.2.3-SNAPSHOT", "v1.2.3")) {
+            assertThatThrownBy(() -> ReleaseVersion.parse(malformed))
+                    .as("Maven project version %s must be a stable three-part version", malformed)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    void currentVersionAtOrBelowLatestPublishedReleaseIsRejected() throws Exception {
+        ReleaseVersion latestPublished = latestPublishedReleaseVersion();
+        List<String> notNewer = new ArrayList<>();
+        notNewer.add(mavenVersion(latestPublished));
+        ReleaseVersion previous = immediatelyPreceding(latestPublished);
+        if (previous != null) {
+            notNewer.add(mavenVersion(previous));
+        }
+        for (String projectVersion : notNewer) {
+            assertThatThrownBy(() ->
+                    assertCurrentVersionAboveLatestPublished(projectVersion, latestPublished))
+                    .as("main version %s must fail when it does not advance past %s",
+                            projectVersion, latestPublished)
+                    .isInstanceOf(AssertionError.class);
+        }
     }
 
     @Test
