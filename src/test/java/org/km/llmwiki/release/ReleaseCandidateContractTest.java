@@ -228,6 +228,20 @@ class ReleaseCandidateContractTest {
     }
 
     @Test
+    void currentVersionHasUnpublishedCandidateNotes() throws Exception {
+        String version = directProjectVersion();
+        Path candidateNotes = Path.of("docs/release/v" + version + "-release-notes.md");
+        String notes = read(candidateNotes);
+
+        assertThat(notes).as("Maven 版本對應的候選發布說明標題")
+                .contains("# v" + version + " 候選發布說明");
+        assertThat(notes).contains("- 發布狀態：CANDIDATE");
+        assertThat(PUBLISHED_STATUS.matcher(notes).find())
+                .as("候選發布說明不得宣稱已發布")
+                .isFalse();
+    }
+
+    @Test
     void releaseScriptsExistAndStayExecutable() throws Exception {
         for (String script : SCRIPTS) {
             Path path = Path.of(script);

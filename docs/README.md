@@ -43,8 +43,10 @@ architecture/legacy/ = 我們以前怎麼想；不可作 current contract
 | `architecture/legacy/` | 02／10／11／12／13 原始長文件＋14／15 planning 的凍結歷史快照 | 無（`HISTORICAL`／non-authoritative） | 不得引用為 current table／endpoint／package／roadmap |
 | `adr/` | 架構決策記錄（ADR 0001～0014） | 決策權威來源 | 不得被 current docs 反向改寫 |
 | `development/` | 能力實作／驗證說明（含 testing、model-routing、action-risk、治理與各 Issue design record） | 對應 Issue＋code／tests | 不是 roadmap backlog |
+| `development/issue-642-release-scope-decision.md` | 下一版版本決策與正式環境變更對帳 | `v0.2.1` → main 的可追溯範圍紀錄 | 不代表已發布或通過 exact-candidate 關卡 |
 | `evaluations/` | 評估決策證據（含歷史 review；見 `evaluations/README.md` 的 `TRACK_FULL`／`LINEAGE_ONLY` 治理） | 當時評估證據；current status 以 lineage／Issue／ADR／latest code 為準 | 不得自動升格為 adoption／backlog |
 | `measurements/` | 基準測試／量測證據 | 當次量測方法與結果 | 不得升格為長期 SLA |
+| `release/` | 已發布版本紀錄與未發布候選說明 | 對應 tag／Release／候選項的來源文件 | 候選說明不代表已發布或已通過發布關卡 |
 | `guides/` | Current 學習指南（Markdown single-source） | Learning aid；`≠ Executable Contract ≠ ADR authority` | 不得反向定義 runtime |
 
 ## 文件狀態標記
@@ -68,6 +70,9 @@ Current／legacy／evaluation／guide 採用可見頁首標記，至少可辨識
 - 能力由誰持有：`architecture/capability-map.md`
 - Schema 責任與生命週期：`architecture/schema.md`
 - API surface 與邊界：`architecture/api.md`
+- 下一版候選範圍：`release/v0.3.0-release-notes.md`（尚未發布）
+- 下一版版本決策：`development/issue-642-release-scope-decision.md`
+- 發布候選程序：`release/release-candidate-procedure-v1.md`
 - 以前怎麼想：`architecture/legacy/README.md`（如有；否則見本目錄 `legacy/` 各文件頁首）
 - 如何學習：`guides/architecture-learning-guide.md`
 - 為什麼這樣決策：`adr/`
