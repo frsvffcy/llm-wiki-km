@@ -2,10 +2,19 @@ package org.km.llmwiki.release;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -21,6 +30,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @Tag("unit")
 class ReleaseCandidateContractTest {
+
+    private static final Pattern VERSIONED_RELEASE_NOTES = Pattern.compile(
+            "^v(\\d+)\\.(\\d+)\\.(\\d+)-release-notes\\.md$");
+    private static final Pattern PUBLISHED_STATUS = Pattern.compile(
+            "(?m)^- 發布狀態：PUBLISHED\\s*$");
 
     private static final Path POM = Path.of("pom.xml");
     private static final Path WORKFLOW = Path.of(".github/workflows/release-candidate.yml");
@@ -42,9 +56,74 @@ class ReleaseCandidateContractTest {
             "scripts/check-release-readiness.sh",
             "scripts/browser-first-mile-smoke.sh");
 
+    private record ReleaseVersion(int major, int minor, int patch)
+            implements Comparable<ReleaseVersion> {
+        private static ReleaseVersion from(Matcher matcher) {
+            return new ReleaseVersion(
+                    Integer.parseInt(matcher.group(1)),
+                    Integer.parseInt(matcher.group(2)),
+                    Integer.parseInt(matcher.group(3)));
+        }
+
+        private static ReleaseVersion parse(String version) {
+            Matcher matcher = Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+)$").matcher(version);
+            if (!matcher.matches()) {
+                throw new IllegalArgumentException("不支援的 Maven project version：" + version);
+            }
+            return from(matcher);
+        }
+
+        @Override
+        public int compareTo(ReleaseVersion other) {
+            int majorOrder = Integer.compare(major, other.major);
+            if (majorOrder != 0) {
+                return majorOrder;
+            }
+            int minorOrder = Integer.compare(minor, other.minor);
+            return minorOrder != 0 ? minorOrder : Integer.compare(patch, other.patch);
+        }
+    }
+
     private static String read(Path path) throws Exception {
         assertThat(path).as("%s must exist", path).isRegularFile();
         return Files.readString(path);
+    }
+
+    private static String directProjectVersion() throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+
+        Element project = factory.newDocumentBuilder().parse(POM.toFile()).getDocumentElement();
+        assertThat(project.getLocalName()).isEqualTo("project");
+        List<String> directVersions = new ArrayList<>();
+        for (Node child = project.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child instanceof Element element && "version".equals(element.getLocalName())) {
+                directVersions.add(element.getTextContent().trim());
+            }
+        }
+        assertThat(directVersions).as("pom.xml 直接子節點的 project version").hasSize(1);
+        return directVersions.get(0);
+    }
+
+    private static ReleaseVersion latestPublishedReleaseVersion() throws Exception {
+        List<ReleaseVersion> publishedVersions = new ArrayList<>();
+        try (Stream<Path> releaseNotes = Files.list(Path.of("docs/release"))) {
+            for (Path path : releaseNotes.toList()) {
+                Matcher matcher = VERSIONED_RELEASE_NOTES.matcher(path.getFileName().toString());
+                if (Files.isRegularFile(path) && matcher.matches()
+                        && PUBLISHED_STATUS.matcher(Files.readString(path)).find()) {
+                    publishedVersions.add(ReleaseVersion.from(matcher));
+                }
+            }
+        }
+        assertThat(publishedVersions).as("已發布的版本化 release notes").isNotEmpty();
+        return publishedVersions.stream().max(Comparator.naturalOrder()).orElseThrow();
     }
 
     @Test
@@ -54,9 +133,20 @@ class ReleaseCandidateContractTest {
         // #554 §C: the timestamp stays pinned across the 0.2.1 rebaseline; it is
         // only a reproducibility input and must never become dynamic build-time
         // data or a second version identity.
-        // #554: project identity is now 0.2.1; v0.1.0 / v0.1.1 / v0.2.0 tags/artifacts stay immutable.
-        assertThat(pom).contains("<version>0.2.1</version>");
+        // #636：目前 main 的開發版識別須超越不可變的已發布 v0.2.1。
+        assertThat(directProjectVersion()).isEqualTo("0.2.2");
         assertThat(pom).contains("<java.version>21</java.version>");
+    }
+
+    @Test
+    void mutableMainVersionMustAdvanceBeyondLatestPublishedRelease() throws Exception {
+        String projectVersion = directProjectVersion();
+        ReleaseVersion latestPublished = latestPublishedReleaseVersion();
+
+        assertThat(projectVersion).isEqualTo("0.2.2");
+        assertThat(ReleaseVersion.parse(projectVersion))
+                .as("main 開發版識別必須高於最新已發布版本 %s", latestPublished)
+                .isGreaterThan(latestPublished);
     }
 
     @Test
@@ -71,6 +161,11 @@ class ReleaseCandidateContractTest {
         assertThat(v020).contains("# v0.2.0 Release notes");
         String v021 = read(NOTES);
         assertThat(v021).contains("# v0.2.1 Release notes");
+        assertThat(v021).contains("- 發布狀態：PUBLISHED");
+        assertThat(v021).contains("57d7c637f2b2474475b637fb7a46ed48fd953a9d");
+        assertThat(v021).contains("53c74d9a018a0a9a600462af89f9b211b3d1ee03cb994ac7dacb78e66992c2ed");
+        assertThat(v021).doesNotContain(
+                "真正建立 `v0.2.1` public tag / GitHub Release 仍需 human explicit authorization");
         for (String token : List.of("SUPPORTED", "CANDIDATE", "NOT SUPPORTED")) {
             assertThat(v021).as("v0.2.1 notes must cover %s", token).contains(token);
         }
@@ -137,6 +232,31 @@ class ReleaseCandidateContractTest {
         // Flyway identity derived from the chain, never hand-edited.
         assertThat(build).contains("db/migration");
         assertThat(build).contains("sort -V");
+    }
+
+    @Test
+    void releaseScriptsAndWorkflowDoNotHardcodeCurrentMavenVersion() throws Exception {
+        String currentVersion = directProjectVersion();
+        List<Path> releaseTools = new ArrayList<>();
+        try (Stream<Path> scripts = Files.walk(Path.of("scripts"))) {
+            releaseTools.addAll(scripts
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".sh"))
+                    .filter(path -> !path.startsWith(Path.of("scripts/tests")))
+                    .toList());
+        }
+        try (Stream<Path> workflows = Files.walk(Path.of(".github/workflows"))) {
+            releaseTools.addAll(workflows
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(".yml") || path.toString().endsWith(".yaml"))
+                    .toList());
+        }
+
+        for (Path path : releaseTools) {
+            assertThat(read(path))
+                    .as("%s 須推導版本識別，不得硬編目前版本 %s", path, currentVersion)
+                    .doesNotContain(currentVersion);
+        }
     }
 
     @Test

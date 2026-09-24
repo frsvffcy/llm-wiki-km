@@ -1,4 +1,4 @@
-# Release-candidate procedure v1 (Refs #430 §A–§B; #454 §A/E v0.1.1 patch; #512 v0.2.0 rebaseline; #554 v0.2.1 rebaseline)
+# Release-candidate procedure v1 (Refs #430 §A–§B; #454 §A/E v0.1.1 patch; #512 v0.2.0 rebaseline; #554 v0.2.1 rebaseline; #636 發布後版本識別)
 
 > Procedure identifier: `release-candidate-procedure-v1`（#454 沿用，不另造第二套 acceptance framework）。
 > Executable authority 是 `scripts/build-release-candidate.sh`、`scripts/verify-reproducible-build.sh`
@@ -9,9 +9,9 @@
 
 ```text
 sourceCommit  = git rev-parse HEAD（clean checkout；dirty 預設 fail-closed，僅 local 允許 --allow-dirty）
-version       = mvn help:evaluate -Dexpression=project.version（Maven project 唯一 truth；current 0.2.1，v0.1.0 / v0.1.1 / v0.2.0 tags 不可變）
+version       = mvn help:evaluate -Dexpression=project.version（Maven project 是唯一版本權威；目前 main 開發版識別為 0.2.2；最新已發布版 v0.2.1 保持不可變）
 artifactId    = mvn help:evaluate -Dexpression=project.artifactId
-artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.2.1.jar；v0.1.0 / v0.1.1 / v0.2.0 僅為歷史 tag 示例）
+artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.2.2.jar；v0.1.0 / v0.1.1 / v0.2.0 / v0.2.1 僅為歷史 tag 示例）
 ```
 
 - Workflow / script 不得另維護第二份版本常數作 version truth；`--expected-version` 僅作
@@ -93,5 +93,5 @@ Manifest 不含 secret、API key、owner verifier、local absolute path、worksp
   行為由 `scripts/tests/test-release-identity.sh` 迴歸鎖定，fast tier 經 `ReleaseIdentityShellContractTest` 執行；
   所有 candidate smoke gate 共用同一 exact artifact identity contract，不各自維護 mtime 選取）。
 - Native matrix：`docs/release/native-capability-matrix.md`。
-- Release notes：`docs/release/v0.2.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，`v0.1.1-release-notes.md` 為 v0.1.1 tag 不可變 source，`v0.2.0-release-notes.md` 為 v0.2.0 tag 不可變 source）。
+- 最新已發布版本紀錄：`docs/release/v0.2.1-release-notes.md`（`v0.2.1` 已發布且其 tag／assets 不可變；`v0.1.0`／`v0.1.1`／`v0.2.0` release notes 為歷史來源）。未來 candidate 仍須依 Maven 版本提供對應的 versioned release notes。
 - Workflow：`.github/workflows/release-candidate.yml`（workflow_dispatch only，contents:read，無 publish 副作用）。

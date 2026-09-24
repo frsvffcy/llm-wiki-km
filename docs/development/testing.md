@@ -1974,7 +1974,7 @@ manifest `sourceCommit`，任一缺失／格式錯誤／不一致即 NO-GO；REA
 auth 才可 publish），
  文件見 `docs/release/release-candidate-procedure-v1.md`、
  `docs/release/native-capability-matrix.md`、
- `docs/release/v0.2.1-release-notes.md`（current；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，
+ `docs/release/v0.2.1-release-notes.md`（最新已發布版本；`v0.1.0-release-notes.md` 為 v0.1.0 tag 不可變 source，
  `v0.1.1-release-notes.md` 為 v0.1.1 tag 不可變 source，`v0.2.0-release-notes.md` 為 v0.2.0 tag 不可變 source）、
  `docs/release/v0.1.1-browser-smoke-checklist.md`（v0.1.1 historical source），workflow 為
 `.github/workflows/release-candidate.yml`（retention 14 天，無 secrets）。
@@ -1995,6 +1995,8 @@ R1–R4 把版本、artifact、report 與 manifest 收斂為 fail-closed 單一�
   歧義 fail-closed（challenge cases 2–7），以及 #458 的 exact resolver
  （stale mtime 下仍選 Maven candidate、explicit 重驗、sidecar 缺席 warn-only／
   存在必驗、SHA 交換 fail-closed）。
+- `release.ReleaseCandidateContractTest`（單元測試）：從版本化 release notes 的「發布狀態：PUBLISHED」標記推導最新已發布版本，並要求 `pom.xml` 專案根元素的 `version` 高於該版本，拒絕目前 `main` 同版或版本倒退；此標記只記錄發布狀態，不是建置／執行期版本來源。另檢查發布腳本與 GitHub Actions 設定不會把目前開發版另行硬編為版本來源。
+- `scripts/tests/test-release-identity.sh` 加入 `0.2.2` 精確候選 JAR 解析測試資料：版本由呼叫端 Maven 版本指定；較舊或錯誤檔名仍 fail closed，且不依賴 mtime。
 - `scripts/clean-install-smoke.sh` 在 booted candidate 上證明 runtime ==
   manifest `Implementation-Version` == `app.version` == Maven（R1 packaged
   證明；challenge case 1 的執行期側）。
