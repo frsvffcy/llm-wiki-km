@@ -9,9 +9,9 @@
 
 ```text
 sourceCommit  = git rev-parse HEAD（clean checkout；dirty 預設 fail-closed，僅 local 允許 --allow-dirty）
-version       = mvn help:evaluate -Dexpression=project.version（Maven project 是唯一版本權威；目前 main 開發版識別為 0.2.2；最新已發布版 v0.2.1 保持不可變）
+version       = mvn help:evaluate -Dexpression=project.version（Maven project 是唯一版本權威；目前 main 開發版識別為 0.3.0；最新已發布版 v0.2.1 保持不可變）
 artifactId    = mvn help:evaluate -Dexpression=project.artifactId
-artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.2.2.jar；v0.1.0 / v0.1.1 / v0.2.0 / v0.2.1 僅為歷史 tag 示例）
+artifactFile  = target/<artifactId>-<version>.jar（例如 llm-wiki-km-0.3.0.jar；v0.1.0 / v0.1.1 / v0.2.0 / v0.2.1 僅為歷史 tag 示例）
 ```
 
 - Workflow / script 不得另維護第二份版本常數作 version truth；`--expected-version` 僅作
