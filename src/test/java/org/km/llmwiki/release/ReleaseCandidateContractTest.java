@@ -67,7 +67,8 @@ class ReleaseCandidateContractTest {
         }
 
         private static ReleaseVersion parse(String version) {
-            Matcher matcher = Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+)$").matcher(version);
+            Matcher matcher = Pattern.compile("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+                    .matcher(version);
             if (!matcher.matches()) {
                 throw new IllegalArgumentException("不支援的 Maven project version：" + version);
             }
@@ -168,7 +169,8 @@ class ReleaseCandidateContractTest {
 
     @Test
     void malformedMavenProjectVersionsFailClosed() {
-        for (String malformed : List.of("", "1.2", "1.2.3-SNAPSHOT", "v1.2.3")) {
+        for (String malformed : List.of(
+                "", "1.2", "1.2.3-SNAPSHOT", "v1.2.3", "01.2.3", "1.02.3", "1.2.03")) {
             assertThatThrownBy(() -> ReleaseVersion.parse(malformed))
                     .as("Maven project version %s must be a stable three-part version", malformed)
                     .isInstanceOf(IllegalArgumentException.class);
