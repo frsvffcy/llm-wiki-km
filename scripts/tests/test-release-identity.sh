@@ -192,5 +192,26 @@ expect_fail release_identity_verify_candidate_sidecar_if_present \
   "$WORK/sidecar" "llm-wiki-km-0.1.1" "llm-wiki-km-0.1.1.jar" "" \
   "$WORK/sidecar/llm-wiki-km-0.1.1.jar"
 
+echo "[測試] #636 v0.2.1 後續開發版以精確檔名解析 0.2.2 候選版本"
+mkdir -p "$WORK/rebaseline"
+make_jar "$WORK/rebaseline/llm-wiki-km-0.2.1.jar" "0.2.1" "0.2.1"
+make_jar "$WORK/rebaseline/llm-wiki-km-0.2.2.jar" "0.2.2" "0.2.2"
+# 前一個已發布版本刻意設定較新的修改時間；Maven 指定的開發版識別
+# 仍必須依檔名精確解析為 0.2.2。
+touch -t 202001010000 "$WORK/rebaseline/llm-wiki-km-0.2.2.jar"
+touch -t 203001010000 "$WORK/rebaseline/llm-wiki-km-0.2.1.jar"
+RESOLVED_022="$(release_identity_resolve_candidate_jar "" "llm-wiki-km-0.2.2.jar" "$WORK/rebaseline")"
+[ "$(basename -- "$RESOLVED_022")" = "llm-wiki-km-0.2.2.jar" ] \
+  && ok "即使 0.2.1 修改時間較新，仍解析 0.2.2" \
+  || bad "即使 0.2.1 修改時間較新，仍解析 0.2.2"
+expect_fail release_identity_resolve_candidate_jar \
+  "$WORK/rebaseline/llm-wiki-km-0.2.1.jar" "llm-wiki-km-0.2.2.jar" "$WORK/rebaseline"
+expect_fail release_identity_resolve_candidate_jar \
+  "" "llm-wiki-km-0.2.3.jar" "$WORK/rebaseline"
+expect_pass release_identity_verify_jar_internal_version \
+  "$WORK/rebaseline/llm-wiki-km-0.2.2.jar" "0.2.2"
+expect_fail release_identity_verify_jar_internal_version \
+  "$WORK/rebaseline/llm-wiki-km-0.2.1.jar" "0.2.2"
+
 echo "[test] result: pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ]

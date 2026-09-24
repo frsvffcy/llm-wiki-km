@@ -13,7 +13,7 @@
 
     <groupId>org.km</groupId>
     <artifactId>llm-wiki-km</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2</version>
     <name>llm-wiki-km</name>
     <description>Local-first personal knowledge base</description>
 
