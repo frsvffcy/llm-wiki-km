@@ -1,5 +1,6 @@
 import { createDynamicPanelFocus } from "./dynamic-panel-focus.js";
 import { isPublishedWikiPage } from "./wiki-page-contract.js";
+import { boundedRouteParam, clearRouteQuery, routeMatches } from "./route-context.js";
 
 /**
  * Published Wiki workspace (#373): a read-only Browser consumption surface over the
@@ -144,6 +145,36 @@ export function createWikiController(elements, fetchImpl = fetch, documentRef = 
     elements.wikiPageInfo.textContent = "";
   }
 
+  function routeKnowledgeId() {
+    const view = documentRef.defaultView;
+    const hash = view && view.location ? String(view.location.hash || "") : "";
+    return boundedRouteParam(hash, "wiki", "knowledgeId");
+  }
+
+  function dismissRoutePage() {
+    readRequest += 1;
+    panelFocus.dismiss();
+    state.knowledgeId = null;
+    elements.wikiReadPanel.hidden = true;
+  }
+
+  async function applyRouteContext() {
+    const view = documentRef.defaultView;
+    const hash = view && view.location ? String(view.location.hash || "") : "";
+    if (!routeMatches(hash, "wiki")) {
+      dismissRoutePage();
+      return false;
+    }
+    await refresh();
+    const knowledgeId = routeKnowledgeId();
+    if (knowledgeId === null) {
+      dismissRoutePage();
+      return false;
+    }
+    await openPage(knowledgeId);
+    return !elements.wikiReadPanel.hidden;
+  }
+
   async function refresh() {
     const params = new URLSearchParams({ page: String(state.page), size: String(PAGE_SIZE) });
     if (state.pageType) params.set("pageType", state.pageType);
@@ -216,13 +247,21 @@ export function createWikiController(elements, fetchImpl = fetch, documentRef = 
   elements.wikiPrevPage.addEventListener("click", prevPage);
   elements.wikiNextPage.addEventListener("click", nextPage);
   elements.wikiReadClose.addEventListener("click", closePage);
+  const view = documentRef.defaultView;
+  if (view && typeof view.addEventListener === "function") {
+    view.addEventListener("hashchange", () => applyRouteContext());
+  }
   if (documentRef && typeof documentRef.addEventListener === "function") {
     documentRef.addEventListener("workspace-changed", () => {
       reset();
-      refresh();
+      clearRouteQuery(view, "wiki");
+      return applyRouteContext();
     });
   }
-  return { refresh, reset, openPage, applyFilter, nextPage, prevPage, closePage };
+  return {
+    refresh, reset, openPage, applyFilter, nextPage, prevPage, closePage,
+    applyRouteContext, routeKnowledgeId
+  };
 }
 
 function elementsFrom(documentRef) {
@@ -248,7 +287,7 @@ export function bootstrapWikiUi(documentRef = document) {
   const elements = elementsFrom(documentRef);
   if (!elements.wikiList) return null;
   const controller = createWikiController(elements, fetch, documentRef);
-  controller.refresh();
+  controller.applyRouteContext();
   return controller;
 }
 

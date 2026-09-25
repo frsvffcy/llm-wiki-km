@@ -602,7 +602,7 @@
             <select id="proposal-status-filter" name="status">
               <option value="">全部</option>
               <option value="DRAFT">草稿（待送審）</option>
-              <option value="REVIEW">審核中</option>
+              <option value="REVIEW" selected>審核中</option>
               <option value="APPROVED">已核准</option>
               <option value="REJECTED">已拒絕</option>
             </select>
@@ -664,9 +664,9 @@
             <button id="draft-publish" type="button">發布</button>
           </div>
           <p id="draft-hint" class="form-hint" role="status" aria-live="polite"></p>
+          <div id="publish-result" class="publish-result" role="status" aria-live="polite" hidden></div>
           <div id="draft-content" class="draft-content"></div>
         </section>
-        <p id="publish-result" class="publish-result" role="status" aria-live="polite" hidden></p>
         <p class="panel-description">
           發布是明確的人類動作：僅 READY 且可發布（publishReady）的草稿可發布；
           發布結果以後端類型化回應為準，失敗不會被顯示為成功。

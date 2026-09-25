@@ -52,11 +52,21 @@ function uiElements() {
   return elements;
 }
 
-function fakeDocument() {
+function fakeDocument(hash = "#/wiki") {
   const listeners = new Map();
+  const viewListeners = new Map();
+  const view = {
+    location: { hash },
+    history: {
+      replaceState(_state, _title, next) { view.location.hash = next; }
+    },
+    addEventListener(name, handler) { viewListeners.set(name, handler); }
+  };
   return {
     createElement: () => new FakeElement(),
+    defaultView: view,
     listeners,
+    viewListeners,
     addEventListener(name, handler) { listeners.set(name, handler); }
   };
 }
@@ -265,6 +275,77 @@ test("workspace switch clears the reading state and re-fetches", async () => {
   assert.equal(elements.typeFilter.value, "");
   assert.equal(elements.wikiReadPanel.hidden, true);
   assert.match(calls.at(-1), /page=0&size=20$/u);
+});
+
+test("Wiki direct handoff refreshes the list and opens the authoritative published page (#645)", async () => {
+  const elements = uiElements();
+  const documentRef = fakeDocument("#/wiki?knowledgeId=wiki-arch");
+  const calls = [];
+  const fetchImpl = async url => {
+    const target = String(url);
+    calls.push(target);
+    if (target === "/api/v1/wiki/wiki-arch") {
+      return jsonResponse(200, { data: pageRow({ markdown: "body" }) });
+    }
+    return jsonResponse(200, listPayload([pageRow()]));
+  };
+  const controller = createWikiController(elements, fetchImpl, documentRef);
+
+  assert.equal(controller.routeKnowledgeId(), "wiki-arch");
+  assert.equal(await controller.applyRouteContext(), true);
+  assert.deepEqual(calls, [
+    "/api/v1/wiki?page=0&size=20",
+    "/api/v1/wiki/wiki-arch"
+  ]);
+  assert.equal(elements.wikiReadPanel.hidden, false);
+  assert.equal(elements.wikiReadHeading.focusCount, 1);
+});
+
+test("Wiki malformed route context does not become a detail authority request (#645)", async () => {
+  const elements = uiElements();
+  const documentRef = fakeDocument("#/wiki?knowledgeId=bad%2Fid");
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    return jsonResponse(200, listPayload([]));
+  };
+  const controller = createWikiController(elements, fetchImpl, documentRef);
+
+  assert.equal(controller.routeKnowledgeId(), null);
+  assert.equal(await controller.applyRouteContext(), false);
+  assert.deepEqual(calls, ["/api/v1/wiki?page=0&size=20"]);
+  assert.equal(elements.wikiReadPanel.hidden, true);
+});
+
+test("Wiki route context revalidates on Back/Forward and clears on workspace switch (#645)", async () => {
+  const elements = uiElements();
+  const documentRef = fakeDocument("#/wiki?knowledgeId=wiki-arch");
+  let detailReads = 0;
+  const fetchImpl = async url => {
+    const target = String(url);
+    if (target === "/api/v1/wiki/wiki-arch") {
+      detailReads += 1;
+      return jsonResponse(200, { data: pageRow({ markdown: "body" }) });
+    }
+    return jsonResponse(200, listPayload([]));
+  };
+  const controller = createWikiController(elements, fetchImpl, documentRef);
+  await controller.applyRouteContext();
+  assert.equal(elements.wikiReadPanel.hidden, false);
+
+  documentRef.defaultView.location.hash = "#/review";
+  await documentRef.viewListeners.get("hashchange")();
+  assert.equal(elements.wikiReadPanel.hidden, true);
+
+  documentRef.defaultView.location.hash = "#/wiki?knowledgeId=wiki-arch";
+  await documentRef.viewListeners.get("hashchange")();
+  assert.equal(elements.wikiReadPanel.hidden, false);
+  assert.equal(detailReads, 2, "Forward navigation revalidates the published page");
+
+  await documentRef.listeners.get("workspace-changed")();
+  assert.equal(documentRef.defaultView.location.hash, "#/wiki",
+    "workspace switch removes the stale knowledge route hint");
+  assert.equal(elements.wikiReadPanel.hidden, true);
 });
 
 test("the wiki view is wired into the shared navigation shell", () => {

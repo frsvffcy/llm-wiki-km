@@ -73,11 +73,21 @@ function uiElements() {
   return elements;
 }
 
-function fakeDocument() {
+function fakeDocument(hash = "#/review") {
   const listeners = new Map();
+  const viewListeners = new Map();
+  const view = {
+    location: { hash },
+    history: {
+      replaceState(_state, _title, next) { view.location.hash = next; }
+    },
+    addEventListener(name, handler) { viewListeners.set(name, handler); }
+  };
   return {
     createElement: () => new FakeElement(),
+    defaultView: view,
     listeners,
+    viewListeners,
     addEventListener(name, handler) { listeners.set(name, handler); }
   };
 }
@@ -434,10 +444,12 @@ test("publish renders the backend typed outcome, including NO_OP on repeat", asy
   assert.match(text, /已發布：建立新知識頁面/u);
   assert.match(text, /knowledgeId：WIKI:x/u);
   const handoff = elements.publishResult.children
-    .find(child => child.className === "wiki-handoff");
+    .find(child => child.className.split(/\s+/u).includes("wiki-handoff"));
   assert.ok(handoff, "publish success exposes the next task in the same flow");
   assert.equal(handoff.textContent, "閱讀已發布知識");
-  assert.equal(handoff.attr_href, "#/wiki");
+  assert.equal(handoff.attr_href, "#/wiki?knowledgeId=WIKI%3Ax");
+  assert.match(handoff.className, /list-action/u,
+    "publish success promotes the next task with the shared action style");
 
   mode = "merge";
   await controller.publishDraft();
@@ -574,11 +586,11 @@ test("workspace switch clears proposal, draft, and publish state", async () => {
   assert.equal(documentRef.listeners.has("workspace-changed"), true);
   await documentRef.listeners.get("workspace-changed")();
 
-  assert.equal(elements.statusFilter.value, "");
+  assert.equal(elements.statusFilter.value, "REVIEW");
   assert.equal(elements.proposalDetail.hidden, true);
   assert.equal(elements.draftPanel.hidden, true);
   assert.equal(elements.publishResult.hidden, true);
-  assert.match(calls.at(-1), /page=0&size=20$/u);
+  assert.match(calls.at(-1), /page=0&size=20&status=REVIEW$/u);
 });
 
 test("approve presents the auto-prepared draft preview in the same flow without publishing (#570)", async () => {
@@ -655,6 +667,86 @@ test("auto-draft recovery copy is typed and never leaks backend internals (#570)
   assert.match(autoDraftErrorMessage("AUTO_DRAFT_UNSUPPORTED_ACTION"), /不會產生草稿/u);
   assert.match(autoDraftErrorMessage("FUTURE_CODE"), /可按「建立草稿」重試/u,
     "unknown codes fail closed to the generic retry copy");
+});
+
+test("Review 預設只呈現待處理 REVIEW，direct handoff 直接開啟權威提案 (#645)", async () => {
+  const elements = uiElements();
+  const documentRef = fakeDocument("#/review?proposalId=12");
+  const calls = [];
+  const fetchImpl = async url => {
+    const target = String(url);
+    calls.push(target);
+    if (target === "/api/v1/proposals/12") {
+      return jsonResponse(200, proposalDetailPayload());
+    }
+    return jsonResponse(200, {
+      data: [proposalRow()],
+      page: { number: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+  };
+  const controller = createReviewController(elements, fetchImpl, documentRef);
+
+  assert.equal(elements.statusFilter.value, "REVIEW");
+  assert.equal(controller.routeProposalId(), 12);
+  assert.equal(await controller.applyRouteContext(), true);
+  assert.ok(calls.includes("/api/v1/proposals?page=0&size=20&status=REVIEW"),
+    "entering Review refreshes the current pending task list");
+  assert.ok(calls.includes("/api/v1/proposals/12"),
+    "the route hint is revalidated through the authoritative detail endpoint");
+  assert.equal(elements.proposalDetail.hidden, false);
+  assert.equal(elements.proposalDetailHeading.focusCount, 1);
+});
+
+test("Review malformed route id never becomes an authority request (#645)", async () => {
+  const elements = uiElements();
+  const documentRef = fakeDocument("#/review?proposalId=not-a-number");
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    return jsonResponse(200, {
+      data: [], page: { number: 0, size: 20, totalElements: 0, totalPages: 0 }
+    });
+  };
+  const controller = createReviewController(elements, fetchImpl, documentRef);
+
+  assert.equal(controller.routeProposalId(), null);
+  assert.equal(await controller.applyRouteContext(), false);
+  assert.deepEqual(calls, ["/api/v1/proposals?page=0&size=20&status=REVIEW"]);
+  assert.equal(elements.proposalDetail.hidden, true);
+});
+
+test("Review route context clears across workspace switch and Back/Forward (#645)", async () => {
+  const elements = uiElements();
+  const documentRef = fakeDocument("#/review?proposalId=12");
+  let detailReads = 0;
+  const fetchImpl = async url => {
+    const target = String(url);
+    if (target === "/api/v1/proposals/12") {
+      detailReads += 1;
+      return jsonResponse(200, proposalDetailPayload());
+    }
+    return jsonResponse(200, {
+      data: [], page: { number: 0, size: 20, totalElements: 0, totalPages: 0 }
+    });
+  };
+  const controller = createReviewController(elements, fetchImpl, documentRef);
+  await controller.applyRouteContext();
+  assert.equal(elements.proposalDetail.hidden, false);
+
+  documentRef.defaultView.location.hash = "#/ask";
+  await documentRef.viewListeners.get("hashchange")();
+  assert.equal(elements.proposalDetail.hidden, true,
+    "leaving Review dismisses the contextual detail without restoring stale focus");
+
+  documentRef.defaultView.location.hash = "#/review?proposalId=12";
+  await documentRef.viewListeners.get("hashchange")();
+  assert.equal(elements.proposalDetail.hidden, false);
+  assert.equal(detailReads, 2, "Forward navigation revalidates the proposal");
+
+  await documentRef.listeners.get("workspace-changed")();
+  assert.equal(documentRef.defaultView.location.hash, "#/review",
+    "workspace change removes the stale proposal route hint");
+  assert.equal(elements.proposalDetail.hidden, true);
 });
 
 test("the browser holds no proposal transition state machine copy (#370)", async () => {

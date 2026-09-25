@@ -357,6 +357,7 @@ export function renderAskResponse(elements, payload, documentRef = document) {
   // #570：同一審核工作流的直接 handoff；新回答尚未保存時不顯示。
   if (elements.toReview) {
     elements.toReview.hidden = true;
+    elements.toReview.setAttribute("href", "#/review");
   }
   elements.answerText.textContent = data.answer;
   const citations = data.citations;
@@ -468,6 +469,7 @@ function showError(elements, error) {
   }
   if (elements.toReview) {
     elements.toReview.hidden = true;
+    elements.toReview.setAttribute("href", "#/review");
   }
 }
 
@@ -727,8 +729,12 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
         ? "此結果先前已保存成知識，可前往審核繼續。"
         : "已保存成知識並進入審核（不會立即發布）。核准後會自動準備可預覽的草稿，最後由你決定是否發布。";
       elements.toProposal.disabled = true;
-      // Direct handoff into the same review workflow (#570): no route juggling.
-      if (elements.toReview) {
+      // Preserve the authoritative proposal identity across the Browser handoff (#645).
+      // The route value is only a navigation hint; Review re-fetches the proposal from
+      // the backend before rendering it.
+      const proposalId = Number(envelope?.data?.proposal?.id);
+      if (elements.toReview && Number.isSafeInteger(proposalId) && proposalId > 0) {
+        elements.toReview.setAttribute("href", `#/review?proposalId=${proposalId}`);
         elements.toReview.hidden = false;
       }
     } catch {

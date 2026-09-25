@@ -915,6 +915,8 @@ test("the proposal hand-off is explicit, grounded-only, and posts the governed p
   assert.match(elements.toProposalHint.textContent, /不會立即發布/u);
   assert.equal(elements.toReview.hidden, false,
     "a saved answer hands directly into the same review workflow (#570)");
+  assert.equal(elements.toReview.getAttribute("href"), "#/review?proposalId=77",
+    "the review handoff preserves the authoritative proposal id (#645)");
 });
 
 test("double-submit is guarded and typed failures surface without success copy", async () => {
@@ -979,6 +981,8 @@ test("a duplicated save reuses task copy and still hands into review", async () 
   await elements.toProposal.handlers.get("click")();
   assert.match(elements.toProposalHint.textContent, /先前已保存成知識/u);
   assert.equal(elements.toReview.hidden, false);
+  assert.equal(elements.toReview.getAttribute("href"), "#/review?proposalId=77",
+    "deduplicated saves hand off to the authoritative existing proposal");
 });
 
 test("the retrieval diagnostics hand-off prefills the inspector question and navigates", async () => {
