@@ -1,4 +1,5 @@
 import { createDynamicPanelFocus } from "./dynamic-panel-focus.js";
+import { clearRouteQuery, positiveIntegerRouteParam, routeMatches } from "./route-context.js";
 
 /**
  * 治理工作台（#353）：既有提案審核與 Wiki 草稿生命週期契約的瀏覽器投影，涵蓋
@@ -288,14 +289,15 @@ export function renderPublishOutcome(elements, envelope, httpStatus, documentRef
   const line = appendTextElement(documentRef, elements.publishResult, "p",
     "publish-outcome", label);
   if (data.knowledgeId) {
+    const handoff = documentRef.createElement("a");
+    handoff.className = "wiki-handoff list-action";
+    handoff.textContent = "閱讀已發布知識";
+    handoff.setAttribute("href",
+      `#/wiki?knowledgeId=${encodeURIComponent(text(data.knowledgeId))}`);
+    elements.publishResult.append(handoff);
     appendTextElement(documentRef, elements.publishResult, "p", "publish-meta",
       `knowledgeId：${text(data.knowledgeId)} · 目標：${text(data.targetPath)} · 版本 ${text(data.revision)}`);
   }
-  const handoff = documentRef.createElement("a");
-  handoff.className = "wiki-handoff";
-  handoff.textContent = "閱讀已發布知識";
-  handoff.setAttribute("href", "#/wiki");
-  elements.publishResult.append(handoff);
   if (httpStatus === 201) {
     line.className = "publish-outcome publish-outcome--created";
   }
@@ -311,7 +313,8 @@ async function readEnvelope(response) {
 }
 
 export function createReviewController(elements, fetchImpl = fetch, documentRef = document) {
-  const state = { page: 0, status: "", proposalId: null, draftId: null };
+  const state = { page: 0, status: "REVIEW", proposalId: null, draftId: null };
+  elements.statusFilter.value = state.status;
   const panelFocus = createDynamicPanelFocus({
     panel: elements.proposalDetail,
     heading: elements.proposalDetailHeading,
@@ -332,10 +335,10 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
     detailFocusContext = null;
     panelFocus.dismiss();
     state.page = 0;
-    state.status = "";
+    state.status = "REVIEW";
     state.proposalId = null;
     state.draftId = null;
-    elements.statusFilter.value = "";
+    elements.statusFilter.value = state.status;
     elements.proposalList.replaceChildren();
     elements.proposalDetail.hidden = true;
     elements.draftPanel.hidden = true;
@@ -344,6 +347,40 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
     elements.publishResult.replaceChildren();
     elements.reviewHint.textContent = "";
     elements.proposalPageInfo.textContent = "";
+  }
+
+  function routeProposalId() {
+    const view = documentRef.defaultView;
+    const hash = view && view.location ? String(view.location.hash || "") : "";
+    return positiveIntegerRouteParam(hash, "review", "proposalId");
+  }
+
+  function dismissRouteDetail() {
+    detailRequest += 1;
+    detailFocusContext = null;
+    panelFocus.dismiss();
+    state.proposalId = null;
+    state.draftId = null;
+    elements.proposalDetail.hidden = true;
+    elements.draftPanel.hidden = true;
+    elements.publishResult.hidden = true;
+    elements.publishResult.replaceChildren();
+  }
+
+  async function applyRouteContext() {
+    const view = documentRef.defaultView;
+    const hash = view && view.location ? String(view.location.hash || "") : "";
+    if (!routeMatches(hash, "review")) {
+      dismissRouteDetail();
+      return false;
+    }
+    await refreshProposals();
+    const proposalId = routeProposalId();
+    if (proposalId === null) {
+      dismissRouteDetail();
+      return false;
+    }
+    return selectProposal(proposalId);
   }
 
   async function refreshProposals() {
@@ -627,16 +664,21 @@ export function createReviewController(elements, fetchImpl = fetch, documentRef 
   elements.draftRegenerate.addEventListener("click", regenerateDraft);
   elements.draftInvalidate.addEventListener("click", invalidateDraft);
   elements.draftPublish.addEventListener("click", publishDraft);
+  const view = documentRef.defaultView;
+  if (view && typeof view.addEventListener === "function") {
+    view.addEventListener("hashchange", () => applyRouteContext());
+  }
   if (documentRef && typeof documentRef.addEventListener === "function") {
     documentRef.addEventListener("workspace-changed", () => {
       reset();
-      refreshProposals();
+      clearRouteQuery(view, "review");
+      return applyRouteContext();
     });
   }
   return {
     refreshProposals, applyFilter, selectProposal, transitionProposal, createDraft,
     loadDraft, showPreview, showDiff, invalidateDraft, regenerateDraft, publishDraft,
-    reset, nextPage, prevPage
+    reset, nextPage, prevPage, applyRouteContext, routeProposalId
   };
 }
 
@@ -680,7 +722,7 @@ export function bootstrapReviewUi(documentRef = document) {
   const elements = elementsFrom(documentRef);
   if (!elements.proposalList) return null;
   const controller = createReviewController(elements, fetch, documentRef);
-  controller.refreshProposals();
+  controller.applyRouteContext();
   return controller;
 }
 
