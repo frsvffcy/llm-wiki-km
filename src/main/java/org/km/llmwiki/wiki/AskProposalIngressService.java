@@ -151,7 +151,8 @@ public class AskProposalIngressService {
             String kind = citation.kind().toUpperCase();
             if ("SOURCE".equals(kind)) {
                 Long chunkId = citation.sourceChunkId();
-                if (chunkId == null || chunkId <= 0 || !chunkIsCurrentInWorkspace(workspaceId, chunkId)) {
+                if (chunkId == null || chunkId <= 0 || chunkId > Integer.MAX_VALUE
+                        || !chunkIsCurrentInWorkspace(workspaceId, chunkId)) {
                     invalid.add("SOURCE_CHUNK:" + chunkId);
                     continue;
                 }
