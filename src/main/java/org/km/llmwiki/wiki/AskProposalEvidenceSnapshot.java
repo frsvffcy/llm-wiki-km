@@ -107,7 +107,8 @@ public record AskProposalEvidenceSnapshot(int version, boolean legacy,
         if ("SOURCE".equals(kind)) {
             JsonNode chunkNode = node.get("sourceChunkId");
             if (chunkNode == null || !chunkNode.isIntegralNumber()
-                    || !chunkNode.canConvertToLong() || chunkNode.asLong() <= 0) {
+                    || !chunkNode.canConvertToLong() || chunkNode.asLong() <= 0
+                    || chunkNode.asLong() > Integer.MAX_VALUE) {
                 throw new AskCitationInvalidException(List.of("MALFORMED_ASK_CITATIONS"));
             }
             return new AskEvidenceCitation(evidenceId, "SOURCE", chunkNode.asLong(),
