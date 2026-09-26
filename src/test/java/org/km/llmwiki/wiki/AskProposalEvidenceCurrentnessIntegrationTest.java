@@ -99,6 +99,33 @@ class AskProposalEvidenceCurrentnessIntegrationTest extends IsolatedIntegrationT
     }
 
     @Test
+    void malformedVersionedKnowledgeIdFailsClosedAtApprove() throws Exception {
+        seedWorkspaceWithSources();
+        activate(lookupWorkspaceId("active"));
+        mockMvc.perform(post("/api/v1/ask/proposals")
+                        .contentType("application/json").content(requestBody()))
+                .andExpect(status().isCreated());
+        long proposalId = firstProposalId();
+
+        String malformed = """
+                {"version":1,"citations":[
+                  {"evidenceId":"E1","kind":"SOURCE","sourceChunkId":%d},
+                  {"evidenceId":"E2","kind":"WIKI","wikiPath":"vault/concepts/attention.md",
+                   "wikiRevision":2,"knowledgeId":123}
+                ]}
+                """.formatted(seededChunkId);
+        db().sql("UPDATE knowledge_proposal SET ask_citations_json = :json WHERE id = :id")
+                .param("json", malformed).param("id", proposalId).update();
+
+        mockMvc.perform(patch("/api/v1/proposals/{id}/status", proposalId)
+                        .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"));
+
+        assertThat(statusOf(proposalId)).isEqualTo("REVIEW");
+    }
+
+    @Test
     void duplicateSaveAfterSourceSupersededFailsClosedInsteadOfReturningDuplicate() throws Exception {
         seedWorkspaceWithSources();
         activate(lookupWorkspaceId("active"));
