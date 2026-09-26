@@ -56,8 +56,10 @@ public class ProposalAutoDraftCreator {
             case UNSUPPORTED_ACTION -> "此提案類型不會產生草稿，可直接關閉審核";
             case AMBIGUOUS_CANDIDATE_MAPPING, UNSUPPORTED_CANDIDATE_MAPPING ->
                     "系統無法自動決定草稿放置位置，請手動建立草稿並選擇類型";
-            case INVALID_NORMALIZED_DATA, INVALID_EVIDENCE ->
-                    "提案資料驗證失敗，請手動建立草稿並檢查提案內容";
+            case INVALID_NORMALIZED_DATA ->
+                    "提案資料驗證失敗，請回到提案來源重新產生或修正後再試";
+            case INVALID_EVIDENCE ->
+                    "提案引用來源已失效或不一致，請重新取得最新來源並建立新的提案";
             case UNSAFE_TARGET_REFERENCE, PATH_CONTRACT_MISMATCH ->
                     "草稿目標路徑驗證失敗，請手動建立草稿並檢查目標";
         };
