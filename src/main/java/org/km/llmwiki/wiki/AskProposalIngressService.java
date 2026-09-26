@@ -35,7 +35,6 @@ public class AskProposalIngressService {
     private final AskProposalIngressRepository ingressRepository;
     private final PublishedWikiRepository publishedWikiRepository;
     private final AskProposalEvidenceCurrentnessValidator evidenceValidator;
-    private final org.jooq.DSLContext dsl;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     public AskProposalIngressService(WorkspaceService workspaceService,
@@ -43,14 +42,12 @@ public class AskProposalIngressService {
                                      AskProposalIngressRepository ingressRepository,
                                      PublishedWikiRepository publishedWikiRepository,
                                      AskProposalEvidenceCurrentnessValidator evidenceValidator,
-                                     org.jooq.DSLContext dsl,
                                      com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.workspaceService = workspaceService;
         this.proposalRepository = proposalRepository;
         this.ingressRepository = ingressRepository;
         this.publishedWikiRepository = publishedWikiRepository;
         this.evidenceValidator = evidenceValidator;
-        this.dsl = dsl;
         this.objectMapper = objectMapper;
     }
 
@@ -152,7 +149,7 @@ public class AskProposalIngressService {
             if ("SOURCE".equals(kind)) {
                 Long chunkId = citation.sourceChunkId();
                 if (chunkId == null || chunkId <= 0 || chunkId > Integer.MAX_VALUE
-                        || !chunkIsCurrentInWorkspace(workspaceId, chunkId)) {
+                        || !evidenceValidator.sourceChunkIsCurrent(workspaceId, chunkId)) {
                     invalid.add("SOURCE_CHUNK:" + chunkId);
                     continue;
                 }
@@ -194,28 +191,6 @@ public class AskProposalIngressService {
                     "no SOURCE_CHUNK citation: proposal evidence requires at least one"));
         }
         citationIdentities.sort(Comparator.naturalOrder());
-    }
-
-    /**
-     * Currentness check for SOURCE citations (Refs #469): a chunk row existing
-     * in the workspace is not enough. Documents that are superseded, deleted or
-     * duplicate are no longer canonical authority (see
-     * {@code SourceSearchEligibilityPolicy} and the locator safe not-found
-     * contract) and must fail closed as {@code ASK_CITATION_INVALID} instead of
-     * becoming proposal evidence.
-     */
-    private boolean chunkIsCurrentInWorkspace(long workspaceId, Long chunkId) {
-        Integer count = dsl.selectCount()
-                .from(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK)
-                .join(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT)
-                .on(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT.ID
-                        .eq(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK.DOCUMENT_ID))
-                .where(org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK.ID.eq(chunkId.intValue()))
-                .and(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT.WORKSPACE_ID.eq((int) workspaceId))
-                .and(org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT.STATUS
-                        .notIn("DELETED", "SUPERSEDED", "DUPLICATE"))
-                .fetchOne(0, Integer.class);
-        return count != null && count > 0;
     }
 
     private String normalizedData(CreateAskProposalRequest request, List<Long> chunkIds) {
