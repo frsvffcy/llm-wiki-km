@@ -21,13 +21,16 @@ public class KnowledgeProposalReviewService {
 
     private final WorkspaceService workspaceService;
     private final KnowledgeProposalRepository proposalRepository;
+    private final AskProposalEvidenceCurrentnessValidator askEvidenceValidator;
     private final ObjectMapper objectMapper;
 
     public KnowledgeProposalReviewService(WorkspaceService workspaceService,
                                           KnowledgeProposalRepository proposalRepository,
+                                          AskProposalEvidenceCurrentnessValidator askEvidenceValidator,
                                           ObjectMapper objectMapper) {
         this.workspaceService = workspaceService;
         this.proposalRepository = proposalRepository;
+        this.askEvidenceValidator = askEvidenceValidator;
         this.objectMapper = objectMapper;
     }
 
@@ -64,6 +67,14 @@ public class KnowledgeProposalReviewService {
         }
         KnowledgeProposalReview current = requireVisibleProposal(proposalId);
         current.status().requireTransitionTo(request.status());
+        // #649: ASK proposals must still be grounded at approve time. Stale
+        // SOURCE status or an advanced Wiki revision fails closed here so a
+        // once-grounded answer cannot become durable knowledge after its
+        // evidence drifted. The proposal stays REVIEW on failure.
+        if (request.status() == KnowledgeProposalStatus.APPROVED) {
+            WorkspaceResponse workspace = activeWorkspace();
+            askEvidenceValidator.requireCurrent(workspace.id(), proposalId);
+        }
         proposalRepository.transitionStatus(proposalId, current.status(), request.status());
         return get(proposalId);
     }

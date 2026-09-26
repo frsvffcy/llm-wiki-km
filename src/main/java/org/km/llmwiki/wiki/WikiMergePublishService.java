@@ -21,6 +21,7 @@ public class WikiMergePublishService {
 
     private final WorkspaceService workspaceService;
     private final KnowledgeProposalRepository proposalRepository;
+    private final AskProposalEvidenceCurrentnessValidator askEvidenceValidator;
     private final WikiDraftRepository draftRepository;
     private final WikiTargetResolver targetResolver;
     private final ActiveWorkspaceWikiPathResolver pathResolver;
@@ -32,6 +33,7 @@ public class WikiMergePublishService {
 
     public WikiMergePublishService(WorkspaceService workspaceService,
                                    KnowledgeProposalRepository proposalRepository,
+                                   AskProposalEvidenceCurrentnessValidator askEvidenceValidator,
                                    WikiDraftRepository draftRepository,
                                    WikiTargetResolver targetResolver,
                                    ActiveWorkspaceWikiPathResolver pathResolver,
@@ -42,6 +44,7 @@ public class WikiMergePublishService {
                                    ObjectMapper objectMapper) {
         this.workspaceService = workspaceService;
         this.proposalRepository = proposalRepository;
+        this.askEvidenceValidator = askEvidenceValidator;
         this.draftRepository = draftRepository;
         this.targetResolver = targetResolver;
         this.pathResolver = pathResolver;
@@ -237,6 +240,12 @@ public class WikiMergePublishService {
         if (!proposalValid) {
             throw failure(WikiPublishException.Reason.PROPOSAL_INVALID,
                     "The source Proposal is no longer an approved MERGE in the active workspace");
+        }
+        // #649: publish-time revalidation — stale ASK evidence must not become
+        // durable knowledge through an existing READY draft.
+        if (!askEvidenceValidator.validatePersisted(workspaceId, draft.proposalId()).isEmpty()) {
+            throw failure(WikiPublishException.Reason.PROPOSAL_INVALID,
+                    "The source ASK evidence is no longer current in the active workspace");
         }
     }
 
