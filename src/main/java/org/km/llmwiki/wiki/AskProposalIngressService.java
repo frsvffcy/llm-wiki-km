@@ -33,20 +33,17 @@ public class AskProposalIngressService {
     private final WorkspaceService workspaceService;
     private final KnowledgeProposalRepository proposalRepository;
     private final AskProposalIngressRepository ingressRepository;
-    private final PublishedWikiRepository publishedWikiRepository;
     private final AskProposalEvidenceCurrentnessValidator evidenceValidator;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     public AskProposalIngressService(WorkspaceService workspaceService,
                                      KnowledgeProposalRepository proposalRepository,
                                      AskProposalIngressRepository ingressRepository,
-                                     PublishedWikiRepository publishedWikiRepository,
                                      AskProposalEvidenceCurrentnessValidator evidenceValidator,
                                      com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.workspaceService = workspaceService;
         this.proposalRepository = proposalRepository;
         this.ingressRepository = ingressRepository;
-        this.publishedWikiRepository = publishedWikiRepository;
         this.evidenceValidator = evidenceValidator;
         this.objectMapper = objectMapper;
     }
@@ -164,16 +161,11 @@ public class AskProposalIngressService {
                     invalid.add("WIKI:" + path);
                     continue;
                 }
-                var page = publishedWikiRepository.findPublishedByMarkdownPath(workspaceId, path);
+                var page = evidenceValidator.findCurrentWiki(
+                        workspaceId, path, citation.wikiRevision());
                 if (page.isEmpty()) {
-                    invalid.add("WIKI:" + path);
-                    continue;
-                }
-                // Ask-time revision vs current revision: a published update since the
-                // ask makes this citation stale — fail closed, never silently accept.
-                if (citation.wikiRevision() != null
-                        && page.get().revision() != citation.wikiRevision()) {
-                    invalid.add("WIKI:" + path + "@r" + citation.wikiRevision());
+                    invalid.add("WIKI:" + path
+                            + (citation.wikiRevision() == null ? "" : "@r" + citation.wikiRevision()));
                     continue;
                 }
                 citationIdentities.add("WIKI:" + path + "@r" + page.get().revision());
