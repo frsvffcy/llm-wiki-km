@@ -38,6 +38,10 @@ class AskProposalEvidenceCurrentnessIntegrationTest extends IsolatedIntegrationT
     private long seededChunkId;
 
     private String requestBody() {
+        return requestBody(seededChunkId);
+    }
+
+    private String requestBody(long sourceChunkId) {
         return """
                 {
                   "question": "transformer 的核心架構原則是什麼？",
@@ -49,7 +53,49 @@ class AskProposalEvidenceCurrentnessIntegrationTest extends IsolatedIntegrationT
                     {"evidenceId": "E2", "kind": "WIKI", "wikiPath": "vault/concepts/attention.md", "wikiRevision": 2}
                   ]
                 }
-                """.formatted(seededChunkId);
+                """.formatted(sourceChunkId);
+    }
+
+    @Test
+    void sourceChunkIdOutsideSqliteIntegerRangeFailsClosedAtIngress() throws Exception {
+        seedWorkspaceWithSources();
+        activate(lookupWorkspaceId("active"));
+
+        mockMvc.perform(post("/api/v1/ask/proposals")
+                        .contentType("application/json")
+                        .content(requestBody((long) Integer.MAX_VALUE + 1L)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"));
+
+        assertThat(count("SELECT COUNT(*) FROM knowledge_proposal WHERE source_kind = 'ASK'"))
+                .isEqualTo(0);
+    }
+
+    @Test
+    void persistedOverflowChunkIdCannotAliasAnotherCanonicalChunk() throws Exception {
+        seedWorkspaceWithSources();
+        activate(lookupWorkspaceId("active"));
+        mockMvc.perform(post("/api/v1/ask/proposals")
+                        .contentType("application/json").content(requestBody()))
+                .andExpect(status().isCreated());
+        long proposalId = firstProposalId();
+
+        String malformed = """
+                {"version":1,"citations":[
+                  {"evidenceId":"E1","kind":"SOURCE","sourceChunkId":2147483648},
+                  {"evidenceId":"E2","kind":"WIKI","wikiPath":"vault/concepts/attention.md",
+                   "wikiRevision":2,"knowledgeId":"wiki-attention"}
+                ]}
+                """;
+        db().sql("UPDATE knowledge_proposal SET ask_citations_json = :json WHERE id = :id")
+                .param("json", malformed).param("id", proposalId).update();
+
+        mockMvc.perform(patch("/api/v1/proposals/{id}/status", proposalId)
+                        .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"));
+
+        assertThat(statusOf(proposalId)).isEqualTo("REVIEW");
     }
 
     @Test
