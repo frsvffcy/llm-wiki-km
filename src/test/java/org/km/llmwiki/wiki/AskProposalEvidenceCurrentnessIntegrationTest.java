@@ -277,6 +277,8 @@ class AskProposalEvidenceCurrentnessIntegrationTest extends IsolatedIntegrationT
         long workspaceId = lookupWorkspaceId("active");
         ProposalAutoDraft result = autoDraftService.prepare(workspaceId, proposalId);
         assertThat(result.errorCode()).isEqualTo("AUTO_DRAFT_INVALID_EVIDENCE");
+        assertThat(result.errorMessage()).contains("重新取得最新來源")
+                .doesNotContain("手動建立草稿");
         assertThat(result.draftId()).isNull();
     }
 
