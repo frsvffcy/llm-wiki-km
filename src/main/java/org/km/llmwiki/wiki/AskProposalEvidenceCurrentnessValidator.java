@@ -29,15 +29,18 @@ public class AskProposalEvidenceCurrentnessValidator {
     private final DSLContext dsl;
     private final SourceSearchAuthorityRepository sourceAuthorityRepository;
     private final PublishedWikiRepository publishedWikiRepository;
+    private final PublishedWikiContentReader publishedWikiContentReader;
     private final ObjectMapper objectMapper;
 
     public AskProposalEvidenceCurrentnessValidator(DSLContext dsl,
                                                    SourceSearchAuthorityRepository sourceAuthorityRepository,
                                                    PublishedWikiRepository publishedWikiRepository,
+                                                   PublishedWikiContentReader publishedWikiContentReader,
                                                    ObjectMapper objectMapper) {
         this.dsl = dsl;
         this.sourceAuthorityRepository = sourceAuthorityRepository;
         this.publishedWikiRepository = publishedWikiRepository;
+        this.publishedWikiContentReader = publishedWikiContentReader;
         this.objectMapper = objectMapper;
     }
 
@@ -76,12 +79,8 @@ public class AskProposalEvidenceCurrentnessValidator {
                     invalid.add("WIKI:" + path);
                     continue;
                 }
-                var page = publishedWikiRepository.findPublishedByMarkdownPath(workspaceId, path);
+                var page = findCurrentWiki(workspaceId, path, revision);
                 if (page.isEmpty()) {
-                    invalid.add("WIKI:" + path);
-                    continue;
-                }
-                if (page.get().revision() != revision) {
                     invalid.add("WIKI:" + path + "@r" + revision);
                     continue;
                 }
@@ -133,6 +132,25 @@ public class AskProposalEvidenceCurrentnessValidator {
                 .and(table.WORKSPACE_ID.eq((int) workspaceId))
                 .fetchOptional(r -> new AskEvidenceRow(
                         r.get(table.SOURCE_KIND), r.get(table.ASK_CITATIONS_JSON)));
+    }
+
+    public Optional<StoredPublishedWiki> findCurrentWiki(long workspaceId, String path,
+                                                         Integer expectedRevision) {
+        if (path == null || path.isBlank() || path.startsWith("/") || path.contains("..")) {
+            return Optional.empty();
+        }
+        Optional<StoredPublishedWiki> page =
+                publishedWikiRepository.findPublishedByMarkdownPath(workspaceId, path);
+        if (page.isEmpty() || expectedRevision == null || expectedRevision < 1
+                || page.get().revision() != expectedRevision) {
+            return Optional.empty();
+        }
+        try {
+            publishedWikiContentReader.readSearchableContent(page.get());
+        } catch (PublishedWikiValidationException staleCanonicalContent) {
+            return Optional.empty();
+        }
+        return page;
     }
 
     public boolean sourceChunkIsCurrent(long workspaceId, Long chunkId) {
