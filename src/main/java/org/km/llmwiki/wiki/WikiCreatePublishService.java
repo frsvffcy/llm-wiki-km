@@ -25,6 +25,7 @@ public class WikiCreatePublishService {
 
     private final WorkspaceService workspaceService;
     private final KnowledgeProposalRepository proposalRepository;
+    private final AskProposalEvidenceCurrentnessValidator askEvidenceValidator;
     private final WikiDraftRepository draftRepository;
     private final WikiTargetCatalog targetCatalog;
     private final ActiveWorkspaceWikiPathResolver pathResolver;
@@ -36,6 +37,7 @@ public class WikiCreatePublishService {
 
     public WikiCreatePublishService(WorkspaceService workspaceService,
                                     KnowledgeProposalRepository proposalRepository,
+                                    AskProposalEvidenceCurrentnessValidator askEvidenceValidator,
                                     WikiDraftRepository draftRepository,
                                     WikiTargetCatalog targetCatalog,
                                     ActiveWorkspaceWikiPathResolver pathResolver,
@@ -46,6 +48,7 @@ public class WikiCreatePublishService {
                                     ObjectMapper objectMapper) {
         this.workspaceService = workspaceService;
         this.proposalRepository = proposalRepository;
+        this.askEvidenceValidator = askEvidenceValidator;
         this.draftRepository = draftRepository;
         this.targetCatalog = targetCatalog;
         this.pathResolver = pathResolver;
@@ -212,6 +215,13 @@ public class WikiCreatePublishService {
         if (!proposalValid) {
             throw failure(WikiPublishException.Reason.PROPOSAL_INVALID,
                     "The source Proposal is no longer an approved CREATE in the active workspace");
+        }
+        // #649: publish-time revalidation — evidence that went stale after the
+        // draft was built must not become durable knowledge through an existing
+        // READY draft. Deterministic typed PROPOSAL_INVALID, never silent.
+        if (!askEvidenceValidator.validatePersisted(workspaceId, draft.proposalId()).isEmpty()) {
+            throw failure(WikiPublishException.Reason.PROPOSAL_INVALID,
+                    "The source ASK evidence is no longer current in the active workspace");
         }
     }
 

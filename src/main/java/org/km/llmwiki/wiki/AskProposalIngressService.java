@@ -34,6 +34,7 @@ public class AskProposalIngressService {
     private final KnowledgeProposalRepository proposalRepository;
     private final AskProposalIngressRepository ingressRepository;
     private final PublishedWikiRepository publishedWikiRepository;
+    private final AskProposalEvidenceCurrentnessValidator evidenceValidator;
     private final org.jooq.DSLContext dsl;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
@@ -41,12 +42,14 @@ public class AskProposalIngressService {
                                      KnowledgeProposalRepository proposalRepository,
                                      AskProposalIngressRepository ingressRepository,
                                      PublishedWikiRepository publishedWikiRepository,
+                                     AskProposalEvidenceCurrentnessValidator evidenceValidator,
                                      org.jooq.DSLContext dsl,
                                      com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.workspaceService = workspaceService;
         this.proposalRepository = proposalRepository;
         this.ingressRepository = ingressRepository;
         this.publishedWikiRepository = publishedWikiRepository;
+        this.evidenceValidator = evidenceValidator;
         this.dsl = dsl;
         this.objectMapper = objectMapper;
     }
@@ -55,28 +58,43 @@ public class AskProposalIngressService {
     public AskProposalIngressResponse createIngress(CreateAskProposalRequest request) {
         validate(request);
         WorkspaceResponse workspace = activeWorkspace();
+        // #649: validate request citations before the dedup shortcut — a stale
+        // source or Wiki revision must fail closed instead of returning a
+        // "duplicate success" that masks stale evidence.
+        List<Long> evidenceChunkIds = new ArrayList<>();
+        List<String> citationIdentities = new ArrayList<>();
+        java.util.Map<String, Integer> validatedWikiRevisions = new java.util.HashMap<>();
+        java.util.Map<String, String> validatedWikiKnowledgeIds = new java.util.HashMap<>();
+        validateCitations(workspace.id(), request.citations(), evidenceChunkIds,
+                citationIdentities, validatedWikiRevisions, validatedWikiKnowledgeIds);
+
         String dedupHash = dedupHash(request);
         var existing = ingressRepository.findBySourceDedupHash(workspace.id(), dedupHash);
         if (existing.isPresent()) {
+            // Identical hash only proves identical request identities; the
+            // durable proposal may already be stale (source status drift, Wiki
+            // revision advance, or legacy rows without a persisted revision).
+            // Revalidate the persisted snapshot before returning dedup success.
+            evidenceValidator.requireCurrent(workspace.id(), existing.get().id());
             return new AskProposalIngressResponse(
                     KnowledgeProposalReviewResponse.from(existing.get()), true);
         }
 
-        List<Long> evidenceChunkIds = new ArrayList<>();
-        List<String> citationIdentities = new ArrayList<>();
-        validateCitations(workspace.id(), request.citations(), evidenceChunkIds,
-                citationIdentities);
+        String snapshotJson = AskProposalEvidenceSnapshot.serializeNew(request.citations(),
+                validatedWikiRevisions, validatedWikiKnowledgeIds, objectMapper);
 
         long proposalId;
         try {
             proposalId = ingressRepository.insertAskProposal(workspace.id(), request,
-                    normalizedData(request, evidenceChunkIds), citationsJson(request.citations()),
+                    normalizedData(request, evidenceChunkIds), snapshotJson,
                     evidenceChunkIds, dedupHash);
         } catch (DuplicateAskProposalException lostRace) {
-            // Lost the dedup race: return the authoritative existing proposal.
+            // Lost the dedup race: the request was already validated current
+            // above, but the winner's durable snapshot must still be current.
             var winner = ingressRepository.findBySourceDedupHash(workspace.id(), dedupHash)
                     .orElseThrow(() -> new IllegalStateException(
                             "dedup race winner must exist", lostRace));
+            evidenceValidator.requireCurrent(workspace.id(), winner.id());
             return new AskProposalIngressResponse(
                     KnowledgeProposalReviewResponse.from(winner), true);
         }
@@ -115,9 +133,15 @@ public class AskProposalIngressService {
      * Every citation must resolve to a current workspace-scoped source right now:
      * unknown ids, stale chunks, and foreign-workspace references fail closed with the
      * offending identities listed — nothing is silently downgraded or dropped.
+     *
+     * <p>#649: validated WIKI revisions and knowledgeIds are collected for the
+     * durable versioned snapshot, so later governance boundaries can revalidate
+     * the exact identities proven current here.
      */
     private void validateCitations(long workspaceId, List<AskCitationInput> citations,
-                                   List<Long> evidenceChunkIds, List<String> citationIdentities) {
+                                   List<Long> evidenceChunkIds, List<String> citationIdentities,
+                                   java.util.Map<String, Integer> validatedWikiRevisions,
+                                   java.util.Map<String, String> validatedWikiKnowledgeIds) {
         List<String> invalid = new ArrayList<>();
         for (AskCitationInput citation : citations) {
             if (citation == null || citation.kind() == null) {
@@ -155,6 +179,8 @@ public class AskProposalIngressService {
                     continue;
                 }
                 citationIdentities.add("WIKI:" + path + "@r" + page.get().revision());
+                validatedWikiRevisions.put(path, page.get().revision());
+                validatedWikiKnowledgeIds.put(path, page.get().knowledgeId());
             } else {
                 invalid.add("UNKNOWN_KIND:" + citation.kind());
             }
@@ -218,29 +244,6 @@ public class AskProposalIngressService {
             throw new IllegalStateException(
                     "ask proposal normalized data serialization failed", serializationFailure);
         }
-    }
-
-    private String citationsJson(List<AskCitationInput> citations) {
-        StringBuilder json = new StringBuilder("[");
-        for (int index = 0; index < citations.size(); index++) {
-            AskCitationInput citation = citations.get(index);
-            if (index > 0) json.append(",");
-            json.append("{\"evidenceId\":").append(jsonString(citation.evidenceId()))
-                    .append(",\"kind\":").append(jsonString(citation.kind()));
-            if (citation.sourceChunkId() != null) {
-                json.append(",\"sourceChunkId\":").append(citation.sourceChunkId());
-            }
-            if (citation.wikiPath() != null) {
-                json.append(",\"wikiPath\":").append(jsonString(citation.wikiPath()));
-            }
-            json.append("}");
-        }
-        return json.append("]").toString();
-    }
-
-    private String jsonString(String value) {
-        return value == null ? "null"
-                : "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
     private String dedupHash(CreateAskProposalRequest request) {

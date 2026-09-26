@@ -19,6 +19,7 @@ public class WikiDraftPersistenceService {
 
     private final WorkspaceService workspaceService;
     private final KnowledgeProposalRepository proposalRepository;
+    private final AskProposalEvidenceCurrentnessValidator askEvidenceValidator;
     private final WikiDraftService draftService;
     private final WikiActionPlanningService planningService;
     private final WikiMarkdownSnapshotReader snapshotReader;
@@ -29,6 +30,7 @@ public class WikiDraftPersistenceService {
 
     public WikiDraftPersistenceService(WorkspaceService workspaceService,
                                        KnowledgeProposalRepository proposalRepository,
+                                       AskProposalEvidenceCurrentnessValidator askEvidenceValidator,
                                        WikiDraftService draftService,
                                        WikiActionPlanningService planningService,
                                        WikiMarkdownSnapshotReader snapshotReader,
@@ -38,6 +40,7 @@ public class WikiDraftPersistenceService {
                                        ObjectMapper objectMapper) {
         this.workspaceService = workspaceService;
         this.proposalRepository = proposalRepository;
+        this.askEvidenceValidator = askEvidenceValidator;
         this.draftService = draftService;
         this.planningService = planningService;
         this.snapshotReader = snapshotReader;
@@ -112,6 +115,15 @@ public class WikiDraftPersistenceService {
     }
 
     private StoredWikiDraft createReadyDraft(long workspaceId, long proposalId, Long regeneratedFromDraftId) {
+        // #649: defense-in-depth — even an APPROVED ASK proposal (including
+        // historical rows approved before the approve-time gate) must still be
+        // grounded when its draft is built. Stale evidence fails closed here
+        // instead of producing a current-looking draft.
+        if (!askEvidenceValidator.validatePersisted(workspaceId, proposalId).isEmpty()) {
+            throw new WikiDraftValidationException(
+                    WikiDraftValidationException.Reason.INVALID_EVIDENCE,
+                    "ASK proposal evidence is no longer current; draft creation is refused");
+        }
         WikiDraft structured = draftService.convertApproved(proposalId);
         WikiActionPlan plan = planningService.planApproved(proposalId);
         requireMatchingContracts(structured, plan);
@@ -201,6 +213,13 @@ public class WikiDraftPersistenceService {
                 .filter(source -> source.status() == KnowledgeProposalStatus.APPROVED)
                 .isPresent();
         if (!proposalValid) {
+            invalidate(workspaceId, draft, WikiDraftInvalidationReason.SOURCE_PROPOSAL_INVALID);
+            return require(workspaceId, draft.id());
+        }
+        // #649: evidence that went stale after the draft was built must not
+        // stay publishable. A stale ASK snapshot invalidates the draft with the
+        // existing typed reason, so publish later fails closed as DRAFT_NOT_READY.
+        if (!askEvidenceValidator.validatePersisted(workspaceId, draft.proposalId()).isEmpty()) {
             invalidate(workspaceId, draft, WikiDraftInvalidationReason.SOURCE_PROPOSAL_INVALID);
             return require(workspaceId, draft.id());
         }
