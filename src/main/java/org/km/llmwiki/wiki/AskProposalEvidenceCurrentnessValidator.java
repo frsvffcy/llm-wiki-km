@@ -141,8 +141,8 @@ public class AskProposalEvidenceCurrentnessValidator {
         }
         Optional<StoredPublishedWiki> page =
                 publishedWikiRepository.findPublishedByMarkdownPath(workspaceId, path);
-        if (page.isEmpty() || expectedRevision == null || expectedRevision < 1
-                || page.get().revision() != expectedRevision) {
+        if (page.isEmpty() || (expectedRevision != null
+                && (expectedRevision < 1 || page.get().revision() != expectedRevision))) {
             return Optional.empty();
         }
         try {
