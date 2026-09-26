@@ -28,7 +28,7 @@ CI 建置完整性        mvn clean verify -Pbuild-integrity
 
 ```bash
 mvn clean package
-java -jar target/llm-wiki-km-0.3.0.jar
+java -jar target/llm-wiki-km-0.3.1.jar
 ```
 
 應用程式預設只監聽 `127.0.0.1:8765`。啟動後以瀏覽器開啟 <http://127.0.0.1:8765/>；瀏覽器只呼叫本機 REST API，不直接接觸 SQLite、工作區檔案或服務提供者金鑰。
@@ -159,7 +159,7 @@ curl http://127.0.0.1:8765/api/v1/system/status
 {
   "data": {
     "status": "READY",
-    "version": "0.3.0"
+    "version": "0.3.1"
   }
 }
 ```
@@ -174,7 +174,7 @@ curl http://127.0.0.1:8765/api/v1/system/status
 
 ```bash
 mkdir -p logs
-java -jar target/llm-wiki-km-0.3.0.jar --logging.file.name=logs/llm-wiki-km.log
+java -jar target/llm-wiki-km-0.3.1.jar --logging.file.name=logs/llm-wiki-km.log
 ```
 
 不建議把 file logging 設為常駐預設。分享記錄前應先檢查私人路徑、credential 與文件內容。
