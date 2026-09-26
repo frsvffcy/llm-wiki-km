@@ -120,6 +120,46 @@ class AskProposalEvidenceCurrentnessIntegrationTest extends IsolatedIntegrationT
     }
 
     @Test
+    void approveBlockedWhenSourceParseStatusIsNoLongerProcessed() throws Exception {
+        seedWorkspaceWithSources();
+        activate(lookupWorkspaceId("active"));
+        mockMvc.perform(post("/api/v1/ask/proposals")
+                        .contentType("application/json").content(requestBody()))
+                .andExpect(status().isCreated());
+        long proposalId = firstProposalId();
+
+        db().sql("UPDATE document SET parse_status = 'FAILED' WHERE id = :id")
+                .param("id", lookupDocumentId()).update();
+
+        mockMvc.perform(patch("/api/v1/proposals/{id}/status", proposalId)
+                        .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"));
+
+        assertThat(statusOf(proposalId)).isEqualTo("REVIEW");
+    }
+
+    @Test
+    void approveBlockedWhenSourceChunkHashNoLongerMatchesNormalizedContent() throws Exception {
+        seedWorkspaceWithSources();
+        activate(lookupWorkspaceId("active"));
+        mockMvc.perform(post("/api/v1/ask/proposals")
+                        .contentType("application/json").content(requestBody()))
+                .andExpect(status().isCreated());
+        long proposalId = firstProposalId();
+
+        db().sql("UPDATE source_chunk SET normalized_content = 'drifted content' WHERE id = :id")
+                .param("id", seededChunkId).update();
+
+        mockMvc.perform(patch("/api/v1/proposals/{id}/status", proposalId)
+                        .contentType("application/json").content("{\"status\":\"APPROVED\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("ASK_CITATION_INVALID"));
+
+        assertThat(statusOf(proposalId)).isEqualTo("REVIEW");
+    }
+
+    @Test
     void approveBlockedAfterSourceDeleted() throws Exception {
         seedWorkspaceWithSources();
         activate(lookupWorkspaceId("active"));
@@ -358,13 +398,15 @@ class AskProposalEvidenceCurrentnessIntegrationTest extends IsolatedIntegrationT
     private void seedWorkspaceWithSources() throws Exception {
         createWorkspace("active");
         long documentId = insert("""
-                INSERT INTO document (workspace_id, file_name, source_path, sha256, status, created_at, updated_at)
-                VALUES (:ws, 'source.txt', 'source.txt', 'hash', 'PROCESSED', :now, :now)
+                INSERT INTO document (workspace_id, file_name, source_path, sha256, status, parse_status,
+                    created_at, updated_at)
+                VALUES (:ws, 'source.txt', 'source.txt', 'hash', 'PROCESSED', 'PROCESSED', :now, :now)
                 """, "ws", lookupWorkspaceId("active"), "now", "2026-09-01T00:00:00Z");
         seededChunkId = insert("""
                 INSERT INTO source_chunk (document_id, chunk_no, content, normalized_content, content_hash,
                     created_at, updated_at)
-                VALUES (:document, 1, 'chunk content', 'chunk content', 'chunk-hash', :now, :now)
+                VALUES (:document, 1, 'chunk content', 'chunk content',
+                    '61f41f018c953eb5d858cf3241d53c9a77cbaefe8d8443ec5666755809a4d132', :now, :now)
                 """, "document", documentId, "now", "2026-09-01T00:00:00Z");
         insert("""
                 INSERT INTO knowledge_page (workspace_id, knowledge_id, title, normalized_title, type,
