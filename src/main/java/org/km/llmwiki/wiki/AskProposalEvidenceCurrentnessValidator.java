@@ -2,6 +2,8 @@ package org.km.llmwiki.wiki;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jooq.DSLContext;
+import org.km.llmwiki.search.SourceSearchAuthorityRepository;
+import org.km.llmwiki.search.SourceSearchEligibilityPolicy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -25,13 +27,16 @@ import java.util.Optional;
 public class AskProposalEvidenceCurrentnessValidator {
 
     private final DSLContext dsl;
+    private final SourceSearchAuthorityRepository sourceAuthorityRepository;
     private final PublishedWikiRepository publishedWikiRepository;
     private final ObjectMapper objectMapper;
 
     public AskProposalEvidenceCurrentnessValidator(DSLContext dsl,
+                                                   SourceSearchAuthorityRepository sourceAuthorityRepository,
                                                    PublishedWikiRepository publishedWikiRepository,
                                                    ObjectMapper objectMapper) {
         this.dsl = dsl;
+        this.sourceAuthorityRepository = sourceAuthorityRepository;
         this.publishedWikiRepository = publishedWikiRepository;
         this.objectMapper = objectMapper;
     }
@@ -59,7 +64,7 @@ public class AskProposalEvidenceCurrentnessValidator {
                 hasSource = true;
                 Long chunkId = citation.sourceChunkId();
                 if (chunkId == null || chunkId <= 0 || chunkId > Integer.MAX_VALUE
-                        || !chunkIsCurrentInWorkspace(workspaceId, chunkId)) {
+                        || !sourceChunkIsCurrent(workspaceId, chunkId)) {
                     invalid.add("SOURCE_CHUNK:" + chunkId);
                 }
             } else if ("WIKI".equals(citation.kind())) {
@@ -130,17 +135,17 @@ public class AskProposalEvidenceCurrentnessValidator {
                         r.get(table.SOURCE_KIND), r.get(table.ASK_CITATIONS_JSON)));
     }
 
-    private boolean chunkIsCurrentInWorkspace(long workspaceId, Long chunkId) {
-        var chunk = org.km.llmwiki.persistence.jooq.generated.Tables.SOURCE_CHUNK;
-        var document = org.km.llmwiki.persistence.jooq.generated.Tables.DOCUMENT;
-        Integer count = dsl.selectCount()
-                .from(chunk)
-                .join(document).on(document.ID.eq(chunk.DOCUMENT_ID))
-                .where(chunk.ID.eq(chunkId.intValue()))
-                .and(document.WORKSPACE_ID.eq((int) workspaceId))
-                .and(document.STATUS.notIn("DELETED", "SUPERSEDED", "DUPLICATE"))
-                .fetchOne(0, Integer.class);
-        return count != null && count > 0;
+    public boolean sourceChunkIsCurrent(long workspaceId, Long chunkId) {
+        if (chunkId == null || chunkId <= 0 || chunkId > Integer.MAX_VALUE) {
+            return false;
+        }
+        var document = sourceAuthorityRepository.findDocumentByChunk(workspaceId, chunkId);
+        if (document.isEmpty() || !SourceSearchEligibilityPolicy.documentEligible(document.get())) {
+            return false;
+        }
+        return document.get().chunks().stream()
+                .filter(chunk -> chunk.sourceChunkId() == chunkId)
+                .anyMatch(SourceSearchEligibilityPolicy::chunkEligible);
     }
 
     private record AskEvidenceRow(String sourceKind, String citationsJson) {
