@@ -133,9 +133,13 @@ public record AskProposalEvidenceSnapshot(int version, boolean legacy,
                     || revisionNode.asInt() < 1) {
                 throw new AskCitationInvalidException(List.of("MALFORMED_ASK_CITATIONS"));
             }
-            String knowledgeId = textOrNull(node.get("knowledgeId"));
-            if (knowledgeId != null && knowledgeId.isBlank()) {
-                throw new AskCitationInvalidException(List.of("MALFORMED_ASK_CITATIONS"));
+            JsonNode knowledgeIdNode = node.get("knowledgeId");
+            String knowledgeId = null;
+            if (knowledgeIdNode != null && !knowledgeIdNode.isNull()) {
+                if (!knowledgeIdNode.isTextual() || knowledgeIdNode.asText().isBlank()) {
+                    throw new AskCitationInvalidException(List.of("MALFORMED_ASK_CITATIONS"));
+                }
+                knowledgeId = knowledgeIdNode.asText();
             }
             return new AskEvidenceCitation(evidenceId, "WIKI", null,
                     path, revisionNode.asInt(), knowledgeId);
