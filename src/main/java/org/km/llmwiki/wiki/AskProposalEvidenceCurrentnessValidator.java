@@ -58,7 +58,8 @@ public class AskProposalEvidenceCurrentnessValidator {
             if ("SOURCE".equals(citation.kind())) {
                 hasSource = true;
                 Long chunkId = citation.sourceChunkId();
-                if (chunkId == null || chunkId <= 0 || !chunkIsCurrentInWorkspace(workspaceId, chunkId)) {
+                if (chunkId == null || chunkId <= 0 || chunkId > Integer.MAX_VALUE
+                        || !chunkIsCurrentInWorkspace(workspaceId, chunkId)) {
                     invalid.add("SOURCE_CHUNK:" + chunkId);
                 }
             } else if ("WIKI".equals(citation.kind())) {
