@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -49,6 +50,9 @@ class WikiPublishCommitPointConcurrencyIntegrationTest extends IsolatedIntegrati
 
     @MockitoSpyBean
     private WikiPublicationRepository publicationRepository;
+
+    @MockitoSpyBean
+    private WikiPublishAttemptRepository attemptRepository;
 
     @TempDir
     Path tempDir;
@@ -535,8 +539,11 @@ class WikiPublishCommitPointConcurrencyIntegrationTest extends IsolatedIntegrati
     @Test
     void sameWorkspaceConcurrentPublishesSerializeWithoutGlobalBlock() throws Exception {
         // Bounded scope 證據：同 workspace 第二個 publish 不能在第一個的
-        // file commit → DB finalizer  critical section 中間換檔；不同 workspace 互不阻塞。
-        // 以 markFileCommitted 計數＋latch 證明排序，不用 sleep。
+        // file commit → DB finalizer critical section 中間換檔。
+        // Determinism：secondAttempted 是 attempt-gate barrier——attempt.start 與
+        // workspace lock 取用在同一執行緒且前者先行，因此 latch 證明 T2 已實際開始
+        // 嘗試 publish（排除 executor 尚未排程的 vacuous pass）；而 T1 持有 lock 期間
+        // markCount 不可能變為 2，故放行前計數仍為 1 是 sound 斷言，不依賴 timing。
         seedWorkspaceWithSources();
         activate(lookupWorkspaceId("active"));
         long firstProposal = createAskProposalWithQuestion("第一個併發主題是什麼？");
@@ -547,6 +554,14 @@ class WikiPublishCommitPointConcurrencyIntegrationTest extends IsolatedIntegrati
         AtomicInteger markCount = new AtomicInteger(0);
         CountDownLatch firstEntered = new CountDownLatch(1);
         CountDownLatch firstResume = new CountDownLatch(1);
+        CountDownLatch secondAttempted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            StoredWikiDraft started = invocation.getArgument(0);
+            if (started.id() == secondDraft) {
+                secondAttempted.countDown();
+            }
+            return invocation.callRealMethod();
+        }).when(attemptRepository).start(any(StoredWikiDraft.class));
         doAnswer(invocation -> {
             int ordinal = markCount.incrementAndGet();
             if (ordinal == 1) {
@@ -570,9 +585,9 @@ class WikiPublishCommitPointConcurrencyIntegrationTest extends IsolatedIntegrati
                     mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", secondDraft))
                             .andReturn());
 
-            // 第二個同 workspace publish 尚未進入 markFileCommitted（被 per-workspace
-            // canonical lock 序列化）；以計數器證明，未用 sleep 碰運氣。
-            // 為避免 timing 假陽性，只斷言放行前計數仍為 1（第一個仍暫停中）。
+            // T2 已到達 lock 前最後一道 gate（attempt.start），但尚未進入 commit
+            // boundary：T1 仍持有 per-workspace lock，此斷言不可能因排程快慢而翻轉。
+            assertThat(secondAttempted.await(30, TimeUnit.SECONDS)).isTrue();
             assertThat(markCount.get()).isEqualTo(1);
             assertThat(firstFuture.isDone()).isFalse();
 
@@ -584,6 +599,102 @@ class WikiPublishCommitPointConcurrencyIntegrationTest extends IsolatedIntegrati
             assertThat(markCount.get()).isEqualTo(2);
             assertThat(db().sql("SELECT COUNT(*) FROM knowledge_page WHERE status = 'PUBLISHED'")
                     .query(Integer.class).single()).isGreaterThanOrEqualTo(3);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void threePublishHandoffKeepsSingleWorkspaceSerialization() throws Exception {
+        // #653 corrective：per-workspace lock 不可移除，否則 T1 unlock → T2 接手舊 lock
+        // → T1 因 queue 已空而移除舊 lock → T3 建新 lock 的 handoff race 會讓 T2/T3
+        // 同時進入 critical section。此測試以三個同 workspace publish 強制兩次交棒：
+        // T1 暫停 → T2 證明已嘗試且被擋 → 放行 T1 → T2 接手並暫停 → T3 證明已嘗試且
+        // 被擋 → 放行 T2 → T3 接手完成。全程 latch/barrier，無 sleep；每個「被擋」
+        // 斷言皆 sound（持有 lock 者未放行前，commit boundary 計數不可能前進）。
+        seedWorkspaceWithSources();
+        activate(lookupWorkspaceId("active"));
+        long firstDraft = approveAndGetDraft(createAskProposalWithQuestion("交棒第一主題是什麼？"));
+        long secondDraft = approveAndGetDraft(createAskProposalWithQuestion("交棒第二主題是什麼？"));
+        long thirdDraft = approveAndGetDraft(createAskProposalWithQuestion("交棒第三主題是什麼？"));
+
+        AtomicInteger markCount = new AtomicInteger(0);
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch firstResume = new CountDownLatch(1);
+        CountDownLatch secondAttempted = new CountDownLatch(1);
+        CountDownLatch secondEntered = new CountDownLatch(1);
+        CountDownLatch secondResume = new CountDownLatch(1);
+        CountDownLatch thirdAttempted = new CountDownLatch(1);
+        CountDownLatch thirdEntered = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            StoredWikiDraft started = invocation.getArgument(0);
+            if (started.id() == secondDraft) {
+                secondAttempted.countDown();
+            } else if (started.id() == thirdDraft) {
+                thirdAttempted.countDown();
+            }
+            return invocation.callRealMethod();
+        }).when(attemptRepository).start(any(StoredWikiDraft.class));
+        doAnswer(invocation -> {
+            // 以 operationId 回查 draft 身分，不依賴執行緒搶鎖順序。
+            long operationId = invocation.getArgument(1);
+            long enteredDraft = db().sql("SELECT draft_id FROM wiki_publish_operation WHERE id = :id")
+                    .param("id", operationId).query(Long.class).single();
+            markCount.incrementAndGet();
+            if (enteredDraft == firstDraft) {
+                firstEntered.countDown();
+                if (!firstResume.await(30, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("handoff first resume latch timed out");
+                }
+            } else if (enteredDraft == secondDraft) {
+                secondEntered.countDown();
+                if (!secondResume.await(30, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("handoff second resume latch timed out");
+                }
+            } else {
+                thirdEntered.countDown();
+            }
+            return invocation.callRealMethod();
+        }).when(publicationRepository).markFileCommitted(anyLong(), anyLong());
+
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        try {
+            Future<MvcResult> firstFuture = executor.submit(() ->
+                    mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", firstDraft))
+                            .andReturn());
+            assertThat(firstEntered.await(30, TimeUnit.SECONDS)).isTrue();
+
+            Future<MvcResult> secondFuture = executor.submit(() ->
+                    mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", secondDraft))
+                            .andReturn());
+            assertThat(secondAttempted.await(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(markCount.get()).isEqualTo(1);
+
+            // 第一次交棒：T1 放行完成，T2 必須接手同一把 lock 並停在 commit boundary。
+            firstResume.countDown();
+            assertThat(secondEntered.await(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(markCount.get()).isEqualTo(2);
+            assertThat(firstFuture.get(30, TimeUnit.SECONDS).getResponse().getStatus()).isIn(200, 201);
+
+            Future<MvcResult> thirdFuture = executor.submit(() ->
+                    mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", thirdDraft))
+                            .andReturn());
+            // T3 已到達 lock 前 gate，但 T2 仍持有 lock：T3 絕對不能進 commit boundary。
+            assertThat(thirdAttempted.await(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(markCount.get()).isEqualTo(2);
+            assertThat(secondFuture.isDone()).isFalse();
+
+            // 第二次交棒：T2 放行完成，T3 必須接手並完成（證明沒有 lock 遺失或死結）。
+            secondResume.countDown();
+            assertThat(secondFuture.get(30, TimeUnit.SECONDS).getResponse().getStatus()).isIn(200, 201);
+            assertThat(thirdEntered.await(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(thirdFuture.get(30, TimeUnit.SECONDS).getResponse().getStatus()).isIn(200, 201);
+
+            assertThat(markCount.get()).isEqualTo(3);
+            assertThat(db().sql("SELECT COUNT(*) FROM wiki_publish_operation WHERE status = 'COMPLETED'")
+                    .query(Integer.class).single()).isEqualTo(3);
+            assertThat(db().sql("SELECT COUNT(*) FROM wiki_draft WHERE status = 'PUBLISHED'")
+                    .query(Integer.class).single()).isEqualTo(3);
         } finally {
             executor.shutdownNow();
         }

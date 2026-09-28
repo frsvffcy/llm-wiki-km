@@ -35,6 +35,15 @@ public class WikiPublishService {
      * 交易內的 SQLite writer serialization＋commit-point revalidation 封住。
      * 不是 global lock；也不是 per-draft（per-draft 無法阻止同 workspace 另一 draft
      * 改寫同一 canonical file）。
+     *
+     * <p>Lifecycle（#653 corrective）：entries 保留 process lifetime，絕不移除。
+     * {@code unlock() → hasQueuedThreads() → remove()} 是不安全的：T1 unlock 後 T2
+     * 可能已接手舊 lock 並離開 queue，此時 T1 觀察到 queue 為空而移除舊 lock，隨後
+     * 的 T3 會建立新 lock 並與仍持有舊 lock 的 T2 同時進入 critical section。
+     * 保留是最小且 correctness 明確的方案：keyspace 為曾見過的 workspace id（本系統
+     * 為 single-instance 單使用者本機部署，workspace 基數小；id 為 AUTOINCREMENT
+     * 永不重用，保留舊 id 的 lock 無正確性影響），每個 entry 僅一個 ReentrantLock，
+     * footprint 可忽略。
      */
     private final ConcurrentHashMap<String, ReentrantLock> workspacePublishLocks = new ConcurrentHashMap<>();
 
@@ -95,10 +104,9 @@ public class WikiPublishService {
             }
             throw exception;
         } finally {
+            // 只 unlock，不從 map 移除（lifecycle 見欄位 javadoc）：移除需要證明
+            // 沒有 holder 也沒有 waiter，而 unlock 之後已無法原子證明這件事。
             lock.unlock();
-            if (!lock.hasQueuedThreads()) {
-                workspacePublishLocks.remove(lockKey, lock);
-            }
         }
     }
 }
