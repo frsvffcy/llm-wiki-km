@@ -26,7 +26,17 @@ public class WikiPublishService {
     private final WikiPublishAttemptRepository attemptRepository;
     private final PublishedWikiIndexingService publishedWikiIndexingService;
     private final EmbeddingProjectionJobService embeddingProjectionJobService;
-    private final ConcurrentHashMap<String, ReentrantLock> draftLocks = new ConcurrentHashMap<>();
+    /**
+     * #652：app-owned Wiki filesystem publish 的 bounded canonical serialization。
+     * Scope 為單一 active workspace（key 只有 workspaceId），至少涵蓋 file commit →
+     * DB finalizer，讓同 workspace 另一個 publish 不能在 evidence validation 與
+     * canonical commit 中間換檔（改寫被引用的 Wiki file）。不同 workspace 互不阻塞；
+     * 非 publish 的 canonical mutation（SOURCE status/parse/chunk）仍由 finalizer
+     * 交易內的 SQLite writer serialization＋commit-point revalidation 封住。
+     * 不是 global lock；也不是 per-draft（per-draft 無法阻止同 workspace 另一 draft
+     * 改寫同一 canonical file）。
+     */
+    private final ConcurrentHashMap<String, ReentrantLock> workspacePublishLocks = new ConcurrentHashMap<>();
 
     public WikiPublishService(WorkspaceService workspaceService, WikiDraftRepository draftRepository,
                               WikiCreatePublishService createPublishService,
@@ -51,8 +61,8 @@ public class WikiPublishService {
         StoredWikiDraft draft = draftRepository.findById(workspaceId, draftId)
                 .orElseThrow(() -> new WikiDraftNotFoundException(draftId));
         StoredWikiPublishAttempt attempt = attemptRepository.start(draft);
-        String lockKey = workspaceId + ":" + draftId;
-        ReentrantLock lock = draftLocks.computeIfAbsent(lockKey, ignored -> new ReentrantLock());
+        String lockKey = String.valueOf(workspaceId);
+        ReentrantLock lock = workspacePublishLocks.computeIfAbsent(lockKey, ignored -> new ReentrantLock());
         lock.lock();
         try {
             WikiPublishResult result = draft.action() == LlmProposalAction.CREATE
@@ -87,7 +97,7 @@ public class WikiPublishService {
         } finally {
             lock.unlock();
             if (!lock.hasQueuedThreads()) {
-                draftLocks.remove(lockKey, lock);
+                workspacePublishLocks.remove(lockKey, lock);
             }
         }
     }
