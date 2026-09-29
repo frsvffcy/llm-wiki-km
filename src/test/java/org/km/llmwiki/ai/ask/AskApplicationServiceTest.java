@@ -82,8 +82,13 @@ class AskApplicationServiceTest {
                 org.km.llmwiki.rag.RetrievalDiagnostics.lexical());
         assertThatThrownBy(() -> application.failure(answered))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThat(application.failure(failed).failureType())
+        AskApiException mapped = application.failure(failed);
+        assertThat(mapped.failureType())
                 .isEqualTo(AskFailureType.PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE);
+        assertThat(mapped.operatorDiagnostic()).isEqualTo("timed out");
+        assertThat(mapped.getMessage())
+                .as("MCP/public-compatible exception message must stay the stable public code")
+                .isEqualTo(AskFailureType.PROVIDER_TIMEOUT_OR_NETWORK_UNAVAILABLE.publicCode());
     }
 
     @Test

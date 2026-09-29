@@ -120,6 +120,53 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void askFailureLogsSafeSubtypeWithoutExposingItInPublicResponse() {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        Level previousLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/ask");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        try {
+            logger.setLevel(Level.INFO);
+            AskApiException safe = new AskApiException(
+                    AskFailureType.PROVIDER_INVALID_RESPONSE,
+                    "structured answer response was rejected: MALFORMED_JSON");
+
+            ResponseEntity<ApiError> response = handler.handleAskFailure(safe);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+            assertThat(code(response)).isEqualTo("ANSWER_PROVIDER_INVALID_RESPONSE");
+            assertThat(message(response)).isEqualTo("回答服務回應無效")
+                    .doesNotContain("MALFORMED_JSON");
+            assertThat(appender.list).hasSize(1);
+            ILoggingEvent event = appender.list.getFirst();
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage())
+                    .contains("POST /api/v1/ask", "502", "ANSWER_PROVIDER_INVALID_RESPONSE",
+                            "diagnostic=structured answer response was rejected: MALFORMED_JSON");
+
+            AskApiException hostile = new AskApiException(
+                    AskFailureType.PROVIDER_INVALID_RESPONSE, HOSTILE);
+            ResponseEntity<ApiError> hostileResponse = handler.handleAskFailure(hostile);
+
+            assertThat(message(hostileResponse)).isEqualTo("回答服務回應無效");
+            assertThat(appender.list).hasSize(2);
+            assertThat(appender.list.get(1).getFormattedMessage())
+                    .doesNotContain("/Users", "abcdef123456", "Bearer abc.def",
+                            "SELECT * FROM", "RID #12:0", "upstream");
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+            logger.detachAppender(appender);
+            appender.stop();
+            logger.setLevel(previousLevel);
+        }
+    }
+
+    @Test
     void duplicateWorkspaceNeverExposesTheRootPath() {
         DuplicateWorkspaceException exception = new DuplicateWorkspaceException(
                 "/Users/example/workspace/secret-project", 7L);

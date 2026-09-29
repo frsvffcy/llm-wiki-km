@@ -226,22 +226,26 @@ class OpenAiCompatibleAnswerClientTest {
     void rejectsMalformedEnvelopeAndStructuredResponseThroughTypedFailure() {
         OpenAiCompatibleHttpTransport malformedEnvelope = (uri, connect, read, key, body) ->
                 response(200, "{\"choices\":[]}");
-        assertInvalidResponse(malformedEnvelope);
+        assertInvalidResponse(malformedEnvelope,
+                "answer provider response envelope is malformed");
 
         OpenAiCompatibleHttpTransport malformedStructuredResponse = (uri, connect, read, key, body) ->
                 response(200, envelope("provider-model",
                         "{not-json}", null, null, null, null));
-        assertInvalidResponse(malformedStructuredResponse);
+        assertInvalidResponse(malformedStructuredResponse,
+                "structured answer response was rejected: MALFORMED_JSON");
 
         OpenAiCompatibleHttpTransport unknownCitation = (uri, connect, read, key, body) ->
                 response(200, envelope("provider-model", STRUCTURED_RESPONSE.replace("E1", "E9"),
                         null, null, null, null));
-        assertInvalidResponse(unknownCitation);
+        assertInvalidResponse(unknownCitation,
+                "structured answer response was rejected: UNKNOWN_CITATION_ID");
 
         OpenAiCompatibleHttpTransport emptyCitation = (uri, connect, read, key, body) ->
                 response(200, envelope("provider-model", STRUCTURED_RESPONSE.replace("[\"E1\"]", "[]"),
                         null, null, null, null));
-        assertInvalidResponse(emptyCitation);
+        assertInvalidResponse(emptyCitation,
+                "structured answer response was rejected: CITATION_INVALID");
     }
 
     @Test
@@ -329,11 +333,16 @@ class OpenAiCompatibleAnswerClientTest {
                 .isEqualTo(AnswerFailureType.CONFIGURATION_UNAVAILABLE_OR_DISABLED);
     }
 
-    private void assertInvalidResponse(OpenAiCompatibleHttpTransport transport) {
+    private void assertInvalidResponse(OpenAiCompatibleHttpTransport transport,
+                                       String expectedDiagnostic) {
         assertThatThrownBy(() -> client(transport).generate(request()))
                 .isInstanceOf(AnswerClientException.class)
-                .extracting(thrown -> ((AnswerClientException) thrown).failureType())
-                .isEqualTo(AnswerFailureType.INVALID_PROVIDER_RESPONSE);
+                .satisfies(thrown -> {
+                    AnswerClientException failure = (AnswerClientException) thrown;
+                    assertThat(failure.failureType())
+                            .isEqualTo(AnswerFailureType.INVALID_PROVIDER_RESPONSE);
+                    assertThat(failure.failure().diagnostic()).isEqualTo(expectedDiagnostic);
+                });
     }
 
     private static OpenAiCompatibleAnswerClient client(OpenAiCompatibleHttpTransport transport) {
