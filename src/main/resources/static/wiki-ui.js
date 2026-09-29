@@ -66,7 +66,7 @@ export function renderWikiList(elements, rows, pageMeta, documentRef = document,
   const items = Array.isArray(rows) ? rows : [];
   const meta = pageMeta && typeof pageMeta === "object" ? pageMeta : {};
   elements.wikiPageInfo.textContent = Number.isFinite(meta.totalPages)
-    ? `第 ${(meta.number ?? 0) + 1} / ${meta.totalPages} 頁（共 ${meta.totalElements} 頁）` : "";
+    ? `第 ${(meta.number ?? 0) + 1} / ${meta.totalPages} 頁（共 ${meta.totalElements} 筆）` : "";
   elements.wikiPrevPage.disabled = !(meta.number > 0);
   elements.wikiNextPage.disabled = Number.isFinite(meta.totalPages)
     ? !(meta.number < meta.totalPages - 1) : true;

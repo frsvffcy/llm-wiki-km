@@ -109,7 +109,7 @@ test("list renders typed rows with open actions and honest pager state", () => {
   const elements = uiElements();
   const opened = [];
   renderWikiList(elements, [pageRow(), pageRow({ knowledgeId: "wiki-b", title: "B" })],
-    { number: 0, size: 20, totalElements: 2, totalPages: 1 },
+    { number: 0, size: 20, totalElements: 42, totalPages: 3 },
     { createElement: () => new FakeElement() }, { onOpen: id => opened.push(id) });
 
   const text = flatText(elements.wikiList);
@@ -117,8 +117,9 @@ test("list renders typed rows with open actions and honest pager state", () => {
   assert.match(text, /概念 · 版本 2/u);
   assert.match(text, /wiki-arch/u);
   assert.equal(elements.wikiEmpty.hidden, true);
+  assert.equal(elements.wikiPageInfo.textContent, "第 1 / 3 頁（共 42 筆）");
   assert.equal(elements.wikiPrevPage.disabled, true);
-  assert.equal(elements.wikiNextPage.disabled, true);
+  assert.equal(elements.wikiNextPage.disabled, false);
   elements.wikiList.children[0].children
     .find(child => child.className === "wiki-open").handlers.get("click")();
   assert.deepEqual(opened, ["wiki-arch"]);
