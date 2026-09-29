@@ -236,6 +236,14 @@ class ReleaseCandidateContractTest {
         assertThat(notes).as("Maven 版本對應的候選發布說明標題")
                 .contains("# v" + version + " 候選發布說明");
         assertThat(notes).contains("- 發布狀態：CANDIDATE");
+        for (String requiredScopeHeading : List.of(
+                "### SUPPORTED",
+                "### CANDIDATE",
+                "### NOT SUPPORTED")) {
+            assertThat(notes)
+                    .as("current candidate notes must retain release-readiness scope heading %s", requiredScopeHeading)
+                    .contains(requiredScopeHeading);
+        }
         assertThat(PUBLISHED_STATUS.matcher(notes).find())
                 .as("候選發布說明不得宣稱已發布")
                 .isFalse();
