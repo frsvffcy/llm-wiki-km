@@ -298,7 +298,8 @@ public class GlobalExceptionHandler {
             case PROVIDER_INVALID_RESPONSE -> "回答服務回應無效";
             case LOCAL_VALIDATION -> "提問要求遭拒";
         };
-        return respond(status, type.publicCode(), message, exception);
+        return respond(status, type.publicCode(), message, exception,
+                exception.operatorDiagnostic());
     }
 
     @ExceptionHandler(AskDocumentScopeException.class)
@@ -328,16 +329,26 @@ public class GlobalExceptionHandler {
 
     private static ResponseEntity<ApiError> respond(HttpStatus status, String code, String message,
                                                     Exception exception) {
+        return respond(status, code, message, exception, "");
+    }
+
+    private static ResponseEntity<ApiError> respond(HttpStatus status, String code, String message,
+                                                    Exception exception,
+                                                    String operatorDiagnostic) {
         // Public response stays fixed/localized (#282/#504). Server diagnostics are
         // severity-aware: unexpected 500s must be visible at the default INFO runtime,
         // while normal 4xx validation/not-found traffic remains quiet unless DEBUG is enabled.
+        // The optional diagnostic is already application-owned, redacted and bounded; never
+        // log request bodies, provider raw responses, credentials or evidence content here.
         String request = currentRequest();
+        String suffix = operatorDiagnostic == null || operatorDiagnostic.isBlank()
+                ? "" : " diagnostic=" + operatorDiagnostic;
         if (status == HttpStatus.INTERNAL_SERVER_ERROR) {
-            log.error("REST {} -> {} {}", request, status.value(), code, exception);
+            log.error("REST {} -> {} {}{}", request, status.value(), code, suffix, exception);
         } else if (status.is5xxServerError()) {
-            log.warn("REST {} -> {} {}", request, status.value(), code, exception);
+            log.warn("REST {} -> {} {}{}", request, status.value(), code, suffix, exception);
         } else {
-            log.debug("REST {} -> {} {}", request, status.value(), code, exception);
+            log.debug("REST {} -> {} {}{}", request, status.value(), code, suffix, exception);
         }
         return ResponseEntity.status(status).body(ApiError.of(code, message));
     }
