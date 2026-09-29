@@ -9,16 +9,23 @@ public class WikiMergePublicationFinalizer {
 
     private final WikiPublicationRepository publicationRepository;
     private final WikiDraftRepository draftRepository;
+    private final WikiPublishCommitPointGuard commitPointGuard;
 
     public WikiMergePublicationFinalizer(WikiPublicationRepository publicationRepository,
-                                         WikiDraftRepository draftRepository) {
+                                         WikiDraftRepository draftRepository,
+                                         WikiPublishCommitPointGuard commitPointGuard) {
         this.publicationRepository = publicationRepository;
         this.draftRepository = draftRepository;
+        this.commitPointGuard = commitPointGuard;
     }
 
     @Transactional
     public StoredWikiPublishOperation complete(StoredWikiDraft draft, StoredWikiPublishOperation operation,
                                                long knowledgePageId, String publishedAt) {
+        // #652 commit point：與 CREATE 同一 contract，先 writer serialization 再重驗
+        // persisted ASK evidence；stale 映射為 PROPOSAL_INVALID，不得退化為 METADATA_FAILURE。
+        commitPointGuard.verifyCommitPoint(draft.workspaceId(), draft.id(), draft.proposalId(),
+                operation.id(), org.km.llmwiki.ai.LlmProposalAction.MERGE);
         publicationRepository.updateKnowledgePageForMerge(draft, operation, knowledgePageId, publishedAt);
         draftRepository.markPublished(draft.workspaceId(), draft.id(), operation.targetPath(),
                 operation.contentHash(), operation.revision(), publishedAt);

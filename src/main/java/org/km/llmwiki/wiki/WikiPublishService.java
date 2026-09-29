@@ -26,7 +26,26 @@ public class WikiPublishService {
     private final WikiPublishAttemptRepository attemptRepository;
     private final PublishedWikiIndexingService publishedWikiIndexingService;
     private final EmbeddingProjectionJobService embeddingProjectionJobService;
-    private final ConcurrentHashMap<String, ReentrantLock> draftLocks = new ConcurrentHashMap<>();
+    /**
+     * #652：app-owned Wiki filesystem publish 的 bounded canonical serialization。
+     * Scope 為單一 active workspace（key 只有 workspaceId），至少涵蓋 file commit →
+     * DB finalizer，讓同 workspace 另一個 publish 不能在 evidence validation 與
+     * canonical commit 中間換檔（改寫被引用的 Wiki file）。不同 workspace 互不阻塞；
+     * 非 publish 的 canonical mutation（SOURCE status/parse/chunk）仍由 finalizer
+     * 交易內的 SQLite writer serialization＋commit-point revalidation 封住。
+     * 不是 global lock；也不是 per-draft（per-draft 無法阻止同 workspace 另一 draft
+     * 改寫同一 canonical file）。
+     *
+     * <p>Lifecycle（#653 corrective）：entries 保留 process lifetime，絕不移除。
+     * {@code unlock() → hasQueuedThreads() → remove()} 是不安全的：T1 unlock 後 T2
+     * 可能已接手舊 lock 並離開 queue，此時 T1 觀察到 queue 為空而移除舊 lock，隨後
+     * 的 T3 會建立新 lock 並與仍持有舊 lock 的 T2 同時進入 critical section。
+     * 保留是最小且 correctness 明確的方案：keyspace 為曾見過的 workspace id（本系統
+     * 為 single-instance 單使用者本機部署，workspace 基數小；id 為 AUTOINCREMENT
+     * 永不重用，保留舊 id 的 lock 無正確性影響），每個 entry 僅一個 ReentrantLock，
+     * footprint 可忽略。
+     */
+    private final ConcurrentHashMap<String, ReentrantLock> workspacePublishLocks = new ConcurrentHashMap<>();
 
     public WikiPublishService(WorkspaceService workspaceService, WikiDraftRepository draftRepository,
                               WikiCreatePublishService createPublishService,
@@ -51,8 +70,8 @@ public class WikiPublishService {
         StoredWikiDraft draft = draftRepository.findById(workspaceId, draftId)
                 .orElseThrow(() -> new WikiDraftNotFoundException(draftId));
         StoredWikiPublishAttempt attempt = attemptRepository.start(draft);
-        String lockKey = workspaceId + ":" + draftId;
-        ReentrantLock lock = draftLocks.computeIfAbsent(lockKey, ignored -> new ReentrantLock());
+        String lockKey = String.valueOf(workspaceId);
+        ReentrantLock lock = workspacePublishLocks.computeIfAbsent(lockKey, ignored -> new ReentrantLock());
         lock.lock();
         try {
             WikiPublishResult result = draft.action() == LlmProposalAction.CREATE
@@ -85,10 +104,9 @@ public class WikiPublishService {
             }
             throw exception;
         } finally {
+            // 只 unlock，不從 map 移除（lifecycle 見欄位 javadoc）：移除需要證明
+            // 沒有 holder 也沒有 waiter，而 unlock 之後已無法原子證明這件事。
             lock.unlock();
-            if (!lock.hasQueuedThreads()) {
-                draftLocks.remove(lockKey, lock);
-            }
         }
     }
 }
