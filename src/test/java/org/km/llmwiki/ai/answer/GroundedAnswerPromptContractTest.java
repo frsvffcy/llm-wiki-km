@@ -50,7 +50,7 @@ class GroundedAnswerPromptContractTest {
                 .contains("insufficientEvidence")
                 .contains("to true")
                 .contains("citedEvidenceIds must be exactly []")
-                .contains("Never return insufficientEvidence=true together with any citedEvidenceIds value");
+                .contains("Never return insufficientEvidence=true with a non-empty citedEvidenceIds array");
     }
 
     @Test
