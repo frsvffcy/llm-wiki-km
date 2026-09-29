@@ -26,7 +26,7 @@ public final class GroundedAnswerPromptContract {
             and citedEvidenceIds must contain at least one application-provided citation id.
             If the supplied evidence is insufficient, say so clearly in answerText, set insufficientEvidence
             to true, and citedEvidenceIds must be exactly [] with no citation ids.
-            Never return insufficientEvidence=true together with any citedEvidenceIds value.
+            Never return insufficientEvidence=true with a non-empty citedEvidenceIds array.
             Return only the structured response object described by the response schema.
             Do not return hidden reasoning, secrets, or provider-specific transport fields.
             """;
