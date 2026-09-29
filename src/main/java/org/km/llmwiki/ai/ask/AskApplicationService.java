@@ -59,8 +59,8 @@ public class AskApplicationService {
         if (result.status() != AskStatus.FAILED) {
             throw new IllegalArgumentException("only FAILED Ask results map to a failure");
         }
-        return new AskApiException(result.failure()
-                .orElseThrow(() -> new IllegalStateException("failed Ask result has no failure"))
-                .type());
+        AskFailure failure = result.failure()
+                .orElseThrow(() -> new IllegalStateException("failed Ask result has no failure"));
+        return new AskApiException(failure.type(), failure.diagnostic());
     }
 }
