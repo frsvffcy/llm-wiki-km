@@ -175,7 +175,7 @@ class DailyWorkflowFullCapabilityV2IntegrationTest {
                 .as("hybrid-graph journey: %s", hybridGraph)
                 .isEqualTo(DailyWorkflowFindingReport.Category.RETRIEVAL_QUALITY);
 
-        assertThat(STUB.lastAnswerRequestBody()).contains("GROUNDED_ANSWER_PROMPT_V2");
+        assertThat(STUB.lastAnswerRequestBody()).contains("GROUNDED_ANSWER_PROMPT_V3");
         assertThat(STUB.lastAnswerAuthorization()).isEqualTo("Bearer " + "acceptance-local-credential");
         assertThat(STUB.lastEmbeddingRequestBody()).contains("input");
 

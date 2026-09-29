@@ -62,7 +62,7 @@ class OpenAiCompatibleAnswerClientTest {
         assertThat(requestBody).hasValueSatisfying(body -> {
             assertThat(body).contains("\"model\":\"configured-model\"")
                     .contains("\"max_tokens\":4000")
-                    .contains("GROUNDED_ANSWER_PROMPT_V2")
+                    .contains("GROUNDED_ANSWER_PROMPT_V3")
                     .doesNotContain(fakeCredential());
         });
     }
