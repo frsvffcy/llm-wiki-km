@@ -105,6 +105,24 @@ public class AskService {
         org.km.llmwiki.rag.RerankResult rerank = rerankService.apply(evidence);
         EvidenceBundle qualified = rerank.orderedBundle();
 
+        // Revalidate request scope and every qualified evidence item at the provider-consumption
+        // boundary. Context is built only from authority-current evidence; this guard never
+        // searches/backfills lower-ranked candidates and therefore cannot change ranking policy.
+        requireCurrentDocumentScope(request);
+        try {
+            qualified = retrievalService.revalidateForHandoff(qualified);
+        } catch (RetrievalUnavailableException exception) {
+            AskExecutionMetadata execution = AskExecutionMetadata
+                    .fromDiagnostics(AnswerContextDiagnostics.empty())
+                    .withRerankOutcome(rerank.policyVersion(), rerank.status(), rerank.noOpReason())
+                    .withQueryTransformation(transformation.execution());
+            return AskResultFactory.failure(
+                    new AskFailure(retrievalFailureType(exception),
+                            "retrieval dependency is unavailable",
+                            Optional.of(exception.dependency())),
+                    execution, List.of(), diagnostics);
+        }
+
         long projectionStarted = System.nanoTime();
         ContextProjectionResult projection = contextProjector.project(qualified,
                 request.contextBudget());
@@ -118,12 +136,7 @@ public class AskService {
         List<AskCitation> suppliedEvidence = context.blocks().stream()
                 .map(AskCitation::from).toList();
 
-        // Revalidate at the consumption boundary after retrieval, transformation, reranking,
-        // and context projection but before any semantic terminal result. A document that
-        // changed during that window must fail closed even when no evidence remains.
-        requireCurrentDocumentScope(request);
-
-        if (evidence.insufficientEvidence() || context.blocks().isEmpty()) {
+        if (qualified.insufficientEvidence() || context.blocks().isEmpty()) {
             return AskResultFactory.insufficient(suppliedEvidence, execution,
                     diagnostics);
         }
