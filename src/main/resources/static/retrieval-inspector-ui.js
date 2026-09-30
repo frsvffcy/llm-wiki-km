@@ -48,6 +48,9 @@ const TRANSFORMATION_STATUS_LABELS = Object.freeze({
 });
 
 const INPUT_ROLE_LABELS = Object.freeze({ ORIGINAL: "原始查詢", REWRITE: "改寫查詢" });
+const SIGNAL_SUMMARY_SCOPE_LABELS = Object.freeze({
+  ORIGINAL_INPUT: "原始查詢訊號摘要"
+});
 
 // Final evidence source projection (#484): kind labels and inspection-time currentness
 // wording. The Browser never decides currentness itself — freshness always comes from
@@ -134,6 +137,17 @@ export function renderInspection(elements, payload, documentRef = document) {
   });
 
   const modalities = Array.isArray(data.modalities) ? data.modalities : [];
+  const signalSummaryScope = typeof data.signalSummaryScope === "string"
+    ? data.signalSummaryScope : "";
+  if (modalities.length > 0 && SIGNAL_SUMMARY_SCOPE_LABELS[signalSummaryScope]) {
+    const summaryScope = documentRef.createElement("li");
+    summaryScope.className = "inspector-summary-scope";
+    appendTextElement(documentRef, summaryScope, "p", "inspector-modality-title",
+      SIGNAL_SUMMARY_SCOPE_LABELS[signalSummaryScope]);
+    appendTextElement(documentRef, summaryScope, "p", "inspector-modality-notice",
+      "以下訊號與融合資訊只描述原始查詢；改寫查詢請看上方逐次檢索，最終證據請看下方。");
+    elements.modalities.append(summaryScope);
+  }
   modalities.forEach(section => {
     const item = documentRef.createElement("li");
     item.className = "inspector-modality";
@@ -159,11 +173,12 @@ export function renderInspection(elements, payload, documentRef = document) {
 
   if (data.fusionPolicyVersion) {
     elements.fusion.hidden = false;
+    const originalScoped = signalSummaryScope === "ORIGINAL_INPUT";
     appendTextElement(documentRef, elements.fusionDetail, "p", "inspector-fusion-policy",
-      `融合規則版本：${text(data.fusionPolicyVersion)}`);
+      `${originalScoped ? "原始查詢" : ""}融合規則版本：${text(data.fusionPolicyVersion)}`);
     const order = Array.isArray(data.fusedOrder) ? data.fusedOrder : [];
     appendTextElement(documentRef, elements.fusionDetail, "p", "inspector-fusion-order",
-      `融合順序：${order.map((identity, index) => `${index + 1}. ${text(identity)}`).join("　")}`);
+      `${originalScoped ? "原始查詢" : ""}融合順序：${order.map((identity, index) => `${index + 1}. ${text(identity)}`).join("　")}`);
   }
 
   const selection = Array.isArray(data.selection) ? data.selection : [];

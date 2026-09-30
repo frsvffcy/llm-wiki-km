@@ -14,12 +14,17 @@ import java.util.List;
  * source an evidence item came from and open the canonical read-only locator/read view.
  * The identity stays the authority; the projection never carries paths, content, hashes,
  * or ranking inputs.
+ *
+ * <p>{@code signalSummaryScope} makes the top-level modality/fusion summary unambiguous:
+ * {@code ORIGINAL_INPUT} means those fields describe only the original retrieval input.
+ * Per-input traces and final evidence remain separately represented.
  */
 public record RetrievalInspectionResponse(
         String query,
         String mode,
         String strategy,
         String fusionPolicyVersion,
+        String signalSummaryScope,
         List<Modality> modalities,
         List<String> fusedOrder,
         List<Selection> selection,
@@ -31,6 +36,29 @@ public record RetrievalInspectionResponse(
         Budget budget,
         QueryTransformation queryTransformation,
         List<RetrievalInput> retrievalInputs) {
+
+    /** Compatibility constructor for callers predating the explicit signal-summary scope. */
+    public RetrievalInspectionResponse(
+            String query,
+            String mode,
+            String strategy,
+            String fusionPolicyVersion,
+            List<Modality> modalities,
+            List<String> fusedOrder,
+            List<Selection> selection,
+            List<FinalEvidence> finalEvidence,
+            ModalityDiagnostics modalityDiagnostics,
+            int searchedCandidateCount,
+            int rejectedCandidateCount,
+            boolean insufficientEvidence,
+            Budget budget,
+            QueryTransformation queryTransformation,
+            List<RetrievalInput> retrievalInputs) {
+        this(query, mode, strategy, fusionPolicyVersion, "ORIGINAL_INPUT", modalities,
+                fusedOrder, selection, finalEvidence, modalityDiagnostics,
+                searchedCandidateCount, rejectedCandidateCount, insufficientEvidence,
+                budget, queryTransformation, retrievalInputs);
+    }
 
     public record Modality(String modality, String outcome,
                            List<Candidate> candidates, List<Rejected> rejected) {
