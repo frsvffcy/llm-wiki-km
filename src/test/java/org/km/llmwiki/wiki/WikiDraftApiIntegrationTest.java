@@ -1179,6 +1179,15 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         assertThat(Files.readString(target)).isEqualTo("external edit during MERGE DB finalization\n");
         assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
                 .containsEntry("status", "RECONCILIATION_REQUIRED");
+        long reconciliationOperationId = ((Number) row(
+                "SELECT id FROM wiki_publish_operation WHERE draft_id = :id",
+                "id", draftId).get("id")).longValue();
+        publicationRepository.markReconciliationRequired(workspace.id(), reconciliationOperationId,
+                "api_key=super-secret Bearer abc.def /Users/todd/private "
+                        + "jdbc:sqlite:/tmp/private.db SELECT secret FROM table");
+        assertThat(row("SELECT failure_detail FROM wiki_publish_operation WHERE id = :id",
+                "id", reconciliationOperationId))
+                .containsEntry("failure_detail", "Unspecified publish failure");
         assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
                 .containsEntry("status", "READY");
         assertThat(row("SELECT revision, content_hash FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
