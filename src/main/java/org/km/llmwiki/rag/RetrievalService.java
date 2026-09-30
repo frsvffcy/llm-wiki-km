@@ -395,6 +395,54 @@ public class RetrievalService {
                 budget, ordered.size(), rejected, evidence.isEmpty(), diagnostics);
     }
 
+    /**
+     * Re-establishes canonical evidence currentness at the final Ask/provider handoff.
+     *
+     * <p>No candidate search, ranking or backfill is allowed here: stale/missing/ineligible
+     * items are only removed from the already-qualified ordered bundle. Infrastructure
+     * failures remain typed {@link RetrievalUnavailableException}s, and a workspace switch
+     * invalidates the whole handoff instead of answering from the formerly-active workspace.
+     */
+    public EvidenceBundle revalidateForHandoff(EvidenceBundle evidence) {
+        if (evidence == null) {
+            throw new IllegalArgumentException("evidence bundle must not be null");
+        }
+        WorkspaceResponse active = activeWorkspace();
+        if (evidence.workspace() == null || evidence.workspace().id() != active.id()) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.WORKSPACE_AUTHORITY,
+                    new IllegalStateException("active workspace changed before evidence handoff"));
+        }
+
+        List<EvidenceItem> current = new ArrayList<>(evidence.items().size());
+        Map<Long, Optional<SourceSearchAuthorityDocument>> sourceDocuments = new HashMap<>();
+        int terminalRejected = 0;
+        int usedCharacters = 0;
+        for (EvidenceItem item : evidence.items()) {
+            PublicationOutcome outcome = authorityRevalidator.publicationCurrent(
+                    item, active.id(), sourceDocuments);
+            if (outcome.wasRejected()) {
+                terminalRejected++;
+                continue;
+            }
+            current.add(item);
+            usedCharacters += item.content().codePointCount(0, item.content().length());
+        }
+        if (terminalRejected == 0) {
+            return evidence;
+        }
+
+        EvidenceBudget originalBudget = evidence.budget();
+        EvidenceBudget budget = new EvidenceBudget(
+                originalBudget.maxItems(), originalBudget.maxCharacters(),
+                current.size(), usedCharacters, (usedCharacters + 3) / 4,
+                originalBudget.truncated());
+        return new EvidenceBundle(evidence.query(), evidence.mode(), evidence.workspace(), current,
+                budget, evidence.searchedCandidateCount(),
+                Math.addExact(evidence.rejectedCandidateCount(), terminalRejected),
+                current.isEmpty(), evidence.diagnostics());
+    }
+
     private static Long scopedDocumentId(RetrievalRequest request) {
         return request.documentScope() == null ? null : request.documentScope().documentId();
     }
