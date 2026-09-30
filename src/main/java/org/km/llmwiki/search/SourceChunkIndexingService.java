@@ -1,5 +1,6 @@
 package org.km.llmwiki.search;
 
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -76,13 +77,15 @@ public class SourceChunkIndexingService {
     private SourceIndexSyncResult pending(SourceSearchAuthorityDocument authority, Long sourceChunkId,
                                           List<SourceSearchDocument> eligible, String fingerprint,
                                           RuntimeException failure) {
-        String detail = "Source Chunk FTS sync failed: " + failure.getClass().getSimpleName()
-                + ": " + safeMessage(failure);
+        String detail = DiagnosticRedaction.persistedFailure(
+                "source_fts_sync_failed", failure, "Source Chunk FTS sync failed");
         try {
             syncRepository.markPending(authority.workspaceId(), authority.documentId(), eligible.size(),
                     fingerprint, detail);
         } catch (RuntimeException ledgerFailure) {
-            detail += "; repair ledger write failed: " + safeMessage(ledgerFailure);
+            detail += "; " + DiagnosticRedaction.persistedFailure(
+                    "source_fts_repair_ledger_failed", ledgerFailure,
+                    "Source FTS repair ledger write failed");
         }
         return new SourceIndexSyncResult(SourceIndexSyncStatus.INDEX_PENDING, authority.workspaceId(),
                 authority.documentId(), sourceChunkId, eligible.size(), 0, detail);
@@ -96,8 +99,4 @@ public class SourceChunkIndexingService {
         return SourceSearchFreshness.fingerprint(documents);
     }
 
-    private static String safeMessage(Exception exception) {
-        String message = exception.getMessage();
-        return message == null || message.isBlank() ? "unspecified failure" : message;
-    }
 }
