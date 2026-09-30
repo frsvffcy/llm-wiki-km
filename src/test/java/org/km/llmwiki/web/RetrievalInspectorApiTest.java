@@ -53,6 +53,7 @@ class RetrievalInspectorApiTest {
                 .andExpect(jsonPath("$.data.strategy").value("FUSED"))
                 .andExpect(jsonPath("$.data.fusionPolicyVersion")
                         .value("fusion-rrf-v2-graph-damped"))
+                .andExpect(jsonPath("$.data.signalSummaryScope").value("ORIGINAL_INPUT"))
                 .andExpect(jsonPath("$.data.modalities[0].modality").value("LEXICAL"))
                 .andExpect(jsonPath("$.data.modalities[0].outcome").value("CONTRIBUTED"))
                 .andExpect(jsonPath("$.data.modalities[0].candidates[0].identity")
