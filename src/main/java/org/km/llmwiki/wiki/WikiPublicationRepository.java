@@ -3,6 +3,7 @@ package org.km.llmwiki.wiki;
 import org.jooq.DSLContext;
 import org.km.llmwiki.ai.LlmProposalAction;
 import org.km.llmwiki.persistence.jooq.generated.tables.records.WikiPublishOperationRecord;
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -173,8 +174,8 @@ public class WikiPublicationRepository {
 
     private void markFailure(long workspaceId, long operationId, WikiPublishOperationStatus next,
                              String detail) {
-        String safeDetail = detail == null || detail.isBlank() ? "Unspecified publish failure"
-                : detail.substring(0, Math.min(detail.length(), 1000));
+        String safeDetail = DiagnosticRedaction.sanitize(
+                detail, "Unspecified publish failure", 1000);
         int updated = dsl.update(WIKI_PUBLISH_OPERATION)
                 .set(WIKI_PUBLISH_OPERATION.STATUS, next.name())
                 .set(WIKI_PUBLISH_OPERATION.FAILURE_DETAIL, safeDetail)
