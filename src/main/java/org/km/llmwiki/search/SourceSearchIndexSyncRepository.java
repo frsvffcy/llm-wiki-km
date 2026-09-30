@@ -2,6 +2,7 @@ package org.km.llmwiki.search;
 
 import org.jooq.DSLContext;
 import org.km.llmwiki.persistence.jooq.generated.tables.records.SourceSearchIndexSyncRecord;
+import org.km.llmwiki.web.DiagnosticRedaction;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,8 +68,8 @@ public class SourceSearchIndexSyncRepository {
     public StoredSourceSearchIndexSync markPending(long workspaceId, long documentId,
                                                     int eligibleChunkCount,
                                                     String canonicalFingerprint, String detail) {
-        String safeDetail = detail == null || detail.isBlank() ? "Unspecified Source FTS sync failure"
-                : detail.substring(0, Math.min(detail.length(), 1000));
+        String safeDetail = DiagnosticRedaction.sanitize(
+                detail, "Unspecified Source FTS sync failure", 1000);
         String now = now();
         dsl.insertInto(SOURCE_SEARCH_INDEX_SYNC)
                 .columns(SOURCE_SEARCH_INDEX_SYNC.WORKSPACE_ID,
