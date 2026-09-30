@@ -47,9 +47,16 @@ final class CandidateAuthorityRevalidator {
         };
     }
 
-    /** Terminal publication check: DB-side authority must still match the evidence at publish time. */
+    /**
+     * Terminal consumption check: canonical authority must still match the evidence immediately
+     * before a publish/provider handoff. The EvidenceItem is never trusted as workspace or
+     * identity authority on its own.
+     */
     PublicationOutcome publicationCurrent(EvidenceItem item, long workspaceId,
             Map<Long, Optional<SourceSearchAuthorityDocument>> sourceDocuments) {
+        if (item == null || item.workspace() == null || item.workspace().id() != workspaceId) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.WORKSPACE_MISMATCH);
+        }
         return switch (item.kind()) {
             case WIKI -> wikiPublicationCurrent(item, workspaceId);
             case SOURCE_CHUNK -> sourcePublicationCurrent(item, workspaceId, sourceDocuments);
@@ -140,6 +147,10 @@ final class CandidateAuthorityRevalidator {
     }
 
     private PublicationOutcome wikiPublicationCurrent(EvidenceItem item, long workspaceId) {
+        if (item.knowledgeId() == null || !item.stableId().equals(item.knowledgeId())
+                || item.revision() == null) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.IDENTITY_MISMATCH);
+        }
         Optional<StoredPublishedWiki> stored;
         try {
             stored = publishedWikiRepository.findPublishedByKnowledgeId(
@@ -152,19 +163,28 @@ final class CandidateAuthorityRevalidator {
         if (stored.isEmpty()) {
             return PublicationOutcome.rejected(AuthorityRejectionReason.AUTHORITY_MISSING);
         }
-        if (item.revision() == null) {
-            return PublicationOutcome.rejected(AuthorityRejectionReason.IDENTITY_MISMATCH);
-        }
         StoredPublishedWiki page = stored.get();
-        return page.contentHash().equals(item.contentHash())
-                && page.revision() == item.revision()
-                ? PublicationOutcome.CURRENT
-                : PublicationOutcome.rejected(AuthorityRejectionReason.STALE_REVISION);
+        if (!page.contentHash().equals(item.contentHash()) || page.revision() != item.revision()) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.STALE_REVISION);
+        }
+        try {
+            // DB metadata alone is not enough: the canonical vault bytes must still validate
+            // against the recorded published hash at the handoff boundary.
+            publishedWikiContentReader.readSearchableContent(page);
+            return PublicationOutcome.CURRENT;
+        } catch (PublishedWikiValidationException expectedDrift) {
+            return PublicationOutcome.rejected(AuthorityRejectionReason.STALE_REVISION);
+        } catch (PublishedWikiUnavailableException infrastructureFailure) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.WIKI_AUTHORITY,
+                    infrastructureFailure);
+        }
     }
 
     private PublicationOutcome sourcePublicationCurrent(EvidenceItem item, long workspaceId,
             Map<Long, Optional<SourceSearchAuthorityDocument>> sourceDocuments) {
-        if (item.documentId() == null || item.sourceChunkId() == null) {
+        if (item.documentId() == null || item.sourceChunkId() == null
+                || !item.stableId().equals(item.sourceChunkId().toString())) {
             return PublicationOutcome.rejected(AuthorityRejectionReason.IDENTITY_MISMATCH);
         }
         Optional<SourceSearchAuthorityDocument> document;
