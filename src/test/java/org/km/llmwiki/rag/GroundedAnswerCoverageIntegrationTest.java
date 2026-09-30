@@ -246,6 +246,8 @@ class GroundedAnswerCoverageIntegrationTest extends IsolatedIntegrationTest {
     private static AskResult askWithStub(EvidenceBundle bundle, AnswerResult stubbed) {
         RetrievalService retrieval = mock(RetrievalService.class);
         when(retrieval.retrieve(any())).thenReturn(bundle);
+        when(retrieval.revalidateForHandoff(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         return new AskService(retrieval, projector(), noopRerank(),
                 StubAnswerClient.returning(stubbed))
                 .ask(AskRequest.defaults(bundle.query(), RetrievalMode.HYBRID_FTS));
