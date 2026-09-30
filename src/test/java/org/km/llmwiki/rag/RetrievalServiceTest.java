@@ -536,6 +536,22 @@ class RetrievalServiceTest {
     }
 
     @Test
+    void handoffTreatsDisappearedActiveWorkspaceAsTypedAuthorityUnavailable() {
+        stubWiki("workspace-disappeared", "authority");
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("workspace-disappeared", 0.9))));
+        EvidenceBundle retrieved = retrievalService.retrieve(
+                RetrievalRequest.defaults("workspace disappeared", RetrievalMode.WIKI_ONLY));
+        when(workspaceService.findActiveWithoutValidation()).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> retrievalService.revalidateForHandoff(retrieved))
+                .isInstanceOf(RetrievalUnavailableException.class)
+                .satisfies(failure -> assertThat(((RetrievalUnavailableException) failure)
+                        .dependency()).isEqualTo(
+                        RetrievalUnavailableException.Dependency.WORKSPACE_AUTHORITY));
+    }
+
+    @Test
     void fusedStrategyDelegatesToTheGraphGroundedOrchestratorWithoutTouchingChannelsDirectly() {
         FusedRetrievalOrchestrator orchestrator = mock(FusedRetrievalOrchestrator.class);
         EvidenceBundle fused = new EvidenceBundle("graph question", RetrievalMode.HYBRID_GRAPH,
