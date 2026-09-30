@@ -124,6 +124,86 @@ class AskServiceTest {
     }
 
     @Test
+    void terminalHandoffDropsStaleEvidenceBeforeContextAndProvider() {
+        EvidenceBundle retrieved = bundle(List.of(
+                wiki("stale", "Stale", "vault/stale.md", "old canonical fact")));
+        EvidenceBundle rejected = bundle(List.of());
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenReturn(retrieved);
+        when(retrieval.revalidateForHandoff(any())).thenReturn(rejected);
+        AnswerClient provider = mock(AnswerClient.class);
+
+        AskResult result = new AskService(retrieval, projector(), noopRerank(), provider)
+                .ask(AskRequest.defaults("question", RetrievalMode.WIKI_ONLY));
+
+        assertThat(result.status()).isEqualTo(AskStatus.INSUFFICIENT_EVIDENCE);
+        assertThat(result.suppliedEvidence()).isEmpty();
+        assertThat(result.executionMetadata().contextEvidenceItems()).isZero();
+        org.mockito.Mockito.verify(retrieval).revalidateForHandoff(any());
+        org.mockito.Mockito.verifyNoInteractions(provider);
+    }
+
+    @Test
+    void terminalAuthorityInfrastructureFailureStaysTypedAndNeverCallsProvider() {
+        EvidenceBundle retrieved = bundle(List.of(
+                source(41L, 900L, "design.pdf", "current source fact")));
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenReturn(retrieved);
+        when(retrieval.revalidateForHandoff(any())).thenThrow(
+                new RetrievalUnavailableException(
+                        RetrievalUnavailableException.Dependency.SOURCE_AUTHORITY,
+                        new org.jooq.exception.DataAccessException("authority unavailable")));
+        AnswerClient provider = mock(AnswerClient.class);
+
+        AskResult result = new AskService(retrieval, projector(), noopRerank(), provider)
+                .ask(AskRequest.defaults("question", RetrievalMode.SOURCE_ONLY));
+
+        assertThat(result.status()).isEqualTo(AskStatus.FAILED);
+        assertThat(result.failure()).get()
+                .extracting(AskFailure::type)
+                .isEqualTo(AskFailureType.RETRIEVAL_UNAVAILABLE);
+        org.mockito.Mockito.verifyNoInteractions(provider);
+    }
+
+    @Test
+    void queryRewriteOriginalWinsStillPassesThroughTerminalCurrentnessGuard() {
+        EvidenceItem old = wiki("same", "Same", "vault/same.md", "old authority");
+        EvidenceItem fresh = new EvidenceItem(EvidenceKind.WIKI, "same", WORKSPACE, 0.95,
+                "fresh authority", "fresh", false, "fresh-hash", "same", "Same",
+                "CONCEPT", "vault/same.md", 2, null, null, null, null, null, null, null);
+        RetrievalDiagnostics originalDiagnostics = RetrievalDiagnostics.hybrid()
+                .withLexicalOutcome(org.km.llmwiki.rag.ModalityOutcome.EMPTY);
+        EvidenceBundle original = bundle(List.of(old), originalDiagnostics);
+        EvidenceBundle rewritten = bundle(List.of(fresh), originalDiagnostics);
+        AtomicInteger retrievalCalls = new AtomicInteger();
+        RetrievalService retrieval = mock(RetrievalService.class);
+        when(retrieval.retrieve(any())).thenAnswer(invocation ->
+                retrievalCalls.getAndIncrement() == 0 ? original : rewritten);
+        when(retrieval.revalidateForHandoff(any())).thenAnswer(invocation -> {
+            EvidenceBundle merged = invocation.getArgument(0);
+            assertThat(merged.items()).singleElement()
+                    .satisfies(item -> assertThat(item.contentHash()).isEqualTo("hash-same"));
+            return bundle(List.of(), originalDiagnostics);
+        });
+        var policy = new org.km.llmwiki.ai.query.SingleRewritePolicyV1();
+        var registry = new org.km.llmwiki.ai.query.QueryTransformationPolicyRegistry(
+                List.of(policy), org.km.llmwiki.ai.query.SingleRewritePolicyV1.VERSION);
+        var transformation = new org.km.llmwiki.ai.query.QueryTransformationService(
+                registry, (query, protectedTokens) -> "資料庫 busy_timeout");
+        AnswerClient provider = mock(AnswerClient.class);
+        AskService service = new AskService(retrieval, projector(), noopRerank(), provider,
+                transformation, null);
+
+        AskResult result = service.ask(new AskRequest(
+                "資料庫要怎麼設定 busy_timeout",
+                RetrievalMode.HYBRID_VECTOR, null, null, null, null));
+
+        assertThat(result.status()).isEqualTo(AskStatus.INSUFFICIENT_EVIDENCE);
+        org.mockito.Mockito.verify(retrieval).revalidateForHandoff(any());
+        org.mockito.Mockito.verifyNoInteractions(provider);
+    }
+
+    @Test
     void providerInsufficientRetainsSafeEvidenceCountsAndAttemptedStatus() {
         EvidenceBundle bundle = bundle(List.of(
                 wiki("one", "One", "vault/one.md", "relevant fact")));
@@ -608,6 +688,8 @@ class AskServiceTest {
         RetrievalService retrieval = mock(RetrievalService.class);
         when(retrieval.retrieve(any())).thenAnswer(invocation -> retrievalCalls.getAndIncrement() == 0
                 ? firstBundle : secondBundle);
+        when(retrieval.revalidateForHandoff(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         AskService service = new AskService(retrieval, projector(), noopRerank(),
                 StubAnswerClient.returning(new AnswerResult("回答", List.of("E1"), false,
                         METADATA, Optional.empty())));
@@ -678,6 +760,8 @@ class AskServiceTest {
     private static RetrievalService retrievalReturning(EvidenceBundle bundle) {
         RetrievalService retrieval = mock(RetrievalService.class);
         when(retrieval.retrieve(any())).thenReturn(bundle);
+        when(retrieval.revalidateForHandoff(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         return retrieval;
     }
 
