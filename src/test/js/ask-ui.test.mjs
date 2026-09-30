@@ -154,10 +154,16 @@ test("source citations expose a safe locate button and wiki citations do not", (
 
   const sourceItem = elements.citations.children[0];
   const wikiItem = elements.citations.children[1];
-  const sourceButton = sourceItem.children[2];
+  const sourceContent = sourceItem.children[1];
+  const wikiContent = wikiItem.children[1];
+  const sourceButton = sourceContent.children[3];
+  assert.equal(sourceItem.children.length, 2,
+    "locator must stay inside the wide citation content column, not the 30px grid column");
   assert.equal(sourceButton.className, "citation-locate");
+  assert.equal(sourceButton.textContent, "檢視來源位置");
   assert.equal(sourceButton.attributes.get("data-chunk-id"), "42");
   assert.equal(wikiItem.children.length, 2);
+  assert.equal(wikiContent.children.length, 3, "wiki citations must not render a locator button");
 });
 
 test("renders insufficient evidence separately from an answer", () => {
