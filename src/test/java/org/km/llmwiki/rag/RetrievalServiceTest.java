@@ -416,6 +416,126 @@ class RetrievalServiceTest {
     }
 
     @Test
+    void handoffKeepsCurrentEvidenceWithoutChangingRankingOrBudget() {
+        stubWiki("current", "current authority");
+        stubSource(61L, 601L, "current source");
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("current", 0.9), sourceCandidate(61L, 601L, 0.8))));
+
+        EvidenceBundle retrieved = retrievalService.retrieve(
+                RetrievalRequest.defaults("current", RetrievalMode.HYBRID_FTS));
+        EvidenceBundle guarded = retrievalService.revalidateForHandoff(retrieved);
+
+        assertThat(guarded).isSameAs(retrieved);
+        assertThat(guarded.items()).extracting(EvidenceItem::stableIdentity)
+                .containsExactlyElementsOf(
+                        retrieved.items().stream().map(EvidenceItem::stableIdentity).toList());
+    }
+
+    @Test
+    void handoffDropsWikiWhoseRevisionChangedAfterRetrieval() {
+        stubWiki("handoff-wiki", "old authority");
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("handoff-wiki", 0.9))));
+        EvidenceBundle retrieved = retrievalService.retrieve(
+                RetrievalRequest.defaults("wiki race", RetrievalMode.WIKI_ONLY));
+
+        StoredPublishedWiki changed = new StoredPublishedWiki(77, WORKSPACE_ID, "handoff-wiki",
+                "Title handoff-wiki", "title handoff-wiki", WikiPageType.CONCEPT,
+                "vault/concepts/title-handoff-wiki.md", PageStatus.PUBLISHED,
+                sha256("new authority"), 2,
+                "2026-08-31T00:00:00Z", "2026-08-31T00:02:00Z");
+        when(wikiRepository.findPublishedByKnowledgeId(WORKSPACE_ID, "handoff-wiki"))
+                .thenReturn(Optional.of(changed));
+        when(wikiContentReader.readSearchableContent(changed)).thenReturn("new authority");
+
+        EvidenceBundle guarded = retrievalService.revalidateForHandoff(retrieved);
+
+        assertThat(guarded.items()).isEmpty();
+        assertThat(guarded.insufficientEvidence()).isTrue();
+        assertThat(guarded.rejectedCandidateCount())
+                .isEqualTo(retrieved.rejectedCandidateCount() + 1);
+        assertThat(guarded.budget().usedItems()).isZero();
+        assertThat(guarded.budget().usedCharacters()).isZero();
+    }
+
+    @Test
+    void handoffDropsWikiWhenCanonicalVaultBytesDriftAfterRetrieval() {
+        stubWiki("vault-drift", "trusted authority");
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("vault-drift", 0.9))));
+        EvidenceBundle retrieved = retrievalService.retrieve(
+                RetrievalRequest.defaults("vault race", RetrievalMode.WIKI_ONLY));
+        when(wikiContentReader.readSearchableContent(any()))
+                .thenThrow(new PublishedWikiValidationException("canonical bytes drift"));
+
+        EvidenceBundle guarded = retrievalService.revalidateForHandoff(retrieved);
+
+        assertThat(guarded.items()).isEmpty();
+        assertThat(guarded.insufficientEvidence()).isTrue();
+    }
+
+    @Test
+    void handoffDropsSourceWhoseCanonicalChunkHashChangedAfterRetrieval() {
+        stubSource(62L, 602L, "old source");
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                sourceCandidate(62L, 602L, 0.9))));
+        EvidenceBundle retrieved = retrievalService.retrieve(
+                RetrievalRequest.defaults("source race", RetrievalMode.SOURCE_ONLY));
+
+        SourceSearchAuthorityChunk changedChunk = new SourceSearchAuthorityChunk(
+                62L, 1, 3, "Section", "Root > Section",
+                "new source", sha256("new source"));
+        SourceSearchAuthorityDocument changedDocument = new SourceSearchAuthorityDocument(
+                WORKSPACE_ID, 602L, "source.txt", sha256("document"),
+                "PENDING", "PROCESSED", List.of(changedChunk));
+        when(sourceRepository.findDocument(WORKSPACE_ID, 602L))
+                .thenReturn(Optional.of(changedDocument));
+
+        EvidenceBundle guarded = retrievalService.revalidateForHandoff(retrieved);
+
+        assertThat(guarded.items()).isEmpty();
+        assertThat(guarded.insufficientEvidence()).isTrue();
+    }
+
+    @Test
+    void handoffAuthorityInfrastructureFailureRemainsTypedUnavailable() {
+        stubSource(63L, 603L, "current source");
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                sourceCandidate(63L, 603L, 0.9))));
+        EvidenceBundle retrieved = retrievalService.retrieve(
+                RetrievalRequest.defaults("source infra", RetrievalMode.SOURCE_ONLY));
+        when(sourceRepository.findDocument(WORKSPACE_ID, 603L))
+                .thenThrow(new org.jooq.exception.DataAccessException("database unavailable"));
+
+        assertThatThrownBy(() -> retrievalService.revalidateForHandoff(retrieved))
+                .isInstanceOf(RetrievalUnavailableException.class)
+                .satisfies(failure -> assertThat(((RetrievalUnavailableException) failure)
+                        .dependency()).isEqualTo(
+                        RetrievalUnavailableException.Dependency.SOURCE_AUTHORITY));
+    }
+
+    @Test
+    void handoffFailsClosedWhenActiveWorkspaceChanged() {
+        stubWiki("workspace-race", "authority");
+        when(searchService.findCandidates(any())).thenReturn(page(List.of(
+                wikiCandidate("workspace-race", 0.9))));
+        EvidenceBundle retrieved = retrievalService.retrieve(
+                RetrievalRequest.defaults("workspace race", RetrievalMode.WIKI_ONLY));
+        WorkspaceResponse foreign = new WorkspaceResponse(99L, "Other", "/tmp/other",
+                "/tmp/other/inbox", "/tmp/other/archive", "/tmp/other/vault",
+                "/tmp/other/data", "/tmp/other/config", "ACTIVE",
+                "2026-08-31T00:00:00Z", "2026-08-31T00:00:00Z");
+        when(workspaceService.findActiveWithoutValidation()).thenReturn(Optional.of(foreign));
+
+        assertThatThrownBy(() -> retrievalService.revalidateForHandoff(retrieved))
+                .isInstanceOf(RetrievalUnavailableException.class)
+                .satisfies(failure -> assertThat(((RetrievalUnavailableException) failure)
+                        .dependency()).isEqualTo(
+                        RetrievalUnavailableException.Dependency.WORKSPACE_AUTHORITY));
+    }
+
+    @Test
     void fusedStrategyDelegatesToTheGraphGroundedOrchestratorWithoutTouchingChannelsDirectly() {
         FusedRetrievalOrchestrator orchestrator = mock(FusedRetrievalOrchestrator.class);
         EvidenceBundle fused = new EvidenceBundle("graph question", RetrievalMode.HYBRID_GRAPH,
