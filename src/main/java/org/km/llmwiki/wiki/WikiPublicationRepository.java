@@ -190,9 +190,12 @@ public class WikiPublicationRepository {
 
     private void transition(long workspaceId, long operationId, WikiPublishOperationStatus expected,
                             WikiPublishOperationStatus next, String failureDetail) {
+        String safeFailureDetail = failureDetail == null ? null
+                : DiagnosticRedaction.sanitize(
+                failureDetail, "Unspecified publish failure", 1000);
         int updated = dsl.update(WIKI_PUBLISH_OPERATION)
                 .set(WIKI_PUBLISH_OPERATION.STATUS, next.name())
-                .set(WIKI_PUBLISH_OPERATION.FAILURE_DETAIL, failureDetail)
+                .set(WIKI_PUBLISH_OPERATION.FAILURE_DETAIL, safeFailureDetail)
                 .set(WIKI_PUBLISH_OPERATION.UPDATED_AT, now())
                 .where(WIKI_PUBLISH_OPERATION.ID.eq((int) operationId))
                 .and(WIKI_PUBLISH_OPERATION.WORKSPACE_ID.eq((int) workspaceId))
