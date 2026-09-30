@@ -159,9 +159,8 @@ class AskServiceTest {
                 .ask(AskRequest.defaults("question", RetrievalMode.SOURCE_ONLY));
 
         assertThat(result.status()).isEqualTo(AskStatus.FAILED);
-        assertThat(result.failure()).get()
-                .extracting(AskFailure::type)
-                .isEqualTo(AskFailureType.RETRIEVAL_UNAVAILABLE);
+        assertThat(result.failure()).hasValueSatisfying(failure ->
+                assertThat(failure.type()).isEqualTo(AskFailureType.RETRIEVAL_UNAVAILABLE));
         org.mockito.Mockito.verifyNoInteractions(provider);
     }
 
