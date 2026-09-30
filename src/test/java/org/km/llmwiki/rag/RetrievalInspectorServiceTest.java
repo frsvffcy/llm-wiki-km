@@ -166,6 +166,14 @@ class RetrievalInspectorServiceTest {
         assertThat(report.queryTransformation().status())
                 .isEqualTo(QueryTransformationStatus.REWRITE_APPLIED);
         assertThat(report.queryTransformation().retrievalInputCount()).isEqualTo(2);
+        assertThat(report.signalSummaryScope())
+                .isEqualTo(RetrievalInspectionReport.SignalSummaryScope.ORIGINAL_INPUT);
+        assertThat(report.modalities()).filteredOn(section ->
+                        section.modality() == CandidateSignal.LEXICAL)
+                .singleElement()
+                .extracting(RetrievalInspectionReport.ModalitySection::outcome)
+                .isEqualTo(ModalityOutcome.EMPTY);
+        assertThat(report.modalityDiagnostics().lexical()).isEqualTo(ModalityOutcome.EMPTY);
         assertThat(report.retrievalInputs()).extracting(
                         RetrievalInspectionReport.InputObservation::ordinal,
                         RetrievalInspectionReport.InputObservation::role,
@@ -177,6 +185,10 @@ class RetrievalInspectorServiceTest {
                         org.assertj.core.groups.Tuple.tuple(2,
                                 RetrievalInspectionReport.InputRole.REWRITE,
                                 "資料庫 busy_timeout"));
+        assertThat(report.retrievalInputs().get(1).modalities())
+                .singleElement()
+                .extracting(RetrievalInspectionReport.ModalitySection::outcome)
+                .isEqualTo(ModalityOutcome.CONTRIBUTED);
         assertThat(report.finalEvidence()).extracting(
                         RetrievalInspectionReport.FinalEvidence::identity)
                 .containsExactly("WIKI:1", "WIKI:2");
@@ -213,6 +225,9 @@ class RetrievalInspectorServiceTest {
 
         assertThat(report.queryTransformation().status())
                 .isEqualTo(QueryTransformationStatus.FALLBACK_RETRIEVAL_UNAVAILABLE);
+        assertThat(report.signalSummaryScope())
+                .isEqualTo(RetrievalInspectionReport.SignalSummaryScope.ORIGINAL_INPUT);
+        assertThat(report.modalityDiagnostics().lexical()).isEqualTo(ModalityOutcome.EMPTY);
         assertThat(report.retrievalInputs()).hasSize(2);
         assertThat(report.retrievalInputs().get(1).query()).isEqualTo("資料庫 busy_timeout");
         assertThat(report.retrievalInputs().get(1).modalities()).singleElement()

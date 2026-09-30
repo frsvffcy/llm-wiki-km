@@ -11,6 +11,12 @@ import java.util.Set;
  * the canonical evidence identity vocabulary and typed diagnostics; raw backend scores, vendor
  * identifiers, exception details, snapshot tokens, fingerprints, and paths never enter this
  * boundary. The final evidence order is the production handoff order.
+ *
+ * <p>The top-level signal summary ({@code modalities}, {@code fusedOrder},
+ * {@code itemModalities}, {@code modalityDiagnostics}) intentionally describes the
+ * ORIGINAL retrieval input. Query transformation can add a second retrieval input; those
+ * per-input traces live in {@code retrievalInputs}, while {@code selection},
+ * {@code finalEvidence}, counts and budget describe the final production handoff.
  */
 public record RetrievalInspectionReport(
         String query,
@@ -64,6 +70,15 @@ public record RetrievalInspectionReport(
         if (finalEvidence.size() != surviving) {
             throw new IllegalArgumentException("final evidence must match surviving selections");
         }
+    }
+
+    /** Machine-readable scope for the top-level signal/fusion summary fields. */
+    public SignalSummaryScope signalSummaryScope() {
+        return SignalSummaryScope.ORIGINAL_INPUT;
+    }
+
+    public enum SignalSummaryScope {
+        ORIGINAL_INPUT
     }
 
     /** Compatibility constructor for reports produced before query transformation observation. */
