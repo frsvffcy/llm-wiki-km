@@ -292,6 +292,8 @@ class McpAdapterParityTest {
                                    org.km.llmwiki.ai.answer.AnswerClient provider) {
         RetrievalService retrieval = mock(RetrievalService.class);
         when(retrieval.retrieve(any())).thenReturn(bundle);
+        when(retrieval.revalidateForHandoff(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         return harnessWithRetrieval(retrieval, provider);
     }
 
@@ -344,6 +346,9 @@ class McpAdapterParityTest {
         RetrievalService retrieval = mock(RetrievalService.class, invocation -> {
             if (invocation.getMethod().getName().equals("retrieve")) {
                 return bundle;
+            }
+            if (invocation.getMethod().getName().equals("revalidateForHandoff")) {
+                return invocation.getArgument(0);
             }
             return org.mockito.Mockito.RETURNS_DEFAULTS.answer(invocation);
         });
