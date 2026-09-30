@@ -407,7 +407,15 @@ public class RetrievalService {
         if (evidence == null) {
             throw new IllegalArgumentException("evidence bundle must not be null");
         }
-        WorkspaceResponse active = activeWorkspace();
+        WorkspaceResponse active;
+        try {
+            active = activeWorkspace();
+        } catch (NoActiveWorkspaceException disappearedAuthority) {
+            throw new RetrievalUnavailableException(
+                    RetrievalUnavailableException.Dependency.WORKSPACE_AUTHORITY,
+                    new IllegalStateException("active workspace disappeared before evidence handoff",
+                            disappearedAuthority));
+        }
         if (evidence.workspace() == null || evidence.workspace().id() != active.id()) {
             throw new RetrievalUnavailableException(
                     RetrievalUnavailableException.Dependency.WORKSPACE_AUTHORITY,
