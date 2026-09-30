@@ -225,6 +225,9 @@ class RetrievalInspectorServiceTest {
 
         assertThat(report.queryTransformation().status())
                 .isEqualTo(QueryTransformationStatus.FALLBACK_RETRIEVAL_UNAVAILABLE);
+        assertThat(report.signalSummaryScope())
+                .isEqualTo(RetrievalInspectionReport.SignalSummaryScope.ORIGINAL_INPUT);
+        assertThat(report.modalityDiagnostics().lexical()).isEqualTo(ModalityOutcome.EMPTY);
         assertThat(report.retrievalInputs()).hasSize(2);
         assertThat(report.retrievalInputs().get(1).query()).isEqualTo("資料庫 busy_timeout");
         assertThat(report.retrievalInputs().get(1).modalities()).singleElement()
