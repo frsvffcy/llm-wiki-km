@@ -375,7 +375,6 @@ export function renderAskResponse(elements, payload, documentRef = document) {
       provenanceTitle(citationData.provenance));
     const details = provenanceDetails(citationData.provenance).join(" · ");
     appendTextElement(documentRef, content, "p", "citation-meta", details);
-    item.append(content);
     const chunkId = citationData.provenance && citationData.provenance.sourceChunkId;
     if (citationData.evidenceKind === "SOURCE_CHUNK" && chunkId) {
       const locate = documentRef.createElement("button");
@@ -383,8 +382,9 @@ export function renderAskResponse(elements, payload, documentRef = document) {
       locate.className = "citation-locate";
       locate.textContent = "檢視來源位置";
       locate.setAttribute("data-chunk-id", String(chunkId));
-      item.append(locate);
+      content.append(locate);
     }
+    item.append(content);
     elements.citations.append(item);
   });
 
