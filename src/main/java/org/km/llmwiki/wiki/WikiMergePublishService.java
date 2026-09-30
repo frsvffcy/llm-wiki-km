@@ -160,7 +160,8 @@ public class WikiMergePublishService {
         } catch (RuntimeException exception) {
             try {
                 publicationRepository.markReconciliationRequired(draft.workspaceId(), operation.id(),
-                        "MERGE recovery DB finalization failed: " + nullToEmpty(exception.getMessage()));
+                        DiagnosticRedaction.persistedFailure("wiki_publish_recovery_failed",
+                                exception, "MERGE recovery DB finalization failed"));
             } catch (RuntimeException ledgerFailure) {
                 exception.addSuppressed(ledgerFailure);
             }
@@ -349,7 +350,4 @@ public class WikiMergePublishService {
         return DateTimeFormatter.ISO_INSTANT.format(Instant.now());
     }
 
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value;
-    }
 }

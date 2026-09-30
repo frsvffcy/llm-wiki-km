@@ -1157,6 +1157,60 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
     }
 
     @Test
+    void mergeAfterHashRecoveryRedactsPersistedFinalizationFailureDetail() throws Exception {
+        Workspace workspace = createWorkspace("merge-recovery-redaction", "ACTIVE");
+        Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
+        byte[] baseline = "# Existing Topic\n\nBaseline\n"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Files.write(target, baseline);
+        String hash = WikiContentHash.sha256(baseline);
+        insertKnowledgePage(workspace.id(), "existing-topic", "Existing Topic", hash);
+        Proposal proposal = createProposal(workspace.id(), LlmProposalAction.MERGE, "wiki:existing-topic",
+                KnowledgeProposalStatus.APPROVED, "Recovery Redaction");
+        long draftId = createDraft(proposal.id());
+        AtomicReference<byte[]> committedAfterHash = new AtomicReference<>();
+        doAnswer(invocation -> {
+            committedAfterHash.set(Files.readAllBytes(target));
+            throw new IllegalStateException("simulated first MERGE DB failure");
+        }).doThrow(new IllegalStateException(sensitiveDiagnosticFixture()))
+                .doCallRealMethod()
+                .when(publicationRepository)
+                .updateKnowledgePageForMerge(any(), any(), anyLong(), anyString());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_METADATA_FAILURE"));
+        assertThat(Files.readAllBytes(target)).containsExactly(baseline);
+        assertThat(committedAfterHash.get()).isNotNull();
+
+        // Model a crash/restart observation where the exact after-hash file is present while
+        // the durable operation still needs DB recovery finalization.
+        Files.write(target, committedAfterHash.get());
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.code").value("WIKI_PUBLISH_METADATA_FAILURE"));
+
+        Map<String, Object> recoveryFailure = row("""
+                SELECT status, failure_detail
+                  FROM wiki_publish_operation
+                 WHERE draft_id = :id
+                """, "id", draftId);
+        assertThat(recoveryFailure).containsEntry("status", "RECONCILIATION_REQUIRED");
+        assertThat((String) recoveryFailure.get("failure_detail"))
+                .startsWith("wiki_publish_recovery_failed:")
+                .doesNotContain("super-secret", "Bearer abc.def", privateHomePath(),
+                        "jdbc:sqlite", "SELECT secret FROM table");
+
+        mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("PUBLISHED"))
+                .andExpect(jsonPath("$.data.outcome").value("MERGED"));
+        assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
+                .containsEntry("status", "COMPLETED");
+    }
+
+    @Test
     void recordsMergeReconciliationWhenDbFailsAfterExternalFileDrift() throws Exception {
         Workspace workspace = createWorkspace("merge-db-reconciliation", "ACTIVE");
         Path target = workspace.root().resolve("vault/concepts/existing-topic.md");
@@ -1179,6 +1233,14 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         assertThat(Files.readString(target)).isEqualTo("external edit during MERGE DB finalization\n");
         assertThat(row("SELECT status FROM wiki_publish_operation WHERE draft_id = :id", "id", draftId))
                 .containsEntry("status", "RECONCILIATION_REQUIRED");
+        long reconciliationOperationId = ((Number) row(
+                "SELECT id FROM wiki_publish_operation WHERE draft_id = :id",
+                "id", draftId).get("id")).longValue();
+        publicationRepository.markReconciliationRequired(workspace.id(), reconciliationOperationId,
+                sensitiveDiagnosticFixture());
+        assertThat(row("SELECT failure_detail FROM wiki_publish_operation WHERE id = :id",
+                "id", reconciliationOperationId))
+                .containsEntry("failure_detail", "Unspecified publish failure");
         assertThat(row("SELECT status FROM wiki_draft WHERE id = :id", "id", draftId))
                 .containsEntry("status", "READY");
         assertThat(row("SELECT revision, content_hash FROM knowledge_page WHERE knowledge_id = 'existing-topic'"))
@@ -1447,6 +1509,19 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
             throw new AssertionError("Test insert did not return an id");
         }
         return key.longValue();
+    }
+
+    private static String sensitiveDiagnosticFixture() {
+        return String.join(" ",
+                String.join("", "api", "_key", "=", "super-secret"),
+                String.join("", "Bearer", " ", "abc.def"),
+                privateHomePath(),
+                String.join("", "jdbc", ":sqlite:/tmp/private.db"),
+                String.join(" ", "SELECT", "secret", "FROM", "table"));
+    }
+
+    private static String privateHomePath() {
+        return String.join("", "/", "Users", "/", "todd", "/private");
     }
 
     private String proposalStatus(long proposalId) {
