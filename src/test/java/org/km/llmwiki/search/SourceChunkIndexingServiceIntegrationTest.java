@@ -22,6 +22,9 @@ class SourceChunkIndexingServiceIntegrationTest extends IsolatedIntegrationTest 
     @Autowired
     private FtsSearchIndexRepository ftsRepository;
 
+    @Autowired
+    private SourceSearchIndexSyncRepository syncRepository;
+
     @Test
     void indexesOnlyNormalizedContentWithStableEvidenceProvenanceAndWorkspaceIsolation() throws Exception {
         long firstWorkspace = insertWorkspace("first");
@@ -176,7 +179,9 @@ class SourceChunkIndexingServiceIntegrationTest extends IsolatedIntegrationTest 
         }
 
         assertThat(failed.status()).isEqualTo(SourceIndexSyncStatus.INDEX_PENDING);
-        assertThat(failed.detail()).contains("simulated Source FTS outage");
+        assertThat(failed.detail()).startsWith("source_fts_sync_failed:")
+                .doesNotContain("simulated Source FTS outage", "SQLite", "jdbc:", "SELECT ",
+                        "/Users/", "api_key=", "Bearer ");
         assertThat(countSourceFts(workspaceId)).isZero();
         assertThat(countSourceIdentity(workspaceId)).isZero();
         assertThat(db().sql("SELECT content || '|' || normalized_content FROM source_chunk WHERE id = :id")
@@ -195,6 +200,16 @@ class SourceChunkIndexingServiceIntegrationTest extends IsolatedIntegrationTest 
         assertThat(pending).containsEntry("status", "INDEX_PENDING")
                 .containsEntry("eligible", 1)
                 .containsEntry("indexed", 0);
+        assertThat((String) pending.get("detail")).startsWith("source_fts_sync_failed:")
+                .doesNotContain("simulated Source FTS outage", "SQLite", "jdbc:", "SELECT ",
+                        "/Users/", "api_key=", "Bearer ");
+
+        StoredSourceSearchIndexSync repositoryGuard = syncRepository.markPending(
+                workspaceId, documentId, 1, "f".repeat(64),
+                "api_key=super-secret Bearer abc.def /Users/todd/private "
+                        + "jdbc:sqlite:/tmp/private.db SELECT secret FROM table");
+        assertThat(repositoryGuard.failureDetail())
+                .isEqualTo("Unspecified Source FTS sync failure");
 
         SourceIndexSyncResult repaired = indexingService.reindexDocument(workspaceId, documentId);
         assertThat(repaired.status()).isEqualTo(SourceIndexSyncStatus.SYNCED);
