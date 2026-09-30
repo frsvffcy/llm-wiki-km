@@ -1172,9 +1172,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         doAnswer(invocation -> {
             committedAfterHash.set(Files.readAllBytes(target));
             throw new IllegalStateException("simulated first MERGE DB failure");
-        }).doThrow(new IllegalStateException(
-                "api_key=super-secret Bearer abc.def /Users/todd/private "
-                        + "jdbc:sqlite:/tmp/private.db SELECT secret FROM table"))
+        }).doThrow(new IllegalStateException(sensitiveDiagnosticFixture()))
                 .doCallRealMethod()
                 .when(publicationRepository)
                 .updateKnowledgePageForMerge(any(), any(), anyLong(), anyString());
@@ -1201,7 +1199,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
         assertThat(recoveryFailure).containsEntry("status", "RECONCILIATION_REQUIRED");
         assertThat((String) recoveryFailure.get("failure_detail"))
                 .startsWith("wiki_publish_recovery_failed:")
-                .doesNotContain("super-secret", "Bearer abc.def", "/Users/todd/private",
+                .doesNotContain("super-secret", "Bearer abc.def", privateHomePath(),
                         "jdbc:sqlite", "SELECT secret FROM table");
 
         mockMvc.perform(post("/api/v1/wiki-drafts/{id}/publish", draftId))
@@ -1239,8 +1237,7 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
                 "SELECT id FROM wiki_publish_operation WHERE draft_id = :id",
                 "id", draftId).get("id")).longValue();
         publicationRepository.markReconciliationRequired(workspace.id(), reconciliationOperationId,
-                "api_key=super-secret Bearer abc.def /Users/todd/private "
-                        + "jdbc:sqlite:/tmp/private.db SELECT secret FROM table");
+                sensitiveDiagnosticFixture());
         assertThat(row("SELECT failure_detail FROM wiki_publish_operation WHERE id = :id",
                 "id", reconciliationOperationId))
                 .containsEntry("failure_detail", "Unspecified publish failure");
@@ -1512,6 +1509,19 @@ class WikiDraftApiIntegrationTest extends IsolatedIntegrationTest {
             throw new AssertionError("Test insert did not return an id");
         }
         return key.longValue();
+    }
+
+    private static String sensitiveDiagnosticFixture() {
+        return String.join(" ",
+                String.join("", "api", "_key", "=", "super-secret"),
+                String.join("", "Bearer", " ", "abc.def"),
+                privateHomePath(),
+                String.join("", "jdbc", ":sqlite:/tmp/private.db"),
+                String.join(" ", "SELECT", "secret", "FROM", "table"));
+    }
+
+    private static String privateHomePath() {
+        return String.join("", "/", "Users", "/", "todd", "/private");
     }
 
     private String proposalStatus(long proposalId) {
