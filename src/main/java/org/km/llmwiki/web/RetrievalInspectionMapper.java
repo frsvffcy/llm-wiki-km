@@ -57,6 +57,7 @@ public final class RetrievalInspectionMapper {
                 report.mode().name(),
                 report.strategy().name(),
                 report.fusionPolicyVersion(),
+                report.signalSummaryScope().name(),
                 report.modalities().stream().map(section -> new RetrievalInspectionResponse.Modality(
                         section.modality().name(),
                         section.outcome().name(),
