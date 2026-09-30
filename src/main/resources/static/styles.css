@@ -449,8 +449,14 @@ button:disabled {
 }
 
 .citation-locate {
-  align-self: flex-start;
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  margin-top: var(--space-2);
+  align-items: center;
+  justify-content: center;
   font-size: 0.85rem;
+  white-space: nowrap;
 }
 
 .inspector-metadata-line,
