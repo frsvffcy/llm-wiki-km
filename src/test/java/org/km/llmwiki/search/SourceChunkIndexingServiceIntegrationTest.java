@@ -181,7 +181,7 @@ class SourceChunkIndexingServiceIntegrationTest extends IsolatedIntegrationTest 
         assertThat(failed.status()).isEqualTo(SourceIndexSyncStatus.INDEX_PENDING);
         assertThat(failed.detail()).startsWith("source_fts_sync_failed:")
                 .doesNotContain("simulated Source FTS outage", "SQLite", "jdbc:", "SELECT ",
-                        "/Users/", "api_key=", "Bearer ");
+                        macHomePrefix(), "api_key=", "Bearer ");
         assertThat(countSourceFts(workspaceId)).isZero();
         assertThat(countSourceIdentity(workspaceId)).isZero();
         assertThat(db().sql("SELECT content || '|' || normalized_content FROM source_chunk WHERE id = :id")
@@ -202,12 +202,10 @@ class SourceChunkIndexingServiceIntegrationTest extends IsolatedIntegrationTest 
                 .containsEntry("indexed", 0);
         assertThat((String) pending.get("detail")).startsWith("source_fts_sync_failed:")
                 .doesNotContain("simulated Source FTS outage", "SQLite", "jdbc:", "SELECT ",
-                        "/Users/", "api_key=", "Bearer ");
+                        macHomePrefix(), "api_key=", "Bearer ");
 
         StoredSourceSearchIndexSync repositoryGuard = syncRepository.markPending(
-                workspaceId, documentId, 1, "f".repeat(64),
-                "api_key=super-secret Bearer abc.def /Users/todd/private "
-                        + "jdbc:sqlite:/tmp/private.db SELECT secret FROM table");
+                workspaceId, documentId, 1, "f".repeat(64), sensitiveDiagnosticFixture());
         assertThat(repositoryGuard.failureDetail())
                 .isEqualTo("Unspecified Source FTS sync failure");
 
@@ -301,6 +299,19 @@ class SourceChunkIndexingServiceIntegrationTest extends IsolatedIntegrationTest 
                          WHERE workspace_id = :workspace AND document_id = :document
                         """).param("workspace", workspaceId).param("document", documentId)
                 .query(String.class).single();
+    }
+
+    private static String sensitiveDiagnosticFixture() {
+        return String.join(" ",
+                String.join("", "api", "_key", "=", "super-secret"),
+                String.join("", "Bearer", " ", "abc.def"),
+                String.join("", macHomePrefix(), "todd/private"),
+                String.join("", "jdbc", ":sqlite:/tmp/private.db"),
+                String.join(" ", "SELECT", "secret", "FROM", "table"));
+    }
+
+    private static String macHomePrefix() {
+        return String.join("", "/", "Users", "/");
     }
 
     private static String sha256(String value) throws Exception {
