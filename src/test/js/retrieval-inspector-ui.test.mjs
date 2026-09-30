@@ -66,6 +66,7 @@ function inspectionPayload() {
     query: "檢索架構",
     mode: "HYBRID_GRAPH",
     strategy: "FUSED",
+    signalSummaryScope: "ORIGINAL_INPUT",
     queryTransformation: {
       policyVersion: "query-transform-single-rewrite-v1",
       status: "REWRITE_APPLIED",
@@ -84,25 +85,23 @@ function inspectionPayload() {
     fusionPolicyVersion: "fusion-rrf-v2-graph-damped",
     modalities: [
       {
-        modality: "LEXICAL", outcome: "CONTRIBUTED",
-        candidates: [{ identity: "WIKI:arch", ordinal: 1 }],
-        rejected: [{ identity: "WIKI:stale", reason: "INELIGIBLE" }]
+        modality: "LEXICAL", outcome: "EMPTY", candidates: [], rejected: []
       },
       {
         modality: "GRAPH", outcome: "CONTRIBUTED",
         candidates: [{ identity: "WIKI:goal", ordinal: 1 }], rejected: []
       }
     ],
-    fusedOrder: ["WIKI:arch", "WIKI:goal"],
+    fusedOrder: ["WIKI:goal"],
     selection: [
-      { identity: "WIKI:arch", disposition: "SELECTED", reason: null },
-      { identity: "WIKI:stale", disposition: "REJECTED", reason: "INELIGIBLE" }
+      { identity: "WIKI:goal", disposition: "SELECTED", reason: null },
+      { identity: "WIKI:arch", disposition: "SELECTED", reason: null }
     ],
     finalEvidence: [
-      { ordinal: 1, identity: "WIKI:arch" },
-      { ordinal: 2, identity: "WIKI:goal" }
+      { ordinal: 1, identity: "WIKI:goal" },
+      { ordinal: 2, identity: "WIKI:arch" }
     ],
-    modalityDiagnostics: { lexical: "CONTRIBUTED", vector: "DISABLED", graph: "CONTRIBUTED" },
+    modalityDiagnostics: { lexical: "EMPTY", vector: "DISABLED", graph: "CONTRIBUTED" },
     searchedCandidateCount: 5,
     rejectedCandidateCount: 1,
     insufficientEvidence: false,
@@ -172,20 +171,22 @@ test("renders modality candidates, fusion policy, selection and final evidence a
   assert.match(modalityText, /1\. 原始查詢/);
   assert.match(modalityText, /2\. 改寫查詢/);
   assert.match(modalityText, /檢索架構怎麼設定/);
+  assert.match(modalityText, /原始查詢訊號摘要/);
+  assert.match(modalityText, /以下訊號與融合資訊只描述原始查詢/);
+  assert.match(modalityText, /LEXICAL · 無結果/);
   assert.match(modalityText, /LEXICAL · 已貢獻/);
-  assert.match(modalityText, /1\. WIKI:arch/);
-  assert.match(modalityText, /WIKI:stale（INELIGIBLE）/);
   assert.match(modalityText, /GRAPH · 已貢獻/);
+  assert.match(modalityText, /1\. WIKI:goal/);
   assert.equal(elements.fusion.hidden, false);
   const fusionText = flatText(elements.fusionDetail);
-  assert.match(fusionText, /fusion-rrf-v2-graph-damped/);
-  assert.match(fusionText, /2\. WIKI:goal/);
+  assert.match(fusionText, /原始查詢融合規則版本：fusion-rrf-v2-graph-damped/);
+  assert.match(fusionText, /原始查詢融合順序：1\. WIKI:goal/);
   const selectionText = flatText(elements.selection);
+  assert.match(selectionText, /WIKI:goal：進入最終證據/);
   assert.match(selectionText, /WIKI:arch：進入最終證據/);
-  assert.match(selectionText, /WIKI:stale：被擋下（INELIGIBLE）/);
   const finalText = flatText(elements.finalEvidence);
-  assert.match(finalText, /E1 WIKI:arch/);
-  assert.match(finalText, /E2 WIKI:goal/);
+  assert.match(finalText, /E1 WIKI:goal/);
+  assert.match(finalText, /E2 WIKI:arch/);
 });
 
 test("renders degraded and unavailable modality outcomes as typed notices, not failures", () => {
