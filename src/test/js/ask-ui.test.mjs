@@ -30,7 +30,8 @@ class FakeElement {
     return this.attributes.has(name) ? this.attributes.get(name) : null;
   }
   addEventListener(name, handler) { this.handlers.set(name, handler); }
-  focus() { this.focused = true; }
+  focus() { this.focused = true; this.focusCount = (this.focusCount || 0) + 1; }
+  scrollIntoView(options) { this.scrollOptions = options; }
 }
 
 const documentRef = { createElement: () => new FakeElement() };
@@ -52,7 +53,7 @@ function uiElements() {
     toProposal: new FakeElement(), toProposalHint: new FakeElement(),
     toReview: new FakeElement(),
     viewRetrieval: new FakeElement(),
-    sourcePreview: new FakeElement(), sourcePreviewLoading: new FakeElement(),
+    sourcePreview: new FakeElement(), sourcePreviewHeading: new FakeElement(), sourcePreviewLoading: new FakeElement(),
     sourcePreviewMeta: new FakeElement(),
     sourcePreviewBody: new FakeElement(), sourcePreviewClose: new FakeElement(),
     sourcePreviewError: new FakeElement(), sourcePreviewErrorTitle: new FakeElement(),
@@ -1076,6 +1077,9 @@ test("citation click renders the authoritative preview inline without navigation
   });
 
   assert.equal(elements.sourcePreview.hidden, false);
+  assert.equal(elements.sourcePreviewHeading.focused, true);
+  assert.deepEqual(elements.sourcePreviewHeading.scrollOptions,
+    { block: "start", behavior: "instant" });
   const text = flatText(elements.sourcePreviewBody);
   assert.match(text, /Transformer uses self-attention <img src=x> as the core\./u,
     "preview renders as inert text — no HTML execution");
@@ -1136,6 +1140,9 @@ test("unknown sources render the safe not-found state inline", async () => {
     return { ok: true, async json() { return { data: { disclosures: [] } }; } };
   });
 
+  assert.equal(elements.sourcePreview.hidden, false);
+  assert.equal(elements.sourcePreviewHeading.focused, true);
+  assert.deepEqual(elements.sourcePreviewHeading.scrollOptions, { block: "start", behavior: "instant" });
   assert.match(flatText(elements.sourcePreviewNotFoundTitle), /找不到來源位置/u,
     "the inline not-found state carries the typed locator copy");
 });
@@ -1333,4 +1340,69 @@ test("disabled and remote headlines both render a non-empty label for the readab
     assert.equal(els.aiEgressLabel.textContent, expected,
       `${destination} headline renders its destination label without hover`);
   }
+});
+
+
+test("來源預覽標題可接受鍵盤焦點", async () => {
+  const html = await readFile(new URL("../../main/resources/static/index.html", import.meta.url), "utf8");
+  assert.match(html, /<h3 id="ask-source-preview-heading" tabindex="-1">引用來源預覽<\/h3>/);
+});
+
+for (const interruption of ["close", "workspace", "route", "newer"]) {
+  test(`來源預覽等待期間${interruption}會取消舊內容與焦點交接`, async () => {
+    const elements = uiElements();
+    const doc = routedDocument();
+    let resolveFirst;
+    const pending = new Promise(resolve => { resolveFirst = resolve; });
+    const controller = createAskController(elements, async url => {
+      if (String(url).includes("/201/locator")) return pending;
+      return locatorResponse(locatorPayload({ preview: "new content" }));
+    }, doc);
+    const opening = controller.openInlinePreview(201);
+    if (interruption === "close") elements.sourcePreviewClose.handlers.get("click")();
+    if (interruption === "workspace") doc.documentListeners.get("workspace-changed")();
+    if (interruption === "route") {
+      doc.defaultView.location.hash = "#/inspect";
+      doc.viewListeners.get("hashchange")();
+    }
+    if (interruption === "newer") await controller.openInlinePreview(202);
+    const focusedBefore = elements.sourcePreviewHeading.focusCount;
+    resolveFirst(locatorResponse(locatorPayload({ preview: "old content" })));
+    await opening;
+    assert.equal(elements.sourcePreviewHeading.focusCount, focusedBefore);
+    assert.doesNotMatch(flatText(elements.sourcePreviewBody), /old content/);
+    if (interruption === "newer") assert.match(flatText(elements.sourcePreviewBody), /new content/);
+  });
+}
+
+test("關閉引用預覽後焦點回到原本的引用按鈕", async () => {
+  const elements = uiElements();
+  const trigger = new FakeElement();
+  const controller = createAskController(elements, async () => locatorResponse(locatorPayload()),
+    routedDocument());
+  await controller.openInlinePreview(201, trigger);
+  elements.sourcePreviewClose.handlers.get("click")();
+  assert.equal(elements.sourcePreview.hidden, true);
+  assert.equal(trigger.focused, true);
+});
+
+test("工作區切換清除已顯示的引用預覽", async () => {
+  const elements = uiElements();
+  const doc = routedDocument();
+  const controller = createAskController(elements, async () => locatorResponse(locatorPayload({ preview: "舊工作區的來源內容" })), doc);
+  await controller.openInlinePreview(201);
+  assert.match(flatText(elements.sourcePreviewBody), /舊工作區的來源內容/);
+  doc.documentListeners.get("workspace-changed")();
+  assert.equal(elements.sourcePreview.hidden, true);
+  assert.doesNotMatch(flatText(elements.sourcePreviewBody), /舊工作區的來源內容/);
+});
+
+test("來源暫時無法取得時焦點與畫面仍帶到本次錯誤", async () => {
+  const elements = uiElements();
+  const controller = createAskController(elements, async () => { throw new Error("離線"); }, routedDocument());
+  await controller.openInlinePreview(201);
+  assert.equal(elements.sourcePreview.hidden, false);
+  assert.equal(elements.sourcePreviewError.hidden, false);
+  assert.equal(elements.sourcePreviewHeading.focused, true);
+  assert.deepEqual(elements.sourcePreviewHeading.scrollOptions, { block: "start", behavior: "instant" });
 });

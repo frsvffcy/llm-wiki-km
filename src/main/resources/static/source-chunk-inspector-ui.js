@@ -122,7 +122,7 @@ export function showLocatorError(elements, error) {
 let inspectionSequence = 0;
 
 export async function inspectSourceChunk(elements, chunkId, fetchImpl = fetch,
-                                          documentRef = document) {
+                                          documentRef = document, isCurrent = () => true) {
   const numericId = Number(chunkId);
   if (!Number.isInteger(numericId) || numericId <= 0) {
     showLocatorError(elements, undefined);
@@ -144,8 +144,8 @@ export async function inspectSourceChunk(elements, chunkId, fetchImpl = fetch,
     } catch {
       payload = {};
     }
-    if (sequence !== inspectionSequence) {
-      // A newer open superseded this one; its result must not bleed into the panel.
+    if (sequence !== inspectionSequence || !isCurrent()) {
+      // 較新的操作或失效的面板已取代此請求，不得再顯示舊結果。
       return;
     }
     elements.loading.hidden = true;
@@ -155,7 +155,7 @@ export async function inspectSourceChunk(elements, chunkId, fetchImpl = fetch,
     }
     renderLocator(elements, payload, documentRef);
   } catch {
-    if (sequence !== inspectionSequence) {
+    if (sequence !== inspectionSequence || !isCurrent()) {
       return;
     }
     elements.loading.hidden = true;

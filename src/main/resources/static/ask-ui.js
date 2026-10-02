@@ -1,4 +1,5 @@
-import { inspectSourceChunk } from "./source-chunk-inspector-ui.js";
+import { createDynamicPanelFocus } from "./dynamic-panel-focus.js";
+import { clearSourceChunkInspector, inspectSourceChunk } from "./source-chunk-inspector-ui.js";
 const RETRIEVAL_MODES = Object.freeze([
   { value: "HYBRID_FTS", label: "知識與來源文件（全文搜尋）" },
   { value: "WIKI_ONLY", label: "僅知識" },
@@ -507,6 +508,7 @@ function elementsFrom(documentRef) {
     toReview: documentRef.getElementById("ask-to-review"),
     viewRetrieval: documentRef.getElementById("ask-view-retrieval"),
     sourcePreview: documentRef.getElementById("ask-source-preview"),
+    sourcePreviewHeading: documentRef.getElementById("ask-source-preview-heading"),
     sourcePreviewLoading: documentRef.getElementById("ask-source-preview-loading"),
     sourcePreviewMeta: documentRef.getElementById("ask-source-preview-meta"),
     sourcePreviewBody: documentRef.getElementById("ask-source-preview-body"),
@@ -526,6 +528,8 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   let lastGroundedSubmission = null;
   let requestedDocumentId = null;
   let activeDocumentId = null;
+  const previewFocus = createDynamicPanelFocus({ panel: elements.sourcePreview,
+    heading: elements.sourcePreviewHeading, documentRef });
   let workspaceEpoch = 0;
   const submitLabel = elements.submit.textContent || "取得回答";
 
@@ -757,18 +761,21 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     }
   }
 
-  // Inline citation preview (#381): the citation click renders the authoritative
-  // locator (same renderer as the diagnostics workspace) directly in the Ask view —
-  // the user never has to leave the answer to understand a source. Pure read-only.
-  async function openInlinePreview(chunkId) {
+  // 引用預覽沿用診斷工作區的權威定位與唯讀呈現，讓使用者在回答旁理解來源。
+  async function openInlinePreview(chunkId, trigger = null) {
     if (!elements.sourcePreview) return;
+    const context = previewFocus.begin(trigger);
+    await inspectInlineChunk(chunkId, context);
+    if (!previewFocus.isCurrent(context)) return;
+    // 包含失敗狀態也帶到面板，讓使用者看見本次操作結果。
     elements.sourcePreview.hidden = false;
-    await inspectInlineChunk(chunkId);
+    if (previewFocus.focusPanel(context)) {
+      elements.sourcePreviewHeading.scrollIntoView({ block: "start", behavior: "instant" });
+    }
   }
 
-  async function inspectInlineChunk(chunkId) {
-    // Same authoritative renderer as the diagnostics workspace; the inline panel owns a
-    // full state surface (result/not-found/error) so typed failures render inline too.
+  async function inspectInlineChunk(chunkId, context) {
+    // 沿用共用定位呈現器，讓成功、找不到來源與錯誤狀態都能在引用預覽顯示。
     const inlineElements = {
       result: elements.sourcePreview,
       loading: elements.sourcePreviewLoading,
@@ -782,9 +789,12 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
       preview: elements.sourcePreviewBody
     };
     try {
-      await inspectSourceChunk(inlineElements, chunkId, fetchImpl, documentRef);
+      await inspectSourceChunk(inlineElements, chunkId, fetchImpl, documentRef,
+        () => previewFocus.isCurrent(context));
     } catch {
-      elements.sourcePreviewMeta.textContent = "來源預覽暫時無法取得，請稍後再試。";
+      if (previewFocus.isCurrent(context)) {
+        elements.sourcePreviewMeta.textContent = "來源預覽暫時無法取得，請稍後再試。";
+      }
     }
   }
 
@@ -798,7 +808,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
         : null;
       if (chunkId) {
         clickEvent.preventDefault();
-        return openInlinePreview(chunkId);
+        return openInlinePreview(chunkId, target);
       }
     });
   }
@@ -812,6 +822,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   if (elements.sourcePreviewClose) {
     elements.sourcePreviewClose.addEventListener("click", () => {
       elements.sourcePreview.hidden = true;
+      previewFocus.close();
     });
   }
   if (elements.documentScopeClear) {
@@ -832,6 +843,10 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   if (typeof documentRef.addEventListener === "function") {
     documentRef.addEventListener("workspace-changed", () => {
       workspaceEpoch += 1;
+      previewFocus.dismiss();
+      clearSourceChunkInspector({ result: elements.sourcePreview, loading: elements.sourcePreviewLoading,
+        error: elements.sourcePreviewError, notFound: elements.sourcePreviewNotFound,
+        metadata: elements.sourcePreviewMeta, preview: elements.sourcePreviewBody });
       clearScope({ invalidate: false });
       lastGroundedSubmission = null;
       elements.empty.hidden = false;
