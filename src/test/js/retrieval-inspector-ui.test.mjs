@@ -236,6 +236,26 @@ test("controller fetches the read-only inspect endpoint and re-renders a new tra
   assert.equal(elements.submit.disabled, false);
 });
 
+test("document-scoped inspector forwards the selected document to the read-only endpoint", async () => {
+  const elements = uiElements();
+  elements.question.value = "這份文件的核心架構";
+  elements.retrievalMode.value = "HYBRID_FTS";
+  const scopedDocument = {
+    createElement: () => new FakeElement(),
+    defaultView: { location: { hash: "#/inspect?mode=HYBRID_FTS&documentId=42" } }
+  };
+  let fetchedUrl = "";
+  const controller = createInspectorController(elements, async url => {
+    fetchedUrl = String(url);
+    return { ok: true, json: async () => inspectionPayload() };
+  }, scopedDocument);
+
+  await controller.submit(event());
+
+  assert.equal(fetchedUrl,
+    "/api/v1/retrieval/inspect?question=%E9%80%99%E4%BB%BD%E6%96%87%E4%BB%B6%E7%9A%84%E6%A0%B8%E5%BF%83%E6%9E%B6%E6%A7%8B&mode=HYBRID_FTS&documentId=42");
+});
+
 test("a failed inspection clears the previous trace before showing the error", async () => {
   const elements = uiElements();
   elements.question.value = "檢索架構";
