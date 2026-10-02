@@ -65,6 +65,17 @@ const EVIDENCE_CURRENTNESS_LABELS = Object.freeze({
   CURRENT: "檢視當下與目前狀態一致"
 });
 
+function routeInspectionDocumentId(documentRef) {
+  const view = documentRef && documentRef.defaultView;
+  const hash = view && view.location ? String(view.location.hash || "") : "";
+  if (!hash.startsWith("#/inspect")) return null;
+  const query = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+  const raw = new URLSearchParams(query).get("documentId");
+  if (!raw || !/^[1-9][0-9]*$/.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
 export function validateQuestion(question) {
   return typeof question === "string" && question.trim() ? null : "請先輸入查詢。";
 }
@@ -311,6 +322,10 @@ export function createInspectorController(elements, fetchImpl = fetch, documentR
         question: question.trim(),
         mode: elements.retrievalMode.value
       });
+      const documentId = routeInspectionDocumentId(documentRef);
+      if (documentId !== null) {
+        params.set("documentId", String(documentId));
+      }
       const response = await fetchImpl(`${INSPECT_ENDPOINT}?${params.toString()}`, {
         method: "GET",
         headers: { Accept: "application/json" }

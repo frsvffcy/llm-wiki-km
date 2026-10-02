@@ -1,5 +1,6 @@
 package org.km.llmwiki.web;
 
+import org.km.llmwiki.rag.DocumentRetrievalScope;
 import org.km.llmwiki.rag.RetrievalInspectionReport;
 import org.km.llmwiki.rag.RetrievalMode;
 import org.km.llmwiki.rag.RetrievalRequest;
@@ -31,6 +32,10 @@ public final class RetrievalInspectionMapper {
      * code-point question bound, required retrieval mode).
      */
     public static RetrievalRequest validate(String question, String mode) {
+        return validate(question, mode, null);
+    }
+
+    public static RetrievalRequest validate(String question, String mode, Long documentId) {
         if (question == null || question.isBlank()) {
             throw new IllegalArgumentException("question must not be blank");
         }
@@ -47,7 +52,11 @@ public final class RetrievalInspectionMapper {
         if (retrievalMode == null) {
             throw new IllegalArgumentException("retrieval mode is required");
         }
-        return RetrievalRequest.defaults(normalized, retrievalMode);
+        if (documentId != null && documentId <= 0) {
+            throw new IllegalArgumentException("documentId must be positive");
+        }
+        return RetrievalRequest.of(normalized, retrievalMode, retrievalMode.strategy(),
+                null, null, documentId == null ? null : new DocumentRetrievalScope(documentId));
     }
 
     /** Shared safe projection: an application report becomes the transport-neutral response. */

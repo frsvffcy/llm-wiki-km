@@ -536,6 +536,7 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   function routeDocumentId() {
     const view = documentRef.defaultView;
     const hash = view && view.location ? String(view.location.hash || "") : "";
+    if (!hash.startsWith("#/ask")) return null;
     const query = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
     const raw = new URLSearchParams(query).get("documentId");
     if (!raw || !/^[1-9][0-9]*$/.test(raw)) return null;
@@ -672,7 +673,12 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
       if (!response.ok || !payload.data) {
         showError(elements, payload.error, documentRef);
       } else {
-        lastGroundedSubmission = { question: question.trim(), data: payload.data };
+        lastGroundedSubmission = {
+          question: question.trim(),
+          retrievalMode: requestBody.retrievalMode,
+          documentId: activeDocumentId,
+          data: payload.data
+        };
         renderAskResponse(elements, payload, documentRef);
       }
     } catch {
@@ -752,12 +758,26 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   // so the user can see why this evidence was found. Read-only navigation only.
   function viewRetrievalDiagnostics() {
     const inspectorQuestion = documentRef.getElementById("inspector-question");
-    if (inspectorQuestion && lastGroundedSubmission) {
+    const inspectorMode = documentRef.getElementById("inspector-mode");
+    if (!lastGroundedSubmission) return;
+    if (inspectorQuestion) {
       inspectorQuestion.value = lastGroundedSubmission.question;
+    }
+    if (inspectorMode && lastGroundedSubmission.retrievalMode) {
+      inspectorMode.value = lastGroundedSubmission.retrievalMode;
+    }
+    const params = new URLSearchParams();
+    if (lastGroundedSubmission.retrievalMode) {
+      params.set("mode", lastGroundedSubmission.retrievalMode);
+    }
+    if (Number.isSafeInteger(lastGroundedSubmission.documentId)
+        && lastGroundedSubmission.documentId > 0) {
+      params.set("documentId", String(lastGroundedSubmission.documentId));
     }
     const view = documentRef.defaultView;
     if (view && view.location) {
-      view.location.hash = "#/inspect";
+      const query = params.toString();
+      view.location.hash = query ? `#/inspect?${query}` : "#/inspect";
     }
   }
 
@@ -769,8 +789,9 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
     if (!previewFocus.isCurrent(context)) return;
     // 包含失敗狀態也帶到面板，讓使用者看見本次操作結果。
     elements.sourcePreview.hidden = false;
-    if (previewFocus.focusPanel(context)) {
-      elements.sourcePreviewHeading.scrollIntoView({ block: "start", behavior: "instant" });
+    if (previewFocus.focusPanel(context)
+        && typeof elements.sourcePreview.scrollIntoView === "function") {
+      elements.sourcePreview.scrollIntoView({ block: "start", behavior: "auto" });
     }
   }
 
@@ -838,7 +859,22 @@ export function createAskController(elements, fetchImpl = fetch, documentRef = d
   }
   const view = documentRef.defaultView;
   if (view && typeof view.addEventListener === "function") {
-    view.addEventListener("hashchange", loadDocumentScope);
+    view.addEventListener("hashchange", () => {
+      const hash = view.location ? String(view.location.hash || "") : "";
+      if (!hash.startsWith("#/ask")) {
+        previewFocus.dismiss();
+        if (elements.sourcePreview) elements.sourcePreview.hidden = true;
+        clearSourceChunkInspector({
+          result: elements.sourcePreview,
+          loading: elements.sourcePreviewLoading,
+          error: elements.sourcePreviewError,
+          notFound: elements.sourcePreviewNotFound,
+          metadata: elements.sourcePreviewMeta,
+          preview: elements.sourcePreviewBody
+        });
+      }
+      loadDocumentScope();
+    });
   }
   if (typeof documentRef.addEventListener === "function") {
     documentRef.addEventListener("workspace-changed", () => {
