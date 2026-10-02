@@ -26,9 +26,10 @@ public class RetrievalInspectorController {
     @GetMapping("/inspect")
     public ApiResponse<RetrievalInspectionResponse> inspect(
             @RequestParam(required = false) String question,
-            @RequestParam(required = false) String mode) {
+            @RequestParam(required = false) String mode,
+            @RequestParam(required = false) Long documentId) {
         RetrievalInspectionReport report = inspectorService.inspect(
-                RetrievalInspectionMapper.validate(question, mode));
+                RetrievalInspectionMapper.validate(question, mode, documentId));
         return new ApiResponse<>(RetrievalInspectionMapper.toResponse(report));
     }
 }
