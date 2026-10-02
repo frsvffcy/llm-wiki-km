@@ -84,6 +84,33 @@ class RetrievalInspectorApiTest {
     }
 
     @Test
+    void optionalDocumentIdBuildsTheSameScopedRetrievalRequest() throws Exception {
+        when(inspectorService.inspect(any())).thenReturn(report());
+
+        mockMvc.perform(get("/api/v1/retrieval/inspect")
+                        .queryParam("question", "這份文件的核心架構")
+                        .queryParam("mode", "HYBRID_FTS")
+                        .queryParam("documentId", "42"))
+                .andExpect(status().isOk());
+
+        verify(inspectorService).inspect(argThat((RetrievalRequest request) ->
+                request.query().equals("這份文件的核心架構")
+                        && request.mode() == RetrievalMode.HYBRID_FTS
+                        && request.documentScoped()
+                        && request.documentScope().documentId() == 42L));
+    }
+
+    @Test
+    void nonPositiveDocumentIdFailsAsInvalidRequest() throws Exception {
+        mockMvc.perform(get("/api/v1/retrieval/inspect")
+                        .queryParam("question", "q")
+                        .queryParam("mode", "HYBRID_FTS")
+                        .queryParam("documentId", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
     void unknownModeAndBlankQuestionFailAsInvalidRequest() throws Exception {
         mockMvc.perform(get("/api/v1/retrieval/inspect")
                         .queryParam("question", "q")
