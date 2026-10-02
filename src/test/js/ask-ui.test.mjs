@@ -992,20 +992,23 @@ test("a duplicated save reuses task copy and still hands into review", async () 
     "deduplicated saves hand off to the authoritative existing proposal");
 });
 
-test("the retrieval diagnostics hand-off prefills the inspector question and navigates", async () => {
+test("the retrieval diagnostics hand-off preserves the asked question and retrieval mode", async () => {
   const elements = uiElements();
   const fetchImpl = async url => {
     if (String(url) === "/api/v1/ask") return groundedPayload();
     return { ok: true, async json() { return { data: { disclosures: [] } }; } };
   };
   const inspectorQuestion = new FakeElement();
+  const inspectorMode = new FakeElement();
   const navigator = { location: { hash: "#/ask" } };
   const documentRef = {
     createElement: () => new FakeElement(),
-    getElementById: id => id === "inspector-question" ? inspectorQuestion : new FakeElement(),
+    getElementById: id => id === "inspector-question" ? inspectorQuestion
+      : id === "inspector-mode" ? inspectorMode : new FakeElement(),
     defaultView: navigator
   };
   const controller = createAskController(elements, fetchImpl, documentRef);
+  elements.retrievalMode.value = "HYBRID_FTS";
   elements.question.value = "transformer 的核心架構原則是什麼？";
   await elements.form.handlers.get("submit")({ preventDefault() {} });
 
@@ -1013,7 +1016,48 @@ test("the retrieval diagnostics hand-off prefills the inspector question and nav
 
   assert.equal(inspectorQuestion.value, "transformer 的核心架構原則是什麼？",
     "the inspector opens with the asked question");
-  assert.equal(navigator.location.hash, "#/inspect");
+  assert.equal(inspectorMode.value, "HYBRID_FTS",
+    "the inspector keeps the retrieval mode that produced the answer");
+  assert.equal(navigator.location.hash, "#/inspect?mode=HYBRID_FTS");
+});
+
+test("document-scoped answer hand-off preserves the same document in the inspector route", async () => {
+  const elements = uiElements();
+  const inspectorQuestion = new FakeElement();
+  const inspectorMode = new FakeElement();
+  const navigator = { location: { hash: "#/ask?documentId=77" } };
+  let askBody;
+  const fetchImpl = async (url, options) => {
+    if (String(url) === "/api/v1/inbox/documents/77") {
+      return { ok: true, async json() { return { data: {
+        documentId: 77, fileName: "scope.pdf",
+        usability: { status: "READY_TO_USE", searchReady: true }
+      } }; } };
+    }
+    if (String(url) === "/api/v1/ask") {
+      askBody = JSON.parse(options.body);
+      return groundedPayload();
+    }
+    return { ok: true, async json() { return { data: { disclosures: [] } }; } };
+  };
+  const documentRef = {
+    createElement: () => new FakeElement(),
+    getElementById: id => id === "inspector-question" ? inspectorQuestion
+      : id === "inspector-mode" ? inspectorMode : new FakeElement(),
+    defaultView: navigator
+  };
+  const controller = createAskController(elements, fetchImpl, documentRef);
+  await controller.loadDocumentScope();
+  elements.question.value = "這份文件的核心架構是什麼？";
+  await elements.form.handlers.get("submit")({ preventDefault() {} });
+
+  assert.equal(askBody.documentId, 77, "the answer was produced inside document 77");
+  elements.viewRetrieval.handlers.get("click")();
+
+  assert.equal(inspectorQuestion.value, "這份文件的核心架構是什麼？");
+  assert.equal(inspectorMode.value, "HYBRID_FTS");
+  assert.equal(navigator.location.hash, "#/inspect?mode=HYBRID_FTS&documentId=77",
+    "the inspection route retains the exact document scope that produced the answer");
 });
 
 test("the hand-off never fabricates a query before a grounded answer exists", async () => {
@@ -1078,8 +1122,8 @@ test("citation click renders the authoritative preview inline without navigation
 
   assert.equal(elements.sourcePreview.hidden, false);
   assert.equal(elements.sourcePreviewHeading.focused, true);
-  assert.deepEqual(elements.sourcePreviewHeading.scrollOptions,
-    { block: "start", behavior: "instant" });
+  assert.deepEqual(elements.sourcePreview.scrollOptions,
+    { block: "start", behavior: "auto" });
   const text = flatText(elements.sourcePreviewBody);
   assert.match(text, /Transformer uses self-attention <img src=x> as the core\./u,
     "preview renders as inert text — no HTML execution");
@@ -1142,7 +1186,7 @@ test("unknown sources render the safe not-found state inline", async () => {
 
   assert.equal(elements.sourcePreview.hidden, false);
   assert.equal(elements.sourcePreviewHeading.focused, true);
-  assert.deepEqual(elements.sourcePreviewHeading.scrollOptions, { block: "start", behavior: "instant" });
+  assert.deepEqual(elements.sourcePreview.scrollOptions, { block: "start", behavior: "auto" });
   assert.match(flatText(elements.sourcePreviewNotFoundTitle), /找不到來源位置/u,
     "the inline not-found state carries the typed locator copy");
 });
@@ -1386,6 +1430,21 @@ test("關閉引用預覽後焦點回到原本的引用按鈕", async () => {
   assert.equal(trigger.focused, true);
 });
 
+test("切到檢視器會收起 Ask 的引用預覽，避免兩套來源面板同時出現", async () => {
+  const elements = uiElements();
+  const doc = routedDocument();
+  const controller = createAskController(elements,
+    async () => locatorResponse(locatorPayload({ preview: "Ask 預覽內容" })), doc);
+  await controller.openInlinePreview(201);
+  assert.equal(elements.sourcePreview.hidden, false);
+
+  doc.defaultView.location.hash = "#/inspect?mode=HYBRID_FTS&documentId=77";
+  doc.viewListeners.get("hashchange")();
+
+  assert.equal(elements.sourcePreview.hidden, true);
+  assert.doesNotMatch(flatText(elements.sourcePreviewBody), /Ask 預覽內容/);
+});
+
 test("工作區切換清除已顯示的引用預覽", async () => {
   const elements = uiElements();
   const doc = routedDocument();
@@ -1404,5 +1463,5 @@ test("來源暫時無法取得時焦點與畫面仍帶到本次錯誤", async ()
   assert.equal(elements.sourcePreview.hidden, false);
   assert.equal(elements.sourcePreviewError.hidden, false);
   assert.equal(elements.sourcePreviewHeading.focused, true);
-  assert.deepEqual(elements.sourcePreviewHeading.scrollOptions, { block: "start", behavior: "instant" });
+  assert.deepEqual(elements.sourcePreview.scrollOptions, { block: "start", behavior: "auto" });
 });
