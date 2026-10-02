@@ -165,25 +165,25 @@ test("renders modality candidates, fusion policy, selection and final evidence a
   assert.equal(elements.result.hidden, false);
   assert.equal(elements.error.hidden, true);
   const modalityText = flatText(elements.modalities);
-  assert.match(modalityText, /查詢轉換 · 已套用單次改寫/);
+  assert.match(modalityText, /是否嘗試另一種問法 · 已嘗試另一種問法/);
   assert.match(modalityText, /query-transform-single-rewrite-v1/);
   assert.match(modalityText, /LEXICAL_MISS_CROWD_OUT/);
-  assert.match(modalityText, /1\. 原始查詢/);
-  assert.match(modalityText, /2\. 改寫查詢/);
+  assert.match(modalityText, /1\. 你原本問的問題（原始查詢）/);
+  assert.match(modalityText, /2\. 系統為了找資料而嘗試的另一種問法（改寫查詢）/);
   assert.match(modalityText, /檢索架構怎麼設定/);
-  assert.match(modalityText, /原始查詢訊號摘要/);
-  assert.match(modalityText, /以下訊號與融合資訊只描述原始查詢/);
+  assert.match(modalityText, /用你原本問的問題找到的資料（原始查詢摘要）/);
+  assert.match(modalityText, /這裡與下方合併排序只列出用你原本問的問題找到的資料/);
   assert.match(modalityText, /LEXICAL · 無結果/);
   assert.match(modalityText, /LEXICAL · 已貢獻/);
   assert.match(modalityText, /GRAPH · 已貢獻/);
   assert.match(modalityText, /1\. WIKI:goal/);
   assert.equal(elements.fusion.hidden, false);
   const fusionText = flatText(elements.fusionDetail);
-  assert.match(fusionText, /原始查詢融合規則版本：fusion-rrf-v2-graph-damped/);
-  assert.match(fusionText, /原始查詢融合順序：1\. WIKI:goal/);
+  assert.match(fusionText, /你原本問的問題：合併排序規則版本（融合規則）：fusion-rrf-v2-graph-damped/);
+  assert.match(fusionText, /你原本問的問題：找到的資料順序（融合順序）：1\. WIKI:goal/);
   const selectionText = flatText(elements.selection);
-  assert.match(selectionText, /WIKI:goal：進入最終證據/);
-  assert.match(selectionText, /WIKI:arch：進入最終證據/);
+  assert.match(selectionText, /WIKI:goal：可用來支持回答/);
+  assert.match(selectionText, /WIKI:arch：可用來支持回答/);
   const finalText = flatText(elements.finalEvidence);
   assert.match(finalText, /E1 WIKI:goal/);
   assert.match(finalText, /E2 WIKI:arch/);
@@ -409,4 +409,27 @@ test("workspace switch clears enriched final evidence projections", () => {
   assert.equal(elements.finalEvidence.children.length, 0);
   assert.equal(elements.result.hidden, true);
   assert.equal(elements.question.value, "");
+});
+
+
+test("未啟用或未採用另一種問法時如實說明，不混入原問題摘要", () => {
+  for (const status of ["NO_OP_POLICY_DISABLED", "NO_OP_NOT_APPLICABLE",
+    "NO_OP_DUPLICATE", "FALLBACK_PROVIDER_UNAVAILABLE"]) {
+    const elements = uiElements();
+    const payload = inspectionPayload();
+    payload.data.queryTransformation.status = status;
+    payload.data.retrievalInputs = payload.data.retrievalInputs.slice(0, 1);
+    renderInspection(elements, payload, documentRef);
+    const text = flatText(elements.modalities);
+    assert.match(text, /本次沒有用另一種問法找資料/);
+    assert.doesNotMatch(text, /2\. 系統為了找資料而嘗試的另一種問法/);
+    if (status === "NO_OP_POLICY_DISABLED") assert.match(text, /未啟用另一種問法/);
+  }
+});
+
+test("白話說明區分本次檢視與先前回答的來源", async () => {
+  const html = await readFile(new URL("../../main/resources/static/index.html", import.meta.url), "utf8");
+  assert.match(html, /最後可用來支持回答的來源（最終證據）/);
+  assert.match(html, /不代表先前回答一定使用了這些來源/);
+  assert.match(html, /系統用哪些問法找資料/);
 });

@@ -483,7 +483,7 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">來源預覽</p>
-          <h3 id="ask-source-preview-heading">引用來源預覽</h3>
+          <h3 id="ask-source-preview-heading" tabindex="-1">引用來源預覽</h3>
         </div>
         <button id="ask-source-preview-close" type="button" class="secondary-button">關閉</button>
       </div>
@@ -499,8 +499,8 @@
         <p id="ask-source-preview-not-found-message"></p>
       </div>
       <p class="panel-description">
-        預覽由後端權威定位器提供（權威內容驗證）；標示僅呈現
-        locator 實際具備的定位精度，不偽造頁內位置。
+        這裡顯示引用的來源片段；只有來源提供頁碼或章節時才會標示位置。
+        若來源已更新或目前不可用，會顯示原因。
       </p>
     </section>
 
@@ -513,11 +513,12 @@
           <span class="status-dot" aria-hidden="true"></span>
         </div>
         <p class="panel-description">
-          唯讀檢視一次檢索的執行過程：各訊號的候選、融合政策與順序、權威內容驗證結果與最終證據。
-          檢視器不會產生回答、也不會修改任何資料。
+          看系統如何依你原本問的問題找資料，以及是否嘗試另一種問法。
+          下方列出最後可用來支持回答的來源；這是本次檢視的結果，不代表先前回答一定使用了這些來源。
+          檢視器不會產生回答，也不會修改任何資料。
         </p>
         <form id="inspector-form" novalidate>
-          <label for="inspector-question">查詢</label>
+          <label for="inspector-question">你想問的問題</label>
           <textarea id="inspector-question" name="question" rows="3" maxlength="4000"
                     placeholder="例如：檢索架構原則" required></textarea>
           <div class="form-row">
@@ -538,15 +539,15 @@
           <p id="inspector-hint" class="form-hint" role="status" aria-live="polite"></p>
         </form>
         <div id="inspector-result" class="inspector-result" hidden>
-          <h4>訊號與候選</h4>
+          <h4>系統用哪些問法找資料</h4>
           <ul id="inspector-modalities" class="inspector-modality-list"></ul>
           <div id="inspector-fusion" hidden>
-            <h4>融合</h4>
+            <h4>找到的資料如何合併排序</h4>
             <div id="inspector-fusion-detail"></div>
           </div>
-          <h4>驗證結果</h4>
+          <h4>哪些來源通過檢查</h4>
           <ul id="inspector-selection" class="inspector-selection-list"></ul>
-          <h4>最終證據</h4>
+          <h4>最後可用來支持回答的來源（最終證據）</h4>
           <ul id="inspector-final-evidence" class="inspector-final-list"></ul>
         </div>
         <div id="inspector-empty" class="empty-state" hidden>

@@ -21,7 +21,7 @@ const OUTCOME_LABELS = Object.freeze({
 });
 
 const DISPOSITION_LABELS = Object.freeze({
-  SELECTED: "進入最終證據",
+  SELECTED: "可用來支持回答",
   REJECTED: "被擋下",
   DUPLICATE_FOLDED: "重複摺疊",
   BUDGET_EXCLUDED: "超出配額"
@@ -35,21 +35,22 @@ const OUTCOME_NOTICES = Object.freeze({
 });
 
 const TRANSFORMATION_STATUS_LABELS = Object.freeze({
-  REWRITE_APPLIED: "已套用單次改寫",
-  NO_OP_POLICY_DISABLED: "政策未啟用",
-  NO_OP_NOT_APPLICABLE: "查詢不適用",
-  NO_OP_DUPLICATE: "改寫與原查詢相同",
-  FALLBACK_PROVIDER_UNAVAILABLE: "改寫提供者無法使用，已回退",
-  FALLBACK_PROVIDER_INVALID: "改寫回應無效，已回退",
-  FALLBACK_OUTPUT_OVER_LIMIT: "改寫超出界線，已回退",
-  FALLBACK_EXACT_TOKEN_LOSS: "改寫遺失精確詞，已回退",
-  FALLBACK_RETRIEVAL_UNAVAILABLE: "改寫檢索無法使用，已回退",
-  FALLBACK_RETRIEVAL_INVALID: "改寫檢索無效，已回退"
+  REWRITE_APPLIED: "已嘗試另一種問法",
+  NO_OP_POLICY_DISABLED: "未啟用另一種問法，本次只用你原本問的問題",
+  NO_OP_NOT_APPLICABLE: "本次不需另一種問法",
+  NO_OP_DUPLICATE: "另一種問法與原問題相同，未另行找資料",
+  FALLBACK_PROVIDER_UNAVAILABLE: "產生另一種問法的服務無法使用，改用原問題找資料",
+  FALLBACK_PROVIDER_INVALID: "另一種問法的回應無效，改用原問題找資料",
+  FALLBACK_OUTPUT_OVER_LIMIT: "另一種問法超出長度限制，改用原問題找資料",
+  FALLBACK_EXACT_TOKEN_LOSS: "另一種問法遺漏必須保留的字詞，改用原問題找資料",
+  FALLBACK_RETRIEVAL_UNAVAILABLE: "無法用另一種問法找資料，改用原問題",
+  FALLBACK_RETRIEVAL_INVALID: "另一種問法的搜尋結果無效，改用原問題找資料"
 });
 
-const INPUT_ROLE_LABELS = Object.freeze({ ORIGINAL: "原始查詢", REWRITE: "改寫查詢" });
+const INPUT_ROLE_LABELS = Object.freeze({ ORIGINAL: "你原本問的問題（原始查詢）",
+  REWRITE: "系統為了找資料而嘗試的另一種問法（改寫查詢）" });
 const SIGNAL_SUMMARY_SCOPE_LABELS = Object.freeze({
-  ORIGINAL_INPUT: "原始查詢訊號摘要"
+  ORIGINAL_INPUT: "用你原本問的問題找到的資料（原始查詢摘要）"
 });
 
 // Final evidence source projection (#484): kind labels and inspection-time currentness
@@ -114,7 +115,7 @@ export function renderInspection(elements, payload, documentRef = document) {
     const summary = documentRef.createElement("li");
     summary.className = "inspector-transformation";
     appendTextElement(documentRef, summary, "p", "inspector-modality-title",
-      `查詢轉換 · ${TRANSFORMATION_STATUS_LABELS[transformation.status] || text(transformation.status)}`);
+      `是否嘗試另一種問法 · ${TRANSFORMATION_STATUS_LABELS[transformation.status] || text(transformation.status)}`);
     appendTextElement(documentRef, summary, "p", "inspector-transformation-policy",
       `查詢轉換規則版本：${text(transformation.policyVersion)}`);
     appendTextElement(documentRef, summary, "p", "inspector-transformation-applicability",
@@ -123,6 +124,13 @@ export function renderInspection(elements, payload, documentRef = document) {
   }
 
   const retrievalInputs = Array.isArray(data.retrievalInputs) ? data.retrievalInputs : [];
+  if (!retrievalInputs.some(input => input.role === "REWRITE")) {
+    const notice = documentRef.createElement("li");
+    notice.className = "inspector-no-rewrite";
+    appendTextElement(documentRef, notice, "p", "inspector-modality-notice",
+      "本次沒有用另一種問法找資料；若有嘗試但未採用，原因見上方狀態。");
+    elements.modalities.append(notice);
+  }
   retrievalInputs.forEach(input => {
     const item = documentRef.createElement("li");
     item.className = "inspector-retrieval-input";
@@ -145,7 +153,7 @@ export function renderInspection(elements, payload, documentRef = document) {
     appendTextElement(documentRef, summaryScope, "p", "inspector-modality-title",
       SIGNAL_SUMMARY_SCOPE_LABELS[signalSummaryScope]);
     appendTextElement(documentRef, summaryScope, "p", "inspector-modality-notice",
-      "以下訊號與融合資訊只描述原始查詢；改寫查詢請看上方逐次檢索，最終證據請看下方。");
+      "這裡與下方合併排序只列出用你原本問的問題找到的資料；另一種問法的結果請看上方各次紀錄。最後可用來支持回答的來源列在最下方，可能來自不同問法。");
     elements.modalities.append(summaryScope);
   }
   modalities.forEach(section => {
@@ -175,10 +183,10 @@ export function renderInspection(elements, payload, documentRef = document) {
     elements.fusion.hidden = false;
     const originalScoped = signalSummaryScope === "ORIGINAL_INPUT";
     appendTextElement(documentRef, elements.fusionDetail, "p", "inspector-fusion-policy",
-      `${originalScoped ? "原始查詢" : ""}融合規則版本：${text(data.fusionPolicyVersion)}`);
+      `${originalScoped ? "你原本問的問題：" : ""}合併排序規則版本（融合規則）：${text(data.fusionPolicyVersion)}`);
     const order = Array.isArray(data.fusedOrder) ? data.fusedOrder : [];
     appendTextElement(documentRef, elements.fusionDetail, "p", "inspector-fusion-order",
-      `${originalScoped ? "原始查詢" : ""}融合順序：${order.map((identity, index) => `${index + 1}. ${text(identity)}`).join("　")}`);
+      `${originalScoped ? "你原本問的問題：" : ""}找到的資料順序（融合順序）：${order.map((identity, index) => `${index + 1}. ${text(identity)}`).join("　")}`);
   }
 
   const selection = Array.isArray(data.selection) ? data.selection : [];
