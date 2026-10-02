@@ -23,6 +23,11 @@ public class RetrievalInspectorController {
         this.inspectorService = inspectorService;
     }
 
+    /** Compatibility entry used by internal parity tests and non-HTTP callers. */
+    public ApiResponse<RetrievalInspectionResponse> inspect(String question, String mode) {
+        return inspect(question, mode, null);
+    }
+
     @GetMapping("/inspect")
     public ApiResponse<RetrievalInspectionResponse> inspect(
             @RequestParam(required = false) String question,
