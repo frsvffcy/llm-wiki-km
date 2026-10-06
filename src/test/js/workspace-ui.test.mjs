@@ -55,7 +55,8 @@ function uiElements() {
     workspacePanel: new FakeElement("section"),
     management: new FakeElement("details"),
     managementSummary: new FakeElement("summary"),
-    analysisPanel: new FakeElement("section")
+    analysisPanel: new FakeElement("section"),
+    nav: new FakeElement("nav")
   };
 }
 
@@ -110,7 +111,8 @@ function documentFor(elements) {
     ["workspace-panel", elements.workspacePanel],
     ["workspace-management", elements.management],
     ["workspace-management-summary", elements.managementSummary],
-    ["analysis-readiness-panel", elements.analysisPanel]
+    ["analysis-readiness-panel", elements.analysisPanel],
+    ["app-nav", elements.nav]
   ]);
   return {
     getElementById: id => nodes.get(id),
@@ -151,6 +153,8 @@ test("refresh renders the empty state when no current workspace exists", async (
   assert.equal(elements.currentEmpty.hidden, false);
   assert.equal(elements.current.hidden, true);
   assert.equal(elements.homeWork.hidden, true);
+  assert.equal(elements.nav.hidden, true,
+    "without a workspace the create flow is the only primary path");
   assert.equal(elements.workspacePanel.hidden, true);
   assert.equal(elements.management.open, true);
   assert.match(elements.hint.textContent, /建立工作區後即可開始管理文件/u);
@@ -266,6 +270,7 @@ test("workspace shell exposes work first when an active workspace exists", () =>
 
   assert.equal(renderWorkspaceShell(elements, active), true);
   assert.equal(elements.homeWork.hidden, false);
+  assert.equal(elements.nav.hidden, false);
   assert.equal(elements.workspacePanel.hidden, false);
   assert.equal(elements.management.open, false,
     "workspace management stays collapsed during normal work");
@@ -279,6 +284,8 @@ test("workspace shell shows setup directly when no active workspace exists", () 
 
   assert.equal(renderWorkspaceShell(elements, null), false);
   assert.equal(elements.homeWork.hidden, true);
+  assert.equal(elements.nav.hidden, true,
+    "no workspace means work navigation stays out of the way");
   assert.equal(elements.workspacePanel.hidden, true);
   assert.equal(elements.management.open, true,
     "no-workspace state opens the setup surface directly");
@@ -323,6 +330,7 @@ test("bootstrap loads current workspace and existing list on first open without 
   assert.equal(elements.currentName.textContent, "main");
   assert.equal(elements.current.hidden, false);
   assert.equal(elements.homeWork.hidden, false);
+  assert.equal(elements.nav.hidden, false);
   assert.equal(elements.workspacePanel.hidden, false);
   assert.equal(elements.management.open, false);
   assert.equal(elements.list.children.length, 1,
