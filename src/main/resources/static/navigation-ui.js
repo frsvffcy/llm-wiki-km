@@ -68,11 +68,12 @@ export async function fetchReviewPendingCount(fetchImpl = fetch) {
  */
 export function renderReviewBadge(elements, count) {
   const total = Number(count);
-  if (!elements || !elements.badge || !Number.isFinite(total) || total <= 0) {
-    if (elements && elements.badge) {
-      elements.badge.hidden = true;
-      elements.badge.textContent = "";
-    }
+  const badges = elements ? [elements.badge, elements.summaryBadge].filter(Boolean) : [];
+  if (!elements || badges.length === 0 || !Number.isFinite(total) || total <= 0) {
+    badges.forEach(badge => {
+      badge.hidden = true;
+      badge.textContent = "";
+    });
     if (elements && elements.reviewLink && typeof elements.reviewLink.removeAttribute === "function") {
       elements.reviewLink.removeAttribute("aria-label");
     }
@@ -80,8 +81,10 @@ export function renderReviewBadge(elements, count) {
   }
   const pendingCount = Math.floor(total);
   const pendingLabel = `${pendingCount} 件待審`;
-  elements.badge.hidden = false;
-  elements.badge.textContent = pendingLabel;
+  badges.forEach(badge => {
+    badge.hidden = false;
+    badge.textContent = pendingLabel;
+  });
   if (elements.reviewLink && typeof elements.reviewLink.setAttribute === "function") {
     elements.reviewLink.setAttribute("aria-label", `待我審核，${pendingLabel}`);
   }
@@ -147,11 +150,12 @@ function badgeElementsFrom(documentRef) {
     return null;
   }
   const badge = documentRef.querySelector("#review-pending-badge");
+  const summaryBadge = documentRef.querySelector("#review-pending-summary-badge");
   const reviewLink = documentRef.querySelector('[data-route-link="review"]');
-  if (!badge) {
+  if (!badge && !summaryBadge) {
     return null;
   }
-  return { badge, reviewLink };
+  return { badge, summaryBadge, reviewLink };
 }
 
 /**
