@@ -308,9 +308,12 @@ Evaluation 可以記錄 future candidate，但不得自動把它變成 backlog�
 - 歷史 evaluation 重新盤點與吸收脈絡：`2026-09-14-historical-evaluation-lineage.md`
 - 研究工作流程工具：`2026-09-21-research-workflow-tooling-evaluation.md`（Refs #577；public repository safety follow-up #578 已完成）
 - Obsidian LLM Wiki：`2026-09-21-obsidian-llm-wiki-evaluation.md`（Refs #581；knowledge organization design input 已由 #569 吸收）
-- Memos 產品工作流程：`2026-09-21-memos-product-workflow-evaluation.md`（Refs #582；剩餘 MCP task-level benchmark 由 #583 持有）
+- Memos 產品工作流程：`2026-09-21-memos-product-workflow-evaluation.md`（Refs #582；MCP task-level benchmark 由 #583 lineage 持有）
 - MCP task-level 工具可發現性：`2026-09-22-mcp-task-discoverability-evaluation.md`（Refs #583；deterministic evaluator 與 opt-in real-model evidence 分離）
-- Scoped Ask query-notfound 專家審查收斂：`2026-09-23-scoped-ask-query-notfound-reconciliation-evaluation.md`（Refs #616；#617 已完成 / CLOSED，目前無剩餘 executable follow-up）
-- 其餘同目錄文件為 `TRACK_FULL` evaluation；current implementation status 仍須依 lineage / GitHub / ADR / latest code 判讀。
+- Scoped Ask query-notfound 專家審查收斂：`2026-09-23-scoped-ask-query-notfound-reconciliation-evaluation.md`（Refs #616；#617 已完成 / CLOSED，其餘 future trigger 仍保留）
+- 2026-10-06 外部工具／paper 批次：Answer me with HTML、CiteGuard-RAG、DSPy、know-as-ui、MatRAG、multi-domain retriever、OpenResearch、PAGE-RAG、PIXELRAG、Project NOMAD、rerank/late-interaction、Return or Revise、TAGGRAPH、TimelyRAG 等 **14 份 TRACK_FULL**；current decision 與 owner/trigger 統一見 lineage 的「2026-10-06 batch」段落。
+- 2026-10-06 Hindsight / Wenlan re-evaluation 因**判定完全不變、沒有新的獨立 trigger**，已轉為 `LINEAGE_ONLY`：audited version、delta 與 revisit trigger 保留在 lineage，不再保留第二份全文，避免重複讀取造成假 backlog。
+- `2026-09-19-grounded-answer-coverage-evaluation.md` 仍為 TRACK_FULL evaluation methodology；其 live-provider current status 已由 #682/#685 補記，歷史 `UNOBSERVED` 文字只代表當時狀態。
+- 其他同目錄文件若仍保有獨立 future trigger / NO-GO rationale / benchmark methodology，維持 `TRACK_FULL`；current implementation status 仍須依 lineage / GitHub / ADR / latest code 判讀。
 
-Refs #405、#528。
+Refs #405、#528、#682、#685、#687、#690。
