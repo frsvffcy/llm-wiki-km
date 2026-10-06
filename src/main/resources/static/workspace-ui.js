@@ -91,7 +91,8 @@ export function renderCurrentWorkspace(elements, status, documentRef = document)
 export function renderWorkspaceList(elements, workspaces, currentWorkspaceId,
                                      documentRef = document, { onSwitch } = {}) {
   elements.list.replaceChildren();
-  const rows = Array.isArray(workspaces) ? workspaces : [];
+  const rows = (Array.isArray(workspaces) ? workspaces : [])
+    .filter(workspace => workspace.id !== currentWorkspaceId);
   if (rows.length === 0) {
     appendTextElement(documentRef, elements.list, "li", "workspace-list-empty",
       "目前沒有其他工作區。");
@@ -102,18 +103,14 @@ export function renderWorkspaceList(elements, workspaces, currentWorkspaceId,
     item.className = "workspace-list-item";
     appendTextElement(documentRef, item, "span", "workspace-list-name", text(workspace.name));
     appendTextElement(documentRef, item, "span", "workspace-list-meta", text(workspace.rootPath));
-    if (workspace.id === currentWorkspaceId) {
-      appendTextElement(documentRef, item, "span", "workspace-list-current", "使用中");
-    } else {
-      const open = documentRef.createElement("button");
-      open.type = "button";
-      open.className = "workspace-switch";
-      open.textContent = "切換至此工作區";
-      open.addEventListener("click", () => {
-        if (typeof onSwitch === "function") onSwitch(workspace.id);
-      });
-      item.append(open);
-    }
+    const open = documentRef.createElement("button");
+    open.type = "button";
+    open.className = "workspace-switch";
+    open.textContent = "切換至此工作區";
+    open.addEventListener("click", () => {
+      if (typeof onSwitch === "function") onSwitch(workspace.id);
+    });
+    item.append(open);
     elements.list.append(item);
   });
 }
