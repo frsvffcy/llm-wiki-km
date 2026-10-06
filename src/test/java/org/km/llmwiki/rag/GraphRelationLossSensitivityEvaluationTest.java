@@ -7,13 +7,18 @@ import org.km.llmwiki.graph.GraphCanonicalCurrentness;
 import org.km.llmwiki.graph.GraphEntity;
 import org.km.llmwiki.graph.GraphEntityIdentity;
 import org.km.llmwiki.graph.GraphEntityType;
+import org.km.llmwiki.graph.GraphProjectionException;
+import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.graph.GraphProjectionInput;
 import org.km.llmwiki.graph.GraphProjectionInputAssembler;
 import org.km.llmwiki.graph.GraphProjectionLifecycleRepository;
+import org.km.llmwiki.graph.GraphProjectionLifecycleService;
 import org.km.llmwiki.graph.GraphProjectionStatusResponse;
+import org.km.llmwiki.graph.GraphProjectionVersion;
 import org.km.llmwiki.graph.GraphRelation;
 import org.km.llmwiki.graph.GraphRelationType;
 import org.km.llmwiki.graph.GraphWorkspaceScope;
+import org.km.llmwiki.persistence.graph.arcadedb.ArcadeDbGraphProjectionBackendFactory;
 import org.km.llmwiki.processing.ProcessingJobRepository;
 import org.km.llmwiki.rag.GraphRetrievalGoldenCorpus.GoldenQuery;
 import org.km.llmwiki.rag.GraphRetrievalQualityBenchmark.Evaluation;
@@ -42,15 +47,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Issue #689 relation-loss sensitivity evaluation. It reuses the v2 production-equivalent graph
- * fixture and removes exactly one admitted relation from the projection input at a time. The
- * relation loss must be attributable to the graph-only evidence that depends on that path while
- * lexical/vector results and unrelated graph scenarios stay unchanged.
+ * fixture and models an upstream canonical assembler omission by removing exactly one admitted
+ * relation from the projection input at a time. A test-owned currentness boundary treats the
+ * selected scenario input as canonical for that run; the real ArcadeDB backend, traversal,
+ * evidence admission, fusion, authority revalidation and safety contracts remain unchanged.
+ *
+ * <p>Backend-only mutation is intentionally not used: the production SQLite currentness guard
+ * correctly rejects a reduced input assembled behind canonical authority as
+ * {@code GRAPH_PROJECTION_STALE}.
  */
 @Tag("integration")
 class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest {
@@ -112,9 +123,19 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
         List<String> forbidden = new ArrayList<>(CORPUS.safetyIdentities(legacyChunkIdentity));
         forbidden.add(new GraphRetrievalGoldenCorpus().foreignIdentity());
 
+        ScenarioCanonicalCurrentness scenarioCurrentness =
+                new ScenarioCanonicalCurrentness(active);
+        ArcadeDbGraphProjectionBackendFactory graphFactory =
+                new ArcadeDbGraphProjectionBackendFactory(temp.resolve("relation-loss-graph"),
+                        GraphProjectionVersion.current());
         try (GraphRetrievalQualityFixture.LifecycleBundle lifecycleFactory =
-                     fixture.lifecycle(temp.resolve("relation-loss-graph"))) {
+                     new GraphRetrievalQualityFixture.LifecycleBundle(
+                             new GraphProjectionLifecycleService(true, "arcadedb",
+                                     GraphProjectionVersion.current(), lifecycleRepository,
+                                     graphFactory, scenarioCurrentness),
+                             graphFactory)) {
             GraphProjectionInput baselineInput = assembler.assemble(active);
+            scenarioCurrentness.expect(baselineInput);
             lifecycleFactory.lifecycle().rebuild(baselineInput);
             Evaluation baseline = evaluate(fixture, lifecycleFactory, queries, forbidden,
                     readyProjection(lifecycleFactory, active));
@@ -136,6 +157,7 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
             List<String> reportRows = new ArrayList<>();
             for (LossScenario scenario : scenarios) {
                 RelationRemoval removal = removeExactlyOne(baselineInput, scenario);
+                scenarioCurrentness.expect(removal.input());
                 lifecycleFactory.lifecycle().rebuild(removal.input());
                 Evaluation fault = evaluate(fixture, lifecycleFactory, queries, forbidden,
                         readyProjection(lifecycleFactory, active));
@@ -177,6 +199,7 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
                         + "GRAPH_DEGRADED_BY_RELATION_LOSS |");
             }
 
+            scenarioCurrentness.expect(baselineInput);
             lifecycleFactory.lifecycle().rebuild(baselineInput);
             Evaluation restored = evaluate(fixture, lifecycleFactory, queries, forbidden,
                     readyProjection(lifecycleFactory, active));
@@ -321,8 +344,11 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
         report.append("\\nInterpretation: targeted admitted-relation loss removes only the ")
                 .append("graph-only evidence whose path depends on that relation. FTS/vector ")
                 .append("results and unrelated graph scenarios remain unchanged. This proves ")
-                .append("scenario-specific Graph value and projection-completeness sensitivity; ")
-                .append("it does not establish real-world relation-loss frequency and does not ")
+                .append("scenario-specific Graph value and projection-completeness sensitivity. ")
+                .append("The fault arm models an upstream assembler omission with a test-owned ")
+                .append("canonical fingerprint boundary; backend/traversal/admission/fusion remain ")
+                .append("production implementations. It does not establish real-world relation-loss ")
+                .append("frequency and does not ")
                 .append("justify a production ranking or GraphRAG expansion by itself.\\n");
         Files.writeString(reports.resolve("graph-relation-loss-sensitivity-v1.md"),
                 report.toString());
@@ -330,6 +356,36 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
 
     private String format(double value) {
         return String.format("%.4f", value);
+    }
+
+    /**
+     * Evaluation-only canonical boundary. It represents the scenario where the application-owned
+     * assembler itself omitted one relation, so lifecycle currentness remains meaningful instead
+     * of bypassed. Any fingerprint other than the explicitly selected scenario still fails closed.
+     */
+    private static final class ScenarioCanonicalCurrentness implements GraphCanonicalCurrentness {
+        private final GraphWorkspaceScope workspace;
+        private String expectedFingerprint;
+
+        private ScenarioCanonicalCurrentness(GraphWorkspaceScope workspace) {
+            this.workspace = workspace;
+        }
+
+        private void expect(GraphProjectionInput input) {
+            assertThat(input.workspace()).isEqualTo(workspace);
+            expectedFingerprint = input.sourceFingerprint();
+        }
+
+        @Override
+        public <T> T withCurrent(GraphWorkspaceScope requestedWorkspace, String fingerprint,
+                                 Supplier<T> action) {
+            if (!workspace.equals(requestedWorkspace)
+                    || expectedFingerprint == null
+                    || !expectedFingerprint.equals(fingerprint)) {
+                throw new GraphProjectionException(GraphProjectionFailureType.PROJECTION_STALE);
+            }
+            return action.get();
+        }
     }
 
     private record LossScenario(String id, String queryId, GraphRelationType type,
