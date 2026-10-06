@@ -132,17 +132,17 @@ test("實際 README、AGENTS 與 CURRENT 文件內容由語言 gate 檢查", asy
 
 test("CURRENT onboarding 只接受現行導覽名稱，技術名稱不受影響", () => {
   const current = [
-    "到「文件」上傳內容。",
-    "到「知識」閱讀已發布內容。",
+    "到「管理文件」上傳內容。",
+    "到「閱讀」閱讀已發布內容。",
     "到「待我審核」處理兩件待審工作。",
     "技術上仍保留 inbox/、#/wiki 與 review identifier。",
   ].join("\n");
   assert.deepEqual(analyzeOnboardingNavigationCopy("README.md", current), []);
 
   const legacy = [
-    "到「收件匣」上傳。",
-    "再到「Wiki」閱讀。",
-    "最後進「審核」處理。",
+    "到「文件」上傳。",
+    "再到「知識」閱讀。",
+    "最後進「開始」管理工作區。",
   ].join("\n");
   const findings = analyzeOnboardingNavigationCopy(
     "docs/guides/getting-started-zh-TW.md",
