@@ -71,6 +71,8 @@ jobs:
         run: sh scripts/tests/test-browser-first-mile-smoke.sh
       - name: Validate Browser contract runner POSIX shell syntax
         run: sh -n scripts/run-browser-contract-tests.sh
+      - name: Validate live-provider measurement shell contract
+        run: bash -n scripts/run-grounded-answer-live-provider-measurement.sh && bash scripts/tests/test-grounded-answer-live-provider-measurement.sh
       - name: Check Browser contract test classification completeness (Refs #561)
         run: sh scripts/run-browser-contract-tests.sh check
       - name: Run required deterministic Browser contract suite (Refs #561)
