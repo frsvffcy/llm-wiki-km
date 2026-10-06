@@ -2,7 +2,7 @@
 
 以本機為優先的個人知識庫，使用 Java 21 與 Spring Boot 建置。你可以在隔離的工作區匯入來源文件、閱讀已發布的知識、提出有依據的問題，並透過「保存成知識 → 待我審核 → 草稿／預覽 → 人工發布」流程整理成持久知識。
 
-第一次使用產品，請先閱讀 [5–10 分鐘快速入門](docs/guides/getting-started-zh-TW.md)；想新增或修改 UI、文件、錯誤訊息與協作文字，請遵循[語言與術語規範](docs/development/language-and-terminology.md)。架構細節與各能力的權威來源集中在[現行架構索引](docs/architecture/README.md)。
+第一次使用可直接從 Browser 工作首頁開始；需要完整操作說明時再參考 [5–10 分鐘快速入門](docs/guides/getting-started-zh-TW.md)。想新增或修改 UI、文件、錯誤訊息與協作文字，請遵循[語言與術語規範](docs/development/language-and-terminology.md)。架構細節與各能力的權威來源集中在[現行架構索引](docs/architecture/README.md)。
 
 ## 前置需求
 
@@ -35,10 +35,10 @@ java -jar target/llm-wiki-km-0.3.3.jar
 
 建議的第一次操作順序：
 
-1. 在「開始」建立或開啟工作區。
-2. 到「文件」上傳一份文件，等待畫面顯示「可以開始使用」。
-3. 到「知識」閱讀已發布內容，或在「提問」取得附引用來源的回答。
-4. 若要保存回答，按「保存成知識」，再到「待我審核」核准、預覽並由人工明確發布。
+1. 若尚未有工作區，工作首頁會直接顯示建立工作區；已有工作區時不需要先管理它。
+2. 到「管理文件」上傳一份文件，等待畫面顯示「可以開始使用」。
+3. 到「閱讀」查看已發布內容；要從文件找答案時，可直接從文件按「開始提問」。
+4. 若要保存回答，按「保存成知識」，再從交接入口或「更多」中的「待我審核」核准、預覽並由人工明確發布。
 
 提問的回答是暫時結果，不會自行寫入 `vault/`、`archive/` 或權威知識狀態。若啟用遠端服務，送出的資料範圍由後端設定與畫面上的服務提供者傳輸提示決定；啟用前應確認服務提供者、傳輸方式與資料類型。
 
@@ -99,7 +99,7 @@ curl -X POST 'http://127.0.0.1:8765/api/v1/inbox/files?autoProcess=true' \
   -F "file=@/path/to/document.pdf"
 ```
 
-「文件」畫面使用 `autoProcess=true`，由後端單一 worker 的有界 queue 執行抽取與 Source FTS 同步。API 呼叫未帶 `autoProcess` 時只上傳、不自動處理，以維持相容性。檔名會移除 path traversal，碰到同名檔案會加上 `-1`、`-2` 等後綴，不會覆寫。
+「管理文件」畫面使用 `autoProcess=true`，由後端單一 worker 的有界 queue 執行抽取與 Source FTS 同步。API 呼叫未帶 `autoProcess` 時只上傳、不自動處理，以維持相容性。檔名會移除 path traversal，碰到同名檔案會加上 `-1`、`-2` 等後綴，不會覆寫。
 
 ```bash
 curl "http://127.0.0.1:8765/api/v1/inbox?page=0&size=50&status=PENDING&extension=pdf&sort=createdAt,desc"
