@@ -185,11 +185,15 @@ final class GraphRetrievalQualityFixture {
     }
 
     LifecycleBundle lifecycle(Path path) {
+        return lifecycle(path, currentness);
+    }
+
+    LifecycleBundle lifecycle(Path path, GraphCanonicalCurrentness evaluationCurrentness) {
         ArcadeDbGraphProjectionBackendFactory factory =
                 new ArcadeDbGraphProjectionBackendFactory(path, GraphProjectionVersion.current());
         return new LifecycleBundle(new GraphProjectionLifecycleService(true, "arcadedb",
-                GraphProjectionVersion.current(), lifecycleRepository, factory, currentness),
-                factory);
+                GraphProjectionVersion.current(), lifecycleRepository, factory,
+                evaluationCurrentness), factory);
     }
 
     FusedRetrievalOrchestrator orchestrator(GraphProjectionLifecycleService lifecycle,
