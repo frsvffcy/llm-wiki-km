@@ -197,7 +197,7 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
             Evaluation restored = evaluate(fixture, lifecycleFactory, queries, forbidden,
                     readyProjection(lifecycleFactory, active));
             assertAllModesEqual(baseline, restored);
-            writeReport(baseline, reportRows);
+            writeReport(baseline, queries, reportRows);
         }
     }
 
@@ -337,7 +337,8 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
                 .findFirst().orElseThrow();
     }
 
-    private void writeReport(Evaluation baseline, List<String> rows) throws Exception {
+    private void writeReport(Evaluation baseline, List<GoldenQuery> queries,
+                             List<String> rows) throws Exception {
         Path reports = Path.of("target", "quality-reports");
         Files.createDirectories(reports);
         StringBuilder report = new StringBuilder();
@@ -351,6 +352,26 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
                 .append("- baseline graph MRR: ")
                 .append(format(baseline.aggregates().get("HYBRID_GRAPH").mrr())).append("\n")
                 .append("- decision: KEEP_GRAPH_OPTIONAL_AND_MEASURE_PROJECTION_COMPLETENESS\n\n")
+                .append("## Baseline typed outcomes\n\n")
+                .append("| query | graph-only expected | graph-only found | outcome |\n")
+                .append("| --- | --- | --- | --- |\n");
+        for (GoldenQuery query : queries) {
+            QueryMetrics graph = metric(baseline, query.id(), "HYBRID_GRAPH");
+            String outcome;
+            if (query.graphOnlyRelevant().isEmpty()) {
+                assertThat(graph.graphOnlyFound()).isEmpty();
+                outcome = "GRAPH_VALUE_ABSENT";
+            } else {
+                assertThat(new LinkedHashSet<>(graph.graphOnlyFound()))
+                        .isEqualTo(new LinkedHashSet<>(query.graphOnlyRelevant()));
+                outcome = "GRAPH_VALUE_PRESENT";
+            }
+            report.append("| ").append(query.id()).append(" | ")
+                    .append(query.graphOnlyRelevant()).append(" | ")
+                    .append(graph.graphOnlyFound()).append(" | ")
+                    .append(outcome).append(" |\n");
+        }
+        report.append("\n## Relation-loss scenarios\n\n")
                 .append("| scenario | query | lost evidence | baseline recall | fault recall | ")
                 .append("baseline mrr | fault mrr | FTS retained | vector retained | outcome |\n")
                 .append("| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |\n");
