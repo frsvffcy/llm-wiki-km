@@ -108,6 +108,7 @@ test("status 401 shows the login form while local mode hides it", async () => {
   });
   const loggedOutController = createOwnerAuthController(loggedOut, loggedOutFetch, {});
   await loggedOutController.refresh();
+  assert.equal(loggedOut.panel.hidden, false);
   assert.equal(loggedOut.form.hidden, false);
   assert.match(loggedOut.status.textContent, /已登出/);
 
@@ -119,6 +120,8 @@ test("status 401 shows the login form while local mode hides it", async () => {
   });
   const localController = createOwnerAuthController(local, localFetch, {});
   await localController.refresh();
+  assert.equal(local.panel.hidden, true,
+    "local personal mode removes non-actionable auth chrome from first use");
   assert.equal(local.form.hidden, true);
   assert.match(local.status.textContent, /本機模式/);
 });

@@ -24,21 +24,21 @@
 <body>
   <header class="site-topbar">
     <div class="site-topbar-inner">
-      <a class="site-brand" href="#/home" aria-label="本機知識庫，前往開始">
+      <a class="site-brand" href="#/home" aria-label="本機知識庫，前往工作首頁">
         <span class="site-brand-mark" aria-hidden="true">✦</span>
         <span><strong>本機知識庫</strong><small>有依據的知識工作區</small></span>
       </a>
-      <span class="site-topbar-caption">提問・整理・審核</span>
+      <span class="site-topbar-caption">閱讀・管理文件</span>
     </div>
   </header>
   <main class="app-shell">
     <header class="page-header">
       <p class="eyebrow">本機知識庫</p>
-      <h1>向知識庫提問</h1>
-      <p class="intro">從已索引的知識與來源文件取得有依據的回答；第一次使用請先在工作區建立知識庫並放入文件。</p>
+      <h1>開始工作</h1>
+      <p class="intro">直接閱讀或管理文件；提問、審核與診斷會在需要時提供入口，不必先理解系統內部流程。</p>
     </header>
 
-    <section id="owner-auth-panel" class="panel owner-auth-panel" aria-labelledby="owner-auth-heading">
+    <section id="owner-auth-panel" class="panel owner-auth-panel" aria-labelledby="owner-auth-heading" hidden>
       <div class="section-heading">
         <div>
           <p class="eyebrow">擁有者</p>
@@ -60,107 +60,141 @@
       </p>
     </section>
 
-    <nav class="app-nav" aria-label="主要導覽">
-      <div class="app-nav-group" role="group" aria-label="基本操作">
-        <span class="app-nav-group-label" aria-hidden="true">基本</span>
-        <a href="#/home" data-route-link="home">開始</a>
-        <a href="#/inbox" data-route-link="inbox">文件</a>
-        <a href="#/wiki" data-route-link="wiki">知識</a>
-        <a href="#/ask" data-route-link="ask">提問</a>
-        <a href="#/review" data-route-link="review">待我審核<span id="review-pending-badge" class="nav-badge" hidden></span></a>
+    <nav id="app-nav" class="app-nav" aria-label="主要導覽" hidden>
+      <div class="app-nav-group" role="group" aria-label="工作">
+        <span class="app-nav-group-label" aria-hidden="true">工作</span>
+        <a href="#/wiki" data-route-link="wiki">閱讀</a>
+        <a href="#/inbox" data-route-link="inbox">管理文件</a>
       </div>
-      <div class="app-nav-group" role="group" aria-label="進階維護">
-        <span class="app-nav-group-label" aria-hidden="true">進階</span>
-        <a href="#/inspect" data-route-link="inspect">檢視器</a>
-        <a href="#/quality" data-route-link="quality">品質</a>
-      </div>
+      <details class="app-nav-more" data-nav-more>
+        <summary>更多<span id="review-pending-summary-badge" class="nav-badge" hidden></span></summary>
+        <div class="app-nav-more-links" role="group" aria-label="其他功能">
+          <a href="#/home" data-route-link="home">工作區與設定</a>
+          <a href="#/ask" data-route-link="ask">提問</a>
+          <a href="#/review" data-route-link="review">待我審核<span id="review-pending-badge" class="nav-badge" hidden></span></a>
+          <a href="#/inspect" data-route-link="inspect">檢視器</a>
+          <a href="#/quality" data-route-link="quality">品質</a>
+        </div>
+      </details>
     </nav>
 
-    <section id="view-home" data-route="home" class="view" aria-label="工作區">
-      <h2 data-view-heading tabindex="-1">工作區</h2>
-      <section id="workspace-panel" class="panel workspace-panel"
-               aria-labelledby="workspace-heading">
+    <section id="view-home" data-route="home" class="view" aria-label="開始工作">
+      <h2 data-view-heading tabindex="-1">開始工作</h2>
+
+      <section id="home-work-panel" class="panel home-work-panel" hidden
+               aria-labelledby="home-work-heading">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">工作區</p>
-            <h3 id="workspace-heading">目前工作區</h3>
+            <p class="eyebrow">現在</p>
+            <h3 id="home-work-heading">直接開始工作</h3>
           </div>
         </div>
-        <p id="workspace-current-empty" class="empty-state">
-          尚未開啟知識庫。請在下方建立工作區，或從清單中選擇既有項目。
+        <p class="home-work-intro">
+          已有工作區，不需要先管理系統。選擇你現在要做的事即可。
         </p>
-        <div id="workspace-current" class="workspace-current" hidden>
-          <p id="workspace-current-name" class="workspace-current-name"></p>
-          <p id="workspace-current-path" class="workspace-current-path"></p>
-          <p id="workspace-current-status" class="workspace-current-status"></p>
-          <p id="workspace-layout-state" class="workspace-layout"></p>
-          <div id="workspace-layout-detail" class="workspace-layout-detail"></div>
-          <button id="workspace-repair" type="button" class="secondary-button">
-            修復目錄結構
-          </button>
+        <div class="home-work-actions" aria-label="主要工作">
+          <a class="home-work-action" href="#/wiki">
+            <strong>閱讀</strong>
+            <span>閱讀已整理、已發布的知識</span>
+          </a>
+          <a class="home-work-action" href="#/inbox">
+            <strong>管理文件</strong>
+            <span>上傳、檢視處理狀態，或從文件開始提問</span>
+          </a>
         </div>
-        <p id="workspace-hint" class="form-hint" role="status" aria-live="polite"></p>
+        <p class="form-hint">第一次使用且還沒有內容時，先選「管理文件」放入資料。</p>
       </section>
 
-      <section id="analysis-readiness-panel" class="panel analysis-panel"
-               aria-labelledby="analysis-readiness-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">文件分析</p>
-            <h3 id="analysis-readiness-heading">文件分析狀態</h3>
-          </div>
-          <button id="analysis-readiness-refresh" type="button" class="secondary-button">
-            重新整理
-          </button>
-        </div>
-        <p id="analysis-readiness-state" class="analysis-readiness" role="status" aria-live="polite"></p>
-        <div id="analysis-readiness-detail" class="analysis-readiness-detail"></div>
-        <p id="analysis-readiness-hint" class="form-hint" role="status" aria-live="polite"></p>
-        <p class="panel-description">
-          唯讀顯示後端回報的文件分析先決條件（提示樣板與分析設定）；不會建立或修改任何資料。
-          工作區整體處於 READY 狀態不代表文件分析已就緒，缺少提示樣板時請執行工作區修復。
-        </p>
-      </section>
+      <details id="workspace-management" class="workspace-management">
+        <summary id="workspace-management-summary">工作區與設定</summary>
+        <div class="workspace-management-content">
+          <section id="workspace-panel" class="panel workspace-panel"
+                   aria-labelledby="workspace-heading" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">目前使用</p>
+                <h3 id="workspace-heading">目前工作區</h3>
+              </div>
+            </div>
+            <p id="workspace-current-empty" class="empty-state" hidden></p>
+            <div id="workspace-current" class="workspace-current" hidden>
+              <p id="workspace-current-name" class="workspace-current-name"></p>
+              <p id="workspace-current-status" class="workspace-current-status"></p>
+              <details class="workspace-current-detail">
+                <summary>工作區詳細資訊</summary>
+                <p id="workspace-current-path" class="workspace-current-path"></p>
+                <p id="workspace-layout-state" class="workspace-layout"></p>
+                <div id="workspace-layout-detail" class="workspace-layout-detail"></div>
+                <button id="workspace-repair" type="button" class="secondary-button">
+                  修復目錄結構
+                </button>
+              </details>
+            </div>
+            <p id="workspace-hint" class="form-hint" role="status" aria-live="polite"></p>
+          </section>
 
-      <section class="panel" aria-labelledby="workspace-create-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">建立</p>
-            <h3 id="workspace-create-heading">建立工作區</h3>
-          </div>
-        </div>
-        <form id="workspace-create-form" class="control-stack" novalidate>
-          <div class="field-group">
-            <label for="workspace-name">名稱</label>
-            <input id="workspace-name" name="name" type="text" maxlength="200"
-                   placeholder="例如：personal-km" required>
-          </div>
-          <div class="field-group">
-            <label for="workspace-root-path">根目錄路徑（rootPath；本機絕對路徑）</label>
-            <input id="workspace-root-path" name="rootPath" type="text"
-                   placeholder="例如：/Users/you/knowledge-root" required>
-          </div>
-          <button id="workspace-create-submit" type="submit">建立工作區</button>
-        </form>
-        <p class="panel-description">
-          後端會在此路徑建立固定的 <code>inbox/</code>、<code>archive/</code>、<code>vault/</code>、<code>data/</code>、<code>config/</code>、<code>logs/</code>、<code>temp/</code>
-          目錄結構；瀏覽器介面不會直接存取檔案系統。
-        </p>
-      </section>
+          <section id="workspace-create-panel" class="panel" aria-labelledby="workspace-create-heading">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">建立</p>
+                <h3 id="workspace-create-heading">建立工作區</h3>
+              </div>
+            </div>
+            <form id="workspace-create-form" class="control-stack" novalidate>
+              <div class="field-group">
+                <label for="workspace-name">名稱</label>
+                <input id="workspace-name" name="name" type="text" maxlength="200"
+                       placeholder="例如：personal-km" required>
+              </div>
+              <div class="field-group">
+                <label for="workspace-root-path">根目錄路徑（rootPath；本機絕對路徑）</label>
+                <input id="workspace-root-path" name="rootPath" type="text"
+                       placeholder="例如：/Users/you/knowledge-root" required>
+              </div>
+              <button id="workspace-create-submit" type="submit">建立工作區</button>
+            </form>
+            <p class="panel-description">
+              第一次使用只需建立一次；之後會直接顯示目前使用中的工作區。
+            </p>
+          </section>
 
-      <section class="panel" aria-labelledby="workspace-list-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">切換</p>
-            <h3 id="workspace-list-heading">所有工作區</h3>
-          </div>
+          <details id="workspace-switcher" class="workspace-switcher">
+            <summary>切換工作區</summary>
+            <section class="panel" aria-labelledby="workspace-list-heading">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">切換</p>
+                  <h3 id="workspace-list-heading">其他工作區</h3>
+                </div>
+              </div>
+              <ul id="workspace-list" class="workspace-list"></ul>
+            </section>
+          </details>
+
+          <section id="analysis-readiness-panel" class="panel analysis-panel"
+                   aria-labelledby="analysis-readiness-heading">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">進階狀態</p>
+                <h3 id="analysis-readiness-heading">文件分析狀態</h3>
+              </div>
+              <button id="analysis-readiness-refresh" type="button" class="secondary-button">
+                重新整理
+              </button>
+            </div>
+            <p id="analysis-readiness-state" class="analysis-readiness" role="status" aria-live="polite"></p>
+            <div id="analysis-readiness-detail" class="analysis-readiness-detail"></div>
+            <p id="analysis-readiness-hint" class="form-hint" role="status" aria-live="polite"></p>
+            <p class="panel-description">
+              這是進階診斷資訊；一般使用不需要先理解或操作。
+            </p>
+          </section>
         </div>
-        <ul id="workspace-list" class="workspace-list"></ul>
-      </section>
+      </details>
     </section>
 
-    <section id="view-wiki" data-route="wiki" class="view" aria-label="知識" hidden>
-      <h2 data-view-heading tabindex="-1">知識</h2>
+    <section id="view-wiki" data-route="wiki" class="view" aria-label="閱讀" hidden>
+      <h2 data-view-heading tabindex="-1">閱讀</h2>
 
       <section class="panel" aria-labelledby="wiki-list-heading">
         <div class="section-heading">

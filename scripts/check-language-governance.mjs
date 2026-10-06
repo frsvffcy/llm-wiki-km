@@ -54,8 +54,8 @@ const ONBOARDING_NAVIGATION_SURFACES = new Set([
   "README.md",
   "docs/guides/getting-started-zh-TW.md",
 ]);
-const CURRENT_ONBOARDING_LABELS = ["「文件」", "「知識」", "「待我審核」"];
-const LEGACY_ONBOARDING_LABELS = ["「收件匣」", "「Wiki」", "「審核」"];
+const CURRENT_ONBOARDING_LABELS = ["「管理文件」", "「閱讀」", "「待我審核」"];
+const LEGACY_ONBOARDING_LABELS = ["「收件匣」", "「Wiki」", "「審核」", "「文件」", "「知識」", "「開始」"];
 
 const currentUiFiles = [
   "src/main/resources/static/index.html", "src/main/resources/static/graph-operations-ui.js",

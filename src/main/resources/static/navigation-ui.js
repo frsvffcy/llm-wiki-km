@@ -8,15 +8,13 @@
 const ROUTES = Object.freeze(["home", "wiki", "inbox", "ask", "inspect", "review", "quality"]);
 
 /**
- * #571 task-first information architecture: the 7 hash routes keep their
- * URLs/meanings (bookmarks and deep links stay valid), but are grouped for
- * first-use comprehension. Everyday work (start, files, knowledge, asking,
- * and my pending reviews) comes first in task order; inspector and quality
- * stay one click away under advanced maintenance without dominating daily use.
+ * #680 progressive-disclosure information architecture: all hash routes and
+ * deep links remain valid, but persistent navigation shows only direct work
+ * surfaces. Supporting mechanisms stay available under "更多".
  */
 export const NAV_GROUPS = Object.freeze({
-  basic: Object.freeze(["home", "inbox", "wiki", "ask", "review"]),
-  advanced: Object.freeze(["inspect", "quality"])
+  basic: Object.freeze(["wiki", "inbox"]),
+  advanced: Object.freeze(["home", "ask", "review", "inspect", "quality"])
 });
 
 export function navGroup(route) {
@@ -26,14 +24,14 @@ export function navGroup(route) {
 }
 
 export const NAV_GROUP_LABELS = Object.freeze({
-  basic: "基本",
-  advanced: "進階"
+  basic: "工作",
+  advanced: "更多"
 });
 
 export const VIEW_TITLES = Object.freeze({
-  home: "開始",
-  inbox: "文件",
-  wiki: "知識",
+  home: "工作區與設定",
+  inbox: "管理文件",
+  wiki: "閱讀",
   ask: "提問",
   inspect: "檢視器",
   review: "待我審核",
@@ -70,11 +68,12 @@ export async function fetchReviewPendingCount(fetchImpl = fetch) {
  */
 export function renderReviewBadge(elements, count) {
   const total = Number(count);
-  if (!elements || !elements.badge || !Number.isFinite(total) || total <= 0) {
-    if (elements && elements.badge) {
-      elements.badge.hidden = true;
-      elements.badge.textContent = "";
-    }
+  const badges = elements ? [elements.badge, elements.summaryBadge].filter(Boolean) : [];
+  if (!elements || badges.length === 0 || !Number.isFinite(total) || total <= 0) {
+    badges.forEach(badge => {
+      badge.hidden = true;
+      badge.textContent = "";
+    });
     if (elements && elements.reviewLink && typeof elements.reviewLink.removeAttribute === "function") {
       elements.reviewLink.removeAttribute("aria-label");
     }
@@ -82,8 +81,10 @@ export function renderReviewBadge(elements, count) {
   }
   const pendingCount = Math.floor(total);
   const pendingLabel = `${pendingCount} 件待審`;
-  elements.badge.hidden = false;
-  elements.badge.textContent = pendingLabel;
+  badges.forEach(badge => {
+    badge.hidden = false;
+    badge.textContent = pendingLabel;
+  });
   if (elements.reviewLink && typeof elements.reviewLink.setAttribute === "function") {
     elements.reviewLink.setAttribute("aria-label", `待我審核，${pendingLabel}`);
   }
@@ -122,6 +123,12 @@ export function applyRoute(documentRef, route, { focus = false } = {}) {
       link.removeAttribute("aria-current");
     }
   });
+  if (typeof documentRef.querySelector === "function") {
+    const more = documentRef.querySelector("[data-nav-more]");
+    if (more) {
+      more.open = NAV_GROUPS.advanced.includes(applied);
+    }
+  }
   return applied;
 }
 
@@ -143,11 +150,12 @@ function badgeElementsFrom(documentRef) {
     return null;
   }
   const badge = documentRef.querySelector("#review-pending-badge");
+  const summaryBadge = documentRef.querySelector("#review-pending-summary-badge");
   const reviewLink = documentRef.querySelector('[data-route-link="review"]');
-  if (!badge) {
+  if (!badge && !summaryBadge) {
     return null;
   }
-  return { badge, reviewLink };
+  return { badge, summaryBadge, reviewLink };
 }
 
 /**

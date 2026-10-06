@@ -96,18 +96,22 @@ export function createOwnerAuthController(elements, fetchImpl = fetch, documentR
     if (result.ok) {
       if (result.data && result.data.authEnabled === false) {
         showStatus(LOCAL_MODE_MESSAGE);
+        elements.panel.hidden = true;
         elements.form.hidden = true;
         if (elements.logout) elements.logout.hidden = true;
         return;
       }
+      elements.panel.hidden = false;
       showLoggedIn();
       return;
     }
     if (result.status === 401) {
+      elements.panel.hidden = false;
       showStatus(LOGGED_OUT_MESSAGE);
       showForm();
       return;
     }
+    elements.panel.hidden = false;
     const { title, message } = errorMessage(result.error);
     showStatus(`${title}：${message}`);
     showForm();

@@ -51,6 +51,7 @@ class FakeDocument {
     this.sections = ["home", "wiki", "inbox", "ask", "inspect", "review", "quality"]
       .map(route => new FakeSection(route));
     this.links = this.sections.map(section => new FakeLink(section.dataset.route));
+    this.more = { open: false };
     this.defaultView = {
       location: { hash: "" },
       handler: null,
@@ -64,6 +65,11 @@ class FakeDocument {
     if (selector === "[data-route]") return this.sections;
     if (selector === "[data-route-link]") return this.links;
     return [];
+  }
+
+  querySelector(selector) {
+    if (selector === "[data-nav-more]") return this.more;
+    return null;
   }
 
   section(route) {
@@ -100,6 +106,21 @@ test("applyRoute shows only the target section and marks its nav link", () => {
   for (const route of ["home", "ask", "inspect", "review"]) {
     assert.equal(documentRef.link(route).current, null);
   }
+});
+
+test("primary work routes stay visible while supporting routes open the More disclosure", () => {
+  const documentRef = new FakeDocument();
+
+  applyRoute(documentRef, "inbox");
+  assert.equal(documentRef.more.open, false,
+    "direct work should not expose the secondary feature menu");
+
+  applyRoute(documentRef, "ask");
+  assert.equal(documentRef.more.open, true,
+    "a deep link to a supporting route reveals its current location");
+
+  applyRoute(documentRef, "home");
+  assert.equal(documentRef.more.open, true);
 });
 
 test("applyRoute does not move focus unless requested", () => {
@@ -140,11 +161,13 @@ class FakeReviewLink {
 
 function badgeDocument() {
   const badge = new FakeBadge();
+  const summaryBadge = new FakeBadge();
   const reviewLink = new FakeReviewLink();
   const docListeners = new Map();
   const viewListeners = new Map();
   return {
     badge,
+    summaryBadge,
     reviewLink,
     docListeners,
     viewListeners,
@@ -155,6 +178,7 @@ function badgeDocument() {
     addEventListener(name, handler) { docListeners.set(name, handler); },
     querySelector(selector) {
       if (selector === "#review-pending-badge") return badge;
+      if (selector === "#review-pending-summary-badge") return summaryBadge;
       if (selector === '[data-route-link="review"]') return reviewLink;
       return null;
     }
@@ -178,18 +202,24 @@ test("badge controller refreshes on route change and workspace switch, hiding on
     return countEnvelope(pending);
   };
   const controller = createNavBadgeController(
-    { badge: documentRef.badge, reviewLink: documentRef.reviewLink }, fetchImpl, documentRef);
+    { badge: documentRef.badge, summaryBadge: documentRef.summaryBadge,
+      reviewLink: documentRef.reviewLink }, fetchImpl, documentRef);
   await controller.refresh();
   assert.equal(documentRef.badge.hidden, false);
   assert.equal(documentRef.badge.textContent, "2 件待審");
+  assert.equal(documentRef.summaryBadge.hidden, false);
+  assert.equal(documentRef.summaryBadge.textContent, "2 件待審",
+    "collapsed More entry still surfaces actionable pending work");
 
   pending = 0;
   await controller.refresh();
   assert.equal(documentRef.badge.hidden, true,
     "no pending work leaves primary attention alone");
+  assert.equal(documentRef.summaryBadge.hidden, true);
 
   controller.reset();
   assert.equal(documentRef.badge.hidden, true);
+  assert.equal(documentRef.summaryBadge.hidden, true);
   assert.equal(calls.length, 2);
 });
 
@@ -197,7 +227,8 @@ test("badge refresh never rejects: backend failures hide instead of blocking (#5
   const documentRef = badgeDocument();
   const failingFetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
   const controller = createNavBadgeController(
-    { badge: documentRef.badge, reviewLink: documentRef.reviewLink }, failingFetch, documentRef);
+    { badge: documentRef.badge, summaryBadge: documentRef.summaryBadge,
+      reviewLink: documentRef.reviewLink }, failingFetch, documentRef);
   await controller.refresh();
   assert.equal(documentRef.badge.hidden, true);
 });
