@@ -148,9 +148,9 @@ test("CURRENT onboarding 只接受現行導覽名稱，技術名稱不受影響"
     "docs/guides/getting-started-zh-TW.md",
     legacy,
   );
-  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「收件匣」")));
-  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「Wiki」")));
-  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「審核」")));
+  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「文件」")));
+  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「知識」")));
+  assert.ok(findings.some((finding) => finding.includes("舊導覽名稱 「開始」")));
 
   assert.deepEqual(
     analyzeOnboardingNavigationCopy(
