@@ -64,6 +64,7 @@ Current／legacy／evaluation／guide 採用可見頁首標記，至少可辨識
 ## 入口
 
 - 新手 5–10 分鐘導覽：`guides/getting-started-zh-TW.md`
+- 全離線 Ask／本機模型設定：`guides/local-openai-compatible-provider-zh-TW.md`
 - 語言與術語單一規範：`development/language-and-terminology.md`
 - 現在系統長什麼樣：`architecture/README.md` → `architecture/system-overview.md`
 - 支援哪些流程：`architecture/use-cases.md`
