@@ -161,11 +161,13 @@ class FakeReviewLink {
 
 function badgeDocument() {
   const badge = new FakeBadge();
+  const summaryBadge = new FakeBadge();
   const reviewLink = new FakeReviewLink();
   const docListeners = new Map();
   const viewListeners = new Map();
   return {
     badge,
+    summaryBadge,
     reviewLink,
     docListeners,
     viewListeners,
@@ -176,6 +178,7 @@ function badgeDocument() {
     addEventListener(name, handler) { docListeners.set(name, handler); },
     querySelector(selector) {
       if (selector === "#review-pending-badge") return badge;
+      if (selector === "#review-pending-summary-badge") return summaryBadge;
       if (selector === '[data-route-link="review"]') return reviewLink;
       return null;
     }
@@ -203,14 +206,19 @@ test("badge controller refreshes on route change and workspace switch, hiding on
   await controller.refresh();
   assert.equal(documentRef.badge.hidden, false);
   assert.equal(documentRef.badge.textContent, "2 件待審");
+  assert.equal(documentRef.summaryBadge.hidden, false);
+  assert.equal(documentRef.summaryBadge.textContent, "2 件待審",
+    "collapsed More entry still surfaces actionable pending work");
 
   pending = 0;
   await controller.refresh();
   assert.equal(documentRef.badge.hidden, true,
     "no pending work leaves primary attention alone");
+  assert.equal(documentRef.summaryBadge.hidden, true);
 
   controller.reset();
   assert.equal(documentRef.badge.hidden, true);
+  assert.equal(documentRef.summaryBadge.hidden, true);
   assert.equal(calls.length, 2);
 });
 
