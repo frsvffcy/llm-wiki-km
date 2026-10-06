@@ -44,13 +44,14 @@ class FakeDocument {
   }
 }
 
-test("IA groups 7 routes task-first without changing hash contract or hiding diagnostics (#571)", async () => {
-  assert.deepEqual([...NAV_GROUPS.basic], ["home", "inbox", "wiki", "ask", "review"]);
-  assert.deepEqual([...NAV_GROUPS.advanced], ["inspect", "quality"]);
-  assert.equal(navGroup("home"), "basic");
+test("IA keeps deep links while persistent navigation exposes only direct work (#680)", async () => {
+  assert.deepEqual([...NAV_GROUPS.basic], ["wiki", "inbox"]);
+  assert.deepEqual([...NAV_GROUPS.advanced], ["home", "ask", "review", "inspect", "quality"]);
+  assert.equal(navGroup("wiki"), "basic");
   assert.equal(navGroup("inbox"), "basic");
-  assert.equal(navGroup("ask"), "basic");
-  assert.equal(navGroup("review"), "basic");
+  assert.equal(navGroup("home"), "advanced");
+  assert.equal(navGroup("ask"), "advanced");
+  assert.equal(navGroup("review"), "advanced");
   assert.equal(navGroup("inspect"), "advanced");
   assert.equal(navGroup("quality"), "advanced");
   assert.equal(navGroup("nonsense"), null);
@@ -59,31 +60,29 @@ test("IA groups 7 routes task-first without changing hash contract or hiding dia
   const nav = html.match(/<nav[^>]*class="app-nav"[^>]*>[\s\S]*?<\/nav>/u);
   assert.ok(nav, "app-nav shell must exist");
   const hrefs = [...nav[0].matchAll(/href="#\/([a-z]+)"/gu)].map(m => m[1]);
-  assert.deepEqual(hrefs, ["home", "inbox", "wiki", "ask", "review", "inspect", "quality"],
-    "hash URLs stay compatible; visual order follows the task flow");
-  for (const route of hrefs) {
-    assert.match(nav[0], new RegExp(`data-route-link="${route}"`, "u"));
+  assert.deepEqual(hrefs, ["wiki", "inbox", "home", "ask", "review", "inspect", "quality"],
+    "all hash URLs remain reachable while direct work is listed first");
+
+  const workGroup = nav[0].match(/aria-label="工作"[\s\S]*?(?=<details class="app-nav-more")/u);
+  assert.ok(workGroup);
+  assert.match(workGroup[0], /data-route-link="wiki">閱讀/u);
+  assert.match(workGroup[0], /data-route-link="inbox">管理文件/u);
+  assert.doesNotMatch(workGroup[0], /data-route-link="ask"|data-route-link="review"|data-route-link="inspect"|data-route-link="quality"/u,
+    "supporting mechanisms do not remain persistent top-level choices");
+
+  const more = nav[0].match(/<details class="app-nav-more"[\s\S]*?<\/details>/u);
+  assert.ok(more);
+  for (const [route, label] of [["home", "工作區與設定"], ["ask", "提問"],
+      ["review", "待我審核"], ["inspect", "檢視器"], ["quality", "品質"]]) {
+    assert.match(more[0], new RegExp(`data-route-link="${route}">[^<]*${label}`, "u"),
+      `${route} remains reachable under More`);
   }
-  // Task-language labels: no implementation terms in primary navigation.
-  for (const [route, label] of [["home", "開始"], ["inbox", "文件"], ["wiki", "知識"],
-      ["ask", "提問"], ["review", "待我審核"]]) {
-    assert.match(nav[0], new RegExp(`data-route-link="${route}">[^<]*${label}`, "u"),
-      `${route} uses task language`);
-  }
-  // Advanced entries stay visible links with deep links intact, grouped second.
-  const advancedGroup = nav[0].match(/aria-label="進階維護"[\s\S]*?(?=<div class="app-nav-group"|<\/nav>)/u);
-  assert.ok(advancedGroup);
-  assert.match(advancedGroup[0], /data-route-link="inspect"/u);
-  assert.match(advancedGroup[0], /data-route-link="quality"/u);
-  assert.ok(nav[0].includes('role="group"'), "groups expose screen-reader structure");
-  // Review carries the pending badge anchor without抢占 primary attention by itself.
+  assert.match(more[0], /id="review-pending-summary-badge"[^>]*hidden/u,
+    "collapsed More entry has a backend-driven pending-work attention anchor");
   assert.match(nav[0], /id="review-pending-badge"/u);
-  assert.match(nav[0], /<span id="review-pending-badge"[^>]*hidden/u,
-    "the pending indicator starts hidden; only a positive backend count reveals it");
-  assert.match(html, /id="view-wiki"[^>]*aria-label="知識"/u);
-  assert.match(html, /<h2 data-view-heading tabindex="-1">知識<\/h2>/u);
-  assert.doesNotMatch(html, /已發布 Wiki|前往 Wiki 閱讀/u,
-    "current user-facing knowledge surfaces do not require translating Wiki into 知識");
+  assert.match(html, /id="view-wiki"[^>]*aria-label="閱讀"/u);
+  assert.match(html, /<h2 data-view-heading tabindex="-1">閱讀<\/h2>/u);
+  assert.doesNotMatch(html, /已發布 Wiki|前往 Wiki 閱讀/u);
 });
 
 test("active route is aria-current and not hover-only (#495)", async () => {
