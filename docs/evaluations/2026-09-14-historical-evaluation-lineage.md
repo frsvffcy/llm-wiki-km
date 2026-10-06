@@ -356,8 +356,8 @@ PR #687 新增的 16 份 evaluation 經 #690 fresh reconciliation 後，不建�
 ### 3.26.2 Retrieval / Graph / temporal family
 
 - **TAGGRAPH**：外部數字不作 own-project ROI；Graph extraction / relation-loss sensitivity 是 material evaluation dimension。#689 已完成 deterministic fault-injection：backend/input 漂移先被 real currentness 以 `GRAPH_PROJECTION_STALE` 擋下；最終以 test-owned canonical fingerprint 模擬 assembler omission，real ArcadeDB/traversal/admission/fusion 下四個 relation-loss scenario 都只失去對應 graph-only evidence，FTS/vector 與非目標 Graph query exact-retained、safety negatives 維持。Decision `KEEP_GRAPH_OPTIONAL_AND_MEASURE_PROJECTION_COMPLETENESS`；不調 production ranking、不擴 GraphRAG。
-- **PAGE-RAG**：derived graph ≠ authority、textual retrieval floor、answer-or-abstain 全部 `CURRENTLY COVERED`。Query-adaptive Graph traversal 維持 `DEFER`；先由 #689 / existing diagnostics量 Graph 真實價值與白跑成本，未量測前不加 routing policy。
-- **rerank / late-interaction paper**：query rewriting 可退化 exact/CJK signal、agentic no-retrieval 會產生無證據回答，皆強化 current #408 / grounded-answer boundary。ColBERT/late interaction `DEFER`；現階段先量既有 FTS/vector/Graph/fusion，Graph relation-loss dimension收斂到 #689，不另開 vendor/model roadmap。
+- **PAGE-RAG**：derived graph ≠ authority、textual retrieval floor、answer-or-abstain 全部 `CURRENTLY COVERED`。#689 已完成 relation-loss sensitivity，證明 Graph 的 scenario-specific discovery value 依賴 projection completeness，但該 synthetic fixture **沒有**量到真實 corpus 的 traversal 使用率、白跑比例、延遲或 ROI。Query-adaptive Graph traversal 因此維持 `DEFER`；只有 current diagnostics／dogfood 出現可重現的 Graph 白跑成本或 latency pain，才另做 routing evaluation。
+- **rerank / late-interaction paper**：query rewriting 可退化 exact/CJK signal、agentic no-retrieval 會產生無證據回答，皆強化 current #408 / grounded-answer boundary。ColBERT/late interaction `DEFER`；Graph relation-loss dimension 已由 #689 完成，且沒有證據支持因此新增 vendor/model roadmap。未來只有真實 retrieval-quality / latency trigger 成立時才重評 late interaction。
 - **multi-domain retriever evaluation paper**：`ADOPT AS EVALUATION-METHOD INPUT`。未來真實 embedding provider 選型應採 uniform budget、off-the-shelf config、同 corpus/hardware，並加入 p50/p95 query latency；在 owner 尚未決定比較 embedding provider 前維持 `DEFER`。
 - **TimelyRAG**：同一 document 的 superseded revision 已由 currentness/ineligibility 更強解決；跨文件多版本競爭仍是 `DEFER`。只有 corpus 出現可重現「獨立文件舊版被誤取」才先做 deterministic prevalence scan，再評估 reorder-only temporal policy；event time 必須是 owner-assertable metadata，不可由 LLM 抽取成 authority。
 - **MatRAG**：`DEFER`。hierarchical cluster DAG 是未來 multi-hop 的 graph-lite 替代路線輸入；前置是 own-project multi-hop/cross-document miss 成為主要問題。未觸發前不建 cluster index、不排 roadmap。
@@ -365,17 +365,18 @@ PR #687 新增的 16 份 evaluation 經 #690 fresh reconciliation 後，不建�
 ### 3.26.3 Document / local-first / provider family
 
 - **PIXELRAG**：完整 pixel-index/VLM query path = `DEFER`；最小可採方向是 existing `NEED_OCR` seam 下的 ingest-time layout/OCR/VLM extraction，仍存為 canonical text。與 PaddleOCR/RapidOCR/RAGFlow/PixelRAG 既有 family 合併；只有掃描件／表格／版面文件形成可重現痛點才 benchmark。
-- **Project NOMAD**：runtime/platform adoption = `NO-GO`；全離線 OpenAI-compatible provider 是 current capability 的 docs gap，不是新 feature。Current owner：#688（local Ollama/OpenAI-compatible recipe + resource/quality limitations）。Collection manifest / public corpus import 維持 `DEFER`。
+- **Project NOMAD**：runtime/platform adoption = `NO-GO`；全離線 OpenAI-compatible provider 是 current capability 的 docs gap，不是新 feature。#688 已完成 local Ollama/OpenAI-compatible recipe 與 resource/quality limitations 文件化；目前無 executable owner。Collection manifest / public corpus import 維持 `DEFER`。
 - **Hindsight v0.10.2 re-evaluation**：`LINEAGE_ONLY`。相較 2026-09-18 TRACK_FULL，判定表不變、六個 local-daemon pilot trigger仍未成立；delta只強化兩項既有 boundary：auto-retain 生態擴張增加 durable-memory governance風險，failed-refresh settle / deterministic crediting 反向確認 bounded-loop 與 deterministic bookkeeping。下次只在 major version、owner real continuity pain 或任一原 trigger成立時重評。
 - **Wenlan 0.18.16 re-evaluation**：`LINEAGE_ONLY`。判定表不變，既有 actionable #541/#542 已完成；relay/unauthenticated-MCP repair/repair-lineage只作 current boundary reinforcement。下次只在 relay 成為 owner需求、#384 無法涵蓋新的 repair shape、或 OKF trigger成立時重評。
 
 ### 3.26.4 Batch outcome
 
-本批次 current executable owners只有：
+本批次原 executable owners #688、#689、#690 **皆已完成並關閉**；截至 #695 收尾盤點，這一批 evaluation **沒有 current executable owner**。
 
-- #688：全離線 local provider docs recipe；
-- #689：Graph relation-loss sensitivity / fusion baseline-retention evaluation；
-- #690：evaluation lineage/index/current-status cleanup（本段）。
+- #688：全離線 local provider docs recipe 已完成；
+- #689：Graph relation-loss sensitivity / fusion baseline-retention evaluation 已完成，decision = `KEEP_GRAPH_OPTIONAL_AND_MEASURE_PROJECTION_COMPLETENESS`；
+- #690：evaluation lineage/index/current-status cleanup 已完成；
+- #695：只負責將上述 completion state 回寫 current lineage，完成後不留下新的 runtime/backlog owner。
 
 其餘全部為 `CURRENTLY COVERED`、`DEFER`、`NO-GO` 或 design/evaluation input；不得因文件新增就自動轉成 implementation backlog。
 
