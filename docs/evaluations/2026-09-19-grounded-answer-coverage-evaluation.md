@@ -1,5 +1,8 @@
 # Grounded Answer citation-coverage evaluation
 
+> **Current-status update（2026-10-06；Refs #682 #685）**：本文件下方 §6/§8 的 live-provider `UNOBSERVED` 與「PROMPT FOLLOW-UP NOT TRIGGERED」是 #551 完成當時的歷史狀態，已被後續實測取代。#682 使用 production Answer adapter + synthetic required-set truth 量測 `grounded-answer@v3`：`CONFLICTING_INFO` 2 次中 1 次只引用 1/2 required evidence（PARTIAL, recall=0.5），因此決策 `ANSWER_FOLLOW_UP`；#685 將 application-owned prompt contract 升為 `grounded-answer@v4`，合併後 owner-local controlled rerun 每 case 3 次，`CONFLICTING_INFO` 與 `COMPLETENESS_REQUIRED` 共 **6/6 COMPLETE、required recall=1.0、false abstention=0、decision=NO_CHANGE**。因此 current conclusion 是：**retrieval/context required-set 已足、v4 citation-completeness corrective 通過 bounded live-provider evidence；不觸發 #533 evidence-gap retrieval，也沒有剩餘 prompt-completeness corrective。** 本文件仍保留為 benchmark methodology／runtime-valid vs benchmark-complete 的 TRACK_FULL evidence；歷史正文不改寫。
+
+
 - 日期：2026-09-19
 - Tracking Issue：#551
 - Baseline：main@8d2631de256ef85c577b986e1c84c899d05599c4
