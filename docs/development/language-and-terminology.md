@@ -62,7 +62,7 @@ review                 → 技術／流程概念；需要處理時顯示「待�
 | proposal | 提案 | `Proposal`／`proposal` | UI 首次可寫「提案」；identifier 保留 |
 | draft | 草稿 | `Draft`／`draft` | |
 | publish | 發布 | `publish` | 臺灣用語；不用「發佈」混用 |
-| review | 待我審核（需要處理時的操作入口）／審核（動作） | `review` | 平時可收在「更多」或 contextual handoff；描述人工動作時可寫「審核」，不用「審查」 |
+| review | 待我審核（需要處理時的操作入口）／審核（動作） | `review` | 平時可收在「更多」或情境交接入口；描述人工動作時可寫「審核」，不用「審查」 |
 | canonical | 權威內容／權威狀態 | `canonical` | 只有技術說明需要時保留英文 |
 | soft delete | 軟刪除 | `soft delete` | UI 寫「移除」或「標記為已刪除」 |
 | backend／frontend | 後端／瀏覽器介面 | `backend`／`frontend` | UI 不顯示「Backend」 |
