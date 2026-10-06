@@ -20,8 +20,8 @@ class GroundedAnswerPromptContractTest {
 
         GroundedAnswerPrompt prompt = contract.render(request);
 
-        assertThat(prompt.identifier()).isEqualTo("grounded-answer@v3");
-        assertThat(prompt.version()).isEqualTo("v3");
+        assertThat(prompt.identifier()).isEqualTo("grounded-answer@v4");
+        assertThat(prompt.version()).isEqualTo("v4");
         assertThat(prompt.contentHash()).hasSize(64);
         assertThat(prompt.renderedPrompt())
                 .contains("APPLICATION_INSTRUCTIONS_BEGIN")
@@ -30,11 +30,29 @@ class GroundedAnswerPromptContractTest {
                 .contains("USER_QUESTION_JSON=\"What is security?\"")
                 .contains("EVIDENCE_DATA_UNTRUSTED_JSON=")
                 .contains("RESPONSE_SCHEMA_BEGIN")
-                .contains("GROUNDED_ANSWER_PROMPT_V3")
+                .contains("GROUNDED_ANSWER_PROMPT_V4")
                 .contains("\"insufficientEvidence\":false}")
                 .doesNotContain("metadata")
                 .doesNotContain("usage")
                 .doesNotContain("hash-security");
+    }
+
+    @Test
+    void promptRequiresCompleteMaterialCitationsWithoutCitingUnrelatedContext() {
+        AnswerContext context = AnswerContext.fromReferences(java.util.List.of(
+                new AnswerContextReference("WIKI:one", "hash-one"),
+                new AnswerContextReference("WIKI:two", "hash-two"),
+                new AnswerContextReference("WIKI:unrelated", "hash-unrelated")));
+        GroundedAnswerPrompt prompt = contract.render(new AnswerRequest(
+                "Question", context, AnswerGenerationOptions.defaults()));
+
+        assertThat(prompt.renderedPrompt())
+                .contains("every evidence item that materially supports the answer")
+                .contains("must not include unrelated evidence merely to increase citation coverage")
+                .contains("explicitly acknowledge the conflict")
+                .contains("all relevant conflicting evidence ids")
+                .contains("complete answer requires combining distinct facts or required steps")
+                .contains("every evidence id that contributes a required part of the answer");
     }
 
     @Test
