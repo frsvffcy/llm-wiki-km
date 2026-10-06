@@ -355,7 +355,7 @@ PR #687 新增的 16 份 evaluation 經 #690 fresh reconciliation 後，不建�
 
 ### 3.26.2 Retrieval / Graph / temporal family
 
-- **TAGGRAPH**：外部數字不作 own-project ROI；Graph extraction / relation-loss sensitivity 是 material new evaluation dimension。既有 #272/#276/#280 已覆蓋 graph-added discovery、holdout、ranking sensitivity、Graph unavailable baseline retention，但沒有「部分 admitted relations 消失」的 fault-injection attribution。Current owner：#689。
+- **TAGGRAPH**：外部數字不作 own-project ROI；Graph extraction / relation-loss sensitivity 是 material evaluation dimension。#689 已完成 deterministic fault-injection：backend/input 漂移先被 real currentness 以 `GRAPH_PROJECTION_STALE` 擋下；最終以 test-owned canonical fingerprint 模擬 assembler omission，real ArcadeDB/traversal/admission/fusion 下四個 relation-loss scenario 都只失去對應 graph-only evidence，FTS/vector 與非目標 Graph query exact-retained、safety negatives維持。Decision `KEEP_GRAPH_OPTIONAL_AND_MEASURE_PROJECTION_COMPLETENESS`；不調 production ranking、不擴 GraphRAG。
 - **PAGE-RAG**：derived graph ≠ authority、textual retrieval floor、answer-or-abstain 全部 `CURRENTLY COVERED`。Query-adaptive Graph traversal 維持 `DEFER`；先由 #689 / existing diagnostics量 Graph 真實價值與白跑成本，未量測前不加 routing policy。
 - **rerank / late-interaction paper**：query rewriting 可退化 exact/CJK signal、agentic no-retrieval 會產生無證據回答，皆強化 current #408 / grounded-answer boundary。ColBERT/late interaction `DEFER`；現階段先量既有 FTS/vector/Graph/fusion，Graph relation-loss dimension收斂到 #689，不另開 vendor/model roadmap。
 - **multi-domain retriever evaluation paper**：`ADOPT AS EVALUATION-METHOD INPUT`。未來真實 embedding provider 選型應採 uniform budget、off-the-shelf config、同 corpus/hardware，並加入 p50/p95 query latency；在 owner 尚未決定比較 embedding provider 前維持 `DEFER`。
