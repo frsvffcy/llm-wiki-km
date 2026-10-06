@@ -140,7 +140,7 @@ export EMBEDDING_PROVIDER_API_KEY='local-only'
 
 - 同一套向量投影應維持固定的 embedding model／dimension；
 - 更換 embedding model 或 dimension 後，應依現行 vector projection 流程重建，不要混用舊向量；
-- 不要因為某個模型在外部 benchmark 排名高，就直接假設它適合繁中個人知識庫；
+- 不要因為某個模型在外部基準測試排名高，就直接假設它適合繁中個人知識庫；
 - 模型品質應以自己的 corpus、Recall/MRR、延遲與資源成本量測。
 
 啟用後可查看：
