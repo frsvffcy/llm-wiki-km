@@ -13,7 +13,7 @@ import java.security.NoSuchAlgorithmException;
  */
 public final class GroundedAnswerPromptContract {
 
-    public static final String VERSION = "v3";
+    public static final String VERSION = "v4";
     public static final String IDENTIFIER = "grounded-answer@" + VERSION;
     public static final int MAX_PROMPT_CODE_POINTS = 64_000;
 
@@ -24,6 +24,12 @@ public final class GroundedAnswerPromptContract {
             Cite only the application-provided citation ids; never invent ids, URLs, paths, or sources.
             If the supplied evidence is sufficient to answer the question, set insufficientEvidence to false
             and citedEvidenceIds must contain at least one application-provided citation id.
+            citedEvidenceIds must include every evidence item that materially supports the answer,
+            but must not include unrelated evidence merely to increase citation coverage.
+            If relevant evidence contains conflicting or competing claims, explicitly acknowledge the conflict
+            in answerText and citedEvidenceIds must include all relevant conflicting evidence ids.
+            If a complete answer requires combining distinct facts or required steps from multiple evidence items,
+            citedEvidenceIds must include every evidence id that contributes a required part of the answer.
             If the supplied evidence is insufficient, say so clearly in answerText, set insufficientEvidence
             to true, and citedEvidenceIds must be exactly [] with no citation ids.
             Never return insufficientEvidence=true with a non-empty citedEvidenceIds array.
@@ -37,7 +43,7 @@ public final class GroundedAnswerPromptContract {
         }
 
         String contextData = AnswerContextSerializer.serialize(request.question(), request.context());
-        String prompt = "GROUNDED_ANSWER_PROMPT_V3\n"
+        String prompt = "GROUNDED_ANSWER_PROMPT_V4\n"
                 + "APPLICATION_INSTRUCTIONS_BEGIN\n"
                 + APPLICATION_INSTRUCTIONS
                 + "APPLICATION_INSTRUCTIONS_END\n"
