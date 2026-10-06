@@ -12,13 +12,10 @@ import org.km.llmwiki.graph.GraphProjectionFailureType;
 import org.km.llmwiki.graph.GraphProjectionInput;
 import org.km.llmwiki.graph.GraphProjectionInputAssembler;
 import org.km.llmwiki.graph.GraphProjectionLifecycleRepository;
-import org.km.llmwiki.graph.GraphProjectionLifecycleService;
 import org.km.llmwiki.graph.GraphProjectionStatusResponse;
-import org.km.llmwiki.graph.GraphProjectionVersion;
 import org.km.llmwiki.graph.GraphRelation;
 import org.km.llmwiki.graph.GraphRelationType;
 import org.km.llmwiki.graph.GraphWorkspaceScope;
-import org.km.llmwiki.persistence.graph.arcadedb.ArcadeDbGraphProjectionBackendFactory;
 import org.km.llmwiki.processing.ProcessingJobRepository;
 import org.km.llmwiki.rag.GraphRetrievalGoldenCorpus.GoldenQuery;
 import org.km.llmwiki.rag.GraphRetrievalQualityBenchmark.Evaluation;
@@ -127,15 +124,9 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
 
         ScenarioCanonicalCurrentness scenarioCurrentness =
                 new ScenarioCanonicalCurrentness(active);
-        ArcadeDbGraphProjectionBackendFactory graphFactory =
-                new ArcadeDbGraphProjectionBackendFactory(temp.resolve("relation-loss-graph"),
-                        GraphProjectionVersion.current());
         try (GraphRetrievalQualityFixture.LifecycleBundle lifecycleFactory =
-                     new GraphRetrievalQualityFixture.LifecycleBundle(
-                             new GraphProjectionLifecycleService(true, "arcadedb",
-                                     GraphProjectionVersion.current(), lifecycleRepository,
-                                     graphFactory, scenarioCurrentness),
-                             graphFactory)) {
+                     fixture.lifecycle(temp.resolve("relation-loss-graph"),
+                             scenarioCurrentness)) {
             GraphProjectionInput baselineInput = assembler.assemble(active);
             scenarioCurrentness.expect(baselineInput);
             lifecycleFactory.lifecycle().rebuild(baselineInput);
@@ -350,21 +341,21 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
         Path reports = Path.of("target", "quality-reports");
         Files.createDirectories(reports);
         StringBuilder report = new StringBuilder();
-        report.append("# Graph relation-loss sensitivity report\\n\\n")
-                .append("- evaluation: ").append(VERSION).append("\\n")
-                .append("- corpus: ").append(GraphRetrievalEvaluationCorpusV2.VERSION).append("\\n")
+        report.append("# Graph relation-loss sensitivity report\n\n")
+                .append("- evaluation: ").append(VERSION).append("\n")
+                .append("- corpus: ").append(GraphRetrievalEvaluationCorpusV2.VERSION).append("\n")
                 .append("- ranking policy: ").append(FusionRankingPolicy.production().version())
-                .append("\\n")
+                .append("\n")
                 .append("- baseline graph recall: ")
-                .append(format(baseline.aggregates().get("HYBRID_GRAPH").recallAtK())).append("\\n")
+                .append(format(baseline.aggregates().get("HYBRID_GRAPH").recallAtK())).append("\n")
                 .append("- baseline graph MRR: ")
-                .append(format(baseline.aggregates().get("HYBRID_GRAPH").mrr())).append("\\n")
-                .append("- decision: KEEP_GRAPH_OPTIONAL_AND_MEASURE_PROJECTION_COMPLETENESS\\n\\n")
+                .append(format(baseline.aggregates().get("HYBRID_GRAPH").mrr())).append("\n")
+                .append("- decision: KEEP_GRAPH_OPTIONAL_AND_MEASURE_PROJECTION_COMPLETENESS\n\n")
                 .append("| scenario | query | lost evidence | baseline recall | fault recall | ")
-                .append("baseline mrr | fault mrr | FTS retained | vector retained | outcome |\\n")
-                .append("| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |\\n");
-        rows.forEach(row -> report.append(row).append("\\n"));
-        report.append("\\nInterpretation: targeted admitted-relation loss removes only the ")
+                .append("baseline mrr | fault mrr | FTS retained | vector retained | outcome |\n")
+                .append("| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |\n");
+        rows.forEach(row -> report.append(row).append("\n"));
+        report.append("\nInterpretation: targeted admitted-relation loss removes only the ")
                 .append("graph-only evidence whose path depends on that relation. FTS/vector ")
                 .append("results and unrelated graph scenarios remain unchanged. This proves ")
                 .append("scenario-specific Graph value and projection-completeness sensitivity. ")
@@ -372,7 +363,7 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
                 .append("canonical fingerprint boundary; backend/traversal/admission/fusion remain ")
                 .append("production implementations. It does not establish real-world relation-loss ")
                 .append("frequency and does not ")
-                .append("justify a production ranking or GraphRAG expansion by itself.\\n");
+                .append("justify a production ranking or GraphRAG expansion by itself.\n");
         Files.writeString(reports.resolve("graph-relation-loss-sensitivity-v1.md"),
                 report.toString());
     }
