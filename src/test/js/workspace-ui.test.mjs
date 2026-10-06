@@ -325,8 +325,9 @@ test("bootstrap loads current workspace and existing list on first open without 
   assert.equal(elements.homeWork.hidden, false);
   assert.equal(elements.workspacePanel.hidden, false);
   assert.equal(elements.management.open, false);
-  assert.equal(elements.list.children.length, 2);
-  assert.match(flatText(elements.list), /main/u);
+  assert.equal(elements.list.children.length, 1,
+    "collapsed switcher only contains workspaces other than the active one");
+  assert.doesNotMatch(flatText(elements.list), /main/u);
   assert.match(flatText(elements.list), /second/u);
 });
 
