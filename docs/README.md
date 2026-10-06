@@ -71,8 +71,9 @@ Current／legacy／evaluation／guide 採用可見頁首標記，至少可辨識
 - 能力由誰持有：`architecture/capability-map.md`
 - Schema 責任與生命週期：`architecture/schema.md`
 - API surface 與邊界：`architecture/api.md`
-- 下一版候選範圍：`release/v0.3.0-release-notes.md`（尚未發布）
-- 下一版版本決策：`development/issue-642-release-scope-decision.md`
+- 下一版候選範圍：`release/v0.3.3-release-notes.md`（`CANDIDATE`；尚未發布）
+- 下一版 release scope / readiness owner：GitHub Issue #698（current work 仍以 GitHub Issue 為權威）
+- 歷史版本範圍決策範例：`development/issue-642-release-scope-decision.md`
 - 發布候選程序：`release/release-candidate-procedure-v1.md`
 - 以前怎麼想：`architecture/legacy/README.md`（如有；否則見本目錄 `legacy/` 各文件頁首）
 - 如何學習：`guides/architecture-learning-guide.md`
