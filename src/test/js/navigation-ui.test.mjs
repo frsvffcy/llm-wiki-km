@@ -202,7 +202,8 @@ test("badge controller refreshes on route change and workspace switch, hiding on
     return countEnvelope(pending);
   };
   const controller = createNavBadgeController(
-    { badge: documentRef.badge, reviewLink: documentRef.reviewLink }, fetchImpl, documentRef);
+    { badge: documentRef.badge, summaryBadge: documentRef.summaryBadge,
+      reviewLink: documentRef.reviewLink }, fetchImpl, documentRef);
   await controller.refresh();
   assert.equal(documentRef.badge.hidden, false);
   assert.equal(documentRef.badge.textContent, "2 件待審");
@@ -226,7 +227,8 @@ test("badge refresh never rejects: backend failures hide instead of blocking (#5
   const documentRef = badgeDocument();
   const failingFetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
   const controller = createNavBadgeController(
-    { badge: documentRef.badge, reviewLink: documentRef.reviewLink }, failingFetch, documentRef);
+    { badge: documentRef.badge, summaryBadge: documentRef.summaryBadge,
+      reviewLink: documentRef.reviewLink }, failingFetch, documentRef);
   await controller.refresh();
   assert.equal(documentRef.badge.hidden, true);
 });
