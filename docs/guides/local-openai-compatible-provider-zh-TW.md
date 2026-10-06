@@ -53,7 +53,9 @@ export ANSWER_PROVIDER_ENABLED=true
 export ANSWER_PROVIDER=openai-compatible
 export ANSWER_PROVIDER_BASE_URL=http://127.0.0.1:11434/v1
 export ANSWER_PROVIDER_MODEL='YOUR_INSTALLED_MODEL'
-export OPENAI_API_KEY='local-only'
+read -r -s -p "本機 Provider credential（若本機 server 不驗證，可輸入 local-only）: " LOCAL_PROVIDER_KEY
+echo
+export OPENAI_API_KEY="$LOCAL_PROVIDER_KEY"
 ```
 
 然後啟動 llm-wiki-km：
@@ -62,7 +64,7 @@ export OPENAI_API_KEY='local-only'
 mvn spring-boot:run
 ```
 
-`OPENAI_API_KEY='local-only'` 只是滿足 llm-wiki-km adapter 的「credential 不可空白」設定要求；若你的本機 provider 不驗證 Bearer token，它不需要是真正的秘密。**不要把真正的 API key 寫進 Git。**
+`OPENAI_API_KEY` 必須是非空白值。若你的本機 provider 不驗證 Bearer token，可在上面的互動提示輸入 `local-only` 之類的非秘密 placeholder；若 provider 真的要求認證，就輸入它要求的 credential。這個值只存在目前 shell 環境，**不要把真正的 API key 寫進 Git。**
 
 llm-wiki-km 會在 base URL 後使用 OpenAI-compatible 的：
 
@@ -131,7 +133,7 @@ export EMBEDDING_PROVIDER_ENABLED=true
 export EMBEDDING_PROVIDER=openai-compatible
 export EMBEDDING_PROVIDER_BASE_URL=http://127.0.0.1:11434/v1
 export EMBEDDING_PROVIDER_MODEL='YOUR_INSTALLED_EMBEDDING_MODEL'
-export EMBEDDING_PROVIDER_API_KEY='local-only'
+export EMBEDDING_PROVIDER_API_KEY="$LOCAL_PROVIDER_KEY"
 ```
 
 `EMBEDDING_PROVIDER_DIMENSION` 預設為 `0`，代表 adapter 接受 provider 回傳的 bounded dimension；若設為正整數，回傳向量維度必須完全相同，否則 fail closed。
