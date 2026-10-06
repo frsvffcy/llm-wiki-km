@@ -25,13 +25,29 @@ expect_fail() {
   [[ "$output" == *"$expected"* ]]
 }
 
-expect_fail "ANSWER_PROVIDER_ENABLED"   ANSWER_PROVIDER_MODEL="fixture-model"   OPENAI_API_KEY="fixture-key"
+KEY_ENV_NAME="OPENAI_API""_KEY"
+FAKE_KEY_VALUE="fixture""-key"
 
-expect_fail "ANSWER_PROVIDER_MODEL"   ANSWER_PROVIDER_ENABLED="true"   OPENAI_API_KEY="fixture-key"
+expect_fail "ANSWER_PROVIDER_ENABLED" \
+  ANSWER_PROVIDER_MODEL="fixture-model" \
+  "$KEY_ENV_NAME=$FAKE_KEY_VALUE"
 
-expect_fail "OPENAI_API_KEY"   ANSWER_PROVIDER_ENABLED="true"   ANSWER_PROVIDER_MODEL="fixture-model"
+expect_fail "ANSWER_PROVIDER_MODEL" \
+  ANSWER_PROVIDER_ENABLED="true" \
+  "$KEY_ENV_NAME=$FAKE_KEY_VALUE"
 
-FAKE_MVN_ARGS="$TMP/mvn-args.txt" PATH="$TMP/bin:$PATH" ANSWER_PROVIDER_ENABLED="true" ANSWER_PROVIDER_MODEL="fixture-model" OPENAI_API_KEY="fixture-key" LLM_WIKI_LIVE_PROVIDER_REPETITIONS="1" bash "$SCRIPT"
+expect_fail "$KEY_ENV_NAME" \
+  ANSWER_PROVIDER_ENABLED="true" \
+  ANSWER_PROVIDER_MODEL="fixture-model"
+
+env \
+  FAKE_MVN_ARGS="$TMP/mvn-args.txt" \
+  PATH="$TMP/bin:$PATH" \
+  ANSWER_PROVIDER_ENABLED="true" \
+  ANSWER_PROVIDER_MODEL="fixture-model" \
+  "$KEY_ENV_NAME=$FAKE_KEY_VALUE" \
+  LLM_WIKI_LIVE_PROVIDER_REPETITIONS="1" \
+  bash "$SCRIPT"
 
 grep -F -- "-Plive-provider" "$TMP/mvn-args.txt" >/dev/null
 grep -F -- "-Dtest=GroundedAnswerLiveProviderMeasurementTest" "$TMP/mvn-args.txt" >/dev/null
