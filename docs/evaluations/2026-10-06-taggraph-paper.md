@@ -1,5 +1,8 @@
 # Evaluation：TAGGRAPH 論文（共享表示下的圖 vs BM25 受控比較與負面結果）
 
+> **Current-status update（2026-10-06；Refs #689）**：本文件 §3.1 的 Graph 關係缺失敏感度實驗已完成。最初直接對 assembled projection input 移除 relation 的做法被 production `SqliteGraphCanonicalCurrentness` 正確拒絕為 `GRAPH_PROJECTION_STALE`，證明 backend/input 漂移不能冒充 current Graph。最終 evaluation 改為**受控模擬 canonical assembler 本身漏掉一條 admitted relation**，其餘仍走 real ArcadeDB lifecycle/traversal、production evidence admission/fusion、authority/currentness safety path。四個 deterministic scenario（direct 1-hop LINKS_TO、2-hop tail LINKS_TO、multi-target 單邊缺失、DERIVED_FROM→CONTAINS 的 CONTAINS 缺失）全部證明：依賴該 relation 的 graph-only citation evidence 精準消失；`HYBRID_FTS`／`HYBRID_VECTOR` identities、Recall/MRR 完全不變；非目標 Graph query 完全不變；stale/foreign/ineligible safety negatives 仍被阻擋；恢復原 projection input 後所有 mode 精準回到 baseline。Decision：**KEEP_GRAPH_OPTIONAL_AND_MEASURE_PROJECTION_COMPLETENESS**。這證明 Graph 有 scenario-specific discovery value，也證明其價值依賴 projection completeness；不因此調 production fusion、不新增 relation、不擴大 GraphRAG。synthetic fixture 不代表真實個人 corpus 的 relation-loss 發生率。
+
+
 - 評估日期：2026-10-06
 - 來源：arXiv:2609.38353（**v1 2026-09-29、v2 2026-10-01**，cs.IR，CC BY 4.0）〈TAGGRAPH: Tag-Augmented Graphs for Graph Retrieval of Agent Persistent Histories〉（UCSD ECE）。**程式碼可得性已核對**：全文寫「All code and dataset generation scripts **will be** provided in a GitHub repository」——未來式，**發表時尚未提供**（僅連結外部參照系統 OpenClaw 的 repo）；專家「尚未確認有完整公開重現程式碼」屬實。評估輸入含使用者提供的專家說明，其引用的數字與判讀**經摘要＋全文核對全部成立**。
 - 對象專案：llm-wiki-km
