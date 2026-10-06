@@ -339,6 +339,46 @@ Onyx 的 current lineage 是 **enterprise RAG control-plane / search observabili
 - 不搬 EnterpriseRAG >500k synthetic corpus或 leaderboard threshold；synthetic benchmark只作 taxonomy/fixture design input，不自動代表 personal real-world quality。
 - 不建立 Onyx-specific permanent roadmap；actionable owner為 #541、#546，adaptive receipt pattern回 #533，其餘 trigger-gated。
 
+## 3.26 2026-10-06 external tools / papers batch
+
+PR #687 新增的 16 份 evaluation 經 #690 fresh reconciliation 後，不建立 16 條平行 backlog；依 question-first intake 合併到既有 candidate family，current owner / trigger 如下。
+
+### 3.26.1 Answer / rendering / validation family
+
+- **Answer me with HTML**：runtime／agent skill adoption = `NO-GO`；「模型只產內容、application-owned deterministic renderer 決定版面」為 `CURRENTLY COVERED / DESIGN REINFORCEMENT`。單頁 answer／vault 可讀匯出維持 `DEFER`，只有 dogfood 出現「長回答難讀／需要分享或保存」的重複痛點才立項。
+- **know-as-ui**：`REFERENCE ONLY / DEFER`。其互動 HTML 是 knowledge-as-HTML 的遠端形態參照，沒有可直接採用 runtime；未來若有互動知識呈現需求，仍先走安全 deterministic export，不把 HTML 變 canonical vault authority。
+- **CiteGuard-RAG**：逐句 grounding diagnostics = `DEFER / HIGH-VALUE EVALUATION INPUT`；先 additive observability、不得直接 hard-gate。Regenerate-once 不得只憑 CiteGuard 正向結果採用，需同時服從 Return-or-Revise 的 paired fix-rate / break-rate / cost gate。
+- **Return or Revise**：`ADOPT AS COUNTER-EVIDENCE / EVALUATION RULE`。任何 answer rewrite/regeneration 候選都必須把「保留原答案／拒答」當一等 alternative，先做 paired offline 淨值量測；高 harmful-revision 風險是 blocking signal。
+- **DSPy**：runtime = `NO-GO`；只保留 design-time prompt optimization 工具候選。只有 versioned corpus + typed metric 已存在且 owner 明確要做離線 prompt optimizer 比較時才啟動；optimizer 產出仍須回到 code constant + PR + regression gate。
+- **OpenResearch**：agent runtime／autonomous loop = `NO-GO`；status-is-not-evidence、immutable run/evidence node 為 design reinforcement。Observation vs inference UI 標示、external research connector、llm-wiki-km 作本機 research-agent knowledge backend皆為 `DEFER`，需 dogfood / integration trigger。
+- **Grounded Answer current status**：#682 已把 live-provider gap 從 `UNOBSERVED` 轉為實測；v3 在 `CONFLICTING_INFO` 2 次中 1 次 PARTIAL（required recall 0.5），觸發 #685。#685 `grounded-answer@v4` owner-local 3×2 controlled rerun = **6/6 COMPLETE, recall 1.0, no false abstention, decision NO_CHANGE**。因此目前不再有 prompt-completeness follow-up；sentence-level support 仍屬 CiteGuard family 的獨立 future question。
+
+### 3.26.2 Retrieval / Graph / temporal family
+
+- **TAGGRAPH**：外部數字不作 own-project ROI；Graph extraction / relation-loss sensitivity 是 material new evaluation dimension。既有 #272/#276/#280 已覆蓋 graph-added discovery、holdout、ranking sensitivity、Graph unavailable baseline retention，但沒有「部分 admitted relations 消失」的 fault-injection attribution。Current owner：#689。
+- **PAGE-RAG**：derived graph ≠ authority、textual retrieval floor、answer-or-abstain 全部 `CURRENTLY COVERED`。Query-adaptive Graph traversal 維持 `DEFER`；先由 #689 / existing diagnostics量 Graph 真實價值與白跑成本，未量測前不加 routing policy。
+- **rerank / late-interaction paper**：query rewriting 可退化 exact/CJK signal、agentic no-retrieval 會產生無證據回答，皆強化 current #408 / grounded-answer boundary。ColBERT/late interaction `DEFER`；現階段先量既有 FTS/vector/Graph/fusion，Graph relation-loss dimension收斂到 #689，不另開 vendor/model roadmap。
+- **multi-domain retriever evaluation paper**：`ADOPT AS EVALUATION-METHOD INPUT`。未來真實 embedding provider 選型應採 uniform budget、off-the-shelf config、同 corpus/hardware，並加入 p50/p95 query latency；在 owner 尚未決定比較 embedding provider 前維持 `DEFER`。
+- **TimelyRAG**：同一 document 的 superseded revision 已由 currentness/ineligibility 更強解決；跨文件多版本競爭仍是 `DEFER`。只有 corpus 出現可重現「獨立文件舊版被誤取」才先做 deterministic prevalence scan，再評估 reorder-only temporal policy；event time 必須是 owner-assertable metadata，不可由 LLM 抽取成 authority。
+- **MatRAG**：`DEFER`。hierarchical cluster DAG 是未來 multi-hop 的 graph-lite 替代路線輸入；前置是 own-project multi-hop/cross-document miss 成為主要問題。未觸發前不建 cluster index、不排 roadmap。
+
+### 3.26.3 Document / local-first / provider family
+
+- **PIXELRAG**：完整 pixel-index/VLM query path = `DEFER`；最小可採方向是 existing `NEED_OCR` seam 下的 ingest-time layout/OCR/VLM extraction，仍存為 canonical text。與 PaddleOCR/RapidOCR/RAGFlow/PixelRAG 既有 family 合併；只有掃描件／表格／版面文件形成可重現痛點才 benchmark。
+- **Project NOMAD**：runtime/platform adoption = `NO-GO`；全離線 OpenAI-compatible provider 是 current capability 的 docs gap，不是新 feature。Current owner：#688（local Ollama/OpenAI-compatible recipe + resource/quality limitations）。Collection manifest / public corpus import 維持 `DEFER`。
+- **Hindsight v0.10.2 re-evaluation**：`LINEAGE_ONLY`。相較 2026-09-18 TRACK_FULL，判定表不變、六個 local-daemon pilot trigger仍未成立；delta只強化兩項既有 boundary：auto-retain 生態擴張增加 durable-memory governance風險，failed-refresh settle / deterministic crediting 反向確認 bounded-loop 與 deterministic bookkeeping。下次只在 major version、owner real continuity pain 或任一原 trigger成立時重評。
+- **Wenlan 0.18.16 re-evaluation**：`LINEAGE_ONLY`。判定表不變，既有 actionable #541/#542 已完成；relay/unauthenticated-MCP repair/repair-lineage只作 current boundary reinforcement。下次只在 relay 成為 owner需求、#384 無法涵蓋新的 repair shape、或 OKF trigger成立時重評。
+
+### 3.26.4 Batch outcome
+
+本批次 current executable owners只有：
+
+- #688：全離線 local provider docs recipe；
+- #689：Graph relation-loss sensitivity / fusion baseline-retention evaluation；
+- #690：evaluation lineage/index/current-status cleanup（本段）。
+
+其餘全部為 `CURRENTLY COVERED`、`DEFER`、`NO-GO` 或 design/evaluation input；不得因文件新增就自動轉成 implementation backlog。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
