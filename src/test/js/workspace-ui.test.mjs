@@ -5,6 +5,7 @@ import {
   bootstrapWorkspaceUi,
   createWorkspaceController,
   renderCurrentWorkspace,
+  renderWorkspaceShell,
   validateWorkspaceInput,
   workspaceErrorMessage
 } from "../../main/resources/static/workspace-ui.js";
@@ -49,7 +50,12 @@ function uiElements() {
     layoutState: new FakeElement("p"),
     layoutDetail: new FakeElement("div"),
     list: new FakeElement("ul"),
-    repair: new FakeElement("button")
+    repair: new FakeElement("button"),
+    homeWork: new FakeElement("section"),
+    workspacePanel: new FakeElement("section"),
+    management: new FakeElement("details"),
+    managementSummary: new FakeElement("summary"),
+    analysisPanel: new FakeElement("section")
   };
 }
 
@@ -99,7 +105,12 @@ function documentFor(elements) {
     ["workspace-layout-state", elements.layoutState],
     ["workspace-layout-detail", elements.layoutDetail],
     ["workspace-list", elements.list],
-    ["workspace-repair", elements.repair]
+    ["workspace-repair", elements.repair],
+    ["home-work-panel", elements.homeWork],
+    ["workspace-panel", elements.workspacePanel],
+    ["workspace-management", elements.management],
+    ["workspace-management-summary", elements.managementSummary],
+    ["analysis-readiness-panel", elements.analysisPanel]
   ]);
   return {
     getElementById: id => nodes.get(id),
@@ -139,7 +150,10 @@ test("refresh renders the empty state when no current workspace exists", async (
 
   assert.equal(elements.currentEmpty.hidden, false);
   assert.equal(elements.current.hidden, true);
-  assert.match(elements.hint.textContent, /建立一個工作區或從清單中選擇/u);
+  assert.equal(elements.homeWork.hidden, true);
+  assert.equal(elements.workspacePanel.hidden, true);
+  assert.equal(elements.management.open, true);
+  assert.match(elements.hint.textContent, /建立工作區後即可開始管理文件/u);
   assert.deepEqual(calls, ["/api/v1/workspaces/current", "/api/v1/workspaces"]);
 });
 
@@ -245,6 +259,35 @@ test("repair posts to the existing repair endpoint and refreshes", async () => {
   assert.match(elements.hint.textContent, /已執行目錄修復/u);
 });
 
+test("workspace shell exposes work first when an active workspace exists", () => {
+  const elements = uiElements();
+  elements.management.open = true;
+  const active = statusResponse(1, "main").data;
+
+  assert.equal(renderWorkspaceShell(elements, active), true);
+  assert.equal(elements.homeWork.hidden, false);
+  assert.equal(elements.workspacePanel.hidden, false);
+  assert.equal(elements.management.open, false,
+    "workspace management stays collapsed during normal work");
+  assert.equal(elements.managementSummary.hidden, false);
+  assert.equal(elements.analysisPanel.hidden, false);
+});
+
+test("workspace shell shows setup directly when no active workspace exists", () => {
+  const elements = uiElements();
+  elements.management.open = false;
+
+  assert.equal(renderWorkspaceShell(elements, null), false);
+  assert.equal(elements.homeWork.hidden, true);
+  assert.equal(elements.workspacePanel.hidden, true);
+  assert.equal(elements.management.open, true,
+    "no-workspace state opens the setup surface directly");
+  assert.equal(elements.managementSummary.hidden, true,
+    "setup does not make the user open a management disclosure first");
+  assert.equal(elements.analysisPanel.hidden, true,
+    "advanced analysis state is irrelevant until a workspace exists");
+});
+
 test("current workspace renders layout validity and backend-safe problems", () => {
   const elements = uiElements();
   renderCurrentWorkspace(elements, statusResponse(1, "main", {
@@ -279,6 +322,9 @@ test("bootstrap loads current workspace and existing list on first open without 
   assert.deepEqual(calls, ["/api/v1/workspaces/current", "/api/v1/workspaces"]);
   assert.equal(elements.currentName.textContent, "main");
   assert.equal(elements.current.hidden, false);
+  assert.equal(elements.homeWork.hidden, false);
+  assert.equal(elements.workspacePanel.hidden, false);
+  assert.equal(elements.management.open, false);
   assert.equal(elements.list.children.length, 2);
   assert.match(flatText(elements.list), /main/u);
   assert.match(flatText(elements.list), /second/u);
