@@ -393,7 +393,10 @@ button:disabled {
      never squeezed into an unusable single row. Native CSS only, no icon set. */
   .app-nav { flex-direction: column; align-items: stretch; }
   .app-nav-group + .app-nav-group { padding-left: 0; border-left: 0; padding-top: var(--space-2); border-top: 1px solid var(--border); }
+  .app-nav-more { margin-left: 0; }
+  .app-nav-more-links { flex-direction: column; }
   .app-nav a { min-height: 44px; }
+  .home-work-actions { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 420px) {
@@ -601,6 +604,89 @@ button:disabled {
   outline-offset: 2px;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+.app-nav-more {
+  margin-left: auto;
+  position: relative;
+}
+.app-nav-more > summary,
+.workspace-management > summary,
+.workspace-switcher > summary,
+.workspace-current-detail > summary {
+  cursor: pointer;
+  color: var(--foreground-muted);
+  font-size: var(--text-small);
+  font-weight: 700;
+}
+.app-nav-more > summary {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground);
+}
+.app-nav-more[open] > summary {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.app-nav-more-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.home-work-intro {
+  color: var(--foreground-muted);
+}
+.home-work-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.home-work-action {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-large);
+  background: var(--background);
+  color: var(--foreground);
+  text-decoration: none;
+}
+.home-work-action:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.home-work-action strong {
+  font-size: 1.05rem;
+}
+.home-work-action span {
+  color: var(--foreground-muted);
+  font-size: var(--text-small);
+  line-height: 1.5;
+}
+.workspace-management {
+  margin-top: var(--space-4);
+}
+.workspace-management > summary {
+  width: fit-content;
+  padding: var(--space-2) 0;
+}
+.workspace-management-content {
+  margin-top: var(--space-2);
+}
+.workspace-switcher {
+  margin-top: var(--space-4);
+}
+.workspace-switcher > summary,
+.workspace-current-detail > summary {
+  width: fit-content;
+  padding: var(--space-2) 0;
+}
+.workspace-current-detail {
+  margin-top: var(--space-2);
 }
 /* #571 pending-review indicator: human-readable count, never color-only (weight + shape);
    hidden attribute stays the authority (see the [hidden] rule). */
