@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-required=(APP_AI_ANSWER_MODEL APP_AI_ANSWER_API_KEY)
-if [[ "${APP_AI_ANSWER_ENABLED:-}" != "true" ]]; then
-  echo "ERROR: APP_AI_ANSWER_ENABLED 必須設為 true，才會執行真實 Provider 量測。" >&2
+required=(ANSWER_PROVIDER_MODEL OPENAI_API_KEY)
+if [[ "${ANSWER_PROVIDER_ENABLED:-}" != "true" ]]; then
+  echo "ERROR: ANSWER_PROVIDER_ENABLED 必須設為 true，才會執行真實 Provider 量測。" >&2
   exit 2
 fi
 for name in "${required[@]}"; do

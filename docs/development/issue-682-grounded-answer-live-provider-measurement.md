@@ -21,7 +21,17 @@ context 已經包含兩份 required evidence 時，provider 是否能完整引�
 
 ## 執行
 
-使用你本來就用來啟動 Answer Provider 的同一組 backend environment variables，然後：
+使用你本來就用來啟動 Answer Provider 的同一組 backend environment variables。此專案目前的實際名稱為：
+
+```text
+ANSWER_PROVIDER_ENABLED=true
+ANSWER_PROVIDER_MODEL=<你的模型名稱>
+OPENAI_API_KEY=<你的 API key>
+```
+
+若你有自訂相容端點，仍沿用既有 `ANSWER_PROVIDER_BASE_URL`；沒有自訂時不需要另外設定。
+
+確認上述環境已存在後執行：
 
 ```bash
 bash scripts/run-grounded-answer-live-provider-measurement.sh
