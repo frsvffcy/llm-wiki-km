@@ -60,7 +60,7 @@
       </p>
     </section>
 
-    <nav class="app-nav" aria-label="主要導覽">
+    <nav id="app-nav" class="app-nav" aria-label="主要導覽" hidden>
       <div class="app-nav-group" role="group" aria-label="工作">
         <span class="app-nav-group-label" aria-hidden="true">工作</span>
         <a href="#/wiki" data-route-link="wiki">閱讀</a>
@@ -105,34 +105,34 @@
         <p class="form-hint">第一次使用且還沒有內容時，先選「管理文件」放入資料。</p>
       </section>
 
-      <section id="workspace-panel" class="panel workspace-panel"
-               aria-labelledby="workspace-heading" hidden>
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">目前使用</p>
-            <h3 id="workspace-heading">目前工作區</h3>
-          </div>
-        </div>
-        <p id="workspace-current-empty" class="empty-state" hidden></p>
-        <div id="workspace-current" class="workspace-current" hidden>
-          <p id="workspace-current-name" class="workspace-current-name"></p>
-          <p id="workspace-current-status" class="workspace-current-status"></p>
-          <details class="workspace-current-detail">
-            <summary>工作區詳細資訊</summary>
-            <p id="workspace-current-path" class="workspace-current-path"></p>
-            <p id="workspace-layout-state" class="workspace-layout"></p>
-            <div id="workspace-layout-detail" class="workspace-layout-detail"></div>
-            <button id="workspace-repair" type="button" class="secondary-button">
-              修復目錄結構
-            </button>
-          </details>
-        </div>
-        <p id="workspace-hint" class="form-hint" role="status" aria-live="polite"></p>
-      </section>
-
       <details id="workspace-management" class="workspace-management">
         <summary id="workspace-management-summary">工作區與設定</summary>
         <div class="workspace-management-content">
+          <section id="workspace-panel" class="panel workspace-panel"
+                   aria-labelledby="workspace-heading" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">目前使用</p>
+                <h3 id="workspace-heading">目前工作區</h3>
+              </div>
+            </div>
+            <p id="workspace-current-empty" class="empty-state" hidden></p>
+            <div id="workspace-current" class="workspace-current" hidden>
+              <p id="workspace-current-name" class="workspace-current-name"></p>
+              <p id="workspace-current-status" class="workspace-current-status"></p>
+              <details class="workspace-current-detail">
+                <summary>工作區詳細資訊</summary>
+                <p id="workspace-current-path" class="workspace-current-path"></p>
+                <p id="workspace-layout-state" class="workspace-layout"></p>
+                <div id="workspace-layout-detail" class="workspace-layout-detail"></div>
+                <button id="workspace-repair" type="button" class="secondary-button">
+                  修復目錄結構
+                </button>
+              </details>
+            </div>
+            <p id="workspace-hint" class="form-hint" role="status" aria-live="polite"></p>
+          </section>
+
           <section id="workspace-create-panel" class="panel" aria-labelledby="workspace-create-heading">
             <div class="section-heading">
               <div>
