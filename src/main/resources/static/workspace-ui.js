@@ -51,6 +51,7 @@ export function validateWorkspaceInput(name, rootPath) {
 export function renderWorkspaceShell(elements, status) {
   const hasWorkspace = Boolean(status && status.workspace);
   if (elements.homeWork) elements.homeWork.hidden = !hasWorkspace;
+  if (elements.nav) elements.nav.hidden = !hasWorkspace;
   if (elements.workspacePanel) elements.workspacePanel.hidden = !hasWorkspace;
   if (elements.management) elements.management.open = !hasWorkspace;
   if (elements.managementSummary) elements.managementSummary.hidden = !hasWorkspace;
@@ -270,7 +271,8 @@ function elementsFrom(documentRef) {
     workspacePanel: byId("workspace-panel"),
     management: byId("workspace-management"),
     managementSummary: byId("workspace-management-summary"),
-    analysisPanel: byId("analysis-readiness-panel")
+    analysisPanel: byId("analysis-readiness-panel"),
+    nav: byId("app-nav")
   };
 }
 
