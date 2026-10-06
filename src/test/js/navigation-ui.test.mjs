@@ -51,6 +51,7 @@ class FakeDocument {
     this.sections = ["home", "wiki", "inbox", "ask", "inspect", "review", "quality"]
       .map(route => new FakeSection(route));
     this.links = this.sections.map(section => new FakeLink(section.dataset.route));
+    this.more = { open: false };
     this.defaultView = {
       location: { hash: "" },
       handler: null,
@@ -64,6 +65,11 @@ class FakeDocument {
     if (selector === "[data-route]") return this.sections;
     if (selector === "[data-route-link]") return this.links;
     return [];
+  }
+
+  querySelector(selector) {
+    if (selector === "[data-nav-more]") return this.more;
+    return null;
   }
 
   section(route) {
@@ -100,6 +106,21 @@ test("applyRoute shows only the target section and marks its nav link", () => {
   for (const route of ["home", "ask", "inspect", "review"]) {
     assert.equal(documentRef.link(route).current, null);
   }
+});
+
+test("primary work routes stay visible while supporting routes open the More disclosure", () => {
+  const documentRef = new FakeDocument();
+
+  applyRoute(documentRef, "inbox");
+  assert.equal(documentRef.more.open, false,
+    "direct work should not expose the secondary feature menu");
+
+  applyRoute(documentRef, "ask");
+  assert.equal(documentRef.more.open, true,
+    "a deep link to a supporting route reveals its current location");
+
+  applyRoute(documentRef, "home");
+  assert.equal(documentRef.more.open, true);
 });
 
 test("applyRoute does not move focus unless requested", () => {
