@@ -42,6 +42,8 @@ java -jar target/llm-wiki-km-0.3.3.jar
 
 提問的回答是暫時結果，不會自行寫入 `vault/`、`archive/` 或權威知識狀態。若啟用遠端服務，送出的資料範圍由後端設定與畫面上的服務提供者傳輸提示決定；啟用前應確認服務提供者、傳輸方式與資料類型。
 
+若希望 Ask 完全使用本機模型，可將既有 OpenAI-compatible Answer provider 指向 loopback endpoint（例如本機 Ollama），不需要修改程式碼。設定方式與安全檢查見[本機 OpenAI-compatible Provider 指南](docs/guides/local-openai-compatible-provider-zh-TW.md)。
+
 ## 部署與安全邊界
 
 目前支援 `LOCAL_ONLY` 與 `PRIVATE_INGRESS`。後者只允許經私人網路、VPN 或 overlay 將流量轉送到 loopback 後端，並要求 owner session、`Host`／`Origin` allowlist、轉送範圍、cookie transport 與 `DEPLOYMENT_BROWSER_ORIGIN` 一致；不一致時回報 `NOT_READY`。不支援直接綁定公開網際網路。
