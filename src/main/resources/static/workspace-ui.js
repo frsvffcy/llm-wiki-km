@@ -11,7 +11,7 @@ const WORKSPACES_ENDPOINT = "/api/v1/workspaces";
 const CURRENT_WORKSPACE_ENDPOINT = "/api/v1/workspaces/current";
 
 const ERROR_MESSAGES = Object.freeze({
-  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "建立一個工作區或從清單中選擇既有工作區。"],
+  NO_ACTIVE_WORKSPACE: ["尚未開啟知識庫", "建立工作區後即可開始管理文件；若已有工作區，可展開「切換工作區」。"],
   WORKSPACE_ALREADY_EXISTS: ["工作區已存在", "同名或同路徑的工作區已經存在，請改用名稱或路徑。"],
   WORKSPACE_NOT_FOUND: ["找不到工作區", "指定的工作區不存在，請重新整理清單。"],
   INVALID_REQUEST: ["輸入不正確", "請確認名稱與根目錄路徑皆已填寫（根目錄路徑需為絕對路徑）。"],
@@ -46,6 +46,16 @@ export function validateWorkspaceInput(name, rootPath) {
     return "請輸入根目錄路徑（絕對路徑）。";
   }
   return null;
+}
+
+export function renderWorkspaceShell(elements, status) {
+  const hasWorkspace = Boolean(status && status.workspace);
+  if (elements.homeWork) elements.homeWork.hidden = !hasWorkspace;
+  if (elements.workspacePanel) elements.workspacePanel.hidden = !hasWorkspace;
+  if (elements.management) elements.management.open = !hasWorkspace;
+  if (elements.managementSummary) elements.managementSummary.hidden = !hasWorkspace;
+  if (elements.analysisPanel) elements.analysisPanel.hidden = !hasWorkspace;
+  return hasWorkspace;
 }
 
 export function renderCurrentWorkspace(elements, status, documentRef = document) {
@@ -142,6 +152,7 @@ export function createWorkspaceController(elements, fetchImpl = fetch, documentR
     const status = currentResponse.ok && currentEnvelope ? currentEnvelope.data : null;
     const workspaces = listResponse.ok && listEnvelope ? listEnvelope.data : [];
     renderCurrentWorkspace(elements, status, documentRef);
+    renderWorkspaceShell(elements, status);
     const currentId = status && status.workspace ? status.workspace.id : null;
     renderWorkspaceList(elements, workspaces, currentId, documentRef,
       { onSwitch: workspaceId => switchTo(workspaceId) });
@@ -257,7 +268,12 @@ function elementsFrom(documentRef) {
     layoutState: byId("workspace-layout-state"),
     layoutDetail: byId("workspace-layout-detail"),
     list: byId("workspace-list"),
-    repair: byId("workspace-repair")
+    repair: byId("workspace-repair"),
+    homeWork: byId("home-work-panel"),
+    workspacePanel: byId("workspace-panel"),
+    management: byId("workspace-management"),
+    managementSummary: byId("workspace-management-summary"),
+    analysisPanel: byId("analysis-readiness-panel")
   };
 }
 
