@@ -52,7 +52,7 @@ class OpenAiCompatibleAnswerClientHttpIntegrationTest {
 
         assertThat(requestPath).isEqualTo("/v1/chat/completions");
         assertThat(authorization).isEqualTo("Bearer " + "local-fixture-credential");
-        assertThat(requestBody).contains("GROUNDED_ANSWER_PROMPT_V3")
+        assertThat(requestBody).contains("GROUNDED_ANSWER_PROMPT_V4")
                 .doesNotContain("local-fixture-credential");
     }
 
