@@ -24,11 +24,11 @@
 <body>
   <header class="site-topbar">
     <div class="site-topbar-inner">
-      <a class="site-brand" href="#/home" aria-label="本機知識庫，前往開始">
+      <a class="site-brand" href="#/home" aria-label="本機知識庫，前往工作首頁">
         <span class="site-brand-mark" aria-hidden="true">✦</span>
         <span><strong>本機知識庫</strong><small>有依據的知識工作區</small></span>
       </a>
-      <span class="site-topbar-caption">提問・整理・審核</span>
+      <span class="site-topbar-caption">閱讀・管理文件</span>
     </div>
   </header>
   <main class="app-shell">
@@ -38,7 +38,7 @@
       <p class="intro">直接閱讀或管理文件；提問、審核與診斷會在需要時提供入口，不必先理解系統內部流程。</p>
     </header>
 
-    <section id="owner-auth-panel" class="panel owner-auth-panel" aria-labelledby="owner-auth-heading">
+    <section id="owner-auth-panel" class="panel owner-auth-panel" aria-labelledby="owner-auth-heading" hidden>
       <div class="section-heading">
         <div>
           <p class="eyebrow">擁有者</p>
@@ -67,7 +67,7 @@
         <a href="#/inbox" data-route-link="inbox">管理文件</a>
       </div>
       <details class="app-nav-more" data-nav-more>
-        <summary>更多</summary>
+        <summary>更多<span id="review-pending-summary-badge" class="nav-badge" hidden></span></summary>
         <div class="app-nav-more-links" role="group" aria-label="其他功能">
           <a href="#/home" data-route-link="home">工作區與設定</a>
           <a href="#/ask" data-route-link="ask">提問</a>
