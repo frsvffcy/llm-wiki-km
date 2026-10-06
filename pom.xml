@@ -271,6 +271,37 @@
             </properties>
         </profile>
         <profile>
+            <id>live-provider</id>
+            <properties>
+                <!-- Opt-in network measurement only. Normal fast/integration/full profiles
+                     do not add this source root and therefore never require provider egress. -->
+                <test.tags.include>live-provider</test.tags.include>
+                <test.tags.exclude></test.tags.exclude>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>add-live-provider-test-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>${project.basedir}/src/test/java-live-provider</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <id>graph-adapter-spike</id>
             <properties>
                 <!-- The spike is opt-in and intentionally excludes the normal regression tiers. -->

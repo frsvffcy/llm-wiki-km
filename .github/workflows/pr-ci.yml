@@ -135,6 +135,8 @@ jobs:
         run: git diff --check "$BASE_SHA...$HEAD_SHA"
       - name: Run clean Flyway, jOOQ, compile, package and verify gate
         run: mvn --batch-mode clean verify -Pbuild-integrity
+      - name: Compile opt-in live-provider measurement without network
+        run: mvn --batch-mode test-compile -Plive-provider
       - name: Upload package artifacts
         if: always()
         uses: actions/upload-artifact@v4
