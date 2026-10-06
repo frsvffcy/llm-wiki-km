@@ -25,6 +25,8 @@ import org.km.llmwiki.rag.GraphRetrievalQualityBenchmark.Evaluation;
 import org.km.llmwiki.rag.GraphRetrievalQualityBenchmark.QueryMetrics;
 import org.km.llmwiki.search.FtsSearchIndexRepository;
 import org.km.llmwiki.search.SearchService;
+import org.km.llmwiki.search.SourceSearchAuthorityChunk;
+import org.km.llmwiki.search.SourceSearchAuthorityDocument;
 import org.km.llmwiki.search.SourceSearchAuthorityRepository;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionReadinessRepository;
 import org.km.llmwiki.search.embedding.EmbeddingProjectionRepository;
@@ -277,9 +279,30 @@ class GraphRelationLossSensitivityEvaluationTest extends IsolatedIntegrationTest
     private String evidenceIdentity(GraphEntity entity) {
         return switch (entity.identity().type()) {
             case WIKI_PAGE -> "WIKI:" + entity.provenance().authority().stableId();
-            case SOURCE_CHUNK -> "SOURCE_CHUNK:" + entity.provenance().authority().stableId();
+            case SOURCE_CHUNK -> sourceChunkEvidenceIdentity(entity);
             default -> "";
         };
+    }
+
+    private String sourceChunkEvidenceIdentity(GraphEntity entity) {
+        String stableId = entity.provenance().authority().stableId();
+        String documentPrefix = "document:";
+        String chunkSegment = ":chunk:";
+        int separator = stableId.indexOf(chunkSegment, documentPrefix.length());
+        assertThat(stableId).startsWith(documentPrefix);
+        assertThat(separator).isGreaterThan(documentPrefix.length());
+
+        long documentId = Long.parseLong(
+                stableId.substring(documentPrefix.length(), separator));
+        int chunkNo = Integer.parseInt(stableId.substring(separator + chunkSegment.length()));
+        SourceSearchAuthorityDocument document = sourceAuthorityRepository
+                .findDocument(entity.identity().workspace().id(), documentId)
+                .orElseThrow();
+        SourceSearchAuthorityChunk chunk = document.chunks().stream()
+                .filter(candidate -> candidate.chunkNo() == chunkNo)
+                .findFirst()
+                .orElseThrow();
+        return "SOURCE_CHUNK:" + chunk.sourceChunkId();
     }
 
     private void assertBaselineModesEqual(Evaluation baseline, Evaluation fault) {
