@@ -1,5 +1,7 @@
 # Evaluation：「8 RAG Architectures」field guide 圖卡（llm-wiki-km 的模式定位圖）
 
+> Admission：`TRACK_FULL / POSITIONING REFERENCE`。保留目的只是壓縮既有 RAG 模式決策與 trigger；**不是 roadmap、不是「缺哪一種模式就補哪一種」的 backlog 來源**。current implementation owner 仍以 lineage / GitHub Issue / latest code 為準。
+
 - 評估日期：2026-10-06
 - 來源：使用者提供圖卡——Brij Kishore Pandey「The AI Engineering Field Guide：8 RAG Architectures」（Simplified patterns · HyDE／CRAG／Adaptive-RAG papers · Microsoft GraphRAG & Azure AI Search docs）。性質：**教學簡化圖卡（design narrative）**，非論文／非工具，不作 contract authority；其各模式源自真實論文（HyDE、CRAG、Adaptive-RAG、Microsoft GraphRAG）。
 - 對象專案：llm-wiki-km
