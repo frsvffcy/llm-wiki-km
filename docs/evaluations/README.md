@@ -313,6 +313,7 @@ Evaluation 可以記錄 future candidate，但不得自動把它變成 backlog�
 - Scoped Ask query-notfound 專家審查收斂：`2026-09-23-scoped-ask-query-notfound-reconciliation-evaluation.md`（Refs #616；#617 已完成 / CLOSED，其餘 future trigger 仍保留）
 - 2026-10-06 外部工具／paper 批次：Answer me with HTML、CiteGuard-RAG、DSPy、know-as-ui、MatRAG、multi-domain retriever、OpenResearch、PAGE-RAG、PIXELRAG、Project NOMAD、rerank/late-interaction、Return or Revise、TAGGRAPH、TimelyRAG 等 **14 份 TRACK_FULL**；current decision 與 owner/trigger 統一見 lineage 的「2026-10-06 batch」段落。
 - 2026-10-06 Hindsight / Wenlan re-evaluation 因**判定完全不變、沒有新的獨立 trigger**，已轉為 `LINEAGE_ONLY`：audited version、delta 與 revisit trigger 保留在 lineage，不再保留第二份全文，避免重複讀取造成假 backlog。
+- 2026-10-06 補充批次（#697）依 #702 fresh audit 收斂：Agent-Reach、Jev、Eight RAG Architectures 保留為 `TRACK_FULL`（分別持有 feeder-to-inbox 邊界、judgment-model future gates、架構定位索引；**定位索引不是 roadmap**）；Onyx v4.8.4、OpenWiki 2026-10-02、WeKnora v0.8.2 的 re-evaluation 因判定不變且無新的 executable owner，轉為 `LINEAGE_ONLY`，unique delta / revisit trigger 已保留在 historical lineage，不再保留重複全文。
 - `2026-09-19-grounded-answer-coverage-evaluation.md` 仍為 TRACK_FULL evaluation methodology；其 live-provider current status 已由 #682/#685 補記，歷史 `UNOBSERVED` 文字只代表當時狀態。
 - 其他同目錄文件若仍保有獨立 future trigger / NO-GO rationale / benchmark methodology，維持 `TRACK_FULL`；current implementation status 仍須依 lineage / GitHub / ADR / latest code 判讀。
 
