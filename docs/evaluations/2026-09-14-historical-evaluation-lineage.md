@@ -380,6 +380,33 @@ PR #687 新增的 16 份 evaluation 經 #690 fresh reconciliation 後，不建�
 
 其餘全部為 `CURRENTLY COVERED`、`DEFER`、`NO-GO` 或 design/evaluation input；不得因文件新增就自動轉成 implementation backlog。
 
+## 3.27 2026-10-06 supplemental external evaluation batch
+
+PR #697 added a six-file follow-up after the first 2026-10-06 batch. Fresh reconciliation under #702 applies the same admission policy instead of leaving six standalone delta reports to be rediscovered as pseudo-backlog.
+
+### 3.27.1 TRACK_FULL — independent long-term design value remains
+
+- **Agent-Reach** (`2026-10-06-agent-reach-evaluation.md`) — `DEFER / DESIGN INPUT`. Runtime integration, scraping-service dependency and agent self-install are not adopted. The reusable value is the **feeder-to-inbox** boundary: owner-controlled external collection may happen outside the product, but material enters llm-wiki-km only as files through the existing bounded inbox pipeline with provenance retained. Revisit only if a real external-material ingestion workflow becomes a product requirement; platform ToS / egress / source-currentness remain blocking boundaries.
+- **Jev judgment model** (`2026-10-06-jev-judgment-model-evaluation.md`) — runtime adoption remains `NO-GO NOW / DEFER`. Keep as design input because it retains three independent future questions: model-based rerank as a benchmark competitor, a cost/latency-triggered insufficiency pre-gate with measured false-refusal rate, and minimal-mutation draft editing rules. Any model judgment remains non-authoritative and requires deterministic fallback / threshold governance.
+- **Eight RAG architectures mapping** (`2026-10-06-eight-rag-architectures-infographic-evaluation.md`) — `REFERENCE / POSITIONING INDEX`, not a roadmap. It is retained only because it compresses existing decisions: Hybrid RAG is the baseline; Graph is governed/optional; evidence validation is fail-closed; Multimodal / HyDE / Agentic are intentionally absent unless their already-recorded triggers fire. Missing a named architecture pattern is never itself a backlog trigger.
+
+### 3.27.2 LINEAGE_ONLY — re-evaluation delta fully absorbed
+
+The following three 2026-10-06 re-evaluation files are removed from `docs/evaluations/` after preserving their unique delta and revisit triggers here. Their original TRACK_FULL evaluations remain the historical rationale.
+
+- **Onyx v4.7.7 → v4.8.4** — decision table unchanged. Enterprise/platform expansion reinforces prior `NO-GO`; typed machine-readable errors, destructive reindex consent and derived-index migration warnings reinforce current typed-failure / A2 / rebuildable-projection boundaries. Connector capability preflight remains `DEFER` until the first credentialed external source connector is actually planned; permission projection waits for a multi-user/RBAC trigger. Revisit only for those triggers or a major retrieval-control/scope-authority architecture change.
+- **OpenWiki 2026-09-16 → 2026-10-02** — all nine decisions unchanged; Grounded Claims / OKF had no material delta. Host integration, Entra-backed model gateway and LangSmith observability do not create current work. Preserve one new trigger: if the owner later needs an enterprise OpenAI-compatible gateway with OAuth/Entra-style authentication, re-check #323 provider-egress/authentication assumptions. Grounded Claims remains `DEFER` until own-project measurable gain can be shown without weakening canonical authority or Human Review.
+- **WeKnora v0.8.0 → v0.8.2** — decision table unchanged and both prior actionable findings are already delivered (#591 document-scope semantic fix; #566 work-first UX). Auth honesty / bounded read fixes only reinforce current fail-closed contracts; “self-maintaining Wiki” remains deliberately outside this project’s no-agent-loop / explicit-publish governance. Revisit only on the existing event triggers (deployment/operator model, diagnostics gap, write-capable MCP/agent need, measurable chunk-policy bottleneck, or material retrieval/lifecycle architecture change).
+
+### 3.27.3 Supplemental-batch outcome
+
+- No new production/runtime owner is created by this supplement.
+- The three TRACK_FULL files above remain readable only because they retain independent reusable rationale or triggers.
+- The three delta re-evaluations are `LINEAGE_ONLY`; deleting their full text is intentional deduplication, not evidence loss.
+- Future audits should start from this lineage/current GitHub state and only reopen a topic when its stated trigger is actually observed.
+
+Refs #566 #591 #690 #695 #697 #702.
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
