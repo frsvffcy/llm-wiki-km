@@ -77,6 +77,8 @@
 2. 若 storage是真實 pain，先 benchmark sqlite-vec較低精度/量化表示；
 3. 只有 local embedding provider、向量儲存成為決定性瓶頸、且 corpus規模足夠大，才重開 LEANN式 query-time recompute / pruned graph evaluation。
 
+**2026-10-12 LEANN 書目勘誤與補充（Refs #713）**：9 月 14 日 [原始評估](2026-09-14-leann-low-storage-vector-index-paper.md) §開頭的 `arXiv 2511.08267v2` **是錯誤連結**；正確為 [`arXiv:2506.08276v2`](https://arxiv.org/abs/2506.08276)。研究已納入 [MLSys 2026 正式 proceedings](https://proceedings.mlsys.org/paper_files/paper/2026/hash/e27ea0cd50b798ff8942caf9203f0992-Abstract-Conference.html)，並獲 [官方 Best Research Paper Award](https://mlsys.org/media/mlsys-2026/best-papers/Best-Research-Paper-LEANN.pdf)；原文 `under review` 僅存為歷史紀錄，**不得當成 current source status**。另由官方 [StarTrail-org/LEANN configuration](https://github.com/StarTrail-org/LEANN/blob/main/docs/configuration-guide.md) 補足 HNSW／DiskANN `recompute` vs `no-recompute` 延遲／儲存的代價；`50×` 是相對傳統**向量索引**的最高壓縮倍數、`5%` 是索引相對**原始資料**的空間比例，不能直接外推本案整體磁碟或 Ask latency。**原 decision 不變**：`TRACK_FULL` 留在既有評估，`DEFER` production LEANN；先觀測 own-corpus 向量儲存比例／延遲／召回，再量化（local-ready + loss gate），僅真實 storage + local recompute trigger 成立才重啟架構評估，無新 feature owner。
+
 ### 3.3 PaddleOCR / RapidOCR
 
 `NEED_OCR` 是**宣告能力缺口，不是 defect**。Future milestone若觸發，優先帶入：
