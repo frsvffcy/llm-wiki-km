@@ -407,6 +407,16 @@ The following three 2026-10-06 re-evaluation files are removed from `docs/evalua
 
 Refs #566 #591 #690 #695 #697 #702.
 
+## 3.28 NativeScope — trusted-anchor relational retrieval（#706）
+
+- **Source**：`2026-10-12-nativescope-relation-localized-retrieval-paper.md`，[arXiv:2610.12243v1](https://arxiv.org/abs/2610.12243)（2026-10-08），`TRACK_FULL`。獨立長期價值是**correct-anchor vs auto-anchor hard-scope 退化證據**與第一階段 `relation-scope gold coverage` 量測，不是 NativeScope-specific runtime adoption。
+- **CURRENTLY COVERED**：明確 selected `documentId` 的 SOURCE lexical/vector scope、#591 storage filtering、#605 document-local query fallback、#617 Browser provenance/evidence clarity，以及 authority/currentness/citation locator revalidation。不要重開既有「單文件 scope」Issue。
+- **MATERIAL GAP（future）**：`ParsedBlock.stableOrdinal` 僅解析期具備；持久化 `SourceChunk` 有 `chunkNo/pageNo/section/headingPath`，但沒有完整 native paragraph order + unique section identity + character-interval-to-chunk mapping。無法把「已存 headingPath」誤當 section/before/after relation retrieval 已完成。
+- **DEFER**：章節歸屬及前後關係的候選窄化，必須等真實 selected-document relational gold-span miss；若觸發，併入 #531/#704 gold source span 與現有 scoped retrieval family，做 B0 baseline vs trusted-anchor vs wrong-anchor vs unresolved-anchor，同 budget/FTS CJK/provider identity；量 anchor correctness、scope gold coverage、final EvidenceBundle admission 與 false exclusion。
+- **NO-GO**：以 LLM 推測 Top-1 anchor 做 hard exclusion。原文在 100 個記憶型受控題中，auto-anchor NativeScope 35.50% 低於 unscoped dense 50.50%；作者 main correct-anchor 問題是在觀察失敗後才調整，屬 post-observation conditional result。
+- **Scope-authorization invariant**：若使用者明確選擇「這份文件／指定章節」，失敗時**不可擅自擴大到整個知識庫或越過明確範圍**。不可信的*系統推論*窄化可退回**原始允許範圍**；需要更大 scope 時請使用者顯式改選。任何 metadata/locator 只定位候選，最終引用仍錨 current canonical Source/Wiki。
+- 本次沒有獨立 implementation/benchmark owner；paper headline 不是本專案 FTS5 CJK 效益證明。Refs #531 #590 #591 #605 #617 #704 #706。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
