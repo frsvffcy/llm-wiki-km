@@ -93,7 +93,7 @@
 - **同一檢索系統／相同 budget**下比較：
   - **B0**：現行 FTS5 CJK bigram／hybrid + bounded EvidenceBundle（原始 scope、top-k、版本）。
   - **B1**：B0 候選 **同文件 ±1 chunk** 的 deterministic neighbor selection，沒有新 section tree；用來回答「簡單鄰近補讀是否已足夠」。
-  - **B2**：以一次檢索命中的**多份允許文件**之 ancestor/local section nodes 构造局部森林，由固定規則最多**一次額外補讀**（非 agent）。需先在**隔離 evaluation fixture**可靠建立 node ID ↔ chunk ↔ canonical span / revision mapping，不可臆造 offset 或把 string headingPath 當 unique key。
+  - **B2**：以一次檢索命中的**多份允許文件**之 ancestor/local section nodes 建構局部森林，由固定規則最多**一次額外補讀**（非 agent）。需先在**隔離 evaluation fixture**可靠建立 node ID ↔ chunk ↔ canonical span / revision mapping，不可臆造 offset 或把 string headingPath 當 unique key。
   - **B3 optional（只在 B2 真有收益且成本可承受時）**：嚴格限制 provider opt-in、讀取回合、額外查詢、tokens、latency，才測 agent-guided navigation。不得將這種 opt-in pilot 升格預設。
 - **指標要分層**：candidate gold-span Recall@5/@10 → expanded-node gold coverage → final admissible EvidenceBundle completeness／citation locator → controlled answer correctness/false insufficiency；另記 duplicate evidence ratio、wrong-document recovery、wrong-heading harm、read/amplification factor、extra node count、p50/p95（少量 pilot 的 p95 僅探索性）、CPU/memory/index bytes、provider calls/tokens/egress cost。
 - **緊守權威與界線**：新局部樹只做 **derived navigation**；不可把 Title/summary/graph projected text 升格成 answer fact；所有補讀仍經 workspace/document/currentness/revision/admission；不篡改 canonical `archive/`/`vault/`；不改 production FTS/vector generations、chunk policy、API mode、prompt、query-transform disabled default；永遠保留 B0 baseline。遇到 partial-overlap chunk 必須承認其可能混入 scope 外文字，不能假稱精確 span。
