@@ -417,6 +417,15 @@ Refs #566 #591 #690 #695 #697 #702.
 - **Scope-authorization invariant**：若使用者明確選擇「這份文件／指定章節」，失敗時**不可擅自擴大到整個知識庫或越過明確範圍**。不可信的*系統推論*窄化可退回**原始允許範圍**；需要更大 scope 時請使用者顯式改選。任何 metadata/locator 只定位候選，最終引用仍錨 current canonical Source/Wiki。
 - 本次沒有獨立 implementation/benchmark owner；paper headline 不是本專案 FTS5 CJK 效益證明。Refs #531 #590 #591 #605 #617 #704 #706。
 
+## 3.29 RIT-RAG — retrieval-induced multi-document local forest（#708）
+
+- **Source / admission**：`2026-10-12-rit-rag-retrieval-induced-tree-paper.md`，[arXiv:2610.11370v1](https://arxiv.org/abs/2610.11370)（2026-10-08），`TRACK_FULL / ADOPT AS EVALUATION-METHOD INPUT`。獨立長期價值是**多文件寬召回→命中位置誘導局部 forest→按需補讀**，避免先選錯單一文件後無法恢復；**不是**立即新增 agent-RAG mode。
+- **CURRENTLY COVERED**：CJK FTS5 + vector/optional governed graph 的多候選、`headingPath/chunkNo` 元資料、EvidenceBundle bounded budget、canonical/source-currentness/consumption authority gate、使用者指定的 document scope。已存 headingPath **不等於**已有持久化唯一 section-node ↔ chunk ↔ source-span 對應或 tree-navigation stage。
+- **研究數字須校正**：EntDocs 2,839,892 webpages，EntQABench 僅 317 題 synthetic；abstract 自稱 +6.8–11.4 pp，但 Table 3 按數值重算是 **+6.6/+7.9/+11.4 pp**。Online Haiku API 成本 4.9–10.1¢/題，較 Agentic Search 1.0–4.8¢ 高；LLM judge accuracy≠本專案 citation completeness。作者寫 benchmark/tree `will release`，尚未核實 public code/data reproducibility。
+- **DEFER / same family**：只有 own-project 重複出現「retrieved correct document/section but adjacent/other document gold evidence missing」才合併 #531/#533/#575/#704/#706 啟動單一試驗：B0 原始 FTS/hybrid、B1 same-document ±1 chunk、B2 bounded induced-subtree/multi-document forest、B3 opt-in agent only after B2 value；gold source span/answer admission/token budget/currentness 與 wrong-document recovery 逐層拆解。
+- **NO-GO**：目前不建立 parent_section_id schema、Agent tool loop、LLM auto rewrite、unbounded provider egress、第二套 Knowledge Graph 或 citation authority。**全域擴展只能對原本允許的全域查詢**；明確 selected document scope 不得藉 RIT-RAG「恢復」而靜默越界。Metadata/tree 只導覽，不是可引用正文。
+- 本次 #708 僅 docs admission；不新增 executable production/benchmark owner。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
