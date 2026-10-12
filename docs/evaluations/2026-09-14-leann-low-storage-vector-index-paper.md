@@ -76,4 +76,3 @@
 - **只有**模型可於本機穩定重算、索引實測明顯成為瓶頸、量化不足、同資料量/品質/硬體下 LEANN-like selective recompute 的 end-to-end 收益超過模型重算與維運成本，才可另設有界 proposal / implementation Issue。任何 Workspace scope、時效判斷、來源 evidence/revalidation、provider egress 契約或 canonical 來源被削弱，立即 `NO-GO`。
 
 **維持決策：`TRACK_FULL / ADOPT AS EVALUATION INPUT`；`DEFER` 正式採用 LEANN／改寫向量儲存；沒有新的 production owner。**
-
