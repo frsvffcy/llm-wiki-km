@@ -426,6 +426,14 @@ Refs #566 #591 #690 #695 #697 #702.
 - **NO-GO**：目前不建立 parent_section_id schema、Agent tool loop、LLM auto rewrite、unbounded provider egress、第二套 Knowledge Graph 或 citation authority。**全域擴展只能對原本允許的全域查詢**；明確 selected document scope 不得藉 RIT-RAG「恢復」而靜默越界。Metadata/tree 只導覽，不是可引用正文。
 - 本次 #708 僅 docs admission；不新增 executable production/benchmark owner。
 
+## 3.30 FSearch — cost-aware file/name/content search（#711）
+
+- **Source**：[`2026-10-12-fsearch-file-search-evaluation.md`](2026-10-12-fsearch-file-search-evaluation.md)，[`noahdunnagan/fsearch`](https://github.com/noahdunnagan/fsearch) pinned `ffcb37d9297e716fcfdcef3169d752fcf18e3b1b`（2026-10-11）。`TRACK_FULL / ADOPT AS DESIGN+EVALUATION INPUT`，因具獨立的「多階段候選過濾 vs 額外索引儲存」成本/品質取捨、索引新鮮度與實際原文驗證區分；不是 vendor runtime 候選。
+- **CURRENTLY COVERED**：本專案已有 SQLite FTS5 CJK bigram、typed Workspace/Source/Wiki/document scope、Source freshness（ledger + fingerprint + chunk count）、canonical authority revalidation、Source locator 與 #568/#605/#617 文件可找但 evidence 不可混淆的使用者情境。不可將 filename/path/symbol hit 直接升格 citation。
+- **獨立設計輸入**：FSearch 的 byte trigram posting → per-content Bloom-like negative filter → 按排名逐批重新開檔 verification 有助設計未來 lexical candidate-cost attribution。它只查部分受支援文字檔、依賴 macOS FSEvents；其 README 的 M4 Max/8.3M 自報速度及 Chromium index 0.32→0.76 GB 反映 latency-storage tradeoff，**沒有**提供 Java/SQLite/CJK 或 end-to-end Ask 的可移植增益證明。新鮮開檔只能驗證已列出的候選，不能證明漏索引為零。
+- **DEFER / TRIGGER-GATED**：兩次可重現真人 filename typo 導覽 miss，或 own-corpus exact/literal/p95 latency/candidate amplification/index-size pain；需先排除已知 readiness、FTS AND、scoped query、chunk/currentness attribution。命中後併入 #531/#568/#575 existing deterministic benchmark；先用 20–30 cases 比 current FTS5 vs bounded filename navigation（**非 evidence**）或 provider-free candidate filter，必報 per-query recall/false exclusion、workspace leakage、CJK regression、warm/cold latency、index bytes/rebuild cost，無淨增益則停止。
+- **NO-GO NOW**：FSearch Rust daemon、Full Disk Access、全磁碟 scan、FSEvents 介入 ingestion、byte trigram 取代 FTS5、以 128-bit fast content hash 取代 canonical SHA-256、讓檔名/路徑變成回答證據。不建立 production Issue 或 parallel provider/索引 authority。
+
 ## 4. Cross-source candidate consolidation
 
 重新盤點後，很多「不同來源的 candidate」其實是同一問題，不應按來源各開 Issue。
@@ -453,6 +461,7 @@ Refs #566 #591 #690 #695 #697 #702.
 | Future external-source connector capability | Onyx credential capability checks（#545）、OpenWiki connector isolation（#443）、current provider-egress governance（#323） | `DEFER / TRIGGER-GATED`；第一個 credentialed remote source connector立項時才定義 INDEX/SYNC/ACL/METADATA 等 capability與 PASSED/FAILED/INDETERMINATE/SKIPPED/NOT_APPLICABLE/PASSED_WITH_WARNINGS semantics；timeout/transient不得誤判 credential broken，report需綁 config currentness |
 | Architecture visualization / derived diagram | fireworks-tech-graph（#438） | `DEFER / CONDITIONAL PILOT`，diagram 僅為 Architecture VoT derived projection（GENERATED/DERIVED/NON-AUTHORITATIVE）；validated loop + anti-drift 先行，single overview pilot 需過 maintenance-cost gate；CI auto-regeneration 不提前建立 |
 | External observability sidecar / OTel telemetry | OpenObserve（#441） | `DEFER / PILOT CANDIDATE`，backend 只消費 telemetry 不決定 domain/citation/readiness/authority；OTel boundary + correlation + #282/#323 privacy allowlist 先行，Ask telemetry 為 `CONDITIONAL / PRIVACY-GATED`；RUM/SLO/incident 等 real pain 再議 |
+| Fast filename navigation / literal-content cost prefilter | FSearch（#711）、現有 FTS5 CJK、#568/#575 retrieval miss、#605/#617 scoped UX | `DEFER / TRIGGER-GATED`：先由真人 filename typo 或 same-scope exact/literal p95 / index-cost pain 啟動；filename 只導覽，不作 evidence；成本/候選召回優先，source authority 與 Workspace currentness不變，沒有 FSearch-specific roadmap |
 | Metadata-aware retrieval | Dify | `DEFER`，需要 corpus/UX證據；若做必須是 typed/versioned/applicability-gated policy |
 
 ## 5. What not to resurrect
