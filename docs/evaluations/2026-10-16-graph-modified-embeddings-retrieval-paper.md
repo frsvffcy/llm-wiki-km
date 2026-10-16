@@ -76,7 +76,7 @@
 | B3（反例） | 只用 z direct nearest-neighbor（test-owned，**不可替換 production x**） | 量原文 73.1→52–72.9% 退化 class 在本案是否再現，以及 CJK/exact regressions。 |
 | B4（候選改良） | original seed → 離線算好的 1/2-hop 或 walk z 作補充候選 → **原始向量維持語意對照**，以 test-owned rank/identity-safe 合併／同集合重排、canonical revalidate | 這是**本案改寫版本**，不是論文 raw cosine+Rocchio 的實際算法，外部 54–60.8% 無法直接外推；不可假稱 `SecondStageRerankService` 可加新候選。 |
 
-**Disposable `graph-conditioned-v0` 只限測試產物**：使用 pinned/test-owned original embeddings、deterministic graph snapshot，產生可重建的 z（只能對確有原向量且可映射 canonical evidence 的節點運作；未有 entity embedding 時須 typed skip 或隔離補建并記成本）；暫放 test-generated/ignored artifact，不修改 production SQLite/ArcadeDB schema、Flyway、`VectorEncoding`、`CandidateSignal` 或 `FusionRankingPolicy.production()`。若要模擬 node-type 額外輸入，必須保留其身分/Workspace/graph-edge lineage 與不進 citation 的邊界。私人文件 embedding 必須 local/test-owned；不因生成 z 默默呼叫外部 API。
+**Disposable `graph-conditioned-v0` 只限測試產物**：使用 pinned/test-owned original embeddings、deterministic graph snapshot，產生可重建的 z（只能對確有原向量且可映射 canonical evidence 的節點運作；未有 entity embedding 時須 typed skip 或隔離補建並記成本）；暫放 test-generated/ignored artifact，不修改 production SQLite/ArcadeDB schema、Flyway、`VectorEncoding`、`CandidateSignal` 或 `FusionRankingPolicy.production()`。若要模擬 node-type 額外輸入，必須保留其身分/Workspace/graph-edge lineage 與不進 citation 的邊界。私人文件 embedding 必須 local/test-owned；不因生成 z 默默呼叫外部 API。
 
 **必要 failure canaries**：高 degree hub 將向量「平均抹平」、不正確的 relation／entity merging、缺一條 graph edge 的 #689 relation-loss、graph projection generation 改變但 z 未重建、Wiki/Source 刪除/過期或 cross-workspace leakage、document-scope 不可跨文件、exact CJK/Java symbol 查詢被擠出 top K、extremisation 需要**所有競爭者證據**而不只找到 winner、graph unavailable 時基準保留；所有負面項通過後才比較品質。
 
