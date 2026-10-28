@@ -505,7 +505,9 @@ Refs #566 #591 #690 #695 #697 #702.
 
 ## 6. Follow-up policy
 
-本次 re-inventory **不建立任何新的 production Issue**。真正下一步仍依 current repository priority進行（例如正在處理的 #401、後續 #393）。
+本節保留 **2026-09-14 的歷史優先順序，不是目前待辦清單**：當時 re-inventory 不建立新的 production Issue，優先順序描述為「正在處理的 #401、後續 #393」。
+
+後續狀態核對（#710）：[#401](https://github.com/frsvffcy/llm-wiki-km/issues/401) 與 [#393](https://github.com/frsvffcy/llm-wiki-km/issues/393) 均已完成並關閉，不得依上述歷史敘述重開工作。目前狀態應對照 [README §4](README.md#4-historical-report-semantics)、本文件後續 lineage、GitHub Issue 與最新 main；歷史優先順序不取代目前權威證據。
 
 Future candidate只有在 trigger成立時才另立 evaluation/adoption Issue；新 Issue應引用本文件與對應原始 `TRACK_FULL` evaluation，但必須重新驗證 latest main 與外部來源 current revision，不能把 2026-09-12/14 的 snapshot直接當 current evidence。
 
