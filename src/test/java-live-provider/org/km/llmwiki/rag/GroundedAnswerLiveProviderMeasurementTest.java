@@ -57,7 +57,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("live-provider")
 class GroundedAnswerLiveProviderMeasurementTest extends IsolatedIntegrationTest {
 
-    static final String PROCEDURE_VERSION = "grounded-answer-live-provider-v1";
+    static final String PROCEDURE_VERSION = "grounded-answer-live-provider-v2";
     private static final Path REPORT_DIR = Path.of("target", "quality-reports");
     private static final Path JSON_REPORT =
             REPORT_DIR.resolve("grounded-answer-live-provider-v1.json");
@@ -88,107 +88,114 @@ class GroundedAnswerLiveProviderMeasurementTest extends IsolatedIntegrationTest 
 
     @Test
     void measureLiveProviderCitationCompletenessOnSyntheticRequiredSets() throws Exception {
-        assertLiveConfiguration();
-        int repetitions = repetitions();
-
-        GraphRetrievalQualityFixture fixture = new GraphRetrievalQualityFixture(
-                db(), workspaces, searchService, publishedWikiRepository,
-                publishedWikiContentReader, sourceAuthorityRepository, ftsRepository,
-                embeddingRepository, embeddingReadiness, jobs, assembler,
-                lifecycleRepository, currentness, paths);
-        GraphRetrievalQualityFixture.CorpusMaterialization materialization =
-                fixture.materializeCorpus(temp, "grounded-answer-live-provider", CORPUS.pages());
-        GraphWorkspaceScope active = materialization.active();
-        fixture.openWorkspace(active);
-
         List<Map<String, Object>> rows = new ArrayList<>();
-        String decision = "NO_CHANGE";
+        int repetitions = 0;
+        boolean completed = false;
+        String runId = System.getProperty("measurement.runId", java.util.UUID.randomUUID().toString());
+        if (!runId.matches("[0-9a-fA-F]{32}|[0-9a-fA-F-]{36}")) {
+            runId = java.util.UUID.randomUUID().toString();
+        }
+        try {
+            assertLiveConfiguration();
+            repetitions = repetitions();
 
-        try (GraphRetrievalQualityFixture.LifecycleBundle lifecycle =
-                     fixture.lifecycle(temp.resolve("grounded-answer-live-provider-graph"))) {
-            FusedRetrievalOrchestrator orchestrator = fixture.orchestrator(
-                    lifecycle.lifecycle(), lifecycle.factory(), FusionRankingPolicy.production());
-            RetrievalService retrieval = fixture.retrievalService(orchestrator);
-            EvidenceContextProjector projector = projector();
+            GraphRetrievalQualityFixture fixture = new GraphRetrievalQualityFixture(
+                    db(), workspaces, searchService, publishedWikiRepository,
+                    publishedWikiContentReader, sourceAuthorityRepository, ftsRepository,
+                    embeddingRepository, embeddingReadiness, jobs, assembler,
+                    lifecycleRepository, currentness, paths);
+            GraphRetrievalQualityFixture.CorpusMaterialization materialization =
+                    fixture.materializeCorpus(temp, "grounded-answer-live-provider", CORPUS.pages());
+            GraphWorkspaceScope active = materialization.active();
+            fixture.openWorkspace(active);
 
-            for (RagQueryShapeCoverageCorpusV1.GoldenCase golden : CORPUS.cases()) {
-                EvidenceBundle bundle = retrieval.retrieve(
-                        RetrievalRequest.defaults(golden.text(), RetrievalMode.HYBRID_FTS));
-                List<String> retrieved = bundle.items().stream()
-                        .map(EvidenceItem::stableIdentity)
-                        .toList();
-                RagQueryShapeCoverageCorpusV1.CoverageAssessment retrievalCoverage =
-                        CORPUS.assess(golden, retrieved);
+            try (GraphRetrievalQualityFixture.LifecycleBundle lifecycle =
+                         fixture.lifecycle(temp.resolve("grounded-answer-live-provider-graph"))) {
+                FusedRetrievalOrchestrator orchestrator = fixture.orchestrator(
+                        lifecycle.lifecycle(), lifecycle.factory(), FusionRankingPolicy.production());
+                RetrievalService retrieval = fixture.retrievalService(orchestrator);
+                EvidenceContextProjector projector = projector();
 
-                assertThat(bundle.insufficientEvidence())
-                        .as(golden.id() + " retrieval must not be insufficient")
-                        .isFalse();
-                assertThat(retrievalCoverage.complete())
-                        .as(golden.id() + " retrieval must be complete before provider measurement")
-                        .isTrue();
+                for (RagQueryShapeCoverageCorpusV1.GoldenCase golden : CORPUS.cases()) {
+                    EvidenceBundle bundle = retrieval.retrieve(
+                            RetrievalRequest.defaults(golden.text(), RetrievalMode.HYBRID_FTS));
+                    List<String> retrieved = bundle.items().stream()
+                            .map(EvidenceItem::stableIdentity)
+                            .toList();
+                    RagQueryShapeCoverageCorpusV1.CoverageAssessment retrievalCoverage =
+                            CORPUS.assess(golden, retrieved);
 
-                AnswerContext context = projector
-                        .project(bundle, AnswerContextBudget.DEFAULT)
-                        .context();
-                List<String> contextIdentities = context.blocks().stream()
-                        .map(block -> block.authorityIdentity())
-                        .toList();
-                assertThat(contextIdentities)
-                        .as(golden.id() + " provider context must contain the whole required set")
-                        .containsAll(golden.requiredEvidence());
+                    assertThat(bundle.insufficientEvidence())
+                            .as(golden.id() + " retrieval must not be insufficient")
+                            .isFalse();
+                    assertThat(retrievalCoverage.complete())
+                            .as(golden.id() + " retrieval must be complete before provider measurement")
+                            .isTrue();
 
-                for (int attempt = 1; attempt <= repetitions; attempt++) {
-                    Map<String, Object> row = new LinkedHashMap<>();
-                    row.put("caseId", golden.id());
-                    row.put("queryClass", golden.queryClass());
-                    row.put("attempt", attempt);
-                    row.put("requiredCount", golden.requiredEvidence().size());
-                    row.put("retrievalComplete", retrievalCoverage.complete());
-                    row.put("contextEvidenceCount", context.blocks().size());
+                    AnswerContext context = projector
+                            .project(bundle, AnswerContextBudget.DEFAULT)
+                            .context();
+                    List<String> contextIdentities = context.blocks().stream()
+                            .map(block -> block.authorityIdentity())
+                            .toList();
+                    assertThat(contextIdentities)
+                            .as(golden.id() + " provider context must contain the whole required set")
+                            .containsAll(golden.requiredEvidence());
 
-                    long started = System.nanoTime();
-                    try {
-                        AnswerResult result = answerClient.generate(new AnswerRequest(
-                                golden.text(), context, AnswerGenerationOptions.defaults()));
-                        long latencyMillis = (System.nanoTime() - started) / 1_000_000L;
+                    for (int attempt = 1; attempt <= repetitions; attempt++) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("caseId", golden.id());
+                        row.put("queryClass", golden.queryClass());
+                        row.put("attempt", attempt);
+                        row.put("requiredCount", golden.requiredEvidence().size());
+                        row.put("retrievalComplete", retrievalCoverage.complete());
+                        row.put("contextEvidenceCount", context.blocks().size());
 
-                        GroundedAnswerCoverageEvaluator.Assessment assessment =
-                                GroundedAnswerCoverageEvaluator.assess(
-                                        golden, retrievalCoverage, context, result);
-                        row.put("status", "MEASURED");
-                        row.put("verdict", assessment.verdict().name());
-                        row.put("citedRequiredCount", assessment.citedRequiredCount());
-                        row.put("requiredRecall", assessment.requiredRecall());
-                        row.put("missingRequired", assessment.missingRequired());
-                        row.put("providerInsufficientEvidence",
-                                assessment.providerInsufficientEvidence());
-                        row.put("latencyMillis", latencyMillis);
-                        row.put("provider", result.providerMetadata().provider());
-                        row.put("model", result.providerMetadata().model());
-                        row.put("usageStatus", result.usage().isPresent()
-                                ? "AVAILABLE" : "UNAVAILABLE");
-                        row.put("inputTokens", result.usage()
-                                .map(usage -> usage.inputTokens()).orElse(null));
-                        row.put("outputTokens", result.usage()
-                                .map(usage -> usage.outputTokens()).orElse(null));
-                        row.put("totalTokens", result.usage()
-                                .map(usage -> usage.totalTokens()).orElse(null));
+                        long started = System.nanoTime();
+                        try {
+                            AnswerRequest answerRequest = new AnswerRequest(
+                                    golden.text(), context, AnswerGenerationOptions.defaults());
+                            row.putAll(LiveProviderMeasurementReport.requestStamp(answerRequest,
+                                    ContextPolicyV1Current.VERSION));
+                            row.put("providerGeneration", LiveProviderMeasurementReport.providerStamp(answerProperties));
+                            AnswerResult result = answerClient.generate(answerRequest);
+                            long latencyMillis = (System.nanoTime() - started) / 1_000_000L;
 
-                        if (assessment.verdict() != GroundedAnswerCoverageVerdict.COMPLETE) {
-                            decision = "ANSWER_FOLLOW_UP";
+                            GroundedAnswerCoverageEvaluator.Assessment assessment =
+                                    GroundedAnswerCoverageEvaluator.assess(
+                                            golden, retrievalCoverage, context, result);
+                            row.put("status", "MEASURED");
+                            row.put("verdict", assessment.verdict().name());
+                            row.put("citedRequiredCount", assessment.citedRequiredCount());
+                            row.put("requiredRecall", assessment.requiredRecall());
+                            row.put("missingRequired", assessment.missingRequired());
+                            row.put("providerInsufficientEvidence",
+                                    assessment.providerInsufficientEvidence());
+                            row.put("latencyMillis", latencyMillis);
+                            row.put("provider", result.providerMetadata().provider());
+                            row.put("model", result.providerMetadata().model());
+                            row.put("usageStatus", result.usage().isPresent()
+                                    ? "AVAILABLE" : "UNAVAILABLE");
+                            row.put("inputTokens", result.usage()
+                                    .map(usage -> usage.inputTokens()).orElse(null));
+                            row.put("outputTokens", result.usage()
+                                    .map(usage -> usage.outputTokens()).orElse(null));
+                            row.put("totalTokens", result.usage()
+                                    .map(usage -> usage.totalTokens()).orElse(null));
+
+                        } catch (AnswerClientException failure) {
+                            long latencyMillis = (System.nanoTime() - started) / 1_000_000L;
+                            row.put("status", "PROVIDER_FAILURE");
+                            row.put("failureType", failure.failureType().name());
+                            row.put("latencyMillis", latencyMillis);
                         }
-                    } catch (AnswerClientException failure) {
-                        long latencyMillis = (System.nanoTime() - started) / 1_000_000L;
-                        row.put("status", "PROVIDER_FAILURE");
-                        row.put("failureType", failure.failureType().name());
-                        row.put("latencyMillis", latencyMillis);
-                        decision = "UNRESOLVED";
+                        rows.add(row);
                     }
-                    rows.add(row);
                 }
             }
+            completed = true;
         } finally {
-            writeReports(rows, repetitions, decision);
+            writeReports(rows, repetitions, completed, runId);
         }
 
         assertThat(rows).isNotEmpty();
@@ -235,11 +242,34 @@ class GroundedAnswerLiveProviderMeasurementTest extends IsolatedIntegrationTest 
         return value;
     }
 
-    private void writeReports(List<Map<String, Object>> rows, int repetitions, String decision)
+    private void writeReports(List<Map<String, Object>> rows, int repetitions, boolean completed, String runId)
             throws Exception {
         Files.createDirectories(REPORT_DIR);
 
+        String decision = LiveProviderMeasurementReport.decide(
+                CORPUS.cases().stream().map(RagQueryShapeCoverageCorpusV1.GoldenCase::id).toList(),
+                repetitions, rows, completed).name();
         Map<String, Object> report = new LinkedHashMap<>();
+        report.put("runId", runId);
+        report.put("completed", completed);
+        String revision = System.getProperty("measurement.sourceRevision", "UNOBSERVED");
+        if (!revision.matches("[0-9a-f]{40}")) revision = "UNOBSERVED";
+        String treeState = System.getProperty("measurement.treeState", "UNOBSERVED");
+        if (!List.of("CLEAN", "DIRTY").contains(treeState)) treeState = "UNOBSERVED";
+        report.put("sourceRevision", revision);
+        report.put("treeState", treeState);
+        report.put("comparisonReady", !"UNOBSERVED".equals(revision) && "CLEAN".equals(treeState) && completed
+                && !"UNRESOLVED".equals(decision));
+        report.put("deterministic", false);
+        report.put("contextPolicyVersion", ContextPolicyV1Current.VERSION);
+        report.put("contextBudget", AnswerContextBudget.DEFAULT);
+        report.put("maxOutputCodePoints", AnswerGenerationOptions.defaults().maxOutputCodePoints());
+        Map<String, Object> providerGeneration = LiveProviderMeasurementReport.providerStamp(answerProperties);
+        report.put("providerGeneration", providerGeneration);
+        report.put("environment", new EvaluationTrustContract.EnvironmentStamp(
+                RagQueryShapeCoverageCorpusV1.VERSION, GroundedAnswerPromptContract.IDENTIFIER,
+                List.of("LEXICAL"), null, null, OpenAiCompatibleAnswerClient.PROVIDER,
+                answerProperties.getModel(), "UNOBSERVED", false, "live-provider", CORPUS.fingerprint()));
         report.put("procedureVersion", PROCEDURE_VERSION);
         report.put("measuredAt", Instant.now().toString());
         report.put("corpusVersion", RagQueryShapeCoverageCorpusV1.VERSION);
@@ -261,6 +291,13 @@ class GroundedAnswerLiveProviderMeasurementTest extends IsolatedIntegrationTest 
 
         StringBuilder markdown = new StringBuilder();
         markdown.append("# Grounded Answer live-provider measurement\n\n")
+                .append("- runId: ").append(runId).append("\n")
+                .append("- completed: ").append(completed).append("\n")
+                .append("- sourceRevision: ").append(revision).append("\n")
+                .append("- treeState: ").append(treeState).append("\n")
+                .append("- comparisonReady: ").append(report.get("comparisonReady")).append("\n")
+                .append("- max_tokens: ").append(providerGeneration.get("max_tokens")).append("\n")
+                .append("- temperature: ").append(providerGeneration.get("temperature")).append("\n")
                 .append("- procedure: `").append(PROCEDURE_VERSION).append("`\n")
                 .append("- corpus: `").append(RagQueryShapeCoverageCorpusV1.VERSION).append("`\n")
                 .append("- prompt: `").append(GroundedAnswerPromptContract.IDENTIFIER).append("`\n")
